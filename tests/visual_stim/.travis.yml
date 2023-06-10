@@ -1,0 +1,39 @@
+# modified from:
+# https://github.com/leonardt/fault/blob/master/.travis.yml
+# https://github.com/softwaresaved/recipy/blob/master/.travis.yml
+# https://blog.travis-ci.com/2019-08-07-extensive-python-testing-on-travis-ci
+
+# specify python version
+language: python
+python:
+  - 3.10
+
+# specify platform(s)
+matrix:
+  include:
+  - os: linux
+    dist: xenial
+    services:
+      - xvfb
+    addons:
+      apt:
+        packages:
+        - libudev-dev
+# Travis does not currently support Python for macOS...
+#  - os: osx
+#    addons:
+#      homebrew:
+#        packages:
+#          - libusb
+
+before_install:
+- python --version
+- pip install -U pip
+- pip install -U pytest
+- pip install -U pillow
+
+install:
+- pip install -e .
+
+script:
+- pytest -v tests
