@@ -3,6 +3,7 @@ import glob
 import importlib.resources
 import yaml
 import sys
+from importlib.util import spec_from_file_location, module_from_spec
 
 import stimpack
 
@@ -103,8 +104,8 @@ def load_user_module(cfg, module_name):
     """Imports user defined module and returns the loaded package."""
     if user_module_exists(cfg, module_name):
         path_to_module = get_path_to_module(cfg, module_name)
-        spec = importlib.util.spec_from_file_location(module_name, path_to_module)
-        loaded_mod = importlib.util.module_from_spec(spec)
+        spec = spec_from_file_location(module_name, path_to_module)
+        loaded_mod = module_from_spec(spec)
         sys.modules[module_name] = loaded_mod
         spec.loader.exec_module(loaded_mod)
 

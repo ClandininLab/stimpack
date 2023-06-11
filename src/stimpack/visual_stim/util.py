@@ -2,8 +2,7 @@ from math import sin, cos
 from numbers import Number
 import numpy as np
 import os, sys
-import importlib
-import importlib.resources
+from importlib.util import spec_from_file_location, module_from_spec
 import random
 import string
 import warnings
@@ -18,8 +17,8 @@ def load_stim_module_from_path(path, module_name='loaded_module', submodules=['s
         if not os.path.exists(submodule_path):
             warnings.warn(f'Could not find {submodule_name} at {submodule_path}')
             continue
-        spec = importlib.util.spec_from_file_location(submodule_name_full, submodule_path)
-        loaded_mod = importlib.util.module_from_spec(spec)
+        spec = spec_from_file_location(submodule_name_full, submodule_path)
+        loaded_mod = module_from_spec(spec)
         sys.modules[submodule_name_full] = loaded_mod
         spec.loader.exec_module(loaded_mod)
     return
