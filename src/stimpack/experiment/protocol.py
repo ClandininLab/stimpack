@@ -269,7 +269,6 @@ class BaseProtocol():
         # locomotion setting variables
         do_loco = self.run_parameters.get('do_loco', False)
         do_loco_closed_loop = do_loco and self.epoch_protocol_parameters.get('loco_pos_closed_loop', False)
-        loco_pos_closed_loop_in_param = 'loco_pos_closed_loop' in self.protocol_parameters
         save_pos_history = do_loco_closed_loop and self.save_metadata_flag
         
         ### pre time
@@ -286,7 +285,7 @@ class BaseProtocol():
             multicall.loco_loop_update_closed_loop_vars(update_theta=True, update_x=False, update_y=False)
             multicall.loco_loop_start_closed_loop()
         
-        multicall.start_stim()
+        multicall.start_stim(append_stim_frames=append_stim_frames)
         multicall.start_corner_square()
         multicall()
         sleep(self.epoch_protocol_parameters['stim_time'])
@@ -515,7 +514,6 @@ class SharedPixMapProtocol(BaseProtocol):
         # locomotion setting variables
         do_loco = self.run_parameters.get('do_loco', False)
         do_loco_closed_loop = do_loco and self.epoch_protocol_parameters.get('loco_pos_closed_loop', False)
-        loco_pos_closed_loop_in_param = 'loco_pos_closed_loop' in self.protocol_parameters
         save_pos_history = do_loco_closed_loop and self.save_metadata_flag
         
         ### pre time
