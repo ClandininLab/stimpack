@@ -30,15 +30,10 @@ class BaseClient():
             if isinstance(self.trigger_device, daq.DAQonServer):
                 self.trigger_device.set_manager(self.manager)
         else:
-            disp_env = os.environ['DISPLAY']
             if 'disp_server_id' in self.server_options:
                 disp_server, disp_id = self.server_options['disp_server_id']
             else:
-                try:
-                    disp_server, disp_id = (int(x) if x.isnumeric() else 0 for x in disp_env.split(':'))
-                except:
-                    disp_server, disp_id = 0, 0
-            print (f"Using display server {disp_server} and id {disp_id}")
+                disp_server, disp_id = -1, -1
             
             aux_screen = Screen(server_number=disp_server, id=disp_id, fullscreen=False, vsync=True, square_size=(0.25, 0.25))
             # other_stim_module_paths=[] stops StimServer from importing user stimuli modules from a txt file

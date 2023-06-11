@@ -22,7 +22,14 @@ def launch_screen(screen, **kwargs):
     # set the arguments as necessary
     new_env_vars = {}
     if platform.system() in ['Linux', 'Darwin']:
-        new_env_vars['DISPLAY'] = ':{}.{}'.format(screen.server_number, screen.id)
+        if screen.server_number == -1 and screen.id == -1:
+            print('Initializing screen with default X display server.')
+        elif screen.server_number == -1:
+            new_env_vars['DISPLAY'] = ':{}'.format(screen.id)
+        elif screen.id == -1:
+            new_env_vars['DISPLAY'] = ':{}.0'.format(screen.server_number)
+        else:
+            new_env_vars['DISPLAY'] = ':{}.{}'.format(screen.server_number, screen.id)
     # launch the server and return the resulting client
     return launch_server(stimpack.visual_stim.framework, screen=screen.serialize(), new_env_vars=new_env_vars, **kwargs)
 
