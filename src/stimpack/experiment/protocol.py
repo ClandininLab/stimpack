@@ -10,6 +10,14 @@ A user-defined protocol class needs to overwrite the following methods, at minim
 And probably also:
 -get_run_parameter_defaults()
 
+You can also overwrite the following methods if you want to change the default behavior:
+-prepare_run()
+-process_input_parameters()
+-load_stimuli()
+-start_stimuli()
+You may want to run the parent method first, then add your own code.
+e.g. super().prepare_run()
+
 see the simple example protocol classes at the bottom of this module.
 
 -protocol_parameters: user-defined params that are mapped to stimpack.visual_stim epoch params
@@ -73,9 +81,9 @@ class BaseProtocol():
         self.epoch_stim_parameters = None
 
         # Get protocol parameters for this epoch
-        self.epoch_protocol_parameters = self.select_protocol_parameters_in_lists_automatically(
-                                                        all_combinations=self.run_parameters.get('all_combinations', True), 
-                                                        randomize_order=self.run_parameters.get('randomize_order', False))
+        self.epoch_protocol_parameters = self.select_epoch_protocol_parameters(
+                                                all_combinations=self.run_parameters.get('all_combinations', True), 
+                                                randomize_order =self.run_parameters.get('randomize_order', False))
 
     def get_run_parameter_defaults(self):
         """ Overwrite me in the child subclass"""
@@ -144,29 +152,6 @@ class BaseProtocol():
     def advance_epoch_counter(self):
         self.num_epochs_completed += 1
         
-    def get_persistent_parameters(self):
-        '''
-        Use this method to precompute any persistent parameters that will be used in the epoch loop.
-        '''
-        pass
-
-    def __classify_protocol_parameters(self):
-        '''
-        list and nonlist parameter names are there to be backwards compatible with having "current_" prepended to the parameter name
-        '''
-        # get names of parameters that are in lists and those that are not
-        list_protocol_parameter_names     = [k for k,v in self.protocol_parameters.items() if     isinstance(v, list)]
-        nonlist_protocol_parameter_names  = [k for k,v in self.protocol_parameters.items() if not isinstance(v, list)]
-
-        # get names of variable and static parameters
-        variable_protocol_parameter_names = [k for k,v in self.protocol_parameters.items() if      isinstance(v, list) and len(v) > 1]
-        static_protocol_parameter_names   = [k for k,v in self.protocol_parameters.items() if not (isinstance(v, list) and len(v) > 1)]
-
-        self.persistent_parameters['list_protocol_parameter_names']     = list_protocol_parameter_names
-        self.persistent_parameters['nonlist_protocol_parameter_names']  = nonlist_protocol_parameter_names
-        self.persistent_parameters['variable_protocol_parameter_names'] = variable_protocol_parameter_names
-        self.persistent_parameters['static_protocol_parameter_names']   = static_protocol_parameter_names
-
     def precompute_epoch_parameters(self, refresh=False):
         """
         Precompute epoch parameters for all epochs in advance
@@ -202,8 +187,9 @@ class BaseProtocol():
     def process_input_parameters(self):
         """
         Process input parameters and set persistent parameters prior to epoch run loop
+        Overwrite me in the child subclass as needed
         """
-        pass
+        self.persistent_parameters['variable_protocol_parameter_names'] = [k for k,v in self.protocol_parameters.items() if isinstance(v, list) and len(v) > 1]
 
     def check_required_run_parameters(self):
         """
@@ -257,9 +243,6 @@ class BaseProtocol():
         # Check that all required run parameters are set
         self.check_required_run_parameters()
         
-        # Classify protocol parameters
-        self.__classify_protocol_parameters()
-
         # Precompute epoch parameters
         self.precompute_epoch_parameters(refresh=recompute_epoch_parameters)
 
@@ -323,7 +306,6 @@ class BaseProtocol():
 
         sleep(self.epoch_protocol_parameters['tail_time'])
         
-# %% Convenience methods
     def get_parameter_sequence(self, parameter_list, all_combinations=True, randomize_order=False):
         """
         inputs
@@ -372,78 +354,36 @@ class BaseProtocol():
         else:
             parameter_sequence_epoch_inds = np.arange(self.run_parameters['num_epochs']) % num_epochs_in_sequence
 
-        self.persistent_parameters['parameter_sequence'] = parameter_sequence
-        self.persistent_parameters['parameter_sequence_epoch_inds'] = parameter_sequence_epoch_inds
-
-    def select_parameters_from_lists(self, parameter_list, all_combinations=True, randomize_order=False):
+        self.persistent_parameters['protocol_parameter_sequence'] = parameter_sequence
+        self.persistent_parameters['protocol_parameter_sequence_epoch_inds'] = parameter_sequence_epoch_inds
+    
+    def select_epoch_protocol_parameters(self, all_combinations=True, randomize_order=False):
         """
         inputs
-        parameter_list can be:
-            -list/array of parameters
-            -single value (int, float etc)
-            -tuple of lists, where each list contains values for a single parameter
-                    in this case, all_combinations = True will return all possible combinations of parameters, taking
-                    one from each parameter list. If all_combinations = False, keeps params associated across lists
+        all_combinations:
+            True will return all possible combinations of parameters, taking one from each parameter list. 
+            False keeps params associated across lists
         randomize_order will randomize sequence or sequences at the beginning of each new sequence
+
+        returns
+        epoch_protocol_parameters:
+            dictionary of protocol parameter names and values specific to this epoch.
         """
 
         # new run: initialize parameter sequences if not already done
-        if self.num_epochs_completed == 0 and 'parameter_sequence' not in self.persistent_parameters:
-            self.get_parameter_sequence(parameter_list, all_combinations=all_combinations, randomize_order=randomize_order)
+        if self.num_epochs_completed == 0 and 'protocol_parameter_sequence' not in self.persistent_parameters:
+            self.get_parameter_sequence(tuple(self.protocol_parameters.values()), all_combinations=all_combinations, randomize_order=randomize_order)
 
-        # get current parameters
-        parameter_sequence = self.persistent_parameters['parameter_sequence']
-        parameter_sequence_epoch_inds = self.persistent_parameters['parameter_sequence_epoch_inds']
-        current_parameters = parameter_sequence[parameter_sequence_epoch_inds[self.num_epochs_completed]]
+        # get current epoch parameters
+        parameter_sequence = self.persistent_parameters['protocol_parameter_sequence']
+        parameter_sequence_epoch_inds = self.persistent_parameters['protocol_parameter_sequence_epoch_inds']
 
-        return current_parameters
+        epoch_protocol_parameter_values = parameter_sequence[parameter_sequence_epoch_inds[self.num_epochs_completed]]
+        epoch_protocol_parameters = {parameter_name: epoch_protocol_parameter_values[i] for i, parameter_name in enumerate(self.protocol_parameters.keys())}
+
+        return epoch_protocol_parameters
     
-    def select_protocol_parameters_from_names(self, parameter_names, all_combinations=True, randomize_order=False, prepend_current=True):
-        """
-        inputs
-        parameter_names:
-            list of protocol parameter names (keys of self.protocol_parameters)
-        all_combinations:
-            True will return all possible combinations of parameters, taking one from each parameter list. 
-            False keeps params associated across lists
-        randomize_order will randomize sequence or sequences at the beginning of each new sequence
-        prepend_current will prepend 'current_' to the parameter names in the returned dictionary
-        
-        returns
-        current_parameters_dict:
-            dictionary of parameter names and values specific to this epoch. 
-        """
-        parameter_tuple = tuple(self.protocol_parameters[parameter_name] for parameter_name in parameter_names)
-        current_parameters = self.select_parameters_from_lists(parameter_tuple, all_combinations=all_combinations, randomize_order=randomize_order)
-
-        current_parameters_dict = {("current_" + parameter_name if prepend_current else parameter_name): current_parameters[i] for i, parameter_name in enumerate(parameter_names)}
-        
-        return current_parameters_dict
-
-    def select_protocol_parameters_in_lists_automatically(self, all_combinations=True, randomize_order=False, prepend_current=False, include_all_params=True):
-        """
-        inputs
-        all_combinations:
-            True will return all possible combinations of parameters, taking one from each parameter list. 
-            False keeps params associated across lists
-        randomize_order will randomize sequence or sequences at the beginning of each new sequence
-        prepend_current will prepend 'current_' to the parameter names in the returned dictionary
-        include_all_params will include all parameters in the returned dictionary, not just those in lists
-
-        returns
-        current_parameters_dict:
-            dictionary of parameter names and values specific to this epoch. parameter names are prepended with 'current_' if prepend_current is True
-        """
-
-        current_parameters_dict = self.select_protocol_parameters_from_names(self.persistent_parameters['list_protocol_parameter_names'], all_combinations=all_combinations, randomize_order=randomize_order, prepend_current=prepend_current)
-        
-        if include_all_params:
-            # Add parameters that are not in lists to current_parameters_dic
-            for k in self.persistent_parameters['nonlist_protocol_parameter_names']:
-                current_parameters_dict[k] = self.protocol_parameters[k]
-        
-        return current_parameters_dict
-    
+# %% Convenience methods
     def get_moving_patch_parameters(self, center=None, angle=None, speed=None, width=None, height=None, color=None, distance_to_travel=None, ellipse=None, render_on_cylinder=None):
         if center is None: center = self.epoch_protocol_parameters['center']
         if angle is None: angle = self.epoch_protocol_parameters['angle']
