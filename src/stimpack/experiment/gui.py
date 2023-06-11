@@ -53,16 +53,15 @@ class ExperimentGUI(QWidget):
         # user input to select configuration file and rig name
         # sets self.cfg
         self.cfg = None
-        if len(config_tools.get_available_config_files()) > 0:
-            dialog = QDialog()
-            dialog.setWindowIcon(QtGui.QIcon(ICON_PATH))
-            dialog.ui = InitializeRigGUI(parent=dialog)
-            dialog.ui.setupUI(self, dialog)
-            dialog.setFixedSize(200, 200)
-            dialog.exec()
-        else:
-            self.cfg = config_tools.get_default_config()
-            print('!!! No user configuration files found. Check your path_to_labpack.txt and that there exists a configs directory !!!')
+        init_gui_size = None
+        dialog = QDialog()
+        dialog.setWindowIcon(QtGui.QIcon(ICON_PATH))
+        dialog.setWindowTitle('Stimpack Config Selection')
+        dialog.ui = InitializeRigGUI(parent=dialog)
+        dialog.ui.setupUI(self, dialog, window_size=init_gui_size)
+        if init_gui_size is not None:
+            dialog.setFixedSize(*init_gui_size)
+        dialog.exec()
 
         # No config file selected, exit
         if self.cfg is None:
@@ -928,7 +927,7 @@ class InitializeExperimentGUI(QWidget):
         self.le_data_directory.setText(filepath)
 
 class InitializeRigGUI(QWidget):
-    def setupUI(self, experiment_gui_object, parent=None):
+    def setupUI(self, experiment_gui_object, parent=None, window_size=None):
         super(InitializeRigGUI, self).__init__(parent)
         self.parent = parent
         self.experiment_gui_object = experiment_gui_object
@@ -938,41 +937,75 @@ class InitializeRigGUI(QWidget):
         self.available_rig_configs = []
     
         self.layout = QFormLayout()
-        self.resize(200, 400)
+        if window_size is not None and len(window_size) == 2:
+            self.resize(*window_size)
+
+        self.labpack_dir = config_tools.get_labpack_directory()
+
+        self.pb_labpack_dir = QPushButton('Labpack Dir')
+        self.pb_labpack_dir.clicked.connect(self.on_pressed_labpack_dir_button)
+        self.le_labpack_dir = QLineEdit(self.labpack_dir)
+        self.le_labpack_dir.setReadOnly(True)
+        self.layout.addRow(self.pb_labpack_dir, self.le_labpack_dir)
 
         label_config = QLabel('Config')
         self.config_combobox = QComboBox()
         self.config_combobox.activated.connect(self.on_selected_config)
-        for choiceID in config_tools.get_available_config_files():
-            self.config_combobox.addItem(choiceID)
         self.layout.addRow(label_config, self.config_combobox)
 
-        label_rigname = QLabel('Rig Config:')
+        label_rigname = QLabel('Rig Config')
         self.rig_combobox = QComboBox()
-        self.rig_combobox.activated.connect(self.on_selected_rig)
         self.layout.addRow(label_rigname, self.rig_combobox)
         self.update_available_rigs()
+
+        self.pb_enter = QPushButton('Enter')
+        self.pb_enter.clicked.connect(self.on_pressed_enter_button)
+        self.layout.addRow(QLabel(''))
+        self.layout.addRow(self.pb_enter)
 
         self.setLayout(self.layout)
 
         # Load the first config
+        self.load_labpack()
         self.on_selected_config()
 
         self.show()
 
+    def on_pressed_labpack_dir_button(self):
+        filepath = QFileDialog.getExistingDirectory(self, "Select Labpack directory")
+        if filepath!='' and len(config_tools.get_available_config_files(filepath)) == 0:
+            open_message_window(text='No config files found in ' + filepath)
+            return
+        else:
+            self.labpack_dir = filepath
+            config_tools.set_labpack_directory(filepath)
+            self.load_labpack()
+    
+    def load_labpack(self):
+        self.le_labpack_dir.setText(self.labpack_dir)
+
+        self.config_combobox.clear()
+        if len(config_tools.get_available_config_files(self.labpack_dir)) > 0:
+            for choiceID in config_tools.get_available_config_files(self.labpack_dir):
+                self.config_combobox.addItem(choiceID)
+        else:
+            self.config_combobox.addItem('default')
+        self.on_selected_config()
+
     def update_available_rigs(self):
         self.rig_combobox.clear()
-        for choiceID in self.available_rig_configs:
-            self.rig_combobox.addItem(choiceID)
+        if len(self.available_rig_configs) > 0:
+            for choiceID in self.available_rig_configs:
+                self.rig_combobox.addItem(choiceID)
 
     def on_selected_config(self):
         self.cfg_name = self.config_combobox.currentText()
-        self.cfg = config_tools.get_configuration_file(self.cfg_name)
+        self.cfg = config_tools.get_configuration_file(self.cfg_name, self.labpack_dir)
         self.available_rig_configs = config_tools.get_available_rig_configs(self.cfg)
         self.update_available_rigs()
         self.show()
 
-    def on_selected_rig(self):
+    def on_pressed_enter_button(self):
         # Store the rig and cfg names in the cfg dict
         self.cfg['current_rig_name'] = self.rig_combobox.currentText()
         self.cfg['current_cfg_name'] = self.cfg_name

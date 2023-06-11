@@ -1,24 +1,31 @@
 import os
 import glob
-import importlib.resources
+from platformdirs import user_config_dir
 import yaml
 import sys
 from importlib.util import spec_from_file_location, module_from_spec
 
-import stimpack
+def get_stimpack_config_directory(ensure_exists=True):
+    return user_config_dir(appname="stimpack", ensure_exists=ensure_exists)
 
 def get_labpack_directory():
-    path_to_labpack = importlib.resources.files(stimpack).joinpath('path_to_labpack.txt')
-    if not os.path.exists(path_to_labpack):
-        print('No path_to_labpack.txt found!')
-        print('Creating new file at path_to_labpack - please fill this in with your labpack path to use user-defined configuration and module files')
-        with open(path_to_labpack, "w") as text_file:
-            text_file.write('/path/to/labpack')
+    stimpack_config_dir = get_stimpack_config_directory(ensure_exists=False)
+    path_to_labpack = os.path.join(stimpack_config_dir, 'path_to_labpack.txt')
+    if os.path.exists(path_to_labpack):
+        with open(path_to_labpack) as path_file:
+            labpack_path = path_file.read().strip()
+        if len(get_available_config_files(labpack_path)) == 0:
+            labpack_path = ''
+    else:
+        labpack_path = ''
 
-    with open(path_to_labpack) as path_file:
-            cfg_dir_path = path_file.read().strip()
+    return labpack_path
 
-    return cfg_dir_path
+def set_labpack_directory(path):
+    stimpack_config_dir = get_stimpack_config_directory(ensure_exists=True)
+    path_to_labpack = os.path.join(stimpack_config_dir, 'path_to_labpack.txt')
+    with open(path_to_labpack, "w") as text_file:
+        text_file.write(path)
 
 # %% Functions for finding and loading user configuration files
 
@@ -33,25 +40,33 @@ def get_default_config():
             'loco_available': False
             }
 
-def user_config_directory_exists():
-    if os.path.exists(os.path.join(get_labpack_directory(), 'configs')):
+def user_config_directory_exists(labpack_dir=None):
+    if labpack_dir is None:
+        labpack_dir = get_labpack_directory()
+    if os.path.exists(os.path.join(labpack_dir, 'configs')):
         return True
     else:
         return False
 
-def get_available_config_files():
-    if user_config_directory_exists() is True:
-        cfg_names = [os.path.split(f)[1] for f in glob.glob(os.path.join(get_labpack_directory(), 'configs', '*.yaml'))]
+def get_available_config_files(labpack_dir=None):
+    if labpack_dir is None:
+        labpack_dir = get_labpack_directory()
+    if user_config_directory_exists(labpack_dir):
+        cfg_names = [os.path.split(f)[1] for f in glob.glob(os.path.join(labpack_dir, 'configs', '*.yaml'))]
     else:
         cfg_names = []
         
     return cfg_names
 
 
-def get_configuration_file(cfg_name):
+def get_configuration_file(cfg_name, labpack_dir=None):
     """Returns config, as dictionary, from  labpack_directory/configs/ based on cfg_name.yaml"""
-    if os.path.exists(os.path.join(get_labpack_directory(), 'configs', cfg_name)):
-        with open(os.path.join(get_labpack_directory(), 'configs', cfg_name), 'r') as ymlfile:
+    if labpack_dir is None:
+        labpack_dir = get_labpack_directory()
+    
+    cfg_path = os.path.join(labpack_dir, 'configs', cfg_name)
+    if os.path.exists(cfg_path):
+        with open(cfg_path, 'r') as ymlfile:
             cfg = yaml.safe_load(ymlfile)
     else:
         cfg = get_default_config()

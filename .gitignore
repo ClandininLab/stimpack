@@ -1,5 +1,3 @@
-src/stimpack/path_to_labpack.txt
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

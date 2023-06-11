@@ -21,6 +21,7 @@ setup(
         'pandas',
         'matplotlib',
         
+        'platformdirs',
         'PyQT5',
         'h5py',
         'pyYaml',
