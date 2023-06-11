@@ -475,6 +475,7 @@ def main():
     # launch application
     app = QtWidgets.QApplication([])
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))
+    app.setApplicationName(screen.name)
 
     # create the StimDisplay object
     screen = Screen.deserialize(kwargs.get('screen', {}))
