@@ -168,6 +168,10 @@ class BaseProtocol():
         self.persistent_parameters['static_protocol_parameter_names']   = static_protocol_parameter_names
 
     def precompute_epoch_parameters(self, refresh=False):
+        """
+        Precompute epoch parameters for all epochs in advance
+        Can prevent slowdowns during epoch run loop and assists with estimating run time
+        """
         if refresh:
             self.precomputed_epoch_parameters = {}
 
