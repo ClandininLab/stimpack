@@ -45,7 +45,9 @@ class StimServer(MySocketServer):
         self.register_function_on_root(self.clear_shared_pixmap_stim, "clear_shared_pixmap_stim")
         
         # If other_stim_module_paths specified in kwargs, use that.
-        if other_stim_module_paths is not None and not isinstance(other_stim_module_paths, list):
+        if other_stim_module_paths is None:
+            other_stim_module_paths = []
+        if not isinstance(other_stim_module_paths, list):
             other_stim_module_paths = [other_stim_module_paths]
         
         # launch screens
