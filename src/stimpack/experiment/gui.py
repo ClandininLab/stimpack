@@ -23,6 +23,7 @@ from stimpack.experiment.util import config_tools, h5io
 from stimpack.experiment import protocol, data, client
 
 from stimpack.util import get_all_subclasses, ICON_PATH
+from stimpack.util import open_message_window
 
 Status = Enum('Status', ['STANDBY', 'RECORDING', 'VIEWING'])
 
@@ -30,12 +31,6 @@ class ParseError(Exception):
     def __init__(self, message):
         super().__init__()
         self.message = message
-
-def open_message_window(title="Alert", text=""):
-    msg = QMessageBox()
-    msg.setWindowTitle(title)
-    msg.setText(text)
-    msg.exec_()
 
 class ExperimentGUI(QWidget):
 

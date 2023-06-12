@@ -1,5 +1,6 @@
 import inspect
 import os
+from PyQt5.QtWidgets import QMessageBox
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 ICON_PATH = os.path.join(ROOT_DIR, '_assets', 'icon.png')
@@ -48,4 +49,10 @@ def listify(x, type_):
         return [x]
 
     raise ValueError('Unknown input type: {}'.format(type(x)))
+
+def open_message_window(title="Alert", text=""):
+    msg = QMessageBox()
+    msg.setWindowTitle(title)
+    msg.setText(text)
+    msg.exec_()
 
