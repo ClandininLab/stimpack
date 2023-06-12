@@ -216,15 +216,12 @@ class StimDisplay(QtOpenGL.QGLWidget):
 
         stim_classes = get_all_subclasses(stimuli.BaseProgram)
         stim_class_candidates = [x for x in stim_classes if x.__name__ == name]
-        if len(stim_class_candidates) == 0:
-            print(f'No stimuli with name {name}.')
-            return
-        if len(stim_class_candidates) > 1:
-            print(f'Multiple stimuli with name {name}.')
-            print(f'Choosing the last one: {stim_class_candidates[-1]}')
-        chosen_stim_class = stim_class_candidates[-1]
-        stim = chosen_stim_class(screen=self.screen)
+        num_candidates = len(stim_class_candidates)
+        
+        assert num_candidates == 1, 'ERROR: {} stimulus candidates found with name {}. There should be exactly one'.format(num_candidates, name)
 
+        chosen_stim_class = stim_class_candidates[0]
+        stim = chosen_stim_class(screen=self.screen)
         stim.initialize(self.ctx)
         stim.kwargs = kwargs
         stim.configure(**stim.kwargs) # Configure stim on load
@@ -237,22 +234,25 @@ class StimDisplay(QtOpenGL.QGLWidget):
         :param t: Time corresponding to t=0 of the animation
         :param append_stim_frames: bool, append frames to stim_frames list, for saving stim movie. May affect performance.
         """
-        self.profile_frame_times = []
-        self.stim_frames = []
-        self.append_stim_frames = append_stim_frames
-        self.pre_render = pre_render
-        self.current_time_index = 0
-        self.pre_render_timepoints = pre_render_timepoints
-
-        self.save_pos_history = save_pos_history
-        if save_pos_history:
-            self.pos_history = []
-
-        self.stim_started = True
-        if pre_render:
-            self.stim_start_time = 0
+        if None in self.stim_list:
+            print('Missing stimulus loaded! Stimulus not presenting. Please check your stimulus names and loaded stim modules')
         else:
-            self.stim_start_time = t
+            self.profile_frame_times = []
+            self.stim_frames = []
+            self.append_stim_frames = append_stim_frames
+            self.pre_render = pre_render
+            self.current_time_index = 0
+            self.pre_render_timepoints = pre_render_timepoints
+
+            self.save_pos_history = save_pos_history
+            if save_pos_history:
+                self.pos_history = []
+
+            self.stim_started = True
+            if pre_render:
+                self.stim_start_time = 0
+            else:
+                self.stim_start_time = t
 
     def stop_stim(self, print_profile=False):
         """
