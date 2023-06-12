@@ -82,10 +82,10 @@ class Screen:
         """
         if subscreens is None:
             subscreens = [ SubScreen(pa=pa, pb=pb, pc=pc) ]
-        if server_number is None:
-            server_number = 0
+        if server_number is None: # server_number and id of -1 means use default X server. See stim_server.launch_screen
+            server_number = -1
         if id is None:
-            id = 0
+            id = -1
         if fullscreen is None:
             fullscreen = True
         if vsync is None:
