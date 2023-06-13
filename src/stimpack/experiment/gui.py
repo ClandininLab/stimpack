@@ -1034,6 +1034,8 @@ class runSeriesThread(QThread):
 
 def main():
     app = QApplication(sys.argv)
+    app.setApplicationName('Stimpack Experiment')
+    app.setWindowIcon(QtGui.QIcon(ICON_PATH))
     ex = ExperimentGUI()
     sys.exit(app.exec())
 

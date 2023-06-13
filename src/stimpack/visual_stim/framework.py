@@ -40,6 +40,9 @@ class StimDisplay(QtOpenGL.QGLWidget):
         # call super constructor
         super().__init__(make_qt_format(vsync=screen.vsync))
 
+        self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}')
+        self.setWindowIcon(QtGui.QIcon(ICON_PATH))
+
         # configure window to reside on a specific screen
         # re: https://stackoverflow.com/questions/6854947/how-to-display-a-window-on-a-secondary-display-in-pyqt
         if screen.fullscreen:
@@ -472,7 +475,7 @@ def main():
     # launch application
     app = QtWidgets.QApplication([])
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))
-    app.setApplicationName(screen.name)
+    app.setApplicationName('Stimpack visual_stim screen: {screen.name}')
 
     # create the StimDisplay object
     screen = Screen.deserialize(kwargs.get('screen', {}))
