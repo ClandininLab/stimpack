@@ -286,14 +286,15 @@ class BaseProtocol():
             multicall.loco_loop_start_closed_loop()
         
         multicall.start_stim(append_stim_frames=append_stim_frames)
-        multicall.start_corner_square()
+        multicall.corner_square_toggle_start()
         multicall()
         sleep(self.epoch_protocol_parameters['stim_time'])
 
         ### tail time
         multicall = stimpack.rpc.multicall.MyMultiCall(manager)
         multicall.stop_stim(print_profile=print_profile)
-        multicall.black_corner_square()
+        multicall.corner_square_toggle_stop()
+        multicall.corner_square_off()
 
         # locomotion / closed loop
         if do_loco_closed_loop:
@@ -535,14 +536,15 @@ class SharedPixMapProtocol(BaseProtocol):
             multicall.start_shared_pixmap_stim()
         
         multicall.start_stim()
-        multicall.start_corner_square()
+        multicall.corner_square_toggle_start()
         multicall()
         sleep(self.epoch_protocol_parameters['stim_time'])
 
         ### tail time
         multicall = stimpack.rpc.multicall.MyMultiCall(manager)
         multicall.stop_stim(print_profile=print_profile)
-        multicall.black_corner_square()
+        multicall.corner_square_toggle_stop()
+        multicall.corner_square_off()
 
         # locomotion / closed loop
         if do_loco_closed_loop:

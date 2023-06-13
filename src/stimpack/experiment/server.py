@@ -24,7 +24,8 @@ class BaseServer():
             assert issubclass(daq_class, DAQ)
             self.__set_up_daq__(daq_class, **daq_kwargs)
 
-        self.manager.black_corner_square()
+        self.manager.corner_square_toggle_stop()
+        self.manager.corner_square_off()
         self.manager.set_idle_background(0)
 
         def signal_handler(sig, frame):

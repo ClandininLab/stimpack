@@ -39,7 +39,8 @@ class BaseClient():
             # other_stim_module_paths=[] stops StimServer from importing user stimuli modules from a txt file
             self.manager = launch_stim_server(aux_screen, other_stim_module_paths=[])
 
-        self.manager.black_corner_square()
+        self.manager.corner_square_toggle_stop()
+        self.manager.corner_square_off()
         self.manager.set_idle_background(0)
 
         # # # Import user-defined stimpack.visual_stim stimuli modules on server screens # # #
@@ -109,7 +110,8 @@ class BaseClient():
                 self.start_epoch(protocol_object, data, save_metadata_flag=save_metadata_flag)
 
         # Set frame tracker to dark
-        self.manager.black_corner_square()
+        self.manager.corner_square_toggle_stop()
+        self.manager.corner_square_off()
 
         # Stop locomotion device / software
         if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:

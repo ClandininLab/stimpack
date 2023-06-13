@@ -12,7 +12,8 @@ class SquareProgram:
         self.off_color = off_color
 
         # initialize settings
-        self.on = True
+        self.on = False
+        self.color = self.off_color
         self.toggle = True
         self.draw = True
 
@@ -75,11 +76,30 @@ class SquareProgram:
         y = (1+self.screen.square_loc[1]) * display_height/2
         self.viewport = (x, y, frac_width*display_width, frac_height*display_height)
 
+    def turn_on(self):
+        self.on = True
+        self.color = self.on_color
+
+    def turn_off(self):
+        self.on = False
+        self.color = self.off_color
+    
+    def set_color(self, color):
+        self.toggle = False
+        self.on = False
+        self.color = color
+
+    def toggle_start(self):
+        self.toggle = True
+
+    def toggle_stop(self):
+        self.toggle = False
+
     def paint(self):
 
         if self.draw:
             # write color
-            self.prog['color'].value = self.on_color if self.on else self.off_color
+            self.prog['color'].value = self.color
 
             # Set viewport and render to screen
             self.ctx.viewport = self.viewport
@@ -87,3 +107,4 @@ class SquareProgram:
 
         if self.toggle:
             self.on = not self.on
+            self.color = self.on_color if self.on else self.off_color

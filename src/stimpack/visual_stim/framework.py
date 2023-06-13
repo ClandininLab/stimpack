@@ -320,40 +320,40 @@ class StimDisplay(QtOpenGL.QGLWidget):
             file_path = os.path.join(self.save_pos_history_dir, '_'.join(['epoch', epoch_id])+'.out')
             np.savetxt(file_path, np.asarray(self.pos_history))
 
-    def start_corner_square(self):
+    def corner_square_toggle_start(self):
         """
         Start toggling the corner square.
         """
 
-        self.square_program.toggle = True
+        self.square_program.toggle_start()
 
-    def stop_corner_square(self):
+    def corner_square_toggle_stop(self):
         """
         Stop toggling the corner square.
         """
 
-        self.square_program.toggle = False
+        self.square_program.toggle_stop()
 
-    def white_corner_square(self):
+    def corner_square_on(self):
         """
         Stop the corner square from toggling, then make it white.
         """
 
-        self.set_corner_square(1.0)
+        self.square_program.turn_on()
 
-    def black_corner_square(self):
+    def corner_square_off(self):
         """
         Stop the corner square from toggling, then make it black.
         """
 
-        self.set_corner_square(0.0)
+        self.square_program.turn_off()
 
     def set_corner_square(self, color):
         """
         Stop the corner square from toggling, then set it to the desired color.
         """
 
-        self.stop_corner_square()
+        self.corner_square_toggle_stop()
         self.square_program.color = color
 
     def show_corner_square(self):
@@ -484,10 +484,10 @@ def main():
     server.register_function(stim_display.start_stim)
     server.register_function(stim_display.stop_stim)
     server.register_function(stim_display.save_rendered_movie)
-    server.register_function(stim_display.start_corner_square)
-    server.register_function(stim_display.stop_corner_square)
-    server.register_function(stim_display.white_corner_square)
-    server.register_function(stim_display.black_corner_square)
+    server.register_function(stim_display.corner_square_toggle_start)
+    server.register_function(stim_display.corner_square_toggle_stop)
+    server.register_function(stim_display.corner_square_on)
+    server.register_function(stim_display.corner_square_off)
     server.register_function(stim_display.set_corner_square)
     server.register_function(stim_display.show_corner_square)
     server.register_function(stim_display.hide_corner_square)

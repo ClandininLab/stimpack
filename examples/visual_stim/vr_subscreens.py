@@ -50,7 +50,8 @@ def main():
     # draw_screens(screen)
 
     manager = launch_stim_server(screen)
-    manager.black_corner_square() # turn off square as server starts up
+    manager.corner_square_toggle_stop()
+    manager.corner_square_off() # turn off square as server starts up
 
     num_trials = 5
     pre_time = 1 #sec
@@ -103,7 +104,7 @@ def main():
         # (2) START STIMS, FLICKER CORNER
         multicall_start = stimpack.rpc.multicall.MyMultiCall(manager)
         multicall_start.start_stim()
-        multicall_start.start_corner_square()
+        multicall_start.corner_square_toggle_start()
         multicall_start() #start stims
 
         sleep(stim_time)
@@ -111,7 +112,8 @@ def main():
         # (3) STOP STIMS, SET CORNER TO BLACK
         multicall_stop = stimpack.rpc.multicall.MyMultiCall(manager)
         multicall_stop.stop_stim(print_profile=True)
-        multicall_stop.black_corner_square()
+        multicall_stop.corner_square_toggle_stop()
+        multicall_stop.corner_square_off()
         multicall_stop()
         sleep(tail_time)
 
