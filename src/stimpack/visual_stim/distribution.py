@@ -1,9 +1,9 @@
 import numpy as np
-from stimpack.visual_stim import util as spv_util
+from stimpack import util as sp_util
 
 def make_as_distribution(parameter):
     """Return parameter as Distribution object if it is a dictionary."""
-    return spv_util.make_as(parameter, parent_class=Distribution)
+    return sp_util.make_as(parameter, parent_class=Distribution)
 
 class Distribution:
     def __init__(self):
