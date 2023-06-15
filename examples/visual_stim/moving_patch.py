@@ -26,7 +26,7 @@ def main():
     manager.load_stim(name='MovingSpot', radius=5, sphere_radius=1, color=color_trajectory, theta=theta_trajectory, phi=0, hold=True)
 
 
-    sleep(1)
+    sleep(2)
 
     manager.start_stim()
     sleep(4)

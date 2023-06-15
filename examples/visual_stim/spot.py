@@ -1,4 +1,5 @@
-from PyQt5 import QtOpenGL, QtWidgets, QtCore
+from PyQt5 import QtWidgets, QtCore
+from PyQt5.QtWidgets import QOpenGLWidget
 
 import sys
 import signal
@@ -78,7 +79,7 @@ class SpotProgram:
         # render to screen
         self.vao.render(mode=moderngl.TRIANGLE_STRIP)
 
-class SpotDisplay(QtOpenGL.QGLWidget):
+class SpotDisplay(QtWidgets.QOpenGLWidget):
     """
     Class that controls the stimulus display on one screen.  It contains the pyglet window object for that screen,
     and also controls rendering of the stimulus, toggling corner square, and/or debug information.
@@ -152,11 +153,11 @@ class SpotDisplay(QtOpenGL.QGLWidget):
         """
 
         # create format with default settings
-        format = QtOpenGL.QGLFormat()
+        format = QOpenGLWidget.defaultFormat()
 
         # use OpenGL 3.3
         format.setVersion(3, 3)
-        format.setProfile(QtOpenGL.QGLFormat.CoreProfile)
+        format.setProfile(QOpenGLWidget.CoreProfile)
 
         # use VSYNC
         if vsync:

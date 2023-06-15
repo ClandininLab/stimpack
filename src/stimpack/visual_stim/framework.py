@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 import qimage2ndarray
 from skimage.transform import downscale_local_mean
-from PyQt5 import QtOpenGL, QtWidgets, QtGui
+from PyQt5 import QtWidgets, QtGui
+from PyQt5.QtWidgets import QOpenGLWidget
 
 from stimpack.util import get_all_subclasses, ICON_PATH
 
@@ -24,7 +25,7 @@ from stimpack.visual_stim.screen import Screen
 from stimpack.rpc.transceiver import MySocketServer
 from stimpack.rpc.util import get_kwargs
 
-class StimDisplay(QtOpenGL.QGLWidget):
+class StimDisplay(QOpenGLWidget):
     """
     Class that controls the stimulus display on one screen.  It contains the pyglet window object for that screen,
     and also controls rendering of the stimulus, toggling corner square, and/or debug information.
@@ -38,7 +39,8 @@ class StimDisplay(QtOpenGL.QGLWidget):
         be displayed.
         """
         # call super constructor
-        super().__init__(make_qt_format(vsync=screen.vsync))
+        super().__init__()
+        self.setFormat(make_qt_format(vsync=screen.vsync))
 
         self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}')
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
@@ -440,11 +442,11 @@ def make_qt_format(vsync):
     """
 
     # create format with default settings
-    format = QtOpenGL.QGLFormat()
+    format = QtGui.QSurfaceFormat()
 
     # use OpenGL 3.3
     format.setVersion(3, 3)
-    format.setProfile(QtOpenGL.QGLFormat.CoreProfile)
+    format.setProfile(QtGui.QSurfaceFormat.CoreProfile)
 
     # use VSYNC
     if vsync:
@@ -453,11 +455,13 @@ def make_qt_format(vsync):
         format.setSwapInterval(0)
 
     # TODO: determine what these lines do and whether they are necessary
-    format.setSampleBuffers(True)
+    # format.setSampleBuffers(True)
+    format.setSamples(24)
     format.setDepthBufferSize(24)
 
     # needed to enable transparency
-    format.setAlpha(True)
+    # format.setAlpha(True)
+    format.setAlphaBufferSize(24)
 
     return format
 
@@ -471,6 +475,8 @@ def main():
 
     # launch the server
     server = MySocketServer(host=kwargs['host'], port=kwargs['port'], threaded=True, auto_stop=True, name=screen.name)
+
+    QtGui.QSurfaceFormat.setDefaultFormat(make_qt_format(vsync=screen.vsync))
 
     # launch application
     app = QtWidgets.QApplication([])
