@@ -136,7 +136,7 @@ class StimDisplay(QOpenGLWidget):
         # Get viewport for corner square
         self.square_program.set_viewport(display_width, display_height)
 
-        self.ctx.clear(0, 0, 0, 1) # clear the previous frame across the whole display
+        # self.ctx.clear(0, 0, 0, 1) # clear the previous frame across the whole display
         # draw the stimulus
         if self.stim_list:
             if self.pre_render:
@@ -455,12 +455,10 @@ def make_qt_format(vsync):
         format.setSwapInterval(0)
 
     # TODO: determine what these lines do and whether they are necessary
-    # format.setSampleBuffers(True)
     format.setSamples(24)
     format.setDepthBufferSize(24)
 
     # needed to enable transparency
-    # format.setAlpha(True)
     format.setAlphaBufferSize(24)
 
     return format
@@ -476,9 +474,9 @@ def main():
     # launch the server
     server = MySocketServer(host=kwargs['host'], port=kwargs['port'], threaded=True, auto_stop=True, name=screen.name)
 
-    QtGui.QSurfaceFormat.setDefaultFormat(make_qt_format(vsync=screen.vsync))
 
     # launch application
+    QtGui.QSurfaceFormat.setDefaultFormat(make_qt_format(vsync=screen.vsync))
     app = QtWidgets.QApplication([])
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))
     app.setApplicationName('Stimpack visual_stim screen: {screen.name}')
