@@ -1,5 +1,5 @@
-from PyQt5 import QtWidgets, QtCore
-from PyQt5.QtWidgets import QOpenGLWidget
+from PyQt6 import QtWidgets, QtCore
+from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 
 import sys
 import signal

@@ -4,7 +4,7 @@
 from time import sleep
 import os
 import posixpath
-from PyQt5.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication
 
 from stimpack.rpc.transceiver import MySocketClient
 from stimpack.visual_stim.stim_server import launch_stim_server

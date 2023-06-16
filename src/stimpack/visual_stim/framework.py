@@ -7,10 +7,9 @@ from math import radians
 import moderngl
 import numpy as np
 import pandas as pd
-import qimage2ndarray
 from skimage.transform import downscale_local_mean
-from PyQt5 import QtWidgets, QtGui
-from PyQt5.QtWidgets import QOpenGLWidget
+from PyQt6 import QtWidgets, QtGui
+from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 
 from stimpack.util import get_all_subclasses, ICON_PATH
 
@@ -137,6 +136,7 @@ class StimDisplay(QOpenGLWidget):
         self.square_program.set_viewport(display_width, display_height)
 
         # self.ctx.clear(0, 0, 0, 1) # clear the previous frame across the whole display
+        # self.ctx.clear(red=self.idle_background, green=self.idle_background, blue=self.idle_background, alpha=1.0)
         # draw the stimulus
         if self.stim_list:
             if self.pre_render:
@@ -191,7 +191,7 @@ class StimDisplay(QOpenGLWidget):
 
             if self.append_stim_frames:
                 # grab frame buffer, convert to array, grab blue channel, append to list of stim_frames
-                self.stim_frames.append(qimage2ndarray.rgb_view(self.grabFrameBuffer())[:, :, 2])
+                self.stim_frames.append(util.qimage2ndarray(self.grabFrameBuffer())[:, :, 2])
                 self.current_time_index += 1
 
     ###########################################
@@ -446,7 +446,7 @@ def make_qt_format(vsync):
 
     # use OpenGL 3.3
     format.setVersion(3, 3)
-    format.setProfile(QtGui.QSurfaceFormat.CoreProfile)
+    format.setProfile(QtGui.QSurfaceFormat.OpenGLContextProfile(1))
 
     # use VSYNC
     if vsync:
@@ -528,7 +528,7 @@ def main():
     # Use Ctrl+C to exit.
     # ref: https://stackoverflow.com/questions/2300401/qapplication-how-to-shutdown-gracefully-on-ctrl-c
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 if __name__ == '__main__':
     main()

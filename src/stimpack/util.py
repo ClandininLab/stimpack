@@ -1,6 +1,6 @@
 import inspect
 import os
-from PyQt5.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QMessageBox
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 ICON_PATH = os.path.join(ROOT_DIR, '_assets', 'icon.png')
