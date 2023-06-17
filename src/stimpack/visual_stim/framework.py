@@ -83,6 +83,9 @@ class StimDisplay(QOpenGLWidget):
 
         # initialize background color
         self.idle_background = (0.5, 0.5, 0.5, 1.0)
+        
+        # flag indicating whether to clear the viewports on the next paintGL call
+        self.clear_viewports_flag = False
 
         # set the closed-loop parameters
         self.set_global_fly_pos(0, 0, 0)
@@ -102,6 +105,9 @@ class StimDisplay(QOpenGLWidget):
         self.ctx = moderngl.create_context() # TODO: can we make this run headless in render_movie_mode?
         self.ctx.enable(moderngl.BLEND) # enable alpha blending
         self.ctx.enable(moderngl.DEPTH_TEST) # enable depth test
+
+        # clear the whole screen
+        self.clear_viewports(color=(0, 0, 0, 1), viewports=None)
 
         # initialize square program
         self.square_program.initialize(self.ctx)
@@ -147,7 +153,10 @@ class StimDisplay(QOpenGLWidget):
         # Get viewport for corner square
         self.square_program.set_viewport(display_width, display_height)
 
-        self.clear_viewports(color=(0, 0, 0, 1), viewports=None) # clear the previous frame across the whole display
+        # clear the viewports if clear_viewports_flag is set, and reset the flag
+        if self.clear_viewports_flag:
+            self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
+            self.clear_viewports_flag = False
         
         # draw the stimulus
         if self.stim_list:
@@ -175,12 +184,8 @@ class StimDisplay(QOpenGLWidget):
                                   perspectives,
                                   fly_position=self.global_fly_pos.copy(),
                                   fly_heading=[self.global_theta_offset+0, self.global_phi_offset+0])
-                else:
-                    self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
 
             self.profile_frame_times.append(t)
-        else:
-            self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
 
         # draw the corner square
         self.square_program.paint()
@@ -243,6 +248,9 @@ class StimDisplay(QOpenGLWidget):
         stim.kwargs = kwargs
         stim.configure(**stim.kwargs) # Configure stim on load
         self.stim_list.append(stim)
+        
+        # clear the viewports
+        self.clear_viewports_flag = True
 
     def start_stim(self, t, save_pos_history=False, append_stim_frames=False, pre_render=False, pre_render_timepoints=None):
         """
@@ -274,6 +282,9 @@ class StimDisplay(QOpenGLWidget):
         """
         # clear texture
         self.ctx.clear_samplers()
+
+        # clear the viewports
+        self.clear_viewports_flag = True
 
         for stim in self.stim_list:
             stim.prog.release()
