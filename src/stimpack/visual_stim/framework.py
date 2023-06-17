@@ -82,7 +82,7 @@ class StimDisplay(QOpenGLWidget):
         self.square_program = SquareProgram(screen=screen)
 
         # initialize background color
-        self.idle_background = 0.5
+        self.idle_background = (0.5, 0.5, 0.5, 1.0)
 
         # set the closed-loop parameters
         self.set_global_fly_pos(0, 0, 0)
@@ -114,8 +114,20 @@ class StimDisplay(QOpenGLWidget):
 
         return stim_time
 
-    def clear_viewport(self, viewport):
-        self.ctx.clear(red=self.idle_background, green=self.idle_background, blue=self.idle_background, alpha=1.0, viewport=viewport)
+    def clear_viewports(self, color=None, viewports=None):
+        if color is None:
+            color = self.idle_background
+        assert len(color) == 4, 'ERROR: color must be a tuple of length 4 (RGBA)'
+        
+        if not isinstance(viewports, list):
+            viewports = [viewports]
+        
+        for viewport in viewports:
+            self.ctx.clear(red=color[0], green=color[1], blue=color[2], alpha=color[3], viewport=viewport)
+        
+        # doneCurrent() and makeCurrent() are necessary to allow painting over the cleared viewport
+        self.doneCurrent()
+        self.makeCurrent()
 
     def paintGL(self):
         # t0 = time.time() # benchmarking
@@ -135,8 +147,8 @@ class StimDisplay(QOpenGLWidget):
         # Get viewport for corner square
         self.square_program.set_viewport(display_width, display_height)
 
-        # self.ctx.clear(0, 0, 0, 1) # clear the previous frame across the whole display
-        # self.ctx.clear(red=self.idle_background, green=self.idle_background, blue=self.idle_background, alpha=1.0)
+        self.clear_viewports(color=(0, 0, 0, 1), viewports=None) # clear the previous frame across the whole display
+        
         # draw the stimulus
         if self.stim_list:
             if self.pre_render:
@@ -164,11 +176,11 @@ class StimDisplay(QOpenGLWidget):
                                   fly_position=self.global_fly_pos.copy(),
                                   fly_heading=[self.global_theta_offset+0, self.global_phi_offset+0])
                 else:
-                    [self.clear_viewport(viewport=x) for x in self.subscreen_viewports]
+                    self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
 
             self.profile_frame_times.append(t)
         else:
-            [self.clear_viewport(viewport=x) for x in self.subscreen_viewports]
+            self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
 
         # draw the corner square
         self.square_program.paint()
@@ -378,10 +390,20 @@ class StimDisplay(QOpenGLWidget):
 
     def set_idle_background(self, color):
         """
-        Sets the monochrome color of the background when there is no stimulus being displayed (sometimes called the
-        interleave period).
+        Sets the (monochrome, RGB, or RGBA) color of the background when there is no stimulus being displayed 
+        (sometimes called the interleave period).
         """
-
+        # Make color a tuple
+        if not hasattr(color, '__iter__'):
+            color = (color, color, color, 1.0)
+        elif not isinstance(color, tuple):
+            color = tuple(color)
+        
+        if len(color) == 3:
+            color = color + (1.0,)
+            
+        assert len(color) == 4, 'ERROR: color must be a tuple of length 3 or 4'
+        
         self.idle_background = color
 
     def set_global_fly_pos(self, x, y, z):
