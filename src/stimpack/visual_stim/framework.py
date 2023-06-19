@@ -483,7 +483,7 @@ def make_qt_format(vsync):
 
     # use OpenGL 3.3
     format.setVersion(3, 3)
-    format.setProfile(QtGui.QSurfaceFormat.OpenGLContextProfile(1))
+    format.setProfile(QtGui.QSurfaceFormat.OpenGLContextProfile.CoreProfile)
 
     # use VSYNC
     if vsync:
