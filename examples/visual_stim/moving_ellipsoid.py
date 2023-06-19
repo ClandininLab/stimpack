@@ -28,7 +28,7 @@ def main():
                         'tv_pairs': [(0, 0), (stim_time, 0)],
                         'kind': 'linear'}
 
-    manager = launch_stim_server(Screen(fullscreen=False, server_number=0, id=0, vsync=False)) #,
+    manager = launch_stim_server(Screen(fullscreen=False, vsync=False)) #,
                                  # other_stim_module_paths=[])
 
     manager.load_stim(name='ConstantBackground', color=[0.5, 0.5, 0.5, 1.0], side_length=100)

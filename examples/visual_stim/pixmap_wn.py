@@ -11,7 +11,7 @@ def main():
     duration = 2
     seed = 37
 
-    manager = launch_stim_server(Screen(fullscreen=False, server_number=0, id=0, vsync=True))
+    manager = launch_stim_server(Screen(fullscreen=False, vsync=True))
     # manager = init_screens()
 
     manager.load_shared_pixmap_stim(name='WhiteNoise', memname=memname, 
