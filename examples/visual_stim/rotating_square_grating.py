@@ -11,7 +11,7 @@ def main():
     stim_duration = 2
     iti = 2
     
-    screen = Screen(fullscreen=False, server_number=0, id=0, vsync=False)
+    screen = Screen(fullscreen=False, vsync=False)
 
     # draw_screens(screen)
 

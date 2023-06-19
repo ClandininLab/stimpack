@@ -9,7 +9,7 @@ from time import sleep
 
 
 def main():
-    manager = launch_stim_server(Screen(fullscreen=False, server_number=0, id=0, vsync=True))
+    manager = launch_stim_server(Screen(fullscreen=False, vsync=True))
 
     stims = ['ConstantBackground', 'Floor', 'MovingSpot', 'MovingPatch', 'CylindricalGrating',
              'RotatingGrating', 'RandomBars', 'RandomGrid', 'Checkerboard', 'Tower', 'TexturedGround', 'HorizonCylinder', 'Forest',
