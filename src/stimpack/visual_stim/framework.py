@@ -511,9 +511,7 @@ def main():
     # launch the server
     server = MySocketServer(host=kwargs['host'], port=kwargs['port'], threaded=True, auto_stop=True, name=screen.name)
 
-
     # launch application
-    QtGui.QSurfaceFormat.setDefaultFormat(make_qt_format(vsync=screen.vsync))
     app = QtWidgets.QApplication([])
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))
     app.setApplicationName('Stimpack visual_stim screen: {screen.name}')
