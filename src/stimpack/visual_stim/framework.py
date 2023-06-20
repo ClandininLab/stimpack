@@ -44,18 +44,6 @@ class StimDisplay(QOpenGLWidget):
         self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}')
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
 
-        # configure window to reside on a specific screen
-        # re: https://stackoverflow.com/questions/6854947/how-to-display-a-window-on-a-secondary-display-in-pyqt
-        # if screen.fullscreen:
-        #     # qscreens = QtGui.QGuiApplication.screens()
-        #     # widget = QtWidgets.QWidget()
-        #     # widget.setScreen()
-
-        #     desktop = QtWidgets.QDesktopWidget()
-        #     rectScreen = desktop.screenGeometry(screen.id)
-        #     self.move(rectScreen.left(), rectScreen.top())
-        #     self.resize(rectScreen.width(), rectScreen.height())
-
         # stimulus initialization
         self.stim_list = []
 
