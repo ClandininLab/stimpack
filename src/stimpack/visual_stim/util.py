@@ -165,6 +165,10 @@ def get_rgba(val, def_alpha=1):
         else:
             raise ValueError(f'Unknown color: {val}')
 
+    # convert single value to float
+    if np.asarray(val).size == 1:
+        val = float(val)
+
     # if a single number is given treat as monochrome
     if isinstance(val, Number):
         return (val, val, val, def_alpha)
