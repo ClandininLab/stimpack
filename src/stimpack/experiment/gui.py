@@ -134,7 +134,7 @@ class ExperimentGUI(QWidget):
         self.file_form.setLabelAlignment(QtCore.Qt.AlignCenter)
 
         self.tabs.addTab(self.protocol_tab, "Main")
-        self.tabs.addTab(self.data_tab, "Animal")
+        self.tabs.addTab(self.data_tab, "Subject")
         self.tabs.addTab(self.file_tab, "File")
 
         self.tabs.resize(450, 500)
@@ -232,53 +232,53 @@ class ExperimentGUI(QWidget):
         self.notes_edit.setFixedHeight(30)
         self.protocol_control_grid.addWidget(self.notes_edit, 3, 1, 1, 3)
 
-        # # # TAB 2: Current animal metadata information
-        # # Animal info:
-        new_label = QLabel('Load existing animal')
-        self.existing_animal_input = QComboBox()
-        self.existing_animal_input.activated[int].connect(self.on_selected_existing_animal)
-        self.data_form.addRow(new_label, self.existing_animal_input)
-        self.update_existing_animal_input()
+        # # # TAB 2: Current subject metadata information
+        # # subject info:
+        new_label = QLabel('Load existing subject')
+        self.existing_subject_input = QComboBox()
+        self.existing_subject_input.activated[int].connect(self.on_selected_existing_subject)
+        self.data_form.addRow(new_label, self.existing_subject_input)
+        self.update_existing_subject_input()
 
-        new_label = QLabel('Current Animal info:')
+        new_label = QLabel('Current subject info:')
         new_label.setAlignment(QtCore.Qt.AlignCenter)
         self.data_form.addRow(new_label)
 
-        # Only built-ins are "animal_id," "age" and "notes"
-        # Animal ID:
-        new_label = QLabel('Animal ID:')
-        self.animal_id_input = QLineEdit()
-        self.data_form.addRow(new_label, self.animal_id_input)
+        # Only built-ins are "subject_id," "age" and "notes"
+        # subject ID:
+        new_label = QLabel('subject ID:')
+        self.subject_id_input = QLineEdit()
+        self.data_form.addRow(new_label, self.subject_id_input)
 
         # Age: 
         new_label = QLabel('Age:')
-        self.animal_age_input = QSpinBox()
-        self.animal_age_input.setMinimum(0)
-        self.animal_age_input.setValue(1)
-        self.data_form.addRow(new_label, self.animal_age_input)
+        self.subject_age_input = QSpinBox()
+        self.subject_age_input.setMinimum(0)
+        self.subject_age_input.setValue(1)
+        self.data_form.addRow(new_label, self.subject_age_input)
 
         # Notes: 
         new_label = QLabel('Notes:')
-        self.animal_notes_input = QTextEdit()
-        self.data_form.addRow(new_label, self.animal_notes_input)
+        self.subject_notes_input = QTextEdit()
+        self.data_form.addRow(new_label, self.subject_notes_input)
 
         # Use user cfg to populate other metadata options
-        self.animal_metadata_inputs = {}
+        self.subject_metadata_inputs = {}
         ct = 0
-        for key in self.cfg['animal_metadata']:
+        for key in self.cfg['subject_metadata']:
             ct += 1
             new_label = QLabel(key)
             new_input = QComboBox()
-            for choiceID in self.cfg['animal_metadata'][key]:
+            for choiceID in self.cfg['subject_metadata'][key]:
                 new_input.addItem(choiceID)
             self.data_form.addRow(new_label, new_input)
 
-            self.animal_metadata_inputs[key] = new_input
+            self.subject_metadata_inputs[key] = new_input
 
-        # Create animal button
-        create_animal_button = QPushButton("Create animal", self)
-        create_animal_button.clicked.connect(self.on_created_animal)
-        self.data_form.addRow(create_animal_button)
+        # Create subject button
+        create_subject_button = QPushButton("Create subject", self)
+        create_subject_button.clicked.connect(self.on_created_subject)
+        self.data_form.addRow(create_subject_button)
 
         # # # TAB 3: FILE tab - init, load, close etc. h5 file
         # Data file info
@@ -379,15 +379,15 @@ class ExperimentGUI(QWidget):
     def on_pressed_button(self):
         sender = self.sender()
         if sender.text() == 'Record':
-            if (self.data.experiment_file_exists() and self.data.current_animal_exists()):
+            if (self.data.experiment_file_exists() and self.data.current_subject_exists()):
                 self.send_run(save_metadata_flag=True)
             else:
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Warning)
-                msg.setText("You have not initialized a data file and/or animal yet")
+                msg.setText("You have not initialized a data file and/or subject yet")
                 msg.setInformativeText("You can show stimuli by clicking the View button, but no metadata will be saved")
-                msg.setWindowTitle("No experiment file and/or animal")
-                msg.setDetailedText("Initialize or load both an experiment file and a animal if you'd like to save your metadata")
+                msg.setWindowTitle("No experiment file and/or subject")
+                msg.setDetailedText("Initialize or load both an experiment file and a subject if you'd like to save your metadata")
                 msg.setStandardButtons(QMessageBox.Ok)
                 msg.exec_()
 
@@ -443,7 +443,7 @@ class ExperimentGUI(QWidget):
             self.data.data_directory = dialog.ui.le_data_directory.text()
             self.data.experimenter = dialog.ui.le_experimenter.text()
 
-            self.update_existing_animal_input()
+            self.update_existing_subject_input()
             self.populate_groups()
 
         elif sender.text() == 'Load experiment':
@@ -459,23 +459,23 @@ class ExperimentGUI(QWidget):
                 # update series count to reflect already-collected series
                 self.data.reload_series_count()
                 self.series_counter_input.setValue(self.data.get_highest_series_count() + 1)
-                self.update_existing_animal_input()
+                self.update_existing_subject_input()
                 self.populate_groups()
 
-    def on_created_animal(self):
-        # Populate animal metadata from animal data fields
-        animal_metadata = {}
+    def on_created_subject(self):
+        # Populate subject metadata from subject data fields
+        subject_metadata = {}
         # Built-ins
-        animal_metadata['animal_id'] = self.animal_id_input.text()
-        animal_metadata['age'] = self.animal_age_input.value()
-        animal_metadata['notes'] = self.animal_notes_input.toPlainText()
+        subject_metadata['subject_id'] = self.subject_id_input.text()
+        subject_metadata['age'] = self.subject_age_input.value()
+        subject_metadata['notes'] = self.subject_notes_input.toPlainText()
 
         # user-defined:
-        for key in self.animal_metadata_inputs:
-            animal_metadata[key] = self.animal_metadata_inputs[key].currentText()
+        for key in self.subject_metadata_inputs:
+            subject_metadata[key] = self.subject_metadata_inputs[key].currentText()
 
-        self.data.create_animal(animal_metadata)  # creates new animal and selects it as the current animal
-        self.update_existing_animal_input()
+        self.data.create_subject(subject_metadata)  # creates new subject and selects it as the current subject
+        self.update_existing_subject_input()
 
     def reset_layout(self):
         for ii in range(self.parameter_grid.rowCount()):
@@ -572,25 +572,25 @@ class ExperimentGUI(QWidget):
         self.update_parameters_from_fillable_fields()
         self.show()
 
-    def on_selected_existing_animal(self, index):
-        animal_data = self.data.get_existing_animal_data()
-        self.populate_animal_metadata_fields(animal_data[index])
-        self.data.current_animal = animal_data[index].get('animal_id')
+    def on_selected_existing_subject(self, index):
+        subject_data = self.data.get_existing_subject_data()
+        self.populate_subject_metadata_fields(subject_data[index])
+        self.data.current_subject = subject_data[index].get('subject_id')
 
-    def update_existing_animal_input(self):
-        self.existing_animal_input.clear()
-        for animal_data in self.data.get_existing_animal_data():
-            self.existing_animal_input.addItem(animal_data['animal_id'])
-        index = self.existing_animal_input.findText(self.data.current_animal)
+    def update_existing_subject_input(self):
+        self.existing_subject_input.clear()
+        for subject_data in self.data.get_existing_subject_data():
+            self.existing_subject_input.addItem(subject_data['subject_id'])
+        index = self.existing_subject_input.findText(self.data.current_subject)
         if index >= 0:
-            self.existing_animal_input.setCurrentIndex(index)
+            self.existing_subject_input.setCurrentIndex(index)
 
-    def populate_animal_metadata_fields(self, animal_data_dict):
-        self.animal_id_input.setText(animal_data_dict['animal_id'])
-        self.animal_age_input.setValue(animal_data_dict['age'])
-        self.animal_notes_input.setText(animal_data_dict['notes'])
-        for key in self.animal_metadata_inputs:
-            self.animal_metadata_inputs[key].setCurrentText(animal_data_dict[key])
+    def populate_subject_metadata_fields(self, subject_data_dict):
+        self.subject_id_input.setText(subject_data_dict['subject_id'])
+        self.subject_age_input.setValue(subject_data_dict['age'])
+        self.subject_notes_input.setText(subject_data_dict['notes'])
+        for key in self.subject_metadata_inputs:
+            self.subject_metadata_inputs[key].setCurrentText(subject_data_dict[key])
 
     def on_entered_series_count(self):
         self.data.update_series_count(self.series_counter_input.value())
@@ -657,7 +657,7 @@ class ExperimentGUI(QWidget):
         self.progress_timer.stop()
 
         if save_metadata_flag:
-            self.update_existing_animal_input()
+            self.update_existing_subject_input()
             # Advance the series_count:
             self.data.advance_series_count()
             self.series_counter_input.setValue(self.data.get_series_count())

@@ -31,7 +31,7 @@ def set_labpack_directory(path):
 
 def get_default_config():
     return {'experimenter': 'JohnDoe',
-            'animal_metadata': {},
+            'subject_metadata': {},
             'current_rig_name': 'default',
             'current_cfg_name': 'default',
             'rig_config' : {'default': {'screen_center': [0, 0]
