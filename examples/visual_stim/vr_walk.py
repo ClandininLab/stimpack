@@ -9,7 +9,7 @@ from time import sleep
 def main():
     subscreens = [SubScreen(pa=(-0.1, 0.2, -0.1), pb=(0.1, 0.2, -0.1), pc=(-0.1, 0.2, 0.1), viewport_ll=(-1, -1), viewport_width=2, viewport_height=2)]
 
-    screen = Screen(subscreens=subscreens, id=0, fullscreen=True, vsync=True, square_size=(0.18, 0.25), square_loc=(0.78, -0.86), name='Left', horizontal_flip=False)
+    screen = Screen(subscreens=subscreens, fullscreen=True, vsync=True, square_size=(0.18, 0.25), square_loc=(0.78, -0.86), name='Left', horizontal_flip=False)
 
     # draw_screens(screen)
 

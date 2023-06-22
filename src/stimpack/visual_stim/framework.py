@@ -275,7 +275,7 @@ class StimDisplay(QtOpenGL.QGLWidget):
                 fps_data = pd.Series(1.0/fps_data)
                 stim_names = ', '.join([type(stim).__name__ for stim in self.stim_list])
                 if print_profile:
-                    print('*** ' + stim_names + ' ***')
+                    print(f'*** {self.screen.name}: {stim_names} ***')
                     print(fps_data.describe(percentiles=[0.01, 0.05, 0.1, 0.9, 0.95, 0.99]))
                     print('*** end of statistics ***')
 

@@ -49,7 +49,7 @@ def get_subscreen(dir):
 
 def main():
     subscreens = [get_subscreen('w'), get_subscreen('n'), get_subscreen('e')]
-    screen = Screen(subscreens=subscreens, server_number=1, id=1, fullscreen=True, square_loc=(0.75, -1.0), square_size=(0.25, 0.25), vsync=True, horizontal_flip=True)
+    screen = Screen(subscreens=subscreens, fullscreen=True, square_loc=(0.75, -1.0), square_size=(0.25, 0.25), vsync=True, horizontal_flip=True)
 
     #draw_screens(screen)
 
