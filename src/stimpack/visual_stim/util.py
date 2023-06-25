@@ -33,6 +33,19 @@ def generate_lowercase_barcode(length=5, existing_barcodes=[]):
 def normalize(vec):
     return vec / np.linalg.norm(vec)
 
+def qimage2ndarray(qimage):
+    '''  Converts a QImage into an opencv MAT format  '''
+
+    qimage = qimage.convertToFormat(4)
+
+    width = qimage.width()
+    height = qimage.height()
+
+    ptr = qimage.bits()
+    ptr.setsize(qimage.byteCount())
+    arr = np.array(ptr).reshape(height, width, 4)  #  Copies the data
+    return arr
+
 # rotation matrix reference:
 # https://en.wikipedia.org/wiki/Rotation_matrix
 

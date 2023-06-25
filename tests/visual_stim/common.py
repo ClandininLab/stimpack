@@ -1,7 +1,8 @@
 import moderngl
 import numpy as np
 from PIL import Image
-from PyQt5 import QtOpenGL, QtWidgets
+from PyQt6 import QtWidgets, QtGui
+from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 
 
 class HeadlessDisplay:
@@ -36,14 +37,14 @@ class HeadlessDisplay:
         return Image.frombytes('RGB', self.fbo.size, self.fbo.read(), 'raw', 'RGB', 0, -1)
 
 
-class QtTestDisplay(QtOpenGL.QGLWidget):
+class QtTestDisplay(QOpenGLWidget):
     # adapted from https://github.com/moderngl/moderngl/blob/master/examples/old-examples/PyQt5/01_hello_world.py
     def __init__(self, width=512, height=512):
         # Set up OpenGL format
-        fmt = QtOpenGL.QGLFormat()
+        fmt = QtGui.QSurfaceFormat()
         fmt.setVersion(3, 3)
-        fmt.setProfile(QtOpenGL.QGLFormat.CoreProfile)
-        fmt.setSampleBuffers(True)
+        fmt.setProfile(QtGui.QSurfaceFormat.OpenGLContextProfile(1))
+        fmt.setSamples(24)
         super(QtTestDisplay, self).__init__(fmt, None)
 
         # Set the window size and position

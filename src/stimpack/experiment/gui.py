@@ -10,14 +10,14 @@ import os
 import sys
 import time
 from enum import Enum
-from PyQt5.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
+from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
                              QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QFrame,
                              QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
                              QScrollArea, QSizePolicy)
-import PyQt5.QtCore as QtCore
-from PyQt5.QtCore import QThread, QTimer
-import PyQt5.QtGui as QtGui
+import PyQt6.QtCore as QtCore
+from PyQt6.QtCore import QThread, QTimer, Qt
+import PyQt6.QtGui as QtGui
 
 from stimpack.experiment.util import config_tools, h5io
 from stimpack.experiment import protocol, data, client
@@ -100,12 +100,12 @@ class ExperimentGUI(QWidget):
         self.protocol_box = QWidget()
         self.parameter_grid = QGridLayout()
         self.parameter_grid.setSpacing(10)
-        self.protocol_box.setSizePolicy(QSizePolicy(QSizePolicy.MinimumExpanding,
-                                            QSizePolicy.MinimumExpanding))
+        self.protocol_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
+                                            QSizePolicy.Policy.MinimumExpanding))
         
         self.protocol_selector_box = QWidget()
-        self.protocol_selector_box.setSizePolicy(QSizePolicy(QSizePolicy.MinimumExpanding,
-                                                            QSizePolicy.Fixed))
+        self.protocol_selector_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
+                                                            QSizePolicy.Policy.Fixed))
         self.protocol_selector_grid = QGridLayout()
 
         self.protocol_params_scroll_box = QScrollArea()
@@ -113,8 +113,8 @@ class ExperimentGUI(QWidget):
         self.protocol_params_scroll_box.setWidgetResizable(True)
 
         self.protocol_control_box = QWidget()
-        self.protocol_control_box.setSizePolicy(QSizePolicy(QSizePolicy.MinimumExpanding,
-                                                            QSizePolicy.Fixed))
+        self.protocol_control_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
+                                                            QSizePolicy.Policy.Fixed))
         self.protocol_control_grid = QGridLayout()
 
         self.protocol_tab = QWidget()
@@ -125,13 +125,13 @@ class ExperimentGUI(QWidget):
 
         self.data_tab = QWidget()
         self.data_form = QFormLayout()
-        self.data_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        self.data_form.setLabelAlignment(QtCore.Qt.AlignCenter)
+        self.data_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self.data_form.setLabelAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.file_tab = QWidget()
         self.file_form = QFormLayout()
-        self.file_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        self.file_form.setLabelAlignment(QtCore.Qt.AlignCenter)
+        self.file_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self.file_form.setLabelAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.tabs.addTab(self.protocol_tab, "Main")
         self.tabs.addTab(self.data_tab, "Subject")
@@ -146,7 +146,7 @@ class ExperimentGUI(QWidget):
         for sub_class in self.available_protocols:
             protocol_selection_combo_box.addItem(sub_class.__name__)
         protocol_label = QLabel('Protocol:')
-        protocol_selection_combo_box.activated[str].connect(self.on_selected_protocol_ID)
+        protocol_selection_combo_box.textActivated.connect(self.on_selected_protocol_ID)
         self.protocol_selector_grid.addWidget(protocol_label, 1, 0)
         self.protocol_selector_grid.addWidget(protocol_selection_combo_box, 1, 1, 1, 1)
 
@@ -236,12 +236,12 @@ class ExperimentGUI(QWidget):
         # # subject info:
         new_label = QLabel('Load existing subject')
         self.existing_subject_input = QComboBox()
-        self.existing_subject_input.activated[int].connect(self.on_selected_existing_subject)
+        self.existing_subject_input.activated.connect(self.on_selected_existing_subject)
         self.data_form.addRow(new_label, self.existing_subject_input)
         self.update_existing_subject_input()
 
-        new_label = QLabel('Current subject info:')
-        new_label.setAlignment(QtCore.Qt.AlignCenter)
+        new_label = QLabel('Current Subject info:')
+        new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.data_form.addRow(new_label)
 
         # Only built-ins are "subject_id," "age" and "notes"
@@ -312,13 +312,13 @@ class ExperimentGUI(QWidget):
         item.setFont(font)
         item.setBackground(QtGui.QColor(121, 121, 121))
         brush = QtGui.QBrush(QtGui.QColor(91, 91, 91))
-        brush.setStyle(QtCore.Qt.SolidPattern)
+        brush.setStyle(Qt.BrushStyle.SolidPattern)
         item.setForeground(brush)
         self.table_attributes.setHorizontalHeaderItem(0, item)
         item = QTableWidgetItem()
         item.setBackground(QtGui.QColor(123, 123, 123))
         brush = QtGui.QBrush(QtGui.QColor(91, 91, 91))
-        brush.setStyle(QtCore.Qt.SolidPattern)
+        brush.setStyle(Qt.BrushStyle.SolidPattern)
         item.setForeground(brush)
         self.table_attributes.setHorizontalHeaderItem(1, item)
         self.table_attributes.horizontalHeader().setCascadingSectionResizes(True)
@@ -562,7 +562,7 @@ class ExperimentGUI(QWidget):
         self.parameter_preset_comboBox.addItem("Default")
         for name in self.protocol_object.parameter_presets.keys():
             self.parameter_preset_comboBox.addItem(name)
-        self.parameter_preset_comboBox.activated[str].connect(self.on_selected_parameter_preset)
+        self.parameter_preset_comboBox.textActivated.connect(self.on_selected_parameter_preset)
         self.protocol_selector_grid.addWidget(self.parameter_preset_comboBox, 2, 1, 1, 1)
 
     def on_selected_parameter_preset(self, text):

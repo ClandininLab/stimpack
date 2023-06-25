@@ -7,9 +7,9 @@ from math import radians
 import moderngl
 import numpy as np
 import pandas as pd
-import qimage2ndarray
 from skimage.transform import downscale_local_mean
-from PyQt5 import QtOpenGL, QtWidgets, QtGui
+from PyQt6 import QtWidgets, QtGui
+from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 
 from stimpack.util import get_all_subclasses, ICON_PATH
 
@@ -24,7 +24,7 @@ from stimpack.visual_stim.screen import Screen
 from stimpack.rpc.transceiver import MySocketServer
 from stimpack.rpc.util import get_kwargs
 
-class StimDisplay(QtOpenGL.QGLWidget):
+class StimDisplay(QOpenGLWidget):
     """
     Class that controls the stimulus display on one screen.  It contains the pyglet window object for that screen,
     and also controls rendering of the stimulus, toggling corner square, and/or debug information.
@@ -38,18 +38,11 @@ class StimDisplay(QtOpenGL.QGLWidget):
         be displayed.
         """
         # call super constructor
-        super().__init__(make_qt_format(vsync=screen.vsync))
+        super().__init__()
+        self.setFormat(make_qt_format(vsync=screen.vsync))
 
         self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}')
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
-
-        # configure window to reside on a specific screen
-        # re: https://stackoverflow.com/questions/6854947/how-to-display-a-window-on-a-secondary-display-in-pyqt
-        if screen.fullscreen:
-            desktop = QtWidgets.QDesktopWidget()
-            rectScreen = desktop.screenGeometry(screen.id)
-            self.move(rectScreen.left(), rectScreen.top())
-            self.resize(rectScreen.width(), rectScreen.height())
 
         # stimulus initialization
         self.stim_list = []
@@ -81,7 +74,10 @@ class StimDisplay(QtOpenGL.QGLWidget):
         self.square_program = SquareProgram(screen=screen)
 
         # initialize background color
-        self.idle_background = 0.5
+        self.idle_background = (0.5, 0.5, 0.5, 1.0)
+        
+        # flag indicating whether to clear the viewports on the next paintGL call
+        self.clear_viewports_flag = False
 
         # set the closed-loop parameters
         self.set_global_fly_pos(0, 0, 0)
@@ -102,6 +98,9 @@ class StimDisplay(QtOpenGL.QGLWidget):
         self.ctx.enable(moderngl.BLEND) # enable alpha blending
         self.ctx.enable(moderngl.DEPTH_TEST) # enable depth test
 
+        # clear the whole screen
+        self.clear_viewports(color=(0, 0, 0, 1), viewports=None)
+
         # initialize square program
         self.square_program.initialize(self.ctx)
 
@@ -113,8 +112,20 @@ class StimDisplay(QtOpenGL.QGLWidget):
 
         return stim_time
 
-    def clear_viewport(self, viewport):
-        self.ctx.clear(red=self.idle_background, green=self.idle_background, blue=self.idle_background, alpha=1.0, viewport=viewport)
+    def clear_viewports(self, color=None, viewports=None):
+        if color is None:
+            color = self.idle_background
+        assert len(color) == 4, 'ERROR: color must be a tuple of length 4 (RGBA)'
+        
+        if not isinstance(viewports, list):
+            viewports = [viewports]
+        
+        for viewport in viewports:
+            self.ctx.clear(red=color[0], green=color[1], blue=color[2], alpha=color[3], viewport=viewport)
+        
+        # doneCurrent() and makeCurrent() are necessary to allow painting over the cleared viewport
+        self.doneCurrent()
+        self.makeCurrent()
 
     def paintGL(self):
         # t0 = time.time() # benchmarking
@@ -134,7 +145,11 @@ class StimDisplay(QtOpenGL.QGLWidget):
         # Get viewport for corner square
         self.square_program.set_viewport(display_width, display_height)
 
-        self.ctx.clear(0, 0, 0, 1) # clear the previous frame across the whole display
+        # clear the viewports if clear_viewports_flag is set, and reset the flag
+        if self.clear_viewports_flag:
+            self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
+            self.clear_viewports_flag = False
+        
         # draw the stimulus
         if self.stim_list:
             if self.pre_render:
@@ -161,12 +176,8 @@ class StimDisplay(QtOpenGL.QGLWidget):
                                   perspectives,
                                   fly_position=self.global_fly_pos.copy(),
                                   fly_heading=[self.global_theta_offset+0, self.global_phi_offset+0])
-                else:
-                    [self.clear_viewport(viewport=x) for x in self.subscreen_viewports]
 
             self.profile_frame_times.append(t)
-        else:
-            [self.clear_viewport(viewport=x) for x in self.subscreen_viewports]
 
         # draw the corner square
         self.square_program.paint()
@@ -189,7 +200,7 @@ class StimDisplay(QtOpenGL.QGLWidget):
 
             if self.append_stim_frames:
                 # grab frame buffer, convert to array, grab blue channel, append to list of stim_frames
-                self.stim_frames.append(qimage2ndarray.rgb_view(self.grabFrameBuffer())[:, :, 2])
+                self.stim_frames.append(util.qimage2ndarray(self.grabFrameBuffer())[:, :, 2])
                 self.current_time_index += 1
 
     ###########################################
@@ -229,6 +240,9 @@ class StimDisplay(QtOpenGL.QGLWidget):
         stim.kwargs = kwargs
         stim.configure(**stim.kwargs) # Configure stim on load
         self.stim_list.append(stim)
+        
+        # clear the viewports
+        self.clear_viewports_flag = True
 
     def start_stim(self, t, save_pos_history=False, append_stim_frames=False, pre_render=False, pre_render_timepoints=None):
         """
@@ -260,6 +274,9 @@ class StimDisplay(QtOpenGL.QGLWidget):
         """
         # clear texture
         self.ctx.clear_samplers()
+
+        # clear the viewports
+        self.clear_viewports_flag = True
 
         for stim in self.stim_list:
             stim.prog.release()
@@ -376,10 +393,20 @@ class StimDisplay(QtOpenGL.QGLWidget):
 
     def set_idle_background(self, color):
         """
-        Sets the monochrome color of the background when there is no stimulus being displayed (sometimes called the
-        interleave period).
+        Sets the (monochrome, RGB, or RGBA) color of the background when there is no stimulus being displayed 
+        (sometimes called the interleave period).
         """
-
+        # Make color a tuple
+        if not hasattr(color, '__iter__'):
+            color = (color, color, color, 1.0)
+        elif not isinstance(color, tuple):
+            color = tuple(color)
+        
+        if len(color) == 3:
+            color = color + (1.0,)
+            
+        assert len(color) == 4, 'ERROR: color must be a tuple of length 3 or 4'
+        
         self.idle_background = color
 
     def set_global_fly_pos(self, x, y, z):
@@ -440,11 +467,11 @@ def make_qt_format(vsync):
     """
 
     # create format with default settings
-    format = QtOpenGL.QGLFormat()
+    format = QtGui.QSurfaceFormat()
 
     # use OpenGL 3.3
     format.setVersion(3, 3)
-    format.setProfile(QtOpenGL.QGLFormat.CoreProfile)
+    format.setProfile(QtGui.QSurfaceFormat.OpenGLContextProfile.CoreProfile)
 
     # use VSYNC
     if vsync:
@@ -453,11 +480,11 @@ def make_qt_format(vsync):
         format.setSwapInterval(0)
 
     # TODO: determine what these lines do and whether they are necessary
-    format.setSampleBuffers(True)
+    format.setSamples(24)
     format.setDepthBufferSize(24)
 
     # needed to enable transparency
-    format.setAlpha(True)
+    format.setAlphaBufferSize(24)
 
     return format
 
@@ -524,7 +551,7 @@ def main():
     # Use Ctrl+C to exit.
     # ref: https://stackoverflow.com/questions/2300401/qapplication-how-to-shutdown-gracefully-on-ctrl-c
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 if __name__ == '__main__':
     main()

@@ -22,12 +22,11 @@ setup(
         'matplotlib',
         
         'platformdirs',
-        'PyQT5',
+        'PyQT6',
         'h5py',
         'pyYaml',
         
         'moderngl',
-        'qimage2ndarray',
         'scikit-image',
     ],
     entry_points={
