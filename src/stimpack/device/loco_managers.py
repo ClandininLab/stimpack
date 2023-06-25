@@ -25,7 +25,7 @@ class LocoSocketManager():
         self.udp = udp
 
         self.sock = None
-        self.sock_buffer = ""
+        self.sock_buffer = "\n"
         self.data_prev = []
 
     def connect(self):
@@ -45,7 +45,7 @@ class LocoSocketManager():
         if self.sock is not None:
             self.sock.close()
 
-    def get_line(self, wait_for=None):
+    def get_line(self, wait_for=None, get_most_recent=True):
         '''
         Assumes that lines are separated by '\n'
         '''
@@ -71,13 +71,45 @@ class LocoSocketManager():
         # Decode received data
         self.sock_buffer += new_data.decode('UTF-8')
 
-        # Find the first frame of data
-        endline = self.sock_buffer.find("\n")
-        if endline == -1:
-            return self.get_line(wait_for=wait_for)
-        line = self.sock_buffer[:endline]       # copy first frame
-        self.sock_buffer = self.sock_buffer[endline+1:]     # delete first frame
+        # print(f'Input buffer: {self.sock_buffer}')
+        if get_most_recent:
+            ## Find the last frame of data
 
+            endline = self.sock_buffer.rfind("\n")
+            assert endline != 1, "There must always be at least one linebreak in the buffer."
+            
+            # Find the end of the second to last frame. (\n is always left behind)
+            prev_endline = self.sock_buffer[:endline-1].rfind("\n")
+            if prev_endline == -1:
+                return self.get_line(wait_for=wait_for, get_most_recent=get_most_recent)
+            startline = prev_endline + 1
+            
+            line = self.sock_buffer[startline:endline]       # copy last frame
+            self.sock_buffer = self.sock_buffer[endline:]     # delete through last frame, leaving behind the last \n
+        else:
+            ## Find the first frame of data
+
+            # Find the start of the first frame
+            # prev_endline = self.sock_buffer.find("\n")
+            # assert prev_endline != 1, "There must always be at least one linebreak in the buffer."
+            # if len(self.sock_buffer) <= prev_endline + 1: # nothing after the first \n
+            #     return self.get_line(wait_for=wait_for, get_most_recent=get_most_recent)
+
+            # Assume \n is the beginning of the buffer always
+            if len(self.sock_buffer) <= 1: # nothing after the first \n
+                return self.get_line(wait_for=wait_for, get_most_recent=get_most_recent)
+            startline = 1
+
+            # Find the end of the first frame
+            endline = self.sock_buffer[startline:].find("\n")
+            if endline == -1:
+                return self.get_line(wait_for=wait_for, get_most_recent=get_most_recent)
+
+            line = self.sock_buffer[startline:endline]       # copy first frame
+            self.sock_buffer = self.sock_buffer[endline:]     # delete first frame, leaving behind the \n
+
+        # print(f'Output buffer: {self.sock_buffer}')
+        # print(f'Grabbed line: {line}')
         return line
 
 class LocoClosedLoopManager(LocoManager):
@@ -131,8 +163,8 @@ class LocoClosedLoopManager(LocoManager):
             
         self.started = False
 
-    def get_data(self, wait_for=None):
-        line = self.socket_manager.get_line(wait_for=wait_for)
+    def get_data(self, wait_for=None, get_most_recent=True):
+        line = self.socket_manager.get_line(wait_for=wait_for, get_most_recent=get_most_recent)
         
         data = self._parse_line(line)
         self.data_prev = data
@@ -155,12 +187,17 @@ class LocoClosedLoopManager(LocoManager):
         
         return {'theta': theta, 'x': x, 'y': y, 'z': z, 'frame_num': frame_num, 'ts': ts}
   
-    def set_pos_0(self, theta_0=None, x_0=0, y_0=0, z_0=0, use_data_prev=True, write_log=False):
+    def set_pos_0(self, theta_0=None, x_0=0, y_0=0, z_0=0, use_data_prev=True, get_most_recent=True, write_log=False):
         '''
         Sets position 0 for stimpack.visual_stim manager.
         
         theta_0, x_0, y_0, z_0: 
             if None, the current value is acquired from socket.
+        
+        get_most_recent:
+            Only relevant if getting data for the first time or use_data_prev = False
+            if True, grabs line that is most recent
+            if False, grabs line that is the oldest
         '''
         self.fs_manager.set_global_theta_offset(0) #radians
         self.fs_manager.set_global_fly_pos(0, 0, 0)
@@ -169,7 +206,7 @@ class LocoClosedLoopManager(LocoManager):
             if use_data_prev and len(self.data_prev)!=0:
                 data = self.data_prev
             else:
-                data = self.get_data()
+                data = self.get_data(get_most_recent=get_most_recent)
 
             if theta_0 is None: theta_0 = float(data['theta'])
             if     x_0 is None:     x_0 = float(data['x'])
