@@ -389,7 +389,7 @@ class ExperimentGUI(QWidget):
                 msg.setWindowTitle("No experiment file and/or subject")
                 msg.setDetailedText("Initialize or load both an experiment file and a subject if you'd like to save your metadata")
                 msg.setStandardButtons(QMessageBox.Ok)
-                msg.exec_()
+                msg.exec()
 
         elif sender.text() == 'View':
             self.send_run(save_metadata_flag=False)
@@ -437,7 +437,7 @@ class ExperimentGUI(QWidget):
             dialog.ui = InitializeExperimentGUI(parent=dialog)
             dialog.ui.setupUI(self, dialog)
             dialog.setFixedSize(300, 200)
-            dialog.exec_()
+            dialog.exec()
 
             self.data.experiment_file_name = dialog.ui.le_filename.text()
             self.data.data_directory = dialog.ui.le_data_directory.text()
