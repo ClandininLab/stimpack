@@ -162,7 +162,7 @@ class BaseClient():
             if server_data_directory is not None:
                 # set server-side directory in which to save animal positions from each screen.
                 server_series_dir = posixpath.join(server_data_directory, data.experiment_file_name, str(data.series_count))
-                server_pos_history_dir = posixpath.join(server_series_dir, 'stimpack.visual_stim_pos')
+                server_pos_history_dir = posixpath.join(server_series_dir, 'visual_stim_pos')
                 self.manager.set_save_pos_history_dir(server_pos_history_dir)
 
                 # set server-side directory in which to save locomotion data
