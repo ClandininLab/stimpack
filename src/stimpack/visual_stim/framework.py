@@ -499,6 +499,12 @@ def main():
     # launch the server
     server = MySocketServer(host=kwargs['host'], port=kwargs['port'], threaded=True, auto_stop=True, name=screen.name)
 
+    # set default format with OpenGL context
+    format = QtGui.QSurfaceFormat()
+    format.setVersion(3, 3)
+    format.setProfile(QtGui.QSurfaceFormat.OpenGLContextProfile.CoreProfile)
+    QtGui.QSurfaceFormat.setDefaultFormat(format)
+
     # launch application
     app = QtWidgets.QApplication([])
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))
