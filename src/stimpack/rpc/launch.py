@@ -14,7 +14,10 @@ def fullpath(file):
     """
     return os.path.expanduser(file)
 
-def launch_server(module_or_filename, new_env_vars=None, server_poll_timeout=10, server_poll_interval=0.1, **kwargs):
+def launch_server(module_or_filename, new_env_vars=None, server_poll_timeout=10, server_poll_interval=0.1, client_class=None, **kwargs):
+    if client_class is None:
+        client_class = MySocketClient
+    
     # create list to hold command
     cmd = []
 
@@ -58,7 +61,7 @@ def launch_server(module_or_filename, new_env_vars=None, server_poll_timeout=10,
     server_poll_start = time()
     while (time() - server_poll_start) < server_poll_timeout:
         try:
-            return MySocketClient(host=kwargs['host'], port=kwargs['port'])
+            return client_class(host=kwargs['host'], port=kwargs['port'])
         except ConnectionRefusedError:
             sleep(server_poll_interval)
     else:

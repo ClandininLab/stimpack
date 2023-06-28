@@ -130,7 +130,7 @@ class MySocketClient(MyTransceiver):
 
 
 class MySocketServer(MyTransceiver):
-    def __init__(self, host=None, port=None, threaded=None, auto_stop=None, accept_timeout=None, name=None):
+    def __init__(self, host=None, port=None, threaded=None, auto_stop=None, accept_timeout=None, name=None, start_loop=None):
         super().__init__()
 
         # set defaults
@@ -152,6 +152,9 @@ class MySocketServer(MyTransceiver):
 
         if name is None:
             name = self.__class__.__name__
+        
+        if start_loop is None:
+            start_loop = True
 
         # save settings
         self.threaded = threaded
@@ -170,6 +173,10 @@ class MySocketServer(MyTransceiver):
         print('{} port: {}'.format(self.name, sockname[1]))
 
         # launch the read thread
+        if start_loop:
+            self.start_loop()
+
+    def start_loop(self):
         if self.threaded:
             start_daemon_thread(self.loop)
 

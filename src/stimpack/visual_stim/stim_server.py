@@ -1,13 +1,17 @@
 import platform
 from time import time
+from queue import Queue
+from json.decoder import JSONDecodeError
 
 import stimpack.visual_stim.framework
 from stimpack.visual_stim.screen import Screen
-from stimpack import util
+from stimpack.util import make_as, listify
 
-from stimpack.rpc.transceiver import MySocketServer
+import socket
+import atexit
+from stimpack.rpc.transceiver import MySocketServer, MySocketClient, MyTransceiver
 from stimpack.rpc.launch import launch_server
-from stimpack.rpc.util import get_kwargs, get_from_dict
+from stimpack.rpc.util import get_kwargs, get_from_dict, start_daemon_thread
 
 from stimpack.visual_stim.shared_pixmap import SharedPixMapStimulus
 
@@ -31,14 +35,95 @@ def launch_screen(screen, **kwargs):
         else:
             new_env_vars['DISPLAY'] = ':{}.{}'.format(screen.server_number, screen.id)
     # launch the server and return the resulting client
-    return launch_server(stimpack.visual_stim.framework, screen=screen.serialize(), new_env_vars=new_env_vars, **kwargs)
+    return launch_server(stimpack.visual_stim.framework, 
+                         screen=screen.serialize(), 
+                         new_env_vars=new_env_vars, 
+                         client_class=ScreenClient, 
+                         **kwargs)
+
+class ScreenClient(MySocketClient):
+    def __init__(self, host=None, port=None, stim_server_host=None, stim_server_port=None):
+        MyTransceiver().__init__()
+
+        # set defaults
+        if host is None:
+            host = '127.0.0.1'
+
+        assert port is not None, 'The port must be specified when creating a client.'
+
+        conn = socket.create_connection((host, port))
+        conn_ss = socket.create_connection((stim_server_host, stim_server_port))
+
+        # make sure that connection is closed on
+        def cleanup():
+            try:
+                conn.shutdown(socket.SHUT_RDWR)
+                conn.close()
+                conn_ss.shutdown(socket.SHUT_RDWR)
+                conn_ss.close()
+            except (OSError, ConnectionResetError):
+                pass
+
+        atexit.register(cleanup)
+
+        self.infile = conn.makefile('r')
+        self.outfile = conn.makefile('wb')
+        self.outfile_stimserver = conn_ss.makefile('wb')
+
+        start_daemon_thread(self.loop)
+
+    def loop(self):
+        try:
+            for line in self.infile:
+                print('ScreenClient.loop: ' + str(line))
+                self.outfile.write(line.encode('utf-8'))
+        except (OSError, ConnectionResetError):
+            pass
+
+
+class StimClient(MySocketClient):
+    def __init__(self, host=None, port=None):
+        super().__init__(host=host, port=port)
+
+        self.alert_queue = Queue()
+        print(f'initialized StimClient with port {port}')
+
+        self.register_function(self.alert, 'alert_client')
+
+    def alert(self, title, text):
+        print('StimClient.alert: ' + str(title) + ' ' + str(text))
+        self.alert_queue.put((title, text))
+
+    def loop(self):
+        try:
+            for line in self.infile:
+                print('StimClient.loop: ' + str(line))
+                try:
+                    request_list = self.parse_line(line)
+                except JSONDecodeError:
+                    continue
+                
+                self.handle_request_list(request_list)
+        except (OSError, ConnectionResetError):
+            pass
 
 class StimServer(MySocketServer):
     time_stamp_commands = ['start_stim', 'pause_stim', 'update_stim']
 
     def __init__(self, screens, host=None, port=None, auto_stop=None, other_stim_module_paths=None, **kwargs):
         # call super constructor
-        super().__init__(host=host, port=port, threaded=False, auto_stop=auto_stop)
+        super().__init__(host=host, port=port, threaded=False, auto_stop=auto_stop, start_loop=False)
+
+        # create the listener
+        self.screen_client_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.screen_client_listener.bind((host, port))
+        self.screen_client_listener.listen()
+        self.screen_client_listener.settimeout(accept_timeout)
+
+        # print out socket information
+        sockname = self.screen_client_listener.getsockname()
+        print('{} hostname: {}'.format(self.name, sockname[0]))
+        print('{} port: {}'.format(self.name, sockname[1]))
 
         self.functions_on_root = {}
 
@@ -87,7 +172,7 @@ class StimServer(MySocketServer):
     def load_shared_pixmap_stim(self, **kwargs):
         '''
         '''
-        self.spms = util.make_as(kwargs, parent_class=SharedPixMapStimulus)
+        self.spms = make_as(kwargs, parent_class=SharedPixMapStimulus)
     
     def start_shared_pixmap_stim(self):
         if self.spms is not None:
@@ -102,10 +187,23 @@ class StimServer(MySocketServer):
         if not isinstance(request_list, list):
             print("Request list is not a list and thus cannot be handled.")
             return
+        
+        if any([not isinstance(req, dict) for req in request_list]):
+            print("Request list contains non-dictionary elements and thus cannot be handled.")
+            return
+
+        # pull out requests to StimClient
+        reqs_for_stim_client = [req for req in request_list if 'StimClient' in req.get('to', '')]
+        request_list[:] = [req for req in request_list if not ('StimClient' in req.get('to', ''))]
 
         # pull out requests that are meant for server root node and not the screen clients
-        root_request_list = [req for req in request_list if isinstance(req, dict) and 'name' in req and req['name'] in self.functions_on_root]
-        request_list[:] = [req for req in request_list if not (isinstance(req, dict) and 'name' in req and req['name'] in self.functions_on_root)]
+        root_request_list = [req for req in request_list if 'name' in req and req['name'] in self.functions_on_root]
+        request_list[:] = [req for req in request_list if not ('name' in req and req['name'] in self.functions_on_root)]
+
+        # send requests to StimClient
+        if len(reqs_for_stim_client) > 0:
+            print('reqs for stim client')
+            self.write_request_list(reqs_for_stim_client)
 
         # handle requests for the root server without sending to client screens
         for request in root_request_list:
@@ -135,13 +233,13 @@ def launch_stim_server(screen_or_screens=None, **kwargs):
         screen_or_screens = []
 
     # make list from single screen if necessary
-    screens = util.listify(screen_or_screens, Screen)
+    screens = listify(screen_or_screens, Screen)
 
     # serialize the Screen objects
     screens = [screen.serialize() for screen in screens]
 
     # run the server
-    return launch_server(__file__, screens=screens, **kwargs)
+    return launch_server(__file__, screens=screens, client_class=StimClient, **kwargs)
 
 def run_stim_server(host=None, port=None, auto_stop=None, screens=None, **kwargs):
     # set defaults

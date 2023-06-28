@@ -6,7 +6,7 @@ import os
 import posixpath
 from PyQt6.QtWidgets import QApplication
 
-from stimpack.rpc.transceiver import MySocketClient
+from stimpack.visual_stim.stim_server import StimClient
 from stimpack.visual_stim.stim_server import launch_stim_server
 from stimpack.visual_stim.screen import Screen
 from stimpack.experiment.util import config_tools
@@ -24,7 +24,7 @@ class BaseClient():
 
         # # # Start the stim manager and set the frame tracker square to black # # #
         if self.server_options['use_server']:
-            self.manager = MySocketClient(host=self.server_options['host'], port=self.server_options['port'])
+            self.manager = StimClient(host=self.server_options['host'], port=self.server_options['port'])
             
             # if the trigger device is on the server, set the manager for the trigger device
             if isinstance(self.trigger_device, daq.DAQonServer):

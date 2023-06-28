@@ -230,12 +230,26 @@ class StimDisplay(QOpenGLWidget):
 
         stim_classes = get_all_subclasses(stimuli.BaseProgram)
         stim_class_candidates = [x for x in stim_classes if x.__name__ == name]
-        num_candidates = len(stim_class_candidates)
         
-        assert num_candidates == 1, 'ERROR: {} stimulus candidates found with name {}. There should be exactly one'.format(num_candidates, name)
+        # assert num_candidates == 1, 'ERROR: {} stimulus candidates found with name {}. There should be exactly one'.format(num_candidates, name)
 
-        chosen_stim_class = stim_class_candidates[0]
+        if len(stim_class_candidates) == 0:
+            print(f'Screen {self.screen.name}: No stimuli with name {name}.')
+            self.server.write_request_list([
+                {'to': 'StimClient',
+                 'from': f'StimDisplay {self.screen.name}',
+                 'name': 'alert_client', 
+                 'kwargs': {'title': 'Error', 
+                            'text': f'Screen {self.screen.name}: No stimuli with name {name}.'}
+                }])
+            return
+
+        if len(stim_class_candidates) > 1:
+            print(f'Multiple stimuli with name {name}.')
+            print(f'Choosing the last one: {stim_class_candidates[-1]}')
+        chosen_stim_class = stim_class_candidates[-1]
         stim = chosen_stim_class(screen=self.screen)
+
         stim.initialize(self.ctx)
         stim.kwargs = kwargs
         stim.configure(**stim.kwargs) # Configure stim on load
@@ -430,9 +444,20 @@ class StimDisplay(QOpenGLWidget):
     def import_stim_module(self, path):
         # Load other stim modules from paths containing subclasses of stimpack.visual_stim.stimuli.BaseProgram
         barcode = util.generate_lowercase_barcode(length=10, existing_barcodes=self.imported_stim_module_names)
-        util.load_stim_module_from_path(path, barcode)
-        self.imported_stim_module_names.append(barcode)
-        print(f'Loaded stim module from {path} with key {barcode}')
+        loaded_module = util.load_stim_module_from_path(path, barcode)
+        if loaded_module is not None:
+            self.imported_stim_module_names.append(barcode)
+            print(f'Loaded visual stim module from {path} with key {barcode}')
+        else:
+            print(f'Failed to load visual stim module from {path} with key {barcode}')
+            self.server.write_request_list([
+                {'to': 'StimClient',
+                 'from': f'StimDisplay {self.screen.name}',
+                 'name': 'alert_client', 
+                 'kwargs': {'title': 'Error', 
+                            'text': f'Failed to load visual stim module from {path} with key {barcode}'}
+                }])
+
         
 def get_perspective(fly_pos, theta, phi, pa, pb, pc, horizontal_flip):
     """

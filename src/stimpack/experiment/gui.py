@@ -92,6 +92,20 @@ class ExperimentGUI(QWidget):
         print('# # # # # # # # # # # # # # # #')
         
         self.initUI()
+        self.initStimAlerts()
+    
+    def initStimAlerts(self):
+        self.alert_timer = QTimer()
+        self.alert_timer.setSingleShot(False)
+        self.alert_timer.setInterval(1000)
+        self.alert_timer.timeout.connect(self.check_alert_queue)
+        self.alert_timer.start()
+    
+    def check_alert_queue(self):
+        print(self.client.manager.alert_queue.qsize())
+        if not self.client.manager.alert_queue.empty():
+            title, text = self.client.manager.alert_queue.get()
+            open_message_window(title, text)
 
     def initUI(self):
         self.layout = QVBoxLayout(self)

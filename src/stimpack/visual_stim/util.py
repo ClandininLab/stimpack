@@ -16,12 +16,12 @@ def load_stim_module_from_path(path, module_name='loaded_module', submodules=['s
         submodule_path = os.path.join(path, submodule_name+'.py')
         if not os.path.exists(submodule_path):
             warnings.warn(f'Could not find {submodule_name} at {submodule_path}')
-            continue
+            return None
         spec = spec_from_file_location(submodule_name_full, submodule_path)
         loaded_mod = module_from_spec(spec)
         sys.modules[submodule_name_full] = loaded_mod
         spec.loader.exec_module(loaded_mod)
-    return
+    return loaded_mod
 
 def generate_lowercase_barcode(length=5, existing_barcodes=[]):
     """Generates a random barcode that is not in existing_barcodes"""
