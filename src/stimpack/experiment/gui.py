@@ -425,7 +425,7 @@ class ExperimentGUI(QWidget):
             if start_name == 'Default':
                 start_name = ''
 
-            text, _ = QInputDialog.getText(self, "Save preset", "Preset Name:", QLineEdit.Normal, start_name)
+            text, _ = QInputDialog.getText(self, "Save preset", "Preset Name:",  text=start_name)
 
             self.protocol_object.update_parameter_presets(text) # TODO update GUI
             self.update_parameter_preset_selector()
