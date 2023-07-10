@@ -36,6 +36,7 @@ import yaml
 import itertools
 import warnings
 import stimpack.rpc.multicall
+from stimpack.visual_stim.util import get_rgba
 from stimpack.experiment.util import config_tools
 
 
@@ -254,7 +255,7 @@ class BaseProtocol():
             multicall = stimpack.rpc.multicall.MyMultiCall(manager)
 
         bg = self.run_parameters.get('idle_color')
-        multicall.load_stim('ConstantBackground', color=[bg, bg, bg, 1.0])
+        multicall.load_stim('ConstantBackground', color=get_rgba(bg), hold=True)
 
         if isinstance(self.epoch_stim_parameters, list):
             for ep in self.epoch_stim_parameters:
@@ -500,7 +501,7 @@ class SharedPixMapProtocol(BaseProtocol):
                 multicall.load_shared_pixmap_stim(**ep.copy())
 
         bg = self.run_parameters.get('idle_color')
-        multicall.load_stim('ConstantBackground', color=[bg, bg, bg, 1.0])
+        multicall.load_stim('ConstantBackground', color=get_rgba(bg), hold=True)
 
         if isinstance(self.epoch_stim_parameters, list):
             for ep in self.epoch_stim_parameters:

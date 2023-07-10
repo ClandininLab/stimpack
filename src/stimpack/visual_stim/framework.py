@@ -396,18 +396,7 @@ class StimDisplay(QOpenGLWidget):
         Sets the (monochrome, RGB, or RGBA) color of the background when there is no stimulus being displayed 
         (sometimes called the interleave period).
         """
-        # Make color a tuple
-        if not hasattr(color, '__iter__'):
-            color = (color, color, color, 1.0)
-        elif not isinstance(color, tuple):
-            color = tuple(color)
-        
-        if len(color) == 3:
-            color = color + (1.0,)
-            
-        assert len(color) == 4, 'ERROR: color must be a tuple of length 3 or 4'
-        
-        self.idle_background = color
+        self.idle_background = util.get_rgba(color)
 
     def set_global_fly_pos(self, x, y, z):
         self.global_fly_pos = np.array([x, y, z], dtype=float)
