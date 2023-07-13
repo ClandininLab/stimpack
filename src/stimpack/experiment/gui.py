@@ -836,14 +836,14 @@ class ExperimentGUI(QWidget):
             for num, key in enumerate(attr_dict):
                 self.table_attributes.insertRow(self.table_attributes.rowCount())
                 key_item = QTableWidgetItem(key)
-                key_item.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
+                key_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
                 self.table_attributes.setItem(num, 0, key_item)
 
                 val_item = QTableWidgetItem(str(attr_dict[key]))
                 if editable_values:
-                    val_item.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEditable | QtCore.Qt.ItemIsEnabled)
+                    val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEditable | QtCore.Qt.ItemFlag.ItemIsEnabled)
                 else:
-                    val_item.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
+                    val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
                 self.table_attributes.setItem(num, 1, val_item)
 
         self.table_attributes.blockSignals(False)
