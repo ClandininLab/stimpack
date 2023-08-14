@@ -286,7 +286,7 @@ class BaseProtocol():
             multicall.loco_loop_update_closed_loop_vars(update_theta=True, update_x=False, update_y=False)
             multicall.loco_loop_start_closed_loop()
         
-        multicall.start_stim(append_stim_frames=append_stim_frames)
+        multicall.start_stim(save_pos_history=save_pos_history, append_stim_frames=append_stim_frames)
         multicall.corner_square_toggle_start()
         multicall()
         sleep(self.epoch_protocol_parameters['stim_time'])
