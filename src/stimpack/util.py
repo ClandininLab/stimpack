@@ -54,5 +54,5 @@ def open_message_window(title="Alert", text=""):
     msg = QMessageBox()
     msg.setWindowTitle(title)
     msg.setText(text)
-    msg.exec_()
+    msg.exec()
 
