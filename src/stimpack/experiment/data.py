@@ -253,6 +253,10 @@ def hdf5ify_parameter(value):
         if value.dtype == 'object':
             value = value.astype('float')
     if type(value) is list:
-        value = ['None' for x in value if x is None]
+        new_value = [hdf5ify_parameter(x) for x in value]
+        try:
+            value = np.array(new_value)
+        except ValueError:
+            value = str(value)
 
     return value
