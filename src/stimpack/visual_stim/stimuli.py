@@ -42,21 +42,28 @@ class Floor(BaseProgram):
     def __init__(self, screen):
         super().__init__(screen=screen)
 
-    def configure(self, color=[0.5, 0.5, 0.5, 1.0], z_level=-0.1, side_length=5):
+    def configure(self, color=[0.5, 0.5, 0.5, 1.0], z_level=-0.1, side_length=10):
         """
         Infinite floor.
 
         :param color: [r,g,b,a]
         :param z_level: meters, level at which the floor is on the z axis (-z is below the fly)
-        :param side_length: meters
+        :param side_length: meters or (x, y) tuple of meters
         """
         self.color = color
 
-        v1 = (-side_length, -side_length, z_level)
-        v2 = (side_length, -side_length, z_level)
-        v3 = (side_length, side_length, z_level)
-        v4 = (-side_length, side_length, z_level)
-        color = self.color
+        if isinstance(side_length, tuple):
+            x_length = side_length[0]
+            y_length = side_length[1]
+        else:
+            x_length = side_length
+            y_length = side_length
+
+        v1 = (-x_length/2, -y_length/2, z_level)
+        v2 = (x_length/2, -y_length/2, z_level)
+        v3 = (x_length/2, y_length/2, z_level)
+        v4 = (-x_length/2, y_length/2, z_level)
+
         self.stim_object = shapes.GlQuad(v1, v2, v3, v4, color)
 
     def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
@@ -67,7 +74,7 @@ class TexturedGround(BaseProgram):
         super().__init__(screen=screen)
         self.use_texture = True
 
-    def configure(self, color=[0.5, 0.5, 0.5, 1.0], z_level=-0.1, side_length=5, rand_seed=0):
+    def configure(self, color=[0.5, 0.5, 0.5, 1.0], z_level=-0.1, side_length=10, rand_seed=0):
         """
         Infinite textured ground.
 
