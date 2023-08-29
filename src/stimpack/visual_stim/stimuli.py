@@ -73,15 +73,22 @@ class TexturedGround(BaseProgram):
 
         :param color: [r,g,b,a]
         :param z_level: meters, level at which the floor is on the z axis (-z is below the fly)
-        :param side_length: meters
+        :param side_length: meters or (x, y) tuple of meters
         """
         self.color = color
         self.rand_seed = rand_seed
 
-        v1 = (-side_length, -side_length, z_level)
-        v2 = (side_length, -side_length, z_level)
-        v3 = (side_length, side_length, z_level)
-        v4 = (-side_length, side_length, z_level)
+        if isinstance(side_length, tuple):
+            x_length = side_length[0]
+            y_length = side_length[1]
+        else:
+            x_length = side_length
+            y_length = side_length
+
+        v1 = (-x_length/2, -y_length/2, z_level)
+        v2 = (x_length/2, -y_length/2, z_level)
+        v3 = (x_length/2, y_length/2, z_level)
+        v4 = (-x_length/2, y_length/2, z_level)
 
         self.stim_object = shapes.GlQuad(v1, v2, v3, v4, self.color,
                                         tc1=(0, 0), tc2=(1, 0), tc3=(1, 1), tc4=(0, 1),
