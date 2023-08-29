@@ -555,7 +555,7 @@ class CylindricalGrating(TexturedCylinder):
                                             cylinder_radius=self.cylinder_radius,
                                             cylinder_angular_extent=self.cylinder_angular_extent,
                                             color=[1, 1, 1, 1],
-                                            texture=True).rotate(np.radians(theta), np.radians(phi), np.radians(angle))
+                                            texture=True).rotate(np.radians(theta), np.radians(phi), np.radians(angle)).translate(self.cylinder_location)
 
         self.mean = make_as_trajectory(mean)
         self.contrast = make_as_trajectory(contrast)
