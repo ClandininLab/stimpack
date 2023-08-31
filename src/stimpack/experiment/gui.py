@@ -5,6 +5,7 @@ Created on Thu Jun 21 10:51:42 2018
 
 @author: mhturner
 """
+import pickle
 from datetime import datetime
 import os
 import sys
@@ -14,7 +15,7 @@ from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayou
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
                              QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QFrame,
                              QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
-                             QScrollArea, QSizePolicy)
+                             QScrollArea, QListWidget, QSizePolicy)
 import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import QThread, QTimer, Qt
 import PyQt6.QtGui as QtGui
@@ -89,6 +90,15 @@ class ExperimentGUI(QWidget):
             print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('client'))
             self.client = client.BaseClient(self.cfg)
 
+        self.ensembles = {}
+        self.ensembles['protocol'] = [] 
+        self.ensembles['preset'] = []
+        self.ensembles['object'] = []
+
+        self.current_ensemble_idx = 0
+
+        self.ensemble_started = False
+
         print('# # # # # # # # # # # # # # # #')
         
         self.initUI()
@@ -123,6 +133,10 @@ class ExperimentGUI(QWidget):
         self.protocol_tab_layout.addWidget(self.protocol_params_scroll_box)
         self.protocol_tab_layout.addWidget(self.protocol_control_box)
 
+        self.ensemble_append_button = QPushButton("Append", self)
+        self.ensemble_append_button.clicked.connect(self.on_pressed_button)
+        self.protocol_selector_grid.addWidget(self.ensemble_append_button, 1, 2)
+
         self.data_tab = QWidget()
         self.data_form = QFormLayout()
         self.data_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -133,9 +147,44 @@ class ExperimentGUI(QWidget):
         self.file_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.file_form.setLabelAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        self.ensemble_tab = QWidget()
+        self.ensemble_grid = QGridLayout()
+        self.ensemble_grid.setSpacing(10)
+        self.ensemble_tab.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
+                                                    QSizePolicy.Policy.MinimumExpanding))
+        self.ensemble_viewer = QListWidget()
+        self.ensemble_list_label = QLabel('Empty ensemble')
+        self.ensemble_tab.setLayout(self.ensemble_grid)
+        # Add to the tab
+        self.ensemble_grid.addWidget(self.ensemble_viewer, 2, 0)
+
+        # Have the list take up both columns
+        self.ensemble_grid.addWidget(self.ensemble_viewer, 3, 0, 1, 2)
+
+        # Add a button that selects an ensembles file
+        self.ensemble_file_button = QPushButton('Save ensemble')
+        self.ensemble_file_button.clicked.connect(self.on_pressed_button)
+        self.ensemble_grid.addWidget(self.ensemble_file_button, 0, 1)
+
+        self.ensemble_file_button = QPushButton('Load ensemble')
+        self.ensemble_file_button.clicked.connect(self.on_pressed_button)
+        self.ensemble_grid.addWidget(self.ensemble_file_button, 0, 0)
+
+        self.ensemble_file_button = QPushButton('Clear ensemble')
+        self.ensemble_file_button.clicked.connect(self.on_pressed_button)
+        self.ensemble_grid.addWidget(self.ensemble_file_button, 0, 2)
+
+        self.ensemble_file_label = QLabel('No ensemble loaded')
+        self.ensemble_grid.addWidget(self.ensemble_file_label, 1, 0)
+
+        self.run_ensemble_button = QPushButton("Run ensemble", self)
+        self.run_ensemble_button.clicked.connect(self.on_pressed_button)
+        self.ensemble_grid.addWidget(self.run_ensemble_button, 4,0)
+
         self.tabs.addTab(self.protocol_tab, "Main")
         self.tabs.addTab(self.data_tab, "Subject")
         self.tabs.addTab(self.file_tab, "File")
+        self.tabs.addTab(self.ensemble_tab, "Ensemble")
 
         self.tabs.resize(450, 500)
 
@@ -462,6 +511,102 @@ class ExperimentGUI(QWidget):
                 self.update_existing_subject_input()
                 self.populate_groups()
 
+        elif sender.text() == 'Append':
+            preset_name = self.parameter_preset_comboBox.currentText()
+            protocol_name = self.protocol_object.__class__.__name__
+            protocol_object = self.protocol_object
+            
+
+            start_name = self.parameter_preset_comboBox.currentText()
+            self.ensembles['protocol'].append(protocol_name)
+            self.ensembles['preset'].append(start_name)
+            self.ensembles['object'].append(protocol_object)
+
+            self.ensemble_viewer_update()
+
+        elif sender.text() == 'Run ensemble':
+            self.run_ensemble()
+        
+        elif sender.text() == 'Save ensemble':
+            # popup to get file name
+            # save ensemble to file
+
+            file_path, _= QFileDialog.getSaveFileName(self, "Save ensemble", self.data.data_directory, "Ensemble files (*.ens)")
+            # pickle the ensembles['object'] 
+            with open(file_path, 'wb') as f:
+                pickle.dump(self.ensembles, f)
+
+            print('Saved ensemble to {}'.format(file_path))
+            self.ensemble_file_label.setText(file_path)
+        
+        elif sender.text() == 'Load ensemble':
+            # Popup to get file path
+            # load ensemble from file 
+            file_path, _ = QFileDialog.getOpenFileName(self, "Open ensemble", self.data.data_directory)
+            # unpickle the ensembles['object']
+            with open(file_path, 'rb') as f:
+                self.ensembles = pickle.load(f)
+            
+            # Set label with filename
+            self.ensemble_file_label.setText(file_path)
+            self.ensemble_viewer_update()
+
+        elif sender.text() == 'Clear ensemble':
+            self.ensembles={}
+            self.ensembles['protocol'] =[]
+            self.ensembles['preset'] = []
+            self.ensembles['object'] = []
+            # Set label with filename
+            self.ensemble_file_label.setText('No ensemble selected')
+            self.ensemble_viewer_update()
+
+    def run_ensemble_item(self):
+        print('Running ensemble idx {} out of {}'.format(self.current_ensemble_idx, len(self.ensembles['protocol'])))
+        if self.current_ensemble_idx >= self.num_ensemble_items:
+            self.ensemble_started=False
+            return
+
+        current_protocol = self.ensembles['protocol'][self.current_ensemble_idx]
+        current_preset = self.ensembles['preset'][self.current_ensemble_idx]
+
+        self.protocol_object = self.ensembles['object'][self.current_ensemble_idx]
+
+        # # update display lists of run & protocol parameters
+        self.protocol_object.load_parameter_presets()
+        self.protocol_object.select_protocol_preset(name=current_preset)
+        self.protocol_object.prepare_run()
+        
+        self.ensemble_viewer_update()
+
+        if (self.data.experiment_file_exists() and self.data.current_subject_exists()):
+            self.send_run(save_metadata_flag=True, ensemble=True)
+        else:
+            self.send_run(save_metadata_flag=False, ensemble=True)
+        self.current_ensemble_idx+=1
+
+        
+    def run_ensemble(self):
+        self.ensemble_started =True
+        self.current_ensemble_idx=0
+        self.num_ensemble_items = len(self.ensemble_viewer)
+        self.run_ensemble_item()
+
+    def ensemble_viewer_update(self):
+        self.ensemble_viewer.clear()
+        if self.ensemble_started:
+            for i, (proto,name) in enumerate(zip(self.ensembles['protocol'],self.ensembles['preset'])):
+                self.ensemble_viewer.addItem(proto + ' (' + name + ')')
+                if i == self.current_ensemble_idx:
+                    self.ensemble_viewer.item(i).setForeground(QtGui.QColor("Green"))
+                else:
+                    self.ensemble_viewer.item(i).setForeground(QtGui.QColor("Black"))
+        else:
+            for i, (proto,name) in enumerate(zip(self.ensembles['protocol'],self.ensembles['preset'])):
+                self.ensemble_viewer.addItem(proto + ' (' + name + ')')
+                self.ensemble_viewer.item(i).setForeground(QtGui.QColor("Black"))
+
+
+
     def on_created_subject(self):
         # Populate subject metadata from subject data fields
         subject_metadata = {}
@@ -600,7 +745,7 @@ class ExperimentGUI(QWidget):
             else:
                 self.series_counter_input.setStyleSheet("background-color: rgb(255, 255, 255);")
 
-    def send_run(self, save_metadata_flag=True):
+    def send_run(self, save_metadata_flag=True, ensemble=False):
         # check to make sure a protocol has been selected
         if self.protocol_object.__class__.__name__ == 'BaseProtocol':
             self.status_label.setText('Select a protocol')
@@ -626,7 +771,7 @@ class ExperimentGUI(QWidget):
                                                  self.client,
                                                  save_metadata_flag)
 
-        self.run_series_thread.finished.connect(lambda: self.run_finished(save_metadata_flag))
+        self.run_series_thread.finished.connect(lambda: self.run_finished(save_metadata_flag, ensemble))
         self.run_series_thread.started.connect(lambda: self.run_started(save_metadata_flag))
 
         self.run_series_thread.start()
@@ -645,7 +790,7 @@ class ExperimentGUI(QWidget):
         self.run_start_time = time.time()
         self.progress_timer.start()
 
-    def run_finished(self, save_metadata_flag):
+    def run_finished(self, save_metadata_flag, ensemble):
         # re-enable view/record buttons
         self.view_button.setEnabled(True)
         self.record_button.setEnabled(True)
@@ -662,9 +807,12 @@ class ExperimentGUI(QWidget):
             self.data.advance_series_count()
             self.series_counter_input.setValue(self.data.get_series_count())
             self.populate_groups()
-            
+        
         # Prepare for next run
         self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
+
+        if ensemble:
+            self.run_ensemble_item()
 
     def update_parameters_from_fillable_fields(self, compute_epoch_parameters=True):
         def is_number(s):
