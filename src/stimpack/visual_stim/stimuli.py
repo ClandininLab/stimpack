@@ -112,6 +112,55 @@ class TexturedGround(BaseProgram):
     def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
         pass
 
+class CheckerboardFloor(BaseProgram):
+    def __init__(self, screen):
+        super().__init__(screen=screen)
+        self.use_texture = True
+
+    def configure(self, mean, contrast, z_level=-0.1, side_length=10, patch_width=1):
+        """
+        Grayscale Checkerboard floor.
+
+        :param mean: float, mean of the checkerboard (0-1)
+        :param contrast: float, contrast of the checkerboard (0-1)
+        :param z_level: meters, level at which the floor is on the z axis (-z is below the fly)
+        :param side_length: meters or (x, y) tuple of meters
+        """
+        self.mean = mean
+        self.contrast = contrast
+        self.patch_width = patch_width
+
+        if isinstance(side_length, tuple):
+            x_length = side_length[0]
+            y_length = side_length[1]
+        else:
+            x_length = side_length
+            y_length = side_length
+
+        v1 = (-x_length/2, -y_length/2, z_level)
+        v2 = (x_length/2, -y_length/2, z_level)
+        v3 = (x_length/2, y_length/2, z_level)
+        v4 = (-x_length/2, y_length/2, z_level)
+
+        self.stim_object = shapes.GlQuad(v1, v2, v3, v4, util.get_rgba(self.mean),
+                                        tc1=(0, 0), tc2=(1, 0), tc3=(1, 1), tc4=(0, 1),
+                                        texture_shift=(0, 0), use_texture=True)
+
+        # create the texture
+        n_patches_x = int(np.ceil(x_length / self.patch_width))
+        n_patches_y = int(np.ceil(y_length / self.patch_width))
+
+        face_colors = -np.ones((n_patches_y, n_patches_x))
+        face_colors[0::2, 0::2] = 1
+        face_colors[1::2, 1::2] = 1
+
+        # make and apply the texture
+        img = (255*(mean + contrast*mean*face_colors)).astype(np.uint8)
+        self.add_texture_gl(img, texture_interpolation='NEAREST')
+
+    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+        pass
+
 class MovingPatch(BaseProgram):
     def __init__(self, screen):
         super().__init__(screen=screen)
