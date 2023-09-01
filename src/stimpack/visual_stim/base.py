@@ -86,11 +86,11 @@ class BaseProgram:
         if self.use_texture:
             # 3 points, 9 values (3 for vert, 4 for color, 2 for tex_coords), 4 bytes per value
             self.vbo = self.ctx.buffer(reserve=self.num_tri*3*9*4)
-            self.vao = self.ctx.simple_vertex_array(self.prog, self.vbo, 'in_vert', 'in_color', 'in_tex_coord')
+            self.vao = self.ctx.vertex_array(self.prog, self.vbo, 'in_vert', 'in_color', 'in_tex_coord')
         else:
             # basic, no-texture vbo and vao:
             self.vbo = self.ctx.buffer(reserve=self.num_tri*3*7*4)  # 3 points, 7 values, 4 bytes per value
-            self.vao = self.ctx.simple_vertex_array(self.prog, self.vbo, 'in_vert', 'in_color')
+            self.vao = self.ctx.vertex_array(self.prog, self.vbo, 'in_vert', 'in_color')
 
     def add_texture_gl(self, texture_image, texture_interpolation='LINEAR'):
         # Update the texture booleans for the shader program
@@ -115,7 +115,10 @@ class BaseProgram:
         else:
             self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
 
-        self.texture.use()
+        self.prog['texture_matrix'].value = self.prog.ctx.extra['n_textures_loaded']
+        self.texture.use(self.prog.ctx.extra['n_textures_loaded'])
+
+        self.prog.ctx.extra['n_textures_loaded'] += 1
 
     def update_texture_gl(self, texture_image):
         self.texture.write(data=texture_image.tobytes())
