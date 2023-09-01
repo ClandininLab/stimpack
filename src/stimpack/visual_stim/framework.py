@@ -98,6 +98,10 @@ class StimDisplay(QOpenGLWidget):
         self.ctx.enable(moderngl.BLEND) # enable alpha blending
         self.ctx.enable(moderngl.DEPTH_TEST) # enable depth test
 
+        # Initialize attribute storage for the context
+        self.ctx.extra = {}
+        self.ctx.extra['n_textures_loaded'] = 0
+
         # clear the whole screen
         self.clear_viewports(color=(0, 0, 0, 1), viewports=None)
 
@@ -274,6 +278,7 @@ class StimDisplay(QOpenGLWidget):
         """
         # clear texture
         self.ctx.clear_samplers()
+        self.ctx.extra['n_textures_loaded'] = 0
 
         # clear the viewports
         self.clear_viewports_flag = True
