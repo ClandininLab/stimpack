@@ -119,7 +119,6 @@ class BaseProgram:
         self.texture.use(self.prog.ctx.extra['n_textures_loaded'])
 
         self.prog.ctx.extra['n_textures_loaded'] += 1
-        print('n_textures_loaded: ', self.prog.ctx.extra['n_textures_loaded'])
 
     def update_texture_gl(self, texture_image):
         self.texture.write(data=texture_image.tobytes())
