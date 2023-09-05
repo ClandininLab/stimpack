@@ -1,12 +1,33 @@
 # StimPack
-Suite for experiments involving various types of stimuli, such as visual and optogenetic.
+Open-source, neuroscience-forward suite for precise stimulus presentation
 
-## Getting started
+### I. What is it?
 
-Install using `pip install -e .`
+### II. Requirements
 
-Then start the experiment GUI with `stimpack` in command line.
+### III. Installation
 
-When you first run stimpack, before configuring it, the experimental control window will pop up alongside a small stimulus presentation screen.
+### IV. Example Working System
+#####  IVa. Setup computer
+- Install Ubuntu 22.04 on a fresh computer
+- Check whether you are running Wayland or Xorg
+  - Go to Settings>About and look at the Window Manager
+  - If Wayland, log out, and log backin using Gnome Xorg
+-  `sudo apt-get update && sudo apt-get install python3.10-virtualenv`
+- Make a virtualenv `python3 -m venv (your virtualenvironment path here)`
+- `source (your virtualenvironment path here)/bin/activate`
 
-This includes very limited animal metadata options and only a couple very basic visual stimulus protocols, and stimuli are rendered into that small display window. To configure and extend stimpack, check out the [wiki](https://github.com/ClandininLab/stimpack/wiki).
+#####  IVb. Install stimulus packages
+- Download `github.com/clandininlab/stimpack` locally
+- In the terminal, `cd /(your install path here)/stimpack` and install stimpack
+- `pip3 install .` 
+- `stimpack`
+>[~NOTE]
+> If you receive an error referencing "xcb", try the following:
+> `sudo apt-get upgrade && sudo apt-get update && sudo apt-get install -y libxcb-cursor-dev`
+> `stimpack`
+
+#####  IVc. Setup `labpack` directory
+**Next, download `github.com/clandininlab/labpack` and use it as a starting-point for your own custom stimpack suite**
+
+### V. Labpack
