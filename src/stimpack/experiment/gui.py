@@ -292,12 +292,12 @@ class ExperimentGUI(QWidget):
         self.ensemble_list_grid.addWidget(self.ensemble_list_scroll_area, 1, 0, 5, 1)
         
         # Load ensemble preset file button
-        self.ensemble_load_preset_button = QPushButton('Load preset')
+        self.ensemble_load_preset_button = QPushButton('Load ensemble')
         self.ensemble_load_preset_button.clicked.connect(self.on_pressed_button_ensemble)
         self.ensemble_list_grid.addWidget(self.ensemble_load_preset_button, 1, 1)
 
         # Save ensemble preset file button
-        self.ensemble_save_preset_button = QPushButton('Save preset')
+        self.ensemble_save_preset_button = QPushButton('Save ensemble')
         self.ensemble_save_preset_button.clicked.connect(self.on_pressed_button_ensemble)
         self.ensemble_list_grid.addWidget(self.ensemble_save_preset_button, 2, 1)
 
@@ -624,10 +624,10 @@ class ExperimentGUI(QWidget):
             self.ensemble_running = False
             self.ensemble_list.update_UI(self.ensemble_running)
 
-        elif sender.text() == 'Save preset':
+        elif sender.text() == 'Save ensemble':
             self.save_ensemble_preset()
         
-        elif sender.text() == 'Load preset':
+        elif sender.text() == 'Load ensemble':
             self.load_ensemble_preset()
             
         elif sender.text() == 'Remove item':
