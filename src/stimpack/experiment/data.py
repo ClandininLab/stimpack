@@ -254,9 +254,12 @@ def hdf5ify_parameter(value):
             value = value.astype('float')
     if type(value) is list:
         new_value = [hdf5ify_parameter(x) for x in value]
-        try:
-            value = np.array(new_value)
-        except ValueError:
-            value = str(value)
+        if any([type(x) is str for x in new_value]):
+            value = new_value
+        else:
+            try:
+                value = np.array(new_value)
+            except ValueError:
+                value = str(value)
 
     return value
