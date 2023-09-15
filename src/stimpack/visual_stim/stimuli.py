@@ -1236,5 +1236,6 @@ class PixMap(TexturedCylinder):
         self.update_texture_gl(frame)
 
     def destroy(self):
+        super().destroy()
         self.existing_shm.close()
 
