@@ -385,7 +385,9 @@ class GlCylinder(GlVertices):
                  n_faces=32,
                  alpha_by_face=None,
                  texture=False,
-                 texture_shift=(0, 0)):  # (u,v) coordinates to translate texture on shape. + is right, up.
+                 texture_shift=(0, 0), # (u,v) coordinates to translate texture on shape. + is right, up.
+                 n_texture_repeat_x=1, # number of times the texture is repeated along the x axis of the texture
+                 n_texture_repeat_y=1):  
 
         super().__init__()
         color = util.get_rgba(color)
@@ -405,10 +407,10 @@ class GlCylinder(GlVertices):
 
             if texture:
                 self.add(GlQuad(v1, v2, v3, v4, new_color,
-                                tc1=(face/n_faces, 1),
-                                tc2=(face/n_faces, 0),
-                                tc3=((face+1)/n_faces, 0),
-                                tc4=((face+1)/n_faces, 1),
+                                tc1=(face/n_faces*n_texture_repeat_x, n_texture_repeat_y),
+                                tc2=(face/n_faces*n_texture_repeat_x, 0),
+                                tc3=((face+1)/n_faces*n_texture_repeat_x, 0),
+                                tc4=((face+1)/n_faces*n_texture_repeat_x, n_texture_repeat_y),
                                 texture_shift=texture_shift,
                                 use_texture=True).translate(cylinder_location))
             else:
