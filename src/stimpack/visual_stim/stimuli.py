@@ -142,20 +142,22 @@ class CheckerboardFloor(BaseProgram):
         v3 = (x_length/2, y_length/2, z_level)
         v4 = (-x_length/2, y_length/2, z_level)
 
-        self.stim_object = shapes.GlQuad(v1, v2, v3, v4, util.get_rgba(self.mean),
-                                        tc1=(0, 0), tc2=(1, 0), tc3=(1, 1), tc4=(0, 1),
+        # each texture patch is 2x2 checkerboard patches
+        n_texture_patches_x = x_length / (self.patch_width * 2)
+        n_texture_patches_y = y_length / (self.patch_width * 2)
+        
+        tc1 = (0,                   0)
+        tc2 = (n_texture_patches_x, 0)
+        tc3 = (n_texture_patches_x, n_texture_patches_y)
+        tc4 = (0,                   n_texture_patches_y)
+
+        self.stim_object = shapes.GlQuad(v1, v2, v3, v4, (1,1,1,1),
+                                        tc1=tc1, tc2=tc2, tc3=tc3, tc4=tc4,
                                         texture_shift=(0, 0), use_texture=True)
 
-        # create the texture
-        n_patches_x = int(np.ceil(x_length / self.patch_width))
-        n_patches_y = int(np.ceil(y_length / self.patch_width))
-
-        face_colors = -np.ones((n_patches_y, n_patches_x))
-        face_colors[0::2, 0::2] = 1
-        face_colors[1::2, 1::2] = 1
-
         # make and apply the texture
-        img = (255*(mean + contrast*mean*face_colors)).astype(np.uint8)
+        texture_patch = np.array([[1, -1], [-1, 1]]) # 2x2 checkerboard patch
+        img = (255*(mean + contrast*mean*texture_patch)).astype(np.uint8)
         self.add_texture_gl(img, texture_interpolation='NEAREST')
 
     def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
@@ -571,7 +573,7 @@ class TexturedCylinder(BaseProgram):
         # overwrite in subclass
         pass
 
-class FixedCylindricalGrating(TexturedCylinder):
+class CylindricalGrating(TexturedCylinder):
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -586,8 +588,8 @@ class FixedCylindricalGrating(TexturedCylinder):
         :param contrast: Weber contrast of grating texture
         :param offset: phase offset of grating texture, degrees
         :param profile: 'sine' or 'square'; spatial profile of grating texture
-        :param n_steps_x: number of steps in x direction to draw the texture
-        :param n_steps_y: number of steps in y direction to draw the texture
+        :param n_steps_x: number of steps in x direction to draw the texture (approximate; lowerbound)
+        :param n_steps_y: number of steps in y direction to draw the texture (approximate; lowerbound)
 
         :params color, cylinder_radius, cylinder_height, theta, phi, angle: see parent class
         *Any of these params except cylinder_radius, cylinder_height, profile, n_steps_x, and n_steps_y can be passed as a trajectory dict to vary as a function of time
@@ -600,167 +602,124 @@ class FixedCylindricalGrating(TexturedCylinder):
         self.offset = offset
         self.grating_angle = grating_angle
         self.profile = profile
-        self.period = period
-
-        # Only renders part of the cylinder if the period is not a divisor of 360
-        n_cycles = np.floor(360/self.period)
-        self.cylinder_angular_extent = n_cycles * self.period
 
         t = 0
         theta = return_for_time_t(self.theta, t)
         phi = return_for_time_t(self.phi, t)
         angle = return_for_time_t(self.angle, t)
 
-        self.stim_object = shapes.GlCylinder(cylinder_height=self.cylinder_height,
-                                            cylinder_radius=self.cylinder_radius,
-                                            cylinder_angular_extent=self.cylinder_angular_extent,
-                                            color=[1, 1, 1, 1],
-                                            texture=True).rotate(np.radians(theta), np.radians(phi), np.radians(angle)).translate(self.cylinder_location)
+        circumference = 2*np.pi*self.cylinder_radius
+        cylinder_y_x_ratio = self.cylinder_height / circumference # ratio of y extent to x extent of cylinder
+        cylinder_x_angular_extent_rad = 2 * np.pi # angular extent of cylinder in x direction
+        cylinder_y_angulear_extent_rad = cylinder_y_x_ratio * cylinder_x_angular_extent_rad # angular extent of cylinder in y direction 
 
         # make the texture image
-        sf = 1/np.radians(self.period)  # spatial frequency
-        circumference = 2*np.pi*self.cylinder_radius
-        xx_extent = self.cylinder_angular_extent / 360 * circumference
-        yy_angular_equiv = self.cylinder_height / xx_extent * self.cylinder_angular_extent
 
-        xx = np.linspace(0, np.radians(self.cylinder_angular_extent), n_steps_x)
+        # If the grating is parallel to the cylinder axis:
+        #    Define the 1-cycle texture in the x direction, then repeat it along x direction and stretch it out in the y direction
+        #    Grating period is in the x direction. 
+        #    If the period is not a divisor of 360, then the grating will have a seam.
+        if np.isclose(np.mod(self.grating_angle, 180), 0.0):
+            patch_x_angular_extent_rad = 2 * np.pi # angular extent of patch in x direction
+            period_x_rad = np.radians(self.period)
+            n_patches_x = cylinder_x_angular_extent_rad / period_x_rad
+            n_patches_y = 1 # placeholder
+            n_steps_x_per_patch = int(np.ceil(n_steps_x / n_patches_x))
+            xx_patch = np.linspace(0, patch_x_angular_extent_rad, n_steps_x_per_patch, endpoint=False)
 
-        if np.isclose(np.mod(self.grating_angle, 180), 0.0): # If the grating is parallel to the cylinder axis
-            img = np.sin(np.radians(offset) + sf*2*np.pi*xx)  # [-1, 1]
-            if self.profile == 'square':
-                img[img >= 0] = 1
-                img[img < 0] = -1
+            img = np.sin(np.radians(offset) + xx_patch)
 
-            if np.isclose(np.mod(self.grating_angle, 360), 0.0):
-                img = 255*(mean + contrast*mean*img)  # shift/scale from [-1,1] to mean and contrast and scale to [0,255] for uint8
-            else:
-                img = 255*(mean + contrast*mean*-img)
-
-            img = np.expand_dims(img, axis=0).astype(np.uint8)  # pass as x by 1, gets stretched out by shader
-        
-        elif np.isclose(np.mod(self.grating_angle, 180), 90.0): # If the grating is orthogonal to the cylinder axis
-            yy = np.linspace(0, np.radians(yy_angular_equiv), n_steps_y)
-
-            img = np.sin(np.radians(offset) + sf*2*np.pi*yy)  # [-1, 1]
-            if self.profile == 'square':
-                img[img >= 0] = 1
-                img[img < 0] = -1
-
-            if np.isclose(np.mod(self.grating_angle, 360), 90.0):
-                img = 255*(mean + contrast*mean*img)  # shift/scale from [-1,1] to mean and contrast and scale to [0,255] for uint8
-            else:
-                img = 255*(mean + contrast*mean*-img)
-
-            img = np.expand_dims(img, axis=1).astype(np.uint8) # pass as 1 by y, gets stretched out by shader
-        
-        else:
-            yy = np.linspace(0, np.radians(yy_angular_equiv), n_steps_y)
+            if np.isclose(np.mod(self.grating_angle, 360), 180.0): # If grating angle is 180, flip the image
+                img = np.flip(img, axis=0)
             
-            img = np.zeros((n_steps_y, n_steps_x))
-            cos_angle = np.cos(np.radians(self.grating_angle))
-            sin_angle = np.sin(np.radians(self.grating_angle))
-            for i in range(n_steps_x):
-                for j in range(n_steps_y):
-                    x_rot = xx[i]*cos_angle - yy[j]*sin_angle
-                    # x_rot = i*sin_angle - j*cos_angle
-                    img[j,i] = np.sin(np.radians(offset) + sf*2*np.pi*x_rot)
+            img = np.expand_dims(img, axis=0)  # pass as x by 1, gets stretched out by shader
+        
+        # If the grating is orthogonal to the cylinder axis:
+        #    Define the 1-cycle texture in the y direction, then repeat it along y direction and stretch it out in the x direction
+        #    Grating period is defined relative to the cylinder full angle (360 degrees) and circumference.
+        #    i.e. for a tower with a circumference of 1m, a period of 60 degrees will correspond to 1/6 m height.
+        elif np.isclose(np.mod(self.grating_angle, 180), 90.0): 
+            patch_y_angular_extent_rad = 2 * np.pi # angular extent of patch in y direction
+            period_y_rad = np.radians(self.period)
+            n_patches_x = 1 # placeholder
+            n_patches_y = cylinder_y_angulear_extent_rad / period_y_rad
+            n_steps_y_per_patch = int(np.ceil(n_steps_y / n_patches_y))
+            yy_patch = np.linspace(0, patch_y_angular_extent_rad, n_steps_y_per_patch, endpoint=False)
+            
+            img = np.sin(np.radians(offset) + yy_patch)
 
-            if self.profile == 'square':
-                img[img >= 0] = 1
-                img[img < 0] = -1
-            img = (255*(mean + contrast*mean*img)).astype(np.uint8)
+            if np.isclose(np.mod(self.grating_angle, 360), 270.0): # If grating angle is 270, flip the image
+                img = np.flip(img, axis=0)
+            
+            img = np.expand_dims(img, axis=1)  # pass as 1 by y, gets stretched out by shader
+        
+        # If the grating is at an angle to the cylinder axis:
+        #    Each cycle of the grating is sheared by the grating angle, 
+        #       such that along the x axis, the period is the same as if the grating were parallel to the cylinder axis
+        #    The texture is a 2D patch, where the x axis is one cycle of the grating, and y = x / tan(grating_angle).
+        #    The texture is then repeated along x and y directions by appropriate amounts to cover the cylinder.
+        else:
+            tangent_angle = np.tan(np.radians(self.grating_angle))
+            patch_x_y_ratio = np.abs(tangent_angle) # ratio of x extent to y extent of patch
 
-        if self.profile == 'sine':
-            self.add_texture_gl(img, texture_interpolation='LINEAR')
-        elif self.profile == 'square':
-            self.add_texture_gl(img, texture_interpolation='NEAREST')
+            patch_x_angular_extent_rad = 2 * np.pi # angular extent of patch in x direction
+            patch_y_angular_extent_rad = patch_x_angular_extent_rad / patch_x_y_ratio # angular extent of patch in y direction
+
+            period_x_rad = np.radians(self.period)
+            period_y_rad = period_x_rad / patch_x_y_ratio
+
+            n_patches_x = cylinder_x_angular_extent_rad / period_x_rad
+            n_patches_y = cylinder_y_angulear_extent_rad / period_y_rad
+
+            if n_patches_y < 1:
+                patch_y_angular_extent_rad *= n_patches_y
+                n_patches_y = 1
+            
+            # number of steps in one patch of the texture
+            n_steps_x_per_patch = int(np.ceil(n_steps_x / n_patches_x))
+            n_steps_y_per_patch = int(np.ceil(n_steps_y / n_patches_y))
+
+            xx_patch = np.linspace(0, patch_x_angular_extent_rad, n_steps_x_per_patch, endpoint=False)
+            yy_patch = np.linspace(0, patch_y_angular_extent_rad, n_steps_y_per_patch, endpoint=False)
+                
+            img = np.zeros((n_steps_y_per_patch, n_steps_x_per_patch))
+            for i in range(n_steps_x_per_patch):
+                for j in range(n_steps_y_per_patch):
+                    x_rot = xx_patch[i] + yy_patch[j]*tangent_angle
+                    img[j,i] = np.sin(np.radians(offset) + x_rot)
+
+        if self.profile == 'square':
+            img[img >= 0] = 1
+            img[img < 0] = -1
+        img = (255*(mean + contrast*mean*img)).astype(np.uint8)
+
+        texture_interpolation = 'LINEAR' if self.profile == 'sine' else 'NEAREST'
+
+        self.add_texture_gl(img, texture_interpolation=texture_interpolation)
+
+        self.stim_object = shapes.GlCylinder(cylinder_height=self.cylinder_height,
+                                            cylinder_radius=self.cylinder_radius,
+                                            cylinder_angular_extent=360.0,
+                                            color=[1, 1, 1, 1],
+                                            texture=True,
+                                            n_texture_repeat_x=n_patches_x,
+                                            n_texture_repeat_y=n_patches_y
+                                        ).rotate(np.radians(theta), np.radians(phi), np.radians(angle)
+                                        ).translate(self.cylinder_location)
+        
+        self.n_patches_x = n_patches_x
+        self.n_patches_y = n_patches_y
 
     def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
         pass
-
-class CylindricalGrating(TexturedCylinder):
-    def __init__(self, screen):
-        super().__init__(screen=screen)
-
-    def configure(self, period=20, mean=0.5, contrast=1.0, offset=0.0, profile='sine',
-                  color=[1, 1, 1, 1], cylinder_radius=1, cylinder_location=(0,0,0), cylinder_height=10, theta=0, phi=0, angle=0.0):
-        """
-        Grating texture painted on a cylinder.
-
-        :param period: spatial period, degrees
-        :param mean: mean intensity of grating texture
-        :param contrast: Weber contrast of grating texture
-        :param offset: phase offset of grating texture, degrees
-        :param profile: 'sine' or 'square'; spatial profile of grating texture
-
-        :params color, cylinder_radius, cylinder_height, theta, phi, angle: see parent class
-        *Any of these params except cylinder_radius, cylinder_height and profile can be passed as a trajectory dict to vary as a function of time
-        """
-        super().configure(color=color, cylinder_radius=cylinder_radius, cylinder_location=cylinder_location, cylinder_height=cylinder_height, theta=theta, phi=phi, angle=angle)
-
-        self.period = period
-        self.mean = mean
-        self.contrast = contrast
-        self.offset = offset
-        self.profile = profile
-        self.period = period
-
-        # Only renders part of the cylinder if the period is not a divisor of 360
-        n_cycles = np.floor(360/self.period)
-        self.cylinder_angular_extent = n_cycles * self.period
-
-        t = 0
-        theta = return_for_time_t(self.theta, t)
-        phi = return_for_time_t(self.phi, t)
-        angle = return_for_time_t(self.angle, t)
-
-        self.stim_object = shapes.GlCylinder(cylinder_height=self.cylinder_height,
-                                            cylinder_radius=self.cylinder_radius,
-                                            cylinder_angular_extent=self.cylinder_angular_extent,
-                                            color=[1, 1, 1, 1],
-                                            texture=True).rotate(np.radians(theta), np.radians(phi), np.radians(angle)).translate(self.cylinder_location)
-
-        self.mean = make_as_trajectory(mean)
-        self.contrast = make_as_trajectory(contrast)
-        self.offset = make_as_trajectory(offset)
-
-        img = np.zeros((1, 512)).astype(np.uint8)
-        if self.profile == 'sine':
-            self.add_texture_gl(img, texture_interpolation='LINEAR')
-        elif self.profile == 'square':
-            self.add_texture_gl(img, texture_interpolation='NEAREST')
-
-        self.updateTexture(return_for_time_t(self.mean, 0), return_for_time_t(self.contrast, 0), return_for_time_t(self.offset, 0))
-
-    def updateTexture(self, mean, contrast, offset):
-        # make the texture image
-        sf = 1/np.radians(self.period)  # spatial frequency
-        xx = np.linspace(0, np.radians(self.cylinder_angular_extent), 512)
-
-        if self.profile == 'sine':
-            yy = np.sin(np.radians(offset) + sf*2*np.pi*xx)  # [-1, 1]
-        elif self.profile == 'square':
-            yy = np.sin(np.radians(offset) + sf*2*np.pi*xx)
-            yy[yy >= 0] = 1
-            yy[yy < 0] = -1
-
-        yy = 255*(mean + contrast*mean*yy)  # shift/scale from [-1,1] to mean and contrast and scale to [0,255] for uint8
-        img = np.expand_dims(yy, axis=0).astype(np.uint8)  # pass as x by 1, gets stretched out by shader
-        self.update_texture_gl(img)
-
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
-        mean = return_for_time_t(self.mean, t)
-        contrast = return_for_time_t(self.contrast, t)
-        offset = return_for_time_t(self.offset, t)
-
-        self.updateTexture(mean, contrast, offset)
 
 class RotatingGrating(CylindricalGrating):
     def __init__(self, screen):
         super().__init__(screen=screen)
 
-    def configure(self, rate=10, hold_duration=0, period=20, mean=0.5, contrast=1.0, offset=0.0, profile='square',
-                  color=[1, 1, 1, 1], alpha_by_face=None, cylinder_radius=1, cylinder_location=(0,0,0), cylinder_height=10, theta=0, phi=0, angle=0):
+    def configure(self, rate=10, hold_duration = 0, period=20, mean=0.5, contrast=1.0, offset=0.0, grating_angle=0.0, profile='sine',
+                  color=[1, 1, 1, 1], cylinder_radius=1, cylinder_location=(0,0,0), cylinder_height=10, theta=0, phi=0, angle=0.0,
+                  n_steps_x=512, n_steps_y=512):
         """
         Subclass of CylindricalGrating that rotates the grating along the varying axis of the grating.
 
@@ -771,25 +730,17 @@ class RotatingGrating(CylindricalGrating):
         :param hold_duration: duration for which the initial image is held (seconds)
         :other params: see CylindricalGrating, TexturedCylinder
         """
-        super().configure(period=period, mean=mean, contrast=contrast, offset=offset, profile=profile,
-                          color=color, cylinder_radius=cylinder_radius, cylinder_location=cylinder_location, cylinder_height=cylinder_height, theta=theta, phi=phi, angle=angle)
+        super().configure(period=period, mean=mean, contrast=contrast, offset=offset, grating_angle=grating_angle, profile=profile,
+                          color=color, cylinder_radius=cylinder_radius, cylinder_location=cylinder_location, cylinder_height=cylinder_height,
+                          theta=theta, phi=phi, angle=angle, n_steps_x=n_steps_x, n_steps_y=n_steps_y)
+
         self.rate = make_as_trajectory(rate)
         self.hold_duration = hold_duration
-        self.alpha_by_face = alpha_by_face
-        if self.alpha_by_face is None:
-            self.n_faces = 32
-        else:
-            self.n_faces = len(self.alpha_by_face)
-        self.updateTexture(mean=mean, contrast=contrast, offset=offset)
 
-        self.stim_object_template = shapes.GlCylinder(cylinder_height=self.cylinder_height,
-                                                    cylinder_radius=self.cylinder_radius,
-                                                    cylinder_location=self.cylinder_location,
-                                                    cylinder_angular_extent=self.cylinder_angular_extent,
-                                                    color=self.color,
-                                                    alpha_by_face=self.alpha_by_face,
-                                                    n_faces=self.n_faces,
-                                                    texture=True)
+        self.theta_prev = return_for_time_t(self.theta, 0)
+        self.phi_prev = return_for_time_t(self.phi, 0)
+        self.angle_prev = return_for_time_t(self.angle, 0)
+        self.t_prev = 0
 
     def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
         theta = return_for_time_t(self.theta, t)
@@ -797,8 +748,22 @@ class RotatingGrating(CylindricalGrating):
         angle = return_for_time_t(self.angle, t)
         rate = return_for_time_t(self.rate, t)
 
-        shift_u = max(t - self.hold_duration, 0) * rate/self.cylinder_angular_extent
-        self.stim_object = copy.copy(self.stim_object_template).shift_texture((shift_u, 0)).rotate(np.radians(theta), np.radians(phi), np.radians(angle))
+        if t < self.hold_duration:
+            grating_rotation_dt = 0
+            self.t_prev = self.hold_duration
+        else:
+            grating_rotation_dt = rate * (t - self.t_prev)
+            self.t_prev = t
+
+        shift_u = grating_rotation_dt / self.period
+        self.stim_object = self.stim_object.translate((-self.cylinder_location[0], -self.cylinder_location[1], -self.cylinder_location[2])
+                                            ).rotate(np.radians(theta - self.theta_prev), np.radians(phi - self.phi_prev), np.radians(angle - self.angle_prev)
+                                            ).translate(self.cylinder_location
+                                            ).shift_texture((shift_u, 0)
+                                            )
+        self.theta_prev = theta
+        self.phi_prev = phi
+        self.angle_prev = angle
 
 class ExpandingEdges(TexturedCylinder):
     def __init__(self, screen):
