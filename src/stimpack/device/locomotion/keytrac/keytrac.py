@@ -4,7 +4,7 @@ import time
 import signal
 import numpy as np
 import os
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
 from PyQt6.QtGui import QPixmap
 
@@ -15,10 +15,11 @@ LOCAL_HOST = '127.0.0.1'  # Change this to the receiver's IP address
 DEFAULT_PORT = 33335  # Change this to the receiver's port
 
 class KeyTrac(QMainWindow):
-    def __init__(self, host=LOCAL_HOST, port=DEFAULT_PORT):
+    def __init__(self, host=LOCAL_HOST, port=DEFAULT_PORT, relative_control=False):
         super().__init__()
         self.host = host
         self.port = port
+        self.relative_control = relative_control
 
         # Create a socket and connect to the receiver
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP
@@ -28,9 +29,16 @@ class KeyTrac(QMainWindow):
 
         self.key_count = 0
         self.pos = {"x": 0, "y": 0, "z":0, "theta": 0}
-        self.step = {"x": 0.01, "y": 0.01, "z":0.01, "theta": np.pi/16} # in m and radians
+        if self.relative_control:
+            self.step = {"forward": 0.01, "right": 0.01, "up":0.01, "theta": np.pi/16} # in m and radians
+        else:
+            self.step = {"x": 0.01, "y": 0.01, "z":0.01, "theta": np.pi/16} # in m and radians
 
         self.initUI()
+
+        # Send meaningless message to initialize the connection
+        message = self.construct_state_message(key_description=None)
+        self.send_message(message)
 
     def initUI(self):
         # self.setGeometry(100, 100, 400, 300)
@@ -50,58 +58,118 @@ class KeyTrac(QMainWindow):
             label.setScaledContents(True)  # Allow the image to be scaled when resizing
             layout.addWidget(label)
     
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Left:
-            key_pressed = "left: theta step /= 2"
+    def handle_key_absolute_control(self, key):
+        if key == Qt.Key.Key_Left:
+            key_description = "left: theta step /= 2"
             self.step["theta"] /= 2
-        elif event.key() == Qt.Key.Key_Right:
-            key_pressed = "right: theta step *= 2"
+        elif key == Qt.Key.Key_Right:
+            key_description = "right: theta step *= 2"
             self.step["theta"] *= 2
-        elif event.key() == Qt.Key.Key_Up:
-            key_pressed = "up: xyz step *= 2"
+        elif key == Qt.Key.Key_Up:
+            key_description = "up: xyz step *= 2"
             self.step["x"] *= 2
             self.step["y"] *= 2
             self.step["z"] *= 2
-        elif event.key() == Qt.Key.Key_Down:
-            key_pressed = "down: xyz step /= 2"
+        elif key == Qt.Key.Key_Down:
+            key_description = "down: xyz step /= 2"
             self.step["x"] /= 2
             self.step["y"] /= 2
             self.step["z"] /= 2
-        elif event.key() == Qt.Key.Key_PageUp:
-            key_pressed = "pageup: up"
+        elif key == Qt.Key.Key_PageUp:
+            key_description = "pageup: z+"
             self.pos["z"] += self.step["z"]
-        elif event.key() == Qt.Key.Key_PageDown:
-            key_pressed = "pagedown: down"
+        elif key == Qt.Key.Key_PageDown:
+            key_description = "pagedown: z-"
             self.pos["z"] -= self.step["z"]
-        elif event.key() == Qt.Key.Key_W:
-            key_pressed = "W: forward"
+        elif key == Qt.Key.Key_W:
+            key_description = "W: y+"
             self.pos["y"] += self.step["y"]
-        elif event.key() == Qt.Key.Key_S:
-            key_pressed = "S: backward"
+        elif key == Qt.Key.Key_S:
+            key_description = "S: y-"
             self.pos["y"] -= self.step["y"]
-        elif event.key() == Qt.Key.Key_A:
-            key_pressed = "A: left"
+        elif key == Qt.Key.Key_A:
+            key_description = "A: x-"
             self.pos["x"] -= self.step["x"]
-        elif event.key() == Qt.Key.Key_D:
-            key_pressed = "D: right"
+        elif key == Qt.Key.Key_D:
+            key_description = "D: x+"
             self.pos["x"] += self.step["x"]
-        elif event.key() == Qt.Key.Key_Q:
-            key_pressed = "Q: turn left"
+        elif key == Qt.Key.Key_Q:
+            key_description = "Q: theta+"
             self.pos["theta"] += self.step["theta"]
-        elif event.key() == Qt.Key.Key_E:
-            key_pressed = "E: turn right"
+        elif key == Qt.Key.Key_E:
+            key_description = "E: theta-"
             self.pos["theta"] -= self.step["theta"]
         else:
+            print(f"Key {key} not recognized.")
             return
 
         self.key_count += 1
-        timestamp = time.time()
 
-        message = f"KT, {self.key_count}, {key_pressed}, " + \
+        return key_description
+    
+    def handle_key_relative_control(self, key):
+        if key == Qt.Key.Key_Left:
+            key_description = "left: theta step /= 2"
+            self.step["theta"] /= 2
+        elif key == Qt.Key.Key_Right:
+            key_description = "right: theta step *= 2"
+            self.step["theta"] *= 2
+        elif key == Qt.Key.Key_Up:
+            key_description = "up: xyz step *= 2"
+            self.step["x"] *= 2
+            self.step["y"] *= 2
+            self.step["z"] *= 2
+        elif key == Qt.Key.Key_Down:
+            key_description = "down: xyz step /= 2"
+            self.step["x"] /= 2
+            self.step["y"] /= 2
+            self.step["z"] /= 2
+        elif key == Qt.Key.Key_PageUp:
+            key_description = "pageup: up"
+            self.pos["z"] += self.step["up"]
+        elif key == Qt.Key.Key_PageDown:
+            key_description = "pagedown: down"
+            self.pos["z"] -= self.step["up"]
+        elif key == Qt.Key.Key_W:
+            key_description = "W: forward"
+            self.pos["x"] -= self.step["forward"] * np.sin(self.pos["theta"])
+            self.pos["y"] += self.step["forward"] * np.cos(self.pos["theta"])
+        elif key == Qt.Key.Key_S:
+            key_description = "S: backward"
+            self.pos["x"] += self.step["forward"] * np.sin(self.pos["theta"])
+            self.pos["y"] -= self.step["forward"] * np.cos(self.pos["theta"])
+        elif key == Qt.Key.Key_A:
+            key_description = "A: left"
+            self.pos["x"] -= self.step["right"] * np.cos(self.pos["theta"])
+            self.pos["y"] -= self.step["right"] * np.sin(self.pos["theta"])
+        elif key == Qt.Key.Key_D:
+            key_description = "D: right"
+            self.pos["x"] += self.step["right"] * np.cos(self.pos["theta"])
+            self.pos["y"] += self.step["right"] * np.sin(self.pos["theta"])
+        elif key == Qt.Key.Key_Q:
+            key_description = "Q: turn left"
+            self.pos["theta"] += self.step["theta"]
+        elif key == Qt.Key.Key_E:
+            key_description = "E: turn right"
+            self.pos["theta"] -= self.step["theta"]
+        else:
+            print(f"Key {key} not recognized.")
+            return
+
+        self.key_count += 1
+
+        return key_description
+
+    def construct_state_message(self, key_description=None):
+        if key_description is None:
+            key_description = "No key pressed"
+        timestamp = time.time()
+        message = f"KT, {self.key_count}, {key_description}, " + \
                     f"{self.pos['x']}, {self.pos['y']}, {self.pos['z']}, {self.pos['theta']}, " + \
                     f"{timestamp}\n"
+        return message
 
-        # Send the key press information
+    def send_message(self, message):
         try:
             self.sock.sendto(message.encode(), (self.host, self.port)) # UDP
         except:
@@ -109,17 +177,31 @@ class KeyTrac(QMainWindow):
             return
         # self.sock.sendall(message.encode()) # TCP
 
-        print(f"Pressed {key_pressed}")
+    def keyPressEvent(self, event):
+        if self.relative_control:
+            key_description = self.handle_key_relative_control(event.key())
+        else:
+            key_description = self.handle_key_absolute_control(event.key())
+        
+        # Send the key press description and the current position
+        message = self.construct_state_message(key_description)
+        self.send_message(message)
+
+        print(f"Pressed {key_description}")
         print(f"Current position: {self.pos}")
         print(f"Current step size: {self.step}")
+
 
     def closeEvent(self, event):
         # Close the socket
         print("Closing socket...")
         self.sock.close()
     
-def sigint_handler(signal, frame):
-    sys.exit(0)
+    def sigint_handler(self, signal, frame):
+        print("Ctrl+C pressed.")
+        self.closeEvent(None)
+        print("Exiting...")
+        sys.exit(0)
 
 def main():
     host = LOCAL_HOST
@@ -134,8 +216,13 @@ def main():
     window.show()
 
     # Set up a SIGINT (Ctrl+C) signal handler
-    # signal.signal(signal.SIGINT, sigint_handler)
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.signal(signal.SIGINT, window.sigint_handler)
+    # signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    # Create a QTimer to periodically trigger an event in the event loop, so Ctrl+C can be handled
+    timer = QTimer()
+    timer.timeout.connect(lambda: None)  # Empty lambda function
+    timer.start(1000)
 
     sys.exit(app.exec())
 
