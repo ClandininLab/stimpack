@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
 from time import sleep
 import posixpath
 from PyQt6.QtWidgets import QApplication
@@ -10,7 +11,8 @@ from stimpack.visual_stim.screen import Screen
 from stimpack.experiment.server import BaseServer
 from stimpack.experiment.util import config_tools
 from stimpack.device import daq
-from stimpack.device.keytrac_managers import KeytracClosedLoopManager
+from stimpack.device.locomotion.loco_managers.keytrac_managers import KeytracClosedLoopManager
+from stimpack.util import ROOT_DIR
 
 class BaseClient():
     def __init__(self, cfg):
@@ -39,7 +41,7 @@ class BaseClient():
                 'host':          '127.0.0.1',
                 'port':           33335,
                 'python_bin':    'python',
-                'kt_py_fn':      'keytrac.py',
+                'kt_py_fn':      os.path.join(ROOT_DIR, "device/locomotion/keytrac/keytrac.py"),
             }
             server = BaseServer(screens=[aux_screen], port=None, start_loop=True, loco_class=loco_class, loco_kwargs=loco_kwargs)
             self.manager = MySocketClient(host=server.host, port=server.port)

@@ -1,11 +1,14 @@
 import sys
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
-from PyQt6.QtGui import QPixmap
 import socket
 import time
 import signal
 import numpy as np
+import os
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtGui import QPixmap
+
+from stimpack.util import ROOT_DIR
 
 # Define the host and port for the receiver
 LOCAL_HOST = '127.0.0.1'  # Change this to the receiver's IP address
@@ -39,7 +42,7 @@ class KeyTrac(QMainWindow):
         layout = QVBoxLayout(central_widget)
 
         # Load an image using QPixmap
-        pixmap = QPixmap("keytrac_map.png")
+        pixmap = QPixmap(os.path.join(ROOT_DIR, "device/locomotion/keytrac/keytrac_map.png"))
 
         if not pixmap.isNull():
             label = QLabel()

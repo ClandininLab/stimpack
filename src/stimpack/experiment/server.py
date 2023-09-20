@@ -3,7 +3,7 @@ import signal, sys
 from stimpack.visual_stim.screen import Screen
 from stimpack.visual_stim.stim_server import launch_stim_server, StimServer
 
-from stimpack.device.loco_managers import LocoManager, LocoClosedLoopManager
+from stimpack.device.locomotion.loco_managers import LocoManager, LocoClosedLoopManager
 from stimpack.device.daq import DAQ
 
 from stimpack.rpc.util import start_daemon_thread, find_free_port

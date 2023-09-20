@@ -1,7 +1,7 @@
 import subprocess
 import signal
 
-from stimpack.device.loco_managers import LocoManager, LocoClosedLoopManager
+from stimpack.device.locomotion.loco_managers import LocoManager, LocoClosedLoopManager
 
 KEYTRAC_HOST = '127.0.0.1'  # The server's hostname or IP address
 KEYTRAC_PORT = 33335         # The port used by the server
