@@ -2,15 +2,15 @@
 # -*- coding: utf-8 -*-
 
 from time import sleep
-import os
 import posixpath
 from PyQt6.QtWidgets import QApplication
 
 from stimpack.rpc.transceiver import MySocketClient
-from stimpack.visual_stim.stim_server import launch_stim_server
 from stimpack.visual_stim.screen import Screen
+from stimpack.experiment.server import BaseServer
 from stimpack.experiment.util import config_tools
 from stimpack.device import daq
+from stimpack.device.keytrac_managers import KeytracClosedLoopManager
 
 class BaseClient():
     def __init__(self, cfg):
@@ -26,9 +26,6 @@ class BaseClient():
         if self.server_options['use_server']:
             self.manager = MySocketClient(host=self.server_options['host'], port=self.server_options['port'])
             
-            # if the trigger device is on the server, set the manager for the trigger device
-            if isinstance(self.trigger_device, daq.DAQonServer):
-                self.trigger_device.set_manager(self.manager)
         else:
             if 'disp_server_id' in self.server_options:
                 disp_server, disp_id = self.server_options['disp_server_id']
@@ -36,8 +33,20 @@ class BaseClient():
                 disp_server, disp_id = -1, -1
             
             aux_screen = Screen(server_number=disp_server, id=disp_id, fullscreen=False, vsync=True, square_size=(0.25, 0.25))
-            # other_stim_module_paths=[] stops StimServer from importing user stimuli modules from a txt file
-            self.manager = launch_stim_server(aux_screen, other_stim_module_paths=[])
+
+            loco_class = KeytracClosedLoopManager
+            loco_kwargs = {
+                'host':          '127.0.0.1',
+                'port':           33335,
+                'python_bin':    'python',
+                'kt_py_fn':      'keytrac.py',
+            }
+            server = BaseServer(screens=[aux_screen], port=None, start_loop=True, loco_class=loco_class, loco_kwargs=loco_kwargs)
+            self.manager = MySocketClient(host=server.host, port=server.port)
+
+        # if the trigger device is on the server, set the manager for the trigger device
+        if isinstance(self.trigger_device, daq.DAQonServer):
+            self.trigger_device.set_manager(self.manager)
 
         self.manager.corner_square_toggle_stop()
         self.manager.corner_square_off()
