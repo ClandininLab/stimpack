@@ -117,13 +117,13 @@ class CheckerboardFloor(BaseProgram):
         super().__init__(screen=screen)
         self.use_texture = True
 
-    def configure(self, mean, contrast, z_level=-0.1, side_length=10, patch_width=1):
+    def configure(self, mean, contrast, center=(0,0,-0.1), side_length=10, patch_width=1):
         """
         Grayscale Checkerboard floor.
 
         :param mean: float, mean of the checkerboard (0-1)
         :param contrast: float, contrast of the checkerboard (0-1)
-        :param z_level: meters, level at which the floor is on the z axis (-z is below the fly)
+        :param center: (x,y,z) meters
         :param side_length: meters or (x, y) tuple of meters
         """
         self.mean = mean
@@ -136,11 +136,13 @@ class CheckerboardFloor(BaseProgram):
         else:
             x_length = side_length
             y_length = side_length
+        
+        center_x, center_y, center_z = center
 
-        v1 = (-x_length/2, -y_length/2, z_level)
-        v2 = (x_length/2, -y_length/2, z_level)
-        v3 = (x_length/2, y_length/2, z_level)
-        v4 = (-x_length/2, y_length/2, z_level)
+        v1 = (-x_length/2 + center_x, -y_length/2 + center_y, center_z)
+        v2 = ( x_length/2 + center_x, -y_length/2 + center_y, center_z)
+        v3 = ( x_length/2 + center_x,  y_length/2 + center_y, center_z)
+        v4 = (-x_length/2 + center_x,  y_length/2 + center_y, center_z)
 
         # each texture patch is 2x2 checkerboard patches
         n_texture_patches_x = x_length / (self.patch_width * 2)
