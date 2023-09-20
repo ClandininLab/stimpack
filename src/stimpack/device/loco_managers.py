@@ -48,6 +48,10 @@ class LocoSocketManager():
     def get_line(self, wait_for=None, get_most_recent=True):
         '''
         Assumes that lines are separated by '\n'
+        wait_for:
+            None: wait until there is data to read
+            0: return immediately if there is no data to read
+            >0: wait for that many seconds for data to read
         '''
         if self.sock is None:
             return
