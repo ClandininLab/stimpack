@@ -42,6 +42,7 @@ class BaseClient():
                 'port':           33335,
                 'python_bin':    'python',
                 'kt_py_fn':      os.path.join(ROOT_DIR, "device/locomotion/keytrac/keytrac.py"),
+                'relative_control': 'True',
             }
             server = BaseServer(screens=[aux_screen], port=None, start_loop=True, loco_class=loco_class, loco_kwargs=loco_kwargs)
             self.manager = MySocketClient(host=server.host, port=server.port)
