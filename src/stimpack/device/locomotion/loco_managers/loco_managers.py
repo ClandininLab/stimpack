@@ -23,6 +23,7 @@ class LocoSocketManager():
         self.host = host
         self.port = port
         self.udp = udp
+        self.client_addr = None
 
         self.sock = None
         self.sock_buffer = "\n"
@@ -33,9 +34,15 @@ class LocoSocketManager():
         Open / connect to socket
         '''
         if self.udp:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.sock.bind((self.host, self.port))
-            self.sock.setblocking(0)
+            try:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.sock.bind((self.host, self.port))
+                print(f'LocoSocketManager: Bound socket to {self.host}:{self.port}')
+                self.sock.setblocking(0)
+            except :
+                print("LocoSocketManager: Failed to bind socket.")
+                self.close()
+                return
         else: # TCP
             # TODO: Maybe need to listen for connection? This should be a server, receiving requests from locomotion source (e.g. Fictrac)
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -43,11 +50,34 @@ class LocoSocketManager():
 
     def close(self):
         if self.sock is not None:
-            self.sock.close()
+            # Clear out any remaining data
+            _ = self.receive_message(wait_for=0)
+            
+            try:
+                self.sock.close()
+            except:
+                print("LocoSocketManager: Failed to close socket.")
+            
+            self.sock = None
+            self.client_addr = None
 
-    def get_line(self, wait_for=None, get_most_recent=True):
+    def send_message(self, message):
+        if self.sock is None:
+            return
+        
+        try:
+            if self.client_addr is None:
+                print("LocoSocketManager: No client address. Cannot send message. Must wait until a message is received.")
+                return
+            if self.udp:
+                self.sock.sendto(message.encode(), self.client_addr)
+        except socket.error as e:
+            print(e)
+            print("LocoSocketManager: Failed to send message.")
+            return
+
+    def receive_message(self, wait_for=None):
         '''
-        Assumes that lines are separated by '\n'
         wait_for:
             None: wait until there is data to read
             0: return immediately if there is no data to read
@@ -59,17 +89,37 @@ class LocoSocketManager():
         ready = []
         while not ready:
             if self.sock == -1:
-                print('\nSocket disconnected.')
+                print('\nLocoSocketManager: Socket disconnected.')
                 return None
             if wait_for is None:
                 ready = select.select([self.sock], [], [])[0]
             else:
                 ready = select.select([self.sock], [], [], wait_for)[0]
-        new_data = self.sock.recv(4096)
+
+        # Check again in case we were stuck at select.select while socket was closed
+        if self.sock is None:
+            return None
+        
+        data, addr = self.sock.recvfrom(4096)
+        self.client_addr = addr
+        return data
+
+    def get_line(self, wait_for=None, get_most_recent=True):
+        '''
+        Assumes that lines are separated by '\n'
+        wait_for:
+            None: wait until there is data to read
+            0: return immediately if there is no data to read
+            >0: wait for that many seconds for data to read
+        '''
+        
+        new_data = self.receive_message(wait_for=wait_for)
+        if new_data is None:
+            return None
         ##
 
         if not new_data and not self.udp: # TCP and blank new_data...
-            print('\nDisconnected from TCP server.')
+            print('\nLocoSocketManager: Disconnected from TCP server.')
             return None
 
         # Decode received data
@@ -80,7 +130,7 @@ class LocoSocketManager():
             ## Find the last frame of data
 
             endline = self.sock_buffer.rfind("\n")
-            assert endline != 1, "There must always be at least one linebreak in the buffer."
+            assert endline != 1, "LocoSocketManager: There must always be at least one linebreak in the buffer."
             
             # Find the end of the second to last frame. (\n is always left behind)
             prev_endline = self.sock_buffer[:endline-1].rfind("\n")
@@ -169,7 +219,9 @@ class LocoClosedLoopManager(LocoManager):
 
     def get_data(self, wait_for=None, get_most_recent=True):
         line = self.socket_manager.get_line(wait_for=wait_for, get_most_recent=get_most_recent)
-        
+        if line is None:
+            return None
+
         data = self._parse_line(line)
         self.data_prev = data
 
