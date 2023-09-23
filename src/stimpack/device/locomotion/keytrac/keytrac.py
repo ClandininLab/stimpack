@@ -4,6 +4,8 @@ import time
 import signal
 import numpy as np
 import os
+from threading import Thread
+
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
 from PyQt6.QtGui import QPixmap
@@ -15,15 +17,16 @@ LOCAL_HOST = '127.0.0.1'  # Change this to the receiver's IP address
 DEFAULT_PORT = 33335  # Change this to the receiver's port
 
 class KeyTrac(QMainWindow):
-    def __init__(self, host=LOCAL_HOST, port=DEFAULT_PORT, relative_control=False):
+    def __init__(self, host=LOCAL_HOST, port=DEFAULT_PORT, relative_control=True, verbose=False):
         super().__init__()
         self.host = host
         self.port = port
         self.relative_control = relative_control
+        self.verbose = verbose
 
         # Create a socket and connect to the receiver
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP
-
+        self.sock.settimeout(0)
         # self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # TCP
         # self.sock.connect((self.host, self.port))
 
@@ -36,9 +39,15 @@ class KeyTrac(QMainWindow):
 
         self.initUI()
 
-        # Send meaningless message to initialize the connection
-        message = self.construct_state_message(key_description=None)
-        self.send_message(message)
+        # Send state messages periodically, in addition to when a key is pressed
+        self.send_state_timer = QTimer()
+        self.send_state_timer.timeout.connect(self.send_state_message)
+        self.send_state_timer.start(500) # in ms
+
+        # Receive messages on a loop using Thread
+        self.receiving = True
+        self.receive_thread = Thread(target=self.receive_loop)
+        self.receive_thread.start()
 
     def initUI(self):
         # self.setGeometry(100, 100, 400, 300)
@@ -100,7 +109,8 @@ class KeyTrac(QMainWindow):
             key_description = "E: theta-"
             self.pos["theta"] -= self.step["theta"]
         else:
-            print(f"Key {key} not recognized.")
+            if self.verbose:
+                print(f"Key {key} not recognized.")
             return
 
         self.key_count += 1
@@ -109,18 +119,18 @@ class KeyTrac(QMainWindow):
     
     def handle_key_relative_control(self, key):
         if key == Qt.Key.Key_Left:
-            key_description = "left: theta step /= 2"
+            key_description = "left: rotation step /= 2"
             self.step["theta"] /= 2
         elif key == Qt.Key.Key_Right:
-            key_description = "right: theta step *= 2"
+            key_description = "right: rotation step *= 2"
             self.step["theta"] *= 2
         elif key == Qt.Key.Key_Up:
-            key_description = "up: xyz step *= 2"
+            key_description = "up: translation step *= 2"
             self.step["x"] *= 2
             self.step["y"] *= 2
             self.step["z"] *= 2
         elif key == Qt.Key.Key_Down:
-            key_description = "down: xyz step /= 2"
+            key_description = "down: translation step /= 2"
             self.step["x"] /= 2
             self.step["y"] /= 2
             self.step["z"] /= 2
@@ -153,7 +163,8 @@ class KeyTrac(QMainWindow):
             key_description = "E: turn right"
             self.pos["theta"] -= self.step["theta"]
         else:
-            print(f"Key {key} not recognized.")
+            if self.verbose:
+                print(f"Key {key} not recognized.")
             return
 
         self.key_count += 1
@@ -169,13 +180,37 @@ class KeyTrac(QMainWindow):
                     f"{timestamp}\n"
         return message
 
-    def send_message(self, message):
+    def send_state_message(self, key_description=None):
+        message = self.construct_state_message(key_description)
+
         try:
             self.sock.sendto(message.encode(), (self.host, self.port)) # UDP
         except:
             print("Failed to send message.")
             return
         # self.sock.sendall(message.encode()) # TCP
+
+    def receive_message(self):
+        # Receive a message from the receiver
+        try:
+            data, addr = self.sock.recvfrom(1024)
+            message = data.decode()
+        except socket.timeout as e:
+            print(e)
+            return
+        except socket.error as e:
+            # print(e)
+            return
+
+        if message == "reset_pos":
+            self.reset_position()
+
+    def receive_loop(self):
+        while self.receiving:
+            self.receive_message()
+
+    def reset_position(self):
+        self.pos = {"x": 0, "y": 0, "z":0, "theta": 0}
 
     def keyPressEvent(self, event):
         if self.relative_control:
@@ -184,21 +219,21 @@ class KeyTrac(QMainWindow):
             key_description = self.handle_key_absolute_control(event.key())
         
         # Send the key press description and the current position
-        message = self.construct_state_message(key_description)
-        self.send_message(message)
+        self.send_state_message(key_description)
 
-        print(f"Pressed {key_description}")
-        print(f"Current position: {self.pos}")
-        print(f"Current step size: {self.step}")
-
+        if self.verbose:
+            print(f"Pressed {key_description}")
+            print(f"Current position: {self.pos}")
+            print(f"Current step size: {self.step}")
 
     def closeEvent(self, event):
         # Close the socket
         print("Closing socket...")
+        self.receiving = False
         self.sock.close()
     
     def sigint_handler(self, signal, frame):
-        print("Ctrl+C pressed.")
+        print("SIGINT received.")
         self.closeEvent(None)
         print("Exiting...")
         sys.exit(0)
@@ -206,13 +241,19 @@ class KeyTrac(QMainWindow):
 def main():
     host = LOCAL_HOST
     port = DEFAULT_PORT
+    relative_control = True
+    verbose = False
     if len(sys.argv) > 1:
         host = sys.argv[1]
     if len(sys.argv) > 2:
         port = int(sys.argv[2])
+    if len(sys.argv) > 3:
+        relative_control = bool(sys.argv[3])
+    if len(sys.argv) > 4:
+        verbose = bool(sys.argv[4])
 
     app = QApplication(sys.argv)
-    window = KeyTrac(host=host, port=port)
+    window = KeyTrac(host=host, port=port, relative_control=relative_control, verbose=verbose)
     window.show()
 
     # Set up a SIGINT (Ctrl+C) signal handler
