@@ -177,6 +177,7 @@ class LocoClosedLoopManager(LocoManager):
 
         self.data_prev = []
         self.pos_0 = {'theta': 0, 'x': 0, 'y': 0, 'z': 0}
+        self.pos   = {'theta': 0, 'x': 0, 'y': 0, 'z': 0}
 
         self.loop_attrs = {
             'thread': None,
@@ -187,6 +188,8 @@ class LocoClosedLoopManager(LocoManager):
             'update_y': False,
             'update_z': False
         }
+
+        self.loop_custom_fxn = None
 
         if start_at_init:
             self.start()
@@ -279,6 +282,10 @@ class LocoClosedLoopManager(LocoManager):
         self.pos_0['x']     = x_0
         self.pos_0['y']     = y_0
         self.pos_0['z']     = z_0
+        self.pos['theta']   = theta_0
+        self.pos['x']       = x_0
+        self.pos['y']       = y_0
+        self.pos['z']       = z_0
         
         if write_log and self.log_file is not None:
             if ts is None:
@@ -290,32 +297,23 @@ class LocoClosedLoopManager(LocoManager):
         if self.log_file is not None:
             self.log_file.write(str(string) + "\n")
 
-    def update_pos(self, update_theta=True, update_x=False, update_y=False, update_z=False):
+    def update_pos(self, update_theta=True, update_x=False, update_y=False, update_z=False, return_pos=False):
         data = self.get_data()
-
-        data_to_return = {}
         
-        if update_theta:
-            theta = float(data['theta']) - self.pos_0['theta']
-            self.fs_manager.set_global_theta_offset(degrees(theta))
-            data_to_return['theta'] = theta #radians
+        self.pos['theta'] = float(data['theta']) - self.pos_0['theta'] #radians
+        self.pos['x'] = float(data['x']) - self.pos_0['x']
+        self.pos['y'] = float(data['y']) - self.pos_0['y']
+        self.pos['z'] = float(data['z']) - self.pos_0['z']
 
-        if update_x:
-            x = float(data['x']) - self.pos_0['x']
-            self.fs_manager.set_global_fly_x(x)
-            data_to_return['x'] = x
+        if update_theta: self.fs_manager.set_global_theta_offset(degrees(self.pos['theta']))
+        if update_x:     self.fs_manager.set_global_fly_x(self.pos['x'])
+        if update_y:     self.fs_manager.set_global_fly_y(self.pos['y'])
+        if update_z:     self.fs_manager.set_global_fly_z(self.pos['z'])
 
-        if update_y:
-            y = float(data['y']) - self.pos_0['y']
-            self.fs_manager.set_global_fly_y(y)
-            data_to_return['y'] = y
-
-        if update_z:
-            z = float(data['z']) - self.pos_0['z']
-            self.fs_manager.set_global_fly_z(z)
-            data_to_return['z'] = z
-
-        return data_to_return
+        if return_pos:
+            return self.pos.copy()
+        else:
+            return
 
     def is_looping(self):
         return self.loop_attrs['looping']
@@ -325,12 +323,18 @@ class LocoClosedLoopManager(LocoManager):
             self.loop_attrs['looping'] = True
             while self.loop_attrs['looping']:
                 if self.loop_attrs['closed_loop']:
-                    _ = self.update_pos(update_theta = self.loop_attrs['update_theta'], 
-                                        update_x     = self.loop_attrs['update_x'], 
-                                        update_y     = self.loop_attrs['update_y'],
-                                        update_z     = self.loop_attrs['update_z'])
+                    self.update_pos(update_theta = self.loop_attrs['update_theta'], 
+                                    update_x     = self.loop_attrs['update_x'], 
+                                    update_y     = self.loop_attrs['update_y'],
+                                    update_z     = self.loop_attrs['update_z'])
                 else:
-                    _ = self.get_data()
+                    self.update_pos(update_theta = False,
+                                    update_x     = False, 
+                                    update_y     = False,
+                                    update_z     = False)
+                    
+                if self.loop_custom_fxn is not None:
+                    self.loop_custom_fxn(self.pos)
 
         if self.loop_attrs['looping']:
             print("Already looping")
@@ -356,4 +360,9 @@ class LocoClosedLoopManager(LocoManager):
         self.loop_attrs['update_x']     = update_x
         self.loop_attrs['update_y']     = update_y
         self.loop_attrs['update_z']     = update_z
-        
+    
+    def loop_update_custom_fxn(self, custom_fxn):
+        if isinstance(custom_fxn, function):
+            self.loop_custom_fxn = custom_fxn
+        else:
+            pass
