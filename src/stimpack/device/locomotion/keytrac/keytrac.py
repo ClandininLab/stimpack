@@ -126,14 +126,14 @@ class KeyTrac(QMainWindow):
             self.step["theta"] *= 2
         elif key == Qt.Key.Key_Up:
             key_description = "up: translation step *= 2"
-            self.step["x"] *= 2
-            self.step["y"] *= 2
-            self.step["z"] *= 2
+            self.step["forward"] *= 2
+            self.step["right"] *= 2
+            self.step["up"] *= 2
         elif key == Qt.Key.Key_Down:
             key_description = "down: translation step /= 2"
-            self.step["x"] /= 2
-            self.step["y"] /= 2
-            self.step["z"] /= 2
+            self.step["forward"] /= 2
+            self.step["right"] /= 2
+            self.step["up"] /= 2
         elif key == Qt.Key.Key_PageUp:
             key_description = "pageup: up"
             self.pos["z"] += self.step["up"]
