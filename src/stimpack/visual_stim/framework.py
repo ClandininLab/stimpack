@@ -79,15 +79,15 @@ class StimDisplay(QOpenGLWidget):
         # flag indicating whether to clear the viewports on the next paintGL call
         self.clear_viewports_flag = False
 
-        # set the closed-loop parameters
+        # set the subject position parameters
         self.set_global_subject_pos(0, 0, 0)
         self.set_global_theta_offset(0) # deg -> radians
         self.set_global_phi_offset(0) # deg -> radians
 
-        self.use_fly_trajectory = False
-        self.fly_x_trajectory = None
-        self.fly_y_trajectory = None
-        self.fly_theta_trajectory = None
+        self.use_subject_trajectory = False
+        self.subject_x_trajectory = None
+        self.subject_y_trajectory = None
+        self.subject_theta_trajectory = None
         
         # imported stimuli module names
         self.imported_stim_module_names = []
@@ -164,11 +164,11 @@ class StimDisplay(QOpenGLWidget):
                     self.stop_stim()
             else:  # real-time generation
                 t = time.time()
-            if self.use_fly_trajectory:
-                self.set_global_subject_pos(return_for_time_t(self.fly_x_trajectory, self.get_stim_time(t)),
-                                        return_for_time_t(self.fly_y_trajectory, self.get_stim_time(t)),
+            if self.use_subject_trajectory:
+                self.set_global_subject_pos(return_for_time_t(self.subject_x_trajectory, self.get_stim_time(t)),
+                                        return_for_time_t(self.subject_y_trajectory, self.get_stim_time(t)),
                                         0)
-                self.set_global_theta_offset(return_for_time_t(self.fly_theta_trajectory, self.get_stim_time(t)))  # deg -> radians
+                self.set_global_theta_offset(return_for_time_t(self.subject_theta_trajectory, self.get_stim_time(t)))  # deg -> radians
 
             # For each subscreen associated with this screen: get the perspective matrix
             perspectives = [get_perspective(self.global_subject_pos, self.global_theta_offset, self.global_phi_offset, x.pa, x.pb, x.pc, self.screen.horizontal_flip) for x in self.screen.subscreens]
@@ -211,16 +211,16 @@ class StimDisplay(QOpenGLWidget):
     # control functions
     ###########################################
 
-    def set_fly_trajectory(self, x_trajectory, y_trajectory, theta_trajectory):
+    def set_subject_trajectory(self, x_trajectory, y_trajectory, theta_trajectory):
         """
         :param x_trajectory: meters, dict from Trajectory including time, value pairs
         :param y_trajectory: meters, dict from Trajectory including time, value pairs
         :param theta_trajectory: degrees on the azimuthal plane, dict from Trajectory including time, value pairs
         """
-        self.use_fly_trajectory = True
-        self.fly_x_trajectory = make_as_trajectory(x_trajectory)
-        self.fly_y_trajectory = make_as_trajectory(y_trajectory)
-        self.fly_theta_trajectory = make_as_trajectory(theta_trajectory)
+        self.use_subject_trajectory = True
+        self.subject_x_trajectory = make_as_trajectory(x_trajectory)
+        self.subject_y_trajectory = make_as_trajectory(y_trajectory)
+        self.subject_theta_trajectory = make_as_trajectory(theta_trajectory)
 
     def load_stim(self, name, hold=False, **kwargs):
         """
@@ -311,10 +311,10 @@ class StimDisplay(QOpenGLWidget):
 
         self.profile_frame_times = []
 
-        self.use_fly_trajectory = False
-        self.fly_x_trajectory = None
-        self.fly_y_trajectory = None
-        self.fly_theta_trajectory = None
+        self.use_subject_trajectory = False
+        self.subject_x_trajectory = None
+        self.subject_y_trajectory = None
+        self.subject_theta_trajectory = None
         self.set_global_subject_pos(0, 0, 0)
         self.set_global_theta_offset(0)
         self.set_global_phi_offset(0)
@@ -509,7 +509,7 @@ def main():
     stim_display = StimDisplay(screen=screen, server=server, app=app)
 
     # register functions
-    server.register_function(stim_display.set_fly_trajectory)
+    server.register_function(stim_display.set_subject_trajectory)
     server.register_function(stim_display.load_stim)
     server.register_function(stim_display.start_stim)
     server.register_function(stim_display.stop_stim)

@@ -39,17 +39,17 @@ def main():
     dtheta = tt * 0.0
     theta = np.cumsum(dtheta)
 
-    fly_x_trajectory = {'name': 'TVPairs',
+    subject_x_trajectory = {'name': 'TVPairs',
                         'tv_pairs': list(zip(tt, xx)),
                         'kind': 'linear'}
-    fly_y_trajectory = {'name': 'TVPairs',
+    subject_y_trajectory = {'name': 'TVPairs',
                         'tv_pairs': list(zip(tt, yy)),
                         'kind': 'linear'}
-    fly_theta_trajectory = {'name': 'TVPairs',
+    subject_theta_trajectory = {'name': 'TVPairs',
                             'tv_pairs': list(zip(tt, theta)),
                             'kind': 'linear'}
 
-    manager.set_fly_trajectory(fly_x_trajectory, fly_y_trajectory, fly_theta_trajectory)
+    manager.set_subject_trajectory(subject_x_trajectory, subject_y_trajectory, subject_theta_trajectory)
 
     sleep(0.5)
 

@@ -86,16 +86,16 @@ def main():
         dtheta = tt * 0.0
         theta = np.cumsum(dtheta)
 
-        fly_x_trajectory = {'name': 'TVPairs',
+        subject_x_trajectory = {'name': 'TVPairs',
                             'tv_pairs': list(zip(tt, xx)),
                             'kind': 'linear'}
-        fly_y_trajectory = {'name': 'TVPairs',
+        subject_y_trajectory = {'name': 'TVPairs',
                             'tv_pairs': list(zip(tt, yy)),
                             'kind': 'linear'}
-        fly_theta_trajectory = {'name': 'TVPairs',
+        subject_theta_trajectory = {'name': 'TVPairs',
                                 'tv_pairs': list(zip(tt, theta)),
                                 'kind': 'linear'}
-        multicall_load.set_fly_trajectory(fly_x_trajectory, fly_y_trajectory, 0)
+        multicall_load.set_subject_trajectory(subject_x_trajectory, subject_y_trajectory, 0)
 
         multicall_load() # load stims
 
