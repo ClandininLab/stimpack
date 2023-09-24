@@ -259,7 +259,7 @@ class LocoClosedLoopManager(LocoManager):
             if False, grabs line that is the oldest
         '''
         self.fs_manager.set_global_theta_offset(0) #radians
-        self.fs_manager.set_global_fly_pos(0, 0, 0)
+        self.fs_manager.set_global_subject_pos(0, 0, 0)
 
         if None in [theta_0, x_0, y_0, z_0]:
             if use_data_prev and len(self.data_prev)!=0:
@@ -306,9 +306,9 @@ class LocoClosedLoopManager(LocoManager):
         self.pos['z'] = float(data['z']) - self.pos_0['z']
 
         if update_theta: self.fs_manager.set_global_theta_offset(degrees(self.pos['theta']))
-        if update_x:     self.fs_manager.set_global_fly_x(self.pos['x'])
-        if update_y:     self.fs_manager.set_global_fly_y(self.pos['y'])
-        if update_z:     self.fs_manager.set_global_fly_z(self.pos['z'])
+        if update_x:     self.fs_manager.set_global_subject_x(self.pos['x'])
+        if update_y:     self.fs_manager.set_global_subject_y(self.pos['y'])
+        if update_z:     self.fs_manager.set_global_subject_z(self.pos['z'])
 
         if return_pos:
             return self.pos.copy()
