@@ -1,7 +1,7 @@
 import signal, sys
 
 from stimpack.visual_stim.screen import Screen
-from stimpack.visual_stim.stim_server import launch_stim_server, StimServer
+from stimpack.visual_stim.stim_server import StimServer
 
 from stimpack.device.locomotion.loco_managers import LocoManager, LocoClosedLoopManager
 from stimpack.device.daq import DAQ
@@ -12,6 +12,10 @@ class BaseServer():
     def __init__(self, screens=[], host='127.0.0.1', port=60629, 
                     loco_class=None, loco_kwargs={}, daq_class=None, daq_kwargs={}, 
                     start_loop=False):
+
+        # Default aux screen
+        if screens is None or len(screens) == 0:
+            screens = [Screen(server_number=-1, id=-1, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
 
         self.host = host
         if port is None:
