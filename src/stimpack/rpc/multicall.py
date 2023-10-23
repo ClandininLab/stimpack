@@ -4,8 +4,8 @@ class MyMultiCall:
         self.request_list = []
 
     def __getattr__(self, name):
-        def f(*args, **kwargs):
-            request = {'name': name, 'args': args, 'kwargs': kwargs}
+        def f(*args, target='root', **kwargs):
+            request = {'target':target, 'name': name, 'args': args, 'kwargs': kwargs}
             self.request_list.append(request)
 
         return f

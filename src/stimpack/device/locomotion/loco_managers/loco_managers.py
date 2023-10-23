@@ -167,9 +167,9 @@ class LocoSocketManager():
         return line
 
 class LocoClosedLoopManager(LocoManager):
-    def __init__(self, fs_manager, host, port, save_directory=None, start_at_init=False, udp=True) -> None:
+    def __init__(self, stim_server, host, port, save_directory=None, start_at_init=False, udp=True) -> None:
         super().__init__()
-        self.fs_manager = fs_manager
+        self.stim_server = stim_server
         self.socket_manager = LocoSocketManager(host=host, port=port, udp=udp)
         
         self.save_directory = save_directory
@@ -258,8 +258,8 @@ class LocoClosedLoopManager(LocoManager):
             if True, grabs line that is most recent
             if False, grabs line that is the oldest
         '''
-        self.fs_manager.set_global_theta_offset(0) #radians
-        self.fs_manager.set_global_subject_pos(0, 0, 0)
+        self.stim_server.set_global_theta_offset(0) #radians
+        self.stim_server.set_global_subject_pos(0, 0, 0)
 
         if None in [theta_0, x_0, y_0, z_0]:
             if use_data_prev and len(self.data_prev)!=0:
@@ -305,10 +305,10 @@ class LocoClosedLoopManager(LocoManager):
         self.pos['y'] = float(data['y']) - self.pos_0['y']
         self.pos['z'] = float(data['z']) - self.pos_0['z']
 
-        if update_theta: self.fs_manager.set_global_theta_offset(degrees(self.pos['theta']))
-        if update_x:     self.fs_manager.set_global_subject_x(self.pos['x'])
-        if update_y:     self.fs_manager.set_global_subject_y(self.pos['y'])
-        if update_z:     self.fs_manager.set_global_subject_z(self.pos['z'])
+        if update_theta: self.stim_server.set_global_theta_offset(degrees(self.pos['theta']))
+        if update_x:     self.stim_server.set_global_subject_x(self.pos['x'])
+        if update_y:     self.stim_server.set_global_subject_y(self.pos['y'])
+        if update_z:     self.stim_server.set_global_subject_z(self.pos['z'])
 
         if return_pos:
             return self.pos.copy()
