@@ -48,9 +48,14 @@ class VisualStimServer(MySocketServer):
         if not isinstance(other_stim_module_paths, list):
             other_stim_module_paths = [other_stim_module_paths]
         
-        # Shared PixMap Memory stim
+        self.functions_on_root = {}
+
+        # Shared memory PixMap stim functions to be run on the root node of visual stim server
         self.spms = None
-        
+        self.register_function_on_root(self.load_shared_pixmap_stim, "load_shared_pixmap_stim")
+        self.register_function_on_root(self.start_shared_pixmap_stim, "start_shared_pixmap_stim")
+        self.register_function_on_root(self.clear_shared_pixmap_stim, "clear_shared_pixmap_stim")
+
         # If no screens are specified, create a default screen
         if screens is None or len(screens) == 0:
             screens = [Screen(server_number=-1, id=-1, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
@@ -76,10 +81,42 @@ class VisualStimServer(MySocketServer):
             self.handle_request_list([request])
         return f
 
+    def register_function_on_root(self, function, name=None):
+        '''
+        Register function to be executed on the server's root node only, and not on the clients (i.e. screens).
+        '''
+        if name is None:
+            name = function.__name__
+
+        assert name not in self.functions_on_root, 'Function "{}" already defined.'.format(name)
+        self.functions_on_root[name] = function
+
     def handle_request_list(self, request_list):
+        # make sure that request list is actually a list...
+        if not isinstance(request_list, list):
+            print("Request list is not a list and thus cannot be handled.")
+            return
+
+        # pull out requests that are meant for server root node and not the screen clients
+        root_request_list = [req for req in request_list if isinstance(req, dict) and 'name' in req and req['name'] in self.functions_on_root]
+        request_list[:] = [req for req in request_list if not (isinstance(req, dict) and 'name' in req and req['name'] in self.functions_on_root)]
+
+        # handle requests for the root server without sending to client screens
+        for request in root_request_list:
+            # get function call parameters
+            function = self.functions_on_root[request['name']]
+            args = request.get('args', [])
+            kwargs = request.get('kwargs', {})
+
+            # call function
+            # print(f"Server root node executing: {str(request)}")
+            function(*args, **kwargs)
+
         # pre-process the request list as necessary
         for request in request_list:
             if isinstance(request, dict) and ('name' in request) and (request['name'] in self.time_stamp_commands):
+                if 'kwargs' not in request:
+                    request['kwargs'] = {}
                 request['kwargs']['t'] = time()
 
         # send modified request list to clients
