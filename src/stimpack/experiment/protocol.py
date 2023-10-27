@@ -283,7 +283,7 @@ class BaseProtocol():
         if do_loco:
             multicall.target('locomotion').set_pos_0(theta_0=None, x_0=0, y_0=0, use_data_prev=True, write_log=self.save_metadata_flag)
         if do_loco_closed_loop:
-            multicall.target('locomotion').loop_update_closed_loop_vars(update_theta=True, update_x=False, update_y=False)
+            multicall.target('locomotion').loop_update_closed_loop_vars(update_theta=True, update_x=True, update_y=True)
             multicall.target('locomotion').loop_start_closed_loop()
         
         multicall.target('all').set_save_pos_history_flag(save_pos_history)
@@ -339,9 +339,23 @@ class BaseProtocol():
                 # parameter_sequence is num_combinations by num params
                 parameter_sequence = list(itertools.product(*parameter_list))
             else:
+                parameter_list_new = []
+
+                # sequence length is determined by the length of the longest list
+                # for non-list elements or lists with shorter lengths, repeat to fill out the max length                
+                sequence_length = max([(len(param) if type(param) is list else 1) for param in parameter_list])
+                
+                for param in list(parameter_list):
+                    if type(param) is not list:
+                        parameter_list_new.append([param] * sequence_length)
+                    else:
+                        n_repeats = sequence_length // len(param)
+                        n_remainder = sequence_length % len(param)
+                        parameter_list_new.append(param * n_repeats + param[:n_remainder])
+                
                 # keep params in lists associated with one another
                 # requires param lists of equal length
-                parameter_sequence = np.vstack(np.array(parameter_list, dtype=object)).T
+                parameter_sequence = np.vstack(np.array(parameter_list_new, dtype=object)).T
 
         else: # user probably entered a single value (int or float), convert to list
             parameter_sequence = [parameter_list]

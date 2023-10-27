@@ -14,10 +14,11 @@ from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayou
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
                              QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QFrame,
                              QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
-                             QScrollArea, QSizePolicy)
+                             QScrollArea, QListWidget, QSizePolicy, QAbstractItemView)
 import PyQt6.QtCore as QtCore
-from PyQt6.QtCore import QThread, QTimer, Qt
+from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
 import PyQt6.QtGui as QtGui
+import yaml
 
 from stimpack.experiment.util import config_tools, h5io
 from stimpack.experiment import protocol, data, client
@@ -89,69 +90,61 @@ class ExperimentGUI(QWidget):
             print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('client'))
             self.client = client.BaseClient(self.cfg)
 
+        self.current_ensemble_idx = 0
+
+        self.ensemble_running = False
+
         print('# # # # # # # # # # # # # # # #')
         
         self.initUI()
 
     def initUI(self):
-        self.layout = QVBoxLayout(self)
-        self.tabs = QTabWidget()
+        self.setWindowTitle(f"Stimpack Experiment ({self.cfg['current_cfg_name'].split('.')[0]}: {self.cfg['current_rig_name']})")
 
-        self.protocol_box = QWidget()
-        self.parameter_grid = QGridLayout()
-        self.parameter_grid.setSpacing(10)
-        self.protocol_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
-                                            QSizePolicy.Policy.MinimumExpanding))
-        
+        # # # TAB 1: MAIN controls, for selecting / playing stimuli
+
+        # Protocol tab layout
         self.protocol_selector_box = QWidget()
         self.protocol_selector_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
-                                                            QSizePolicy.Policy.Fixed))
+                                                             QSizePolicy.Policy.Fixed))
         self.protocol_selector_grid = QGridLayout()
+        self.protocol_selector_box.setLayout(self.protocol_selector_grid)
 
-        self.protocol_params_scroll_box = QScrollArea()
-        self.protocol_params_scroll_box.setWidget(self.protocol_box)
-        self.protocol_params_scroll_box.setWidgetResizable(True)
+        self.parameters_box = QWidget()
+        self.parameters_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
+                                                    QSizePolicy.Policy.MinimumExpanding))
+        self.parameters_grid = QGridLayout()
+        self.parameters_grid.setSpacing(10)
+        self.parameters_box.setLayout(self.parameters_grid)
+        self.parameters_scroll_area = QScrollArea()
+        self.parameters_scroll_area.setWidget(self.parameters_box)
+        self.parameters_scroll_area.setWidgetResizable(True)
 
         self.protocol_control_box = QWidget()
         self.protocol_control_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
                                                             QSizePolicy.Policy.Fixed))
         self.protocol_control_grid = QGridLayout()
+        self.protocol_control_box.setLayout(self.protocol_control_grid)
 
         self.protocol_tab = QWidget()
         self.protocol_tab_layout = QVBoxLayout()
         self.protocol_tab_layout.addWidget(self.protocol_selector_box)
-        self.protocol_tab_layout.addWidget(self.protocol_params_scroll_box)
+        self.protocol_tab_layout.addWidget(self.parameters_scroll_area)
         self.protocol_tab_layout.addWidget(self.protocol_control_box)
+        self.protocol_tab.setLayout(self.protocol_tab_layout)
 
-        self.data_tab = QWidget()
-        self.data_form = QFormLayout()
-        self.data_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self.data_form.setLabelAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.file_tab = QWidget()
-        self.file_form = QFormLayout()
-        self.file_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self.file_form.setLabelAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.tabs.addTab(self.protocol_tab, "Main")
-        self.tabs.addTab(self.data_tab, "Subject")
-        self.tabs.addTab(self.file_tab, "File")
-
-        self.tabs.resize(450, 500)
-
-        # # # TAB 1: MAIN controls, for selecting / playing stimuli
         # Protocol ID drop-down:
-        protocol_selection_combo_box = QComboBox(self)
-        protocol_selection_combo_box.addItem("(select a protocol to run)")
+        self.protocol_selection_combo_box = QComboBox(self)
+        self.protocol_selection_combo_box.addItem("(select a protocol to run)")
         for sub_class in self.available_protocols:
-            protocol_selection_combo_box.addItem(sub_class.__name__)
+            self.protocol_selection_combo_box.addItem(sub_class.__name__)
         protocol_label = QLabel('Protocol:')
-        protocol_selection_combo_box.textActivated.connect(self.on_selected_protocol_ID)
+        self.protocol_selection_combo_box.textActivated.connect(self.on_selected_protocol_ID)
         self.protocol_selector_grid.addWidget(protocol_label, 1, 0)
-        self.protocol_selector_grid.addWidget(protocol_selection_combo_box, 1, 1, 1, 1)
+        self.protocol_selector_grid.addWidget(self.protocol_selection_combo_box, 1, 1, 1, 1)
 
         # Parameter preset drop-down:
-        parameter_preset_label = QLabel('Parameter_preset:')
+        parameter_preset_label = QLabel('Parameter preset:')
         self.protocol_selector_grid.addWidget(parameter_preset_label, 2, 0)
         self.parameter_preset_comboBox = None
         self.update_parameter_preset_selector()
@@ -232,7 +225,115 @@ class ExperimentGUI(QWidget):
         self.notes_edit.setFixedHeight(30)
         self.protocol_control_grid.addWidget(self.notes_edit, 3, 1, 1, 3)
 
-        # # # TAB 2: Current subject metadata information
+
+        # # # TAB 2: ENSEMBLE tab # # #
+
+        # Ensemble tab layout
+
+        self.ensemble_selector_box = QWidget()
+        self.ensemble_selector_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
+                                                             QSizePolicy.Policy.Fixed))
+        self.ensemble_protocol_selector_grid = QGridLayout()
+        self.ensemble_selector_box.setLayout(self.ensemble_protocol_selector_grid)
+
+        self.ensemble_list_box = QWidget()
+        self.ensemble_list_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
+                                                         QSizePolicy.Policy.MinimumExpanding))
+        self.ensemble_list_grid = QGridLayout()
+        self.ensemble_list_box.setLayout(self.ensemble_list_grid)
+
+        self.ensemble_control_box = QWidget()
+        self.ensemble_control_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
+                                                            QSizePolicy.Policy.Fixed))
+        self.ensemble_control_grid = QGridLayout()
+        self.ensemble_control_box.setLayout(self.ensemble_control_grid)
+
+        self.ensemble_tab = QWidget()
+        self.ensemble_tab_layout = QVBoxLayout()
+        self.ensemble_tab_layout.addWidget(self.ensemble_selector_box)
+        self.ensemble_tab_layout.addWidget(self.ensemble_list_box)
+        self.ensemble_tab_layout.addWidget(self.ensemble_control_box)
+        self.ensemble_tab.setLayout(self.ensemble_tab_layout)
+
+        # Protocol ID drop-down:
+        self.ensemble_protocol_selection_combo_box = QComboBox(self)
+        self.ensemble_protocol_selection_combo_box.addItem("(select a protocol to add to ensemble)")
+        for sub_class in self.available_protocols:
+            self.ensemble_protocol_selection_combo_box.addItem(sub_class.__name__)
+        protocol_label = QLabel('Protocol:')
+        self.ensemble_protocol_selection_combo_box.textActivated.connect(self.on_selected_ensemble_protocol_ID)
+        self.ensemble_protocol_selector_grid.addWidget(protocol_label, 0, 0)
+        self.ensemble_protocol_selector_grid.addWidget(self.ensemble_protocol_selection_combo_box, 0, 1, 1, 1)
+
+        # Parameter preset drop-down:
+        parameter_preset_label = QLabel('Parameter preset:')
+        self.ensemble_parameter_preset_comboBox = QComboBox(self)
+        self.ensemble_parameter_preset_comboBox.addItem("Default")
+        self.ensemble_protocol_selector_grid.addWidget(parameter_preset_label, 1, 0)
+        self.ensemble_protocol_selector_grid.addWidget(self.ensemble_parameter_preset_comboBox, 1, 1)
+
+        # Ensemble append button:
+        self.ensemble_append_button = QPushButton("Append", self)
+        self.ensemble_append_button.clicked.connect(self.on_pressed_button_ensemble)
+        self.ensemble_protocol_selector_grid.addWidget(self.ensemble_append_button, 1, 2)
+
+        # Ensemble preset file label
+        self.ensemble_file_label = QLabel('No ensemble file loaded')
+        self.ensemble_file_label.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Fixed,
+                                                           QSizePolicy.Policy.Fixed))
+        self.ensemble_list_grid.addWidget(self.ensemble_file_label, 0, 0)
+
+        # Ensemble list
+        self.ensemble_list = EnsembleList()
+        self.ensemble_list.row_moved_signal.connect(self.on_reordered_ensemble_list)
+        self.ensemble_list_scroll_area = QScrollArea()
+        self.ensemble_list_scroll_area.setWidget(self.ensemble_list)
+        self.ensemble_list_scroll_area.setWidgetResizable(True)
+        self.ensemble_list_grid.addWidget(self.ensemble_list_scroll_area, 1, 0, 5, 1)
+        
+        # Load ensemble preset file button
+        self.ensemble_load_preset_button = QPushButton('Load ensemble')
+        self.ensemble_load_preset_button.clicked.connect(self.on_pressed_button_ensemble)
+        self.ensemble_list_grid.addWidget(self.ensemble_load_preset_button, 1, 1)
+
+        # Save ensemble preset file button
+        self.ensemble_save_preset_button = QPushButton('Save ensemble')
+        self.ensemble_save_preset_button.clicked.connect(self.on_pressed_button_ensemble)
+        self.ensemble_list_grid.addWidget(self.ensemble_save_preset_button, 2, 1)
+
+        # Remove ensemble item button
+        self.ensemble_remove_item_button = QPushButton('Remove item')
+        self.ensemble_remove_item_button.clicked.connect(self.on_pressed_button_ensemble)
+        self.ensemble_list_grid.addWidget(self.ensemble_remove_item_button, 3, 1)
+
+        # Clear ensemble button
+        self.ensemble_clear_button = QPushButton('Clear')
+        self.ensemble_clear_button.clicked.connect(self.on_pressed_button_ensemble)
+        self.ensemble_list_grid.addWidget(self.ensemble_clear_button, 4, 1)
+
+        # Ensemble control buttons
+        self.ensemble_view_button = QPushButton("View ensemble", self)
+        self.ensemble_view_button.clicked.connect(self.on_pressed_button_ensemble)
+        self.ensemble_control_grid.addWidget(self.ensemble_view_button, 0,0)
+
+        self.ensemble_record_button = QPushButton("Record ensemble", self)
+        self.ensemble_record_button.clicked.connect(self.on_pressed_button_ensemble)
+        self.ensemble_control_grid.addWidget(self.ensemble_record_button, 0,1)
+
+        self.ensemble_stop_button = QPushButton("Stop ensemble", self)
+        self.ensemble_stop_button.clicked.connect(self.on_pressed_button_ensemble)
+        self.ensemble_stop_button.setEnabled(False)
+        self.ensemble_control_grid.addWidget(self.ensemble_stop_button, 0,2)
+
+        # # # TAB 3: Current subject metadata information # # #
+
+        # Data tab layout
+        self.data_tab = QWidget()
+        self.data_form = QFormLayout()
+        self.data_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self.data_form.setLabelAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.data_tab.setLayout(self.data_form)
+
         # # subject info:
         new_label = QLabel('Load existing subject')
         self.existing_subject_input = QComboBox()
@@ -280,7 +381,15 @@ class ExperimentGUI(QWidget):
         create_subject_button.clicked.connect(self.on_created_subject)
         self.data_form.addRow(create_subject_button)
 
-        # # # TAB 3: FILE tab - init, load, close etc. h5 file
+        # # # TAB 4: FILE tab - init, load, close etc. h5 file # # #
+
+        # File tab layout
+        self.file_tab = QWidget()
+        self.file_form = QFormLayout()
+        self.file_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self.file_form.setLabelAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.file_tab.setLayout(self.file_form)
+
         # Data file info
         # Initialize new experiment button
         initialize_button = QPushButton("Initialize experiment", self)
@@ -338,22 +447,27 @@ class ExperimentGUI(QWidget):
 
         self.file_form.addRow(self.table_attributes)
 
-        # Add all layouts to window
+        # # # Add each tab to the main layout # # #
+        self.tabs = QTabWidget()
+        self.tabs.resize(450, 500)
+        self.tabs.addTab(self.protocol_tab, "Main")
+        self.tabs.addTab(self.ensemble_tab, "Ensemble")
+        self.tabs.addTab(self.data_tab, "Subject")
+        self.tabs.addTab(self.file_tab, "File")
+
+        self.layout = QVBoxLayout(self)
         self.layout.addWidget(self.tabs)
-        self.protocol_tab.setLayout(self.protocol_tab_layout)
-        self.protocol_selector_box.setLayout(self.protocol_selector_grid)
-        self.protocol_control_box.setLayout(self.protocol_control_grid)
-        self.protocol_box.setLayout(self.parameter_grid)
-        self.data_tab.setLayout(self.data_form)
-        self.file_tab.setLayout(self.file_form)
-        self.setWindowTitle(f"Stimpack Experiment ({self.cfg['current_cfg_name'].split('.')[0]}: {self.cfg['current_rig_name']})")
 
         # Resize window based on protocol tab
         self.update_window_width()
 
         self.show()
 
-    def on_selected_protocol_ID(self, text):
+    def on_reordered_ensemble_list(self):
+        if not self.ensemble_file_label.text().endswith('(changes unsaved)'):
+            self.ensemble_file_label.setText(f'{self.ensemble_file_label.text()} (changes unsaved)')
+
+    def on_selected_protocol_ID(self, text, preset_name='Default'):
         if text == "(select a protocol to run)":
             return
         # Clear old params list from grid
@@ -365,7 +479,7 @@ class ExperimentGUI(QWidget):
 
         # update display lists of run & protocol parameters
         self.protocol_object.load_parameter_presets()
-        self.protocol_object.select_protocol_preset(name='Default')
+        self.protocol_object.select_protocol_preset(name=preset_name)
         self.protocol_object.prepare_run()
         self.update_parameter_preset_selector()
         self.update_parameters_input()
@@ -375,6 +489,27 @@ class ExperimentGUI(QWidget):
         self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
         self.status = Status.STANDBY
         self.status_label.setText('Ready')
+
+    def on_selected_ensemble_protocol_ID(self, text):
+        selected_protocol_idx = self.ensemble_protocol_selection_combo_box.currentIndex() # - 1 # first item is "select a protocol"
+        if selected_protocol_idx == 0:
+            return
+        selected_protocol_name = self.ensemble_protocol_selection_combo_box.currentText()
+
+        # Clear old presets list and add new presets to list
+        if self.ensemble_parameter_preset_comboBox is not None:
+            self.ensemble_parameter_preset_comboBox.deleteLater()
+        self.ensemble_parameter_preset_comboBox = QComboBox(self)
+        self.ensemble_parameter_preset_comboBox.addItem("Default")
+
+        prot_names = [x.__name__ for x in self.available_protocols]
+        temp_protocol_object = self.available_protocols[prot_names.index(selected_protocol_name)](self.cfg)
+        temp_protocol_object.load_parameter_presets()
+
+        for name in temp_protocol_object.parameter_presets.keys():
+            self.ensemble_parameter_preset_comboBox.addItem(name)
+        self.ensemble_protocol_selector_grid.addWidget(self.ensemble_parameter_preset_comboBox, 1, 1, 1, 1)
+        self.show()
 
     def on_pressed_button(self):
         sender = self.sender()
@@ -462,6 +597,137 @@ class ExperimentGUI(QWidget):
                 self.update_existing_subject_input()
                 self.populate_groups()
 
+        # # # Buttons for ensemble tab # # #
+
+    def on_pressed_button_ensemble(self):
+        sender = self.sender()
+        if sender.text() == 'Append':
+            if self.ensemble_protocol_selection_combo_box.currentIndex() == 0:
+                return
+
+            protocol_name = self.ensemble_protocol_selection_combo_box.currentText()
+            preset_name = self.ensemble_parameter_preset_comboBox.currentText()
+            self.ensemble_list.append_item(protocol_name, preset_name)
+
+            if not self.ensemble_file_label.text().endswith('(changes unsaved)'):
+                self.ensemble_file_label.setText(f'{self.ensemble_file_label.text()} (changes unsaved)')
+
+        elif sender.text() == 'View ensemble':
+            self.run_ensemble(save_metadata_flag=False)
+
+        elif sender.text() == 'Record ensemble':
+            self.run_ensemble(save_metadata_flag=True)
+
+        elif sender.text() == 'Stop ensemble':
+            self.client.stop_run()
+            self.pause_button.setText('Pause')
+            self.ensemble_running = False
+            self.ensemble_list.update_UI(self.ensemble_running)
+
+        elif sender.text() == 'Save ensemble':
+            self.save_ensemble_preset()
+        
+        elif sender.text() == 'Load ensemble':
+            self.load_ensemble_preset()
+            
+        elif sender.text() == 'Remove item':
+            # Reversing order of selected rows so that removing each doesn't mess up the indices
+            selected_row_idxes = sorted([x.row() for x in self.ensemble_list.selectionModel().selectedRows()])[::-1]
+            for row_idx in selected_row_idxes:
+                self.ensemble_list.remove_item(row_idx)
+
+            if not self.ensemble_file_label.text().endswith('(changes unsaved)'):
+                self.ensemble_file_label.setText(f'{self.ensemble_file_label.text()} (changes unsaved)')
+
+        elif sender.text() == 'Clear':
+            self.ensemble_list.clear()
+
+            # Set label with filename
+            self.ensemble_file_label.setText('No ensemble file loaded')
+
+    def save_ensemble_preset(self):
+        # Popup to get file path
+        # save ensemble to file
+        file_path, _= QFileDialog.getSaveFileName(self, "Save ensemble preset", self.data.data_directory, "Stimpack ensemble files (*.spens)")
+        if not file_path.endswith('.spens'):
+            file_path += '.spens'
+
+        with open(file_path, 'w') as ymlfile:
+            yaml.dump(self.ensemble_list.protocol_preset_list, ymlfile, default_flow_style=False, sort_keys=False)
+
+        print('Saved ensemble preset to {}'.format(file_path))
+        self.ensemble_file_label.setText(file_path)
+
+    def load_ensemble_preset(self):
+        # Popup to get file path
+        # load ensemble from file 
+        fname, _ = QFileDialog.getOpenFileName(self, "Open ensemble preset", self.data.data_directory, "Stimpack ensemble files (*.spens)")
+        
+        if os.path.isfile(fname):
+            with open(fname, 'r') as ymlfile:
+                protocol_name_preset_pairs = yaml.load(ymlfile, Loader=yaml.Loader)
+        else:
+            return
+
+        # Set label with filename
+        self.ensemble_file_label.setText(fname)
+
+        # Sanitize file
+        for protocol_name, preset_name in protocol_name_preset_pairs:
+            if protocol_name not in [x.__name__ for x in self.available_protocols]:
+                error_text = f'Protocol {protocol_name} not found in available protocols. Removing from the loaded ensemble.'
+                open_message_window(title='Ensemble preset load error', text=error_text)
+                protocol_name_preset_pairs.remove((protocol_name, preset_name))
+
+                # Set label with filename
+                self.ensemble_file_label.setText(f'{fname} (changes unsaved)')
+            
+            temp_protocol_object = self.available_protocols[[x.__name__ for x in self.available_protocols].index(protocol_name)](self.cfg)
+            temp_protocol_object.load_parameter_presets()
+            if preset_name not in temp_protocol_object.parameter_presets.keys() and preset_name != 'Default':
+                error_text = f'Preset {preset_name} not found in protocol {protocol_name}. Removing from the loaded ensemble.'
+                open_message_window(title='Ensemble preset load error', text=error_text)
+                protocol_name_preset_pairs.remove((protocol_name, preset_name))
+
+                # Set label with filename
+                self.ensemble_file_label.setText(f'{fname} (changes unsaved)')
+
+        # Clear ensemble list
+        self.ensemble_list.clear()
+        
+        # Load ensemble items and add to dropdown list
+        for protocol_name, preset_name in protocol_name_preset_pairs:
+            self.ensemble_list.append_item(protocol_name, preset_name)
+
+        # Set label with filename
+        self.ensemble_file_label.setText(fname)
+
+    def run_ensemble(self, save_metadata_flag=False):
+        self.ensemble_running =True
+        self.ensemble_list.reset_current_ensemble_idx()
+
+        self.run_ensemble_item(save_metadata_flag=save_metadata_flag)
+    
+    def run_ensemble_item(self, save_metadata_flag=False):
+        self.ensemble_list.increment_current_ensemble_idx()
+
+        if self.ensemble_list.get_current_ensemble_idx() >= len(self.ensemble_list):
+            self.ensemble_running = False
+            self.ensemble_list.reset_current_ensemble_idx()
+            self.ensemble_list.update_UI(self.ensemble_running)
+            return
+
+        print(f'Running ensemble item {self.ensemble_list.get_current_ensemble_idx()+1} / {len(self.ensemble_list)}')
+
+        current_protocol, current_preset = self.ensemble_list.get_current_protocol_preset()
+
+        self.on_selected_protocol_ID(current_protocol, preset_name=current_preset)
+        self.protocol_selection_combo_box.setCurrentIndex(self.protocol_selection_combo_box.findText(current_protocol))
+        self.parameter_preset_comboBox.setCurrentIndex(self.parameter_preset_comboBox.findText(current_preset))
+        self.ensemble_list.update_UI(self.ensemble_running)
+
+        self.send_run(save_metadata_flag=save_metadata_flag)
+
     def on_created_subject(self):
         # Populate subject metadata from subject data fields
         subject_metadata = {}
@@ -478,11 +744,11 @@ class ExperimentGUI(QWidget):
         self.update_existing_subject_input()
 
     def reset_layout(self):
-        for ii in range(self.parameter_grid.rowCount()):
-            item = self.parameter_grid.itemAtPosition(ii, 0)
+        for ii in range(self.parameters_grid.rowCount()):
+            item = self.parameters_grid.itemAtPosition(ii, 0)
             if item is not None:
                 item.widget().deleteLater()
-            item = self.parameter_grid.itemAtPosition(ii, 1)
+            item = self.parameters_grid.itemAtPosition(ii, 1)
             if item is not None:
                 item.widget().deleteLater()
         self.show()
@@ -505,8 +771,8 @@ class ExperimentGUI(QWidget):
                 input_field.editingFinished.connect(self.on_parameter_finished_edit)
                 input_field.textEdited.connect(self.on_parameter_mid_edit)
 
-            self.parameter_grid.addWidget(QLabel(key + ':'), input_field_row, 0)
-            self.parameter_grid.addWidget(input_field, input_field_row, 1, 1, 2)
+            self.parameters_grid.addWidget(QLabel(key + ':'), input_field_row, 0)
+            self.parameters_grid.addWidget(input_field, input_field_row, 1, 1, 2)
             
             return input_field
 
@@ -523,28 +789,28 @@ class ExperimentGUI(QWidget):
         def update_run_parameters_input():
             new_label = QLabel('Run parameters:')
             new_label.setStyleSheet('font-weight: bold; text-decoration: underline')
-            self.parameter_grid.addWidget(new_label, self.parameter_grid_row_ct, 0) # add label after run_params
-            self.parameter_grid_row_ct = +1 # +1 for label 'Run parameters:'
+            self.parameters_grid.addWidget(new_label, self.parameters_grid_row_ct, 0) # add label after run_params
+            self.parameters_grid_row_ct = +1 # +1 for label 'Run parameters:'
 
             self.run_parameter_input = {}  # clear old input params dict        
             for key, value in self.protocol_object.run_parameters.items():
-                self.run_parameter_input[key] = make_parameter_input_field(key, value, self.parameter_grid_row_ct)
-                self.parameter_grid_row_ct += 1
+                self.run_parameter_input[key] = make_parameter_input_field(key, value, self.parameters_grid_row_ct)
+                self.parameters_grid_row_ct += 1
                 set_validator(self.run_parameter_input[key], type(value))
 
         def update_protocol_parameters_input():
             # update display window to show parameters for this protocol
             new_label = QLabel('Protocol parameters:')
             new_label.setStyleSheet('font-weight: bold; text-decoration: underline; margin-top: 10px;')
-            self.parameter_grid.addWidget(new_label, self.parameter_grid_row_ct, 0) # add label after run_params
-            self.parameter_grid_row_ct += 1 # +1 for label 'Protocol parameters:'
+            self.parameters_grid.addWidget(new_label, self.parameters_grid_row_ct, 0) # add label after run_params
+            self.parameters_grid_row_ct += 1 # +1 for label 'Protocol parameters:'
             
             self.protocol_parameter_input = {}  # clear old input params dict
             for key, value in self.protocol_object.protocol_parameters.items():
-                self.protocol_parameter_input[key] = make_parameter_input_field(key, value, self.parameter_grid_row_ct)
-                self.parameter_grid_row_ct += 1
+                self.protocol_parameter_input[key] = make_parameter_input_field(key, value, self.parameters_grid_row_ct)
+                self.parameters_grid_row_ct += 1
 
-        self.parameter_grid_row_ct = 0
+        self.parameters_grid_row_ct = 0
         update_run_parameters_input()
         update_protocol_parameters_input()
 
@@ -645,6 +911,21 @@ class ExperimentGUI(QWidget):
         self.run_start_time = time.time()
         self.progress_timer.start()
 
+        # Enable/disable buttons on ensemble tab
+        self.ensemble_append_button.setEnabled(False)
+
+        self.ensemble_load_preset_button.setEnabled(False)
+        self.ensemble_save_preset_button.setEnabled(False)
+        self.ensemble_remove_item_button.setEnabled(False)
+        self.ensemble_clear_button.setEnabled(False)
+
+        self.ensemble_view_button.setEnabled(False)
+        self.ensemble_record_button.setEnabled(False)
+        if self.ensemble_running:
+            self.ensemble_stop_button.setEnabled(True)
+        else:
+            self.ensemble_stop_button.setEnabled(False)
+
     def run_finished(self, save_metadata_flag):
         # re-enable view/record buttons
         self.view_button.setEnabled(True)
@@ -662,9 +943,25 @@ class ExperimentGUI(QWidget):
             self.data.advance_series_count()
             self.series_counter_input.setValue(self.data.get_series_count())
             self.populate_groups()
-            
-        # Prepare for next run
-        self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
+        
+        if self.ensemble_running:
+            self.run_ensemble_item(save_metadata_flag=save_metadata_flag)
+
+        if not self.ensemble_running: # if ensemble still running, no need to edit buttons or update parameters from fillable fields
+            # Enable/disable buttons on ensemble tab
+            self.ensemble_append_button.setEnabled(True)
+
+            self.ensemble_load_preset_button.setEnabled(True)
+            self.ensemble_save_preset_button.setEnabled(True)
+            self.ensemble_remove_item_button.setEnabled(True)
+            self.ensemble_clear_button.setEnabled(True)
+
+            self.ensemble_view_button.setEnabled(True)
+            self.ensemble_record_button.setEnabled(True)
+            self.ensemble_stop_button.setEnabled(False)
+
+            # Prepare for next run
+            self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
 
     def update_parameters_from_fillable_fields(self, compute_epoch_parameters=True):
         def is_number(s):
@@ -861,7 +1158,7 @@ class ExperimentGUI(QWidget):
 
     def update_window_width(self):
         self.resize(100, self.height())
-        window_width = self.protocol_box.sizeHint().width() + self.protocol_params_scroll_box.verticalScrollBar().sizeHint().width() + 40
+        window_width = self.parameters_box.sizeHint().width() + self.parameters_scroll_area.verticalScrollBar().sizeHint().width() + 40
         self.resize(window_width, self.height())
 
 # # # Other accessory classes. For data file initialization and threading # # # #
@@ -1030,6 +1327,69 @@ class runSeriesThread(QThread):
 
     def run(self):
         self._send_run()
+
+
+class EnsembleList(QListWidget):
+    row_moved_signal = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.model().rowsMoved.connect(self.on_order_changed)
+
+        self.protocol_preset_list = []
+        self.current_ensemble_idx = -1
+
+    def __len__(self):
+        assert len(self.protocol_preset_list) == self.count()
+        return self.count()
+
+    def append_item(self, protocol_name, preset_name):
+        super().addItem(protocol_name + ' (' + preset_name + ')')
+        self.protocol_preset_list.append((protocol_name, preset_name))
+    
+    def clear(self):
+        super().clear()
+        self.protocol_preset_list = []
+        self.current_ensemble_idx = -1
+
+    def remove_item(self, row):
+        super().takeItem(row)
+        self.protocol_preset_list.pop(row)
+
+    def increment_current_ensemble_idx(self):
+        self.current_ensemble_idx += 1
+    
+    def reset_current_ensemble_idx(self):
+        self.current_ensemble_idx = -1
+    
+    def get_current_ensemble_idx(self):
+        return self.current_ensemble_idx
+    
+    def get_current_protocol_preset(self):
+        return self.protocol_preset_list[self.current_ensemble_idx]
+
+    def on_order_changed(self, sourceParent=None, sourceStart=None, sourceEnd=None, destinationParent=None, destinationRow=None):
+        destination_idx = destinationRow if destinationRow < sourceStart else destinationRow - 1
+        print(f"Row moved from {sourceStart} to {destination_idx}")
+
+        # Update the ensemble
+        item = self.protocol_preset_list.pop(sourceStart)
+        self.protocol_preset_list.insert(destination_idx, item)
+
+        self.row_moved_signal.emit()
+    
+    def update_UI(self, ensemble_running):
+        if ensemble_running:
+            self.setEnabled(False)
+            self.clearSelection()
+            self.setCurrentRow(self.current_ensemble_idx)
+        else:
+            self.setEnabled(True)
+            self.clearSelection()
 
 
 def main():
