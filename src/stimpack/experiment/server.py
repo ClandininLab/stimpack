@@ -3,16 +3,24 @@ import signal, sys
 from stimpack.visual_stim.screen import Screen
 from stimpack.visual_stim.stim_server import launch_stim_server, StimServer
 
-from stimpack.device.loco_managers import LocoManager, LocoClosedLoopManager
+from stimpack.device.locomotion.loco_managers import LocoManager, LocoClosedLoopManager
 from stimpack.device.daq import DAQ
 
+from stimpack.rpc.util import start_daemon_thread, find_free_port
+
 class BaseServer():
-    def __init__(self, screens=[], loco_class=None, loco_kwargs={}, daq_class=None, daq_kwargs={}):
-        if screens:
-            # other_stim_module_paths=[] stops StimServer from importing user stimuli modules from a txt file
-            self.manager = StimServer(screens=screens, host='', port=60629, auto_stop=False, other_stim_module_paths=[])
+    def __init__(self, screens=[], host='127.0.0.1', port=60629, 
+                    loco_class=None, loco_kwargs={}, daq_class=None, daq_kwargs={}, 
+                    start_loop=False):
+
+        self.host = host
+        if port is None:
+            self.port = find_free_port(host)
         else:
-            self.manager = launch_stim_server(Screen(fullscreen=False, server_number=0, id=0, vsync=False), other_stim_module_paths=[])
+            self.port = port
+
+        # other_stim_module_paths=[] stops StimServer from importing user stimuli modules from a txt file
+        self.manager = StimServer(screens=screens, host=self.host, port=self.port, auto_stop=False, other_stim_module_paths=[])
 
         self.loco_manager = None
         self.daq_device = None
@@ -33,6 +41,9 @@ class BaseServer():
             self.close()
             sys.exit(0)
         signal.signal(signal.SIGINT, signal_handler)
+    
+        if start_loop:
+            start_daemon_thread(self.loop)
 
     def loop(self):
         self.manager.loop()

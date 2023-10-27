@@ -23,6 +23,7 @@ class LocoSocketManager():
         self.host = host
         self.port = port
         self.udp = udp
+        self.client_addr = None
 
         self.sock = None
         self.sock_buffer = "\n"
@@ -33,9 +34,15 @@ class LocoSocketManager():
         Open / connect to socket
         '''
         if self.udp:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.sock.bind((self.host, self.port))
-            self.sock.setblocking(0)
+            try:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.sock.bind((self.host, self.port))
+                print(f'LocoSocketManager: Bound socket to {self.host}:{self.port}')
+                self.sock.setblocking(0)
+            except :
+                print("LocoSocketManager: Failed to bind socket.")
+                self.close()
+                return
         else: # TCP
             # TODO: Maybe need to listen for connection? This should be a server, receiving requests from locomotion source (e.g. Fictrac)
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -43,11 +50,34 @@ class LocoSocketManager():
 
     def close(self):
         if self.sock is not None:
-            self.sock.close()
+            # Clear out any remaining data
+            _ = self.receive_message(wait_for=0)
+            
+            try:
+                self.sock.close()
+            except:
+                print("LocoSocketManager: Failed to close socket.")
+            
+            self.sock = None
+            self.client_addr = None
 
-    def get_line(self, wait_for=None, get_most_recent=True):
+    def send_message(self, message):
+        if self.sock is None:
+            return
+        
+        try:
+            if self.client_addr is None:
+                print("LocoSocketManager: No client address. Cannot send message. Must wait until a message is received.")
+                return
+            if self.udp:
+                self.sock.sendto(message.encode(), self.client_addr)
+        except socket.error as e:
+            print(e)
+            print("LocoSocketManager: Failed to send message.")
+            return
+
+    def receive_message(self, wait_for=None):
         '''
-        Assumes that lines are separated by '\n'
         wait_for:
             None: wait until there is data to read
             0: return immediately if there is no data to read
@@ -59,17 +89,37 @@ class LocoSocketManager():
         ready = []
         while not ready:
             if self.sock == -1:
-                print('\nSocket disconnected.')
+                print('\nLocoSocketManager: Socket disconnected.')
                 return None
             if wait_for is None:
                 ready = select.select([self.sock], [], [])[0]
             else:
                 ready = select.select([self.sock], [], [], wait_for)[0]
-        new_data = self.sock.recv(4096)
+
+        # Check again in case we were stuck at select.select while socket was closed
+        if self.sock is None:
+            return None
+        
+        data, addr = self.sock.recvfrom(4096)
+        self.client_addr = addr
+        return data
+
+    def get_line(self, wait_for=None, get_most_recent=True):
+        '''
+        Assumes that lines are separated by '\n'
+        wait_for:
+            None: wait until there is data to read
+            0: return immediately if there is no data to read
+            >0: wait for that many seconds for data to read
+        '''
+        
+        new_data = self.receive_message(wait_for=wait_for)
+        if new_data is None:
+            return None
         ##
 
         if not new_data and not self.udp: # TCP and blank new_data...
-            print('\nDisconnected from TCP server.')
+            print('\nLocoSocketManager: Disconnected from TCP server.')
             return None
 
         # Decode received data
@@ -80,7 +130,7 @@ class LocoSocketManager():
             ## Find the last frame of data
 
             endline = self.sock_buffer.rfind("\n")
-            assert endline != 1, "There must always be at least one linebreak in the buffer."
+            assert endline != 1, "LocoSocketManager: There must always be at least one linebreak in the buffer."
             
             # Find the end of the second to last frame. (\n is always left behind)
             prev_endline = self.sock_buffer[:endline-1].rfind("\n")
@@ -127,6 +177,7 @@ class LocoClosedLoopManager(LocoManager):
 
         self.data_prev = []
         self.pos_0 = {'theta': 0, 'x': 0, 'y': 0, 'z': 0}
+        self.pos   = {'theta': 0, 'x': 0, 'y': 0, 'z': 0}
 
         self.loop_attrs = {
             'thread': None,
@@ -137,6 +188,8 @@ class LocoClosedLoopManager(LocoManager):
             'update_y': False,
             'update_z': False
         }
+
+        self.loop_custom_fxn = None
 
         if start_at_init:
             self.start()
@@ -169,7 +222,9 @@ class LocoClosedLoopManager(LocoManager):
 
     def get_data(self, wait_for=None, get_most_recent=True):
         line = self.socket_manager.get_line(wait_for=wait_for, get_most_recent=get_most_recent)
-        
+        if line is None:
+            return None
+
         data = self._parse_line(line)
         self.data_prev = data
 
@@ -227,6 +282,10 @@ class LocoClosedLoopManager(LocoManager):
         self.pos_0['x']     = x_0
         self.pos_0['y']     = y_0
         self.pos_0['z']     = z_0
+        self.pos['theta']   = theta_0
+        self.pos['x']       = x_0
+        self.pos['y']       = y_0
+        self.pos['z']       = z_0
         
         if write_log and self.log_file is not None:
             if ts is None:
@@ -238,32 +297,23 @@ class LocoClosedLoopManager(LocoManager):
         if self.log_file is not None:
             self.log_file.write(str(string) + "\n")
 
-    def update_pos(self, update_theta=True, update_x=False, update_y=False, update_z=False):
+    def update_pos(self, update_theta=True, update_x=False, update_y=False, update_z=False, return_pos=False):
         data = self.get_data()
-
-        data_to_return = {}
         
-        if update_theta:
-            theta = float(data['theta']) - self.pos_0['theta']
-            self.fs_manager.set_global_theta_offset(degrees(theta))
-            data_to_return['theta'] = theta #radians
+        self.pos['theta'] = float(data['theta']) - self.pos_0['theta'] #radians
+        self.pos['x'] = float(data['x']) - self.pos_0['x']
+        self.pos['y'] = float(data['y']) - self.pos_0['y']
+        self.pos['z'] = float(data['z']) - self.pos_0['z']
 
-        if update_x:
-            x = float(data['x']) - self.pos_0['x']
-            self.fs_manager.set_global_fly_x(x)
-            data_to_return['x'] = x
+        if update_theta: self.fs_manager.set_global_theta_offset(degrees(self.pos['theta']))
+        if update_x:     self.fs_manager.set_global_fly_x(self.pos['x'])
+        if update_y:     self.fs_manager.set_global_fly_y(self.pos['y'])
+        if update_z:     self.fs_manager.set_global_fly_z(self.pos['z'])
 
-        if update_y:
-            y = float(data['y']) - self.pos_0['y']
-            self.fs_manager.set_global_fly_y(y)
-            data_to_return['y'] = y
-
-        if update_z:
-            z = float(data['z']) - self.pos_0['z']
-            self.fs_manager.set_global_fly_z(z)
-            data_to_return['z'] = z
-
-        return data_to_return
+        if return_pos:
+            return self.pos.copy()
+        else:
+            return
 
     def is_looping(self):
         return self.loop_attrs['looping']
@@ -273,12 +323,18 @@ class LocoClosedLoopManager(LocoManager):
             self.loop_attrs['looping'] = True
             while self.loop_attrs['looping']:
                 if self.loop_attrs['closed_loop']:
-                    _ = self.update_pos(update_theta = self.loop_attrs['update_theta'], 
-                                        update_x     = self.loop_attrs['update_x'], 
-                                        update_y     = self.loop_attrs['update_y'],
-                                        update_z     = self.loop_attrs['update_z'])
+                    self.update_pos(update_theta = self.loop_attrs['update_theta'], 
+                                    update_x     = self.loop_attrs['update_x'], 
+                                    update_y     = self.loop_attrs['update_y'],
+                                    update_z     = self.loop_attrs['update_z'])
                 else:
-                    _ = self.get_data()
+                    self.update_pos(update_theta = False,
+                                    update_x     = False, 
+                                    update_y     = False,
+                                    update_z     = False)
+                    
+                if self.loop_custom_fxn is not None:
+                    self.loop_custom_fxn(self.pos)
 
         if self.loop_attrs['looping']:
             print("Already looping")
@@ -304,4 +360,9 @@ class LocoClosedLoopManager(LocoManager):
         self.loop_attrs['update_x']     = update_x
         self.loop_attrs['update_y']     = update_y
         self.loop_attrs['update_z']     = update_z
-        
+    
+    def loop_update_custom_fxn(self, custom_fxn):
+        if isinstance(custom_fxn, function):
+            self.loop_custom_fxn = custom_fxn
+        else:
+            pass

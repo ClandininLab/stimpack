@@ -283,7 +283,7 @@ class BaseProtocol():
         if do_loco:
             multicall.loco_set_pos_0(theta_0=None, x_0=0, y_0=0, use_data_prev=True, write_log=self.save_metadata_flag)
         if do_loco_closed_loop:
-            multicall.loco_loop_update_closed_loop_vars(update_theta=True, update_x=False, update_y=False)
+            multicall.loco_loop_update_closed_loop_vars(update_theta=True, update_x=True, update_y=True)
             multicall.loco_loop_start_closed_loop()
         
         multicall.start_stim(save_pos_history=save_pos_history, append_stim_frames=append_stim_frames)
