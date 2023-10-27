@@ -338,9 +338,23 @@ class BaseProtocol():
                 # parameter_sequence is num_combinations by num params
                 parameter_sequence = list(itertools.product(*parameter_list))
             else:
+                parameter_list_new = []
+
+                # sequence length is determined by the length of the longest list
+                # for non-list elements or lists with shorter lengths, repeat to fill out the max length                
+                sequence_length = max([(len(param) if type(param) is list else 1) for param in parameter_list])
+                
+                for param in list(parameter_list):
+                    if type(param) is not list:
+                        parameter_list_new.append([param] * sequence_length)
+                    else:
+                        n_repeats = sequence_length // len(param)
+                        n_remainder = sequence_length % len(param)
+                        parameter_list_new.append(param * n_repeats + param[:n_remainder])
+                
                 # keep params in lists associated with one another
                 # requires param lists of equal length
-                parameter_sequence = np.vstack(np.array(parameter_list, dtype=object)).T
+                parameter_sequence = np.vstack(np.array(parameter_list_new, dtype=object)).T
 
         else: # user probably entered a single value (int or float), convert to list
             parameter_sequence = [parameter_list]
