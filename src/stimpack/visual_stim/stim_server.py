@@ -1,5 +1,7 @@
 import platform
 from time import time
+from math import radians
+import numpy as np
 
 import stimpack.visual_stim.framework
 from stimpack.visual_stim.screen import Screen
@@ -33,32 +35,37 @@ def launch_screen(screen, **kwargs):
     # launch the server and return the resulting client
     return launch_server(stimpack.visual_stim.framework, screen=screen.serialize(), new_env_vars=new_env_vars, **kwargs)
 
-class StimServer(MySocketServer):
+class VisualStimServer(MySocketServer):
     time_stamp_commands = ['start_stim', 'pause_stim', 'update_stim']
 
-    def __init__(self, screens, host=None, port=None, auto_stop=None, other_stim_module_paths=None, **kwargs):
+    def __init__(self, screens=[], host=None, port=None, auto_stop=None, other_stim_module_paths=None, **kwargs):
         # call super constructor
         super().__init__(host=host, port=port, threaded=False, auto_stop=auto_stop)
 
-        self.functions_on_root = {}
-
-        # Print on server
-        self.register_function_on_root(lambda x: print(x), "print_on_server")
-
-        # Shared PixMap Memory stim
-        self.spms = None
-        self.register_function_on_root(self.load_shared_pixmap_stim, "load_shared_pixmap_stim")
-        self.register_function_on_root(self.start_shared_pixmap_stim, "start_shared_pixmap_stim")
-        self.register_function_on_root(self.clear_shared_pixmap_stim, "clear_shared_pixmap_stim")
-        
         # If other_stim_module_paths specified in kwargs, use that.
         if other_stim_module_paths is None:
             other_stim_module_paths = []
         if not isinstance(other_stim_module_paths, list):
             other_stim_module_paths = [other_stim_module_paths]
         
+        self.functions_on_root = {}
+
+        # Shared memory PixMap stim functions to be run on the root node of visual stim server
+        self.spms = None
+        self.register_function_on_root(self.load_shared_pixmap_stim, "load_shared_pixmap_stim")
+        self.register_function_on_root(self.start_shared_pixmap_stim, "start_shared_pixmap_stim")
+        self.register_function_on_root(self.clear_shared_pixmap_stim, "clear_shared_pixmap_stim")
+
+        # If no screens are specified, create a default screen
+        if screens is None or len(screens) == 0:
+            screens = [Screen(server_number=-1, id=-1, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
+        
         # launch screens
-        self.clients = [launch_screen(screen=screen, other_stim_module_paths=other_stim_module_paths, **kwargs) for screen in screens]
+        self.screen_clients = [launch_screen(screen=screen, other_stim_module_paths=other_stim_module_paths, **kwargs) for screen in screens]
+
+        self.corner_square_toggle_stop()
+        self.corner_square_off()
+        self.set_idle_background(0)
 
     def __getattr__(self, name):
         '''
@@ -83,19 +90,6 @@ class StimServer(MySocketServer):
 
         assert name not in self.functions_on_root, 'Function "{}" already defined.'.format(name)
         self.functions_on_root[name] = function
-    
-    def load_shared_pixmap_stim(self, **kwargs):
-        '''
-        '''
-        self.spms = util.make_as(kwargs, parent_class=SharedPixMapStimulus)
-    
-    def start_shared_pixmap_stim(self):
-        if self.spms is not None:
-            self.spms.start_stream()
-
-    def clear_shared_pixmap_stim(self):
-        if self.spms is not None:
-            self.spms.close()
 
     def handle_request_list(self, request_list):
         # make sure that request list is actually a list...
@@ -126,9 +120,27 @@ class StimServer(MySocketServer):
                 request['kwargs']['t'] = time()
 
         # send modified request list to clients
-        for client in self.clients:
-            client.write_request_list(request_list)
+        for screen_client in self.screen_clients:
+            screen_client.write_request_list(request_list)
 
+    def close(self):
+        self.shutdown_flag.set()
+
+    ### Shared memory pixmap stim functions ###
+    def load_shared_pixmap_stim(self, **kwargs):
+        '''
+        '''
+        self.spms = util.make_as(kwargs, parent_class=SharedPixMapStimulus)
+    
+    def start_shared_pixmap_stim(self):
+        if self.spms is not None:
+            self.spms.start_stream()
+
+    def clear_shared_pixmap_stim(self):
+        if self.spms is not None:
+            self.spms.close()
+    ### Shared memory pixmap stim functions ###
+        
 def launch_stim_server(screen_or_screens=None, **kwargs):
     # set defaults
     if screen_or_screens is None:
@@ -149,7 +161,7 @@ def run_stim_server(host=None, port=None, auto_stop=None, screens=None, **kwargs
         screens = []
 
     # instantiate the server
-    server = StimServer(screens=screens, host=host, port=port, auto_stop=auto_stop, **kwargs)
+    server = VisualStimServer(screens=screens, host=host, port=port, auto_stop=auto_stop, **kwargs)
 
     # launch the server
     server.loop()

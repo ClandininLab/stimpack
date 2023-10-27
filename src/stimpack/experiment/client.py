@@ -34,8 +34,10 @@ class BaseClient():
             else:
                 disp_server, disp_id = -1, -1
             
-            aux_screen = Screen(server_number=disp_server, id=disp_id, fullscreen=False, vsync=True, square_size=(0.25, 0.25))
-
+            visual_stim_kwargs = {
+                'screens': [Screen(server_number=disp_server, id=disp_id, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
+            }
+            
             loco_class = KeytracClosedLoopManager
             loco_kwargs = {
                 'host':          '127.0.0.1',
@@ -44,20 +46,25 @@ class BaseClient():
                 'kt_py_fn':      os.path.join(ROOT_DIR, "device/locomotion/keytrac/keytrac.py"),
                 'relative_control': 'True',
             }
-            server = BaseServer(screens=[aux_screen], port=None, start_loop=True, loco_class=loco_class, loco_kwargs=loco_kwargs)
+            
+            server = BaseServer(port=None, 
+                                start_loop=True, 
+                                visual_stim_kwargs=visual_stim_kwargs, 
+                                loco_class=loco_class, 
+                                loco_kwargs=loco_kwargs)
             self.manager = MySocketClient(host=server.host, port=server.port)
 
         # if the trigger device is on the server, set the manager for the trigger device
         if isinstance(self.trigger_device, daq.DAQonServer):
             self.trigger_device.set_manager(self.manager)
 
-        self.manager.corner_square_toggle_stop()
-        self.manager.corner_square_off()
-        self.manager.set_idle_background(0)
+        self.manager.target('visual').corner_square_toggle_stop()
+        self.manager.target('visual').corner_square_off()
+        self.manager.target('visual').set_idle_background(0)
 
         # # # Import user-defined stimpack.visual_stim stimuli modules on server screens # # #
         visual_stim_module_paths = self.server_options.get('visual_stim_module_paths', [])
-        [self.manager.import_stim_module(dir) for dir in visual_stim_module_paths]
+        [self.manager.target('visual').import_stim_module(dir) for dir in visual_stim_module_paths]
 
     def stop_run(self):
         self.stop = True
@@ -86,7 +93,7 @@ class BaseClient():
         protocol_object.prepare_run(recompute_epoch_parameters=False)
 
         # Set background to idle_color
-        self.manager.set_idle_background(protocol_object.run_parameters['idle_color'])
+        self.manager.target('visual').set_idle_background(protocol_object.run_parameters['idle_color'])
 
         if save_metadata_flag:
             data.create_epoch_run(protocol_object)
@@ -122,8 +129,8 @@ class BaseClient():
                 self.start_epoch(protocol_object, data, save_metadata_flag=save_metadata_flag)
 
         # Set frame tracker to dark
-        self.manager.corner_square_toggle_stop()
-        self.manager.corner_square_off()
+        self.manager.target('visual').corner_square_toggle_stop()
+        self.manager.target('visual').corner_square_off()
 
         # Stop locomotion device / software
         if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
@@ -175,14 +182,14 @@ class BaseClient():
                 # set server-side directory in which to save animal positions from each screen.
                 server_series_dir = posixpath.join(server_data_directory, data.experiment_file_name, str(data.series_count))
                 server_pos_history_dir = posixpath.join(server_series_dir, 'visual_stim_pos')
-                self.manager.set_save_pos_history_dir(server_pos_history_dir)
+                self.manager.target('all').set_save_pos_history_dir(server_pos_history_dir)
 
                 # set server-side directory in which to save locomotion data
                 server_loco_dir = posixpath.join(server_series_dir, 'loco')
-                self.manager.loco_set_save_directory(server_loco_dir)
+                self.manager.target('locomotion').set_save_directory(server_loco_dir)
             else:
                 print("Warning: Locomotion data won't be saved without server's data_directory specified in config file.")
-        self.manager.loco_start()
+        self.manager.target('locomotion').start()
         sleep(3) # Give locomotion device / software time to load
     
     def start_loco_loop(self):
@@ -190,9 +197,9 @@ class BaseClient():
         Start locomotion loop on the server for closed-loop updating
         '''
         sleep(2) # Give loco time to start acquiring
-        self.manager.loco_loop_start() # start loop, which is superfluous if closed loop is not needed for the exp.
+        self.manager.target('locomotion').loop_start() # start loop, which is superfluous if closed loop is not needed for the exp.
         
     def stop_loco(self):
-        self.manager.loco_close()
-        self.manager.loco_set_save_directory(None)
+        self.manager.target('locomotion').close()
+        self.manager.target('locomotion').set_save_directory(None)
     

@@ -79,15 +79,15 @@ class StimDisplay(QOpenGLWidget):
         # flag indicating whether to clear the viewports on the next paintGL call
         self.clear_viewports_flag = False
 
-        # set the closed-loop parameters
-        self.set_global_fly_pos(0, 0, 0)
+        # set the subject position parameters
+        self.set_global_subject_pos(0, 0, 0)
         self.set_global_theta_offset(0) # deg -> radians
         self.set_global_phi_offset(0) # deg -> radians
 
-        self.use_fly_trajectory = False
-        self.fly_x_trajectory = None
-        self.fly_y_trajectory = None
-        self.fly_theta_trajectory = None
+        self.use_subject_trajectory = False
+        self.subject_x_trajectory = None
+        self.subject_y_trajectory = None
+        self.subject_theta_trajectory = None
         
         # imported stimuli module names
         self.imported_stim_module_names = []
@@ -164,21 +164,21 @@ class StimDisplay(QOpenGLWidget):
                     self.stop_stim()
             else:  # real-time generation
                 t = time.time()
-            if self.use_fly_trajectory:
-                self.set_global_fly_pos(return_for_time_t(self.fly_x_trajectory, self.get_stim_time(t)),
-                                        return_for_time_t(self.fly_y_trajectory, self.get_stim_time(t)),
+            if self.use_subject_trajectory:
+                self.set_global_subject_pos(return_for_time_t(self.subject_x_trajectory, self.get_stim_time(t)),
+                                        return_for_time_t(self.subject_y_trajectory, self.get_stim_time(t)),
                                         0)
-                self.set_global_theta_offset(return_for_time_t(self.fly_theta_trajectory, self.get_stim_time(t)))  # deg -> radians
+                self.set_global_theta_offset(return_for_time_t(self.subject_theta_trajectory, self.get_stim_time(t)))  # deg -> radians
 
             # For each subscreen associated with this screen: get the perspective matrix
-            perspectives = [get_perspective(self.global_fly_pos, self.global_theta_offset, self.global_phi_offset, x.pa, x.pb, x.pc, self.screen.horizontal_flip) for x in self.screen.subscreens]
+            perspectives = [get_perspective(self.global_subject_pos, self.global_theta_offset, self.global_phi_offset, x.pa, x.pb, x.pc, self.screen.horizontal_flip) for x in self.screen.subscreens]
 
             for stim in self.stim_list:
                 if self.stim_started:
                     stim.paint_at(self.get_stim_time(t),
                                   self.subscreen_viewports,
                                   perspectives,
-                                  fly_position=self.global_fly_pos.copy(),
+                                  fly_position=self.global_subject_pos.copy(),
                                   fly_heading=[self.global_theta_offset+0, self.global_phi_offset+0])
 
             self.profile_frame_times.append(t)
@@ -200,7 +200,7 @@ class StimDisplay(QOpenGLWidget):
             # print('paintGL {:.2f} ms'.format((time.time()-t0)*1000)) #benchmarking
 
             if self.save_pos_history:
-                self.pos_history.append(np.append(self.global_fly_pos, [self.global_theta_offset, self.global_phi_offset])) # np.append creates a copy
+                self.pos_history.append(np.append(self.global_subject_pos, [self.global_theta_offset, self.global_phi_offset])) # np.append creates a copy
 
             if self.append_stim_frames:
                 # grab frame buffer, convert to array, grab blue channel, append to list of stim_frames
@@ -211,16 +211,16 @@ class StimDisplay(QOpenGLWidget):
     # control functions
     ###########################################
 
-    def set_fly_trajectory(self, x_trajectory, y_trajectory, theta_trajectory):
+    def set_subject_trajectory(self, x_trajectory, y_trajectory, theta_trajectory):
         """
         :param x_trajectory: meters, dict from Trajectory including time, value pairs
         :param y_trajectory: meters, dict from Trajectory including time, value pairs
         :param theta_trajectory: degrees on the azimuthal plane, dict from Trajectory including time, value pairs
         """
-        self.use_fly_trajectory = True
-        self.fly_x_trajectory = make_as_trajectory(x_trajectory)
-        self.fly_y_trajectory = make_as_trajectory(y_trajectory)
-        self.fly_theta_trajectory = make_as_trajectory(theta_trajectory)
+        self.use_subject_trajectory = True
+        self.subject_x_trajectory = make_as_trajectory(x_trajectory)
+        self.subject_y_trajectory = make_as_trajectory(y_trajectory)
+        self.subject_theta_trajectory = make_as_trajectory(theta_trajectory)
 
     def load_stim(self, name, hold=False, **kwargs):
         """
@@ -248,7 +248,7 @@ class StimDisplay(QOpenGLWidget):
         # clear the viewports
         self.clear_viewports_flag = True
 
-    def start_stim(self, t, save_pos_history=False, append_stim_frames=False, pre_render=False, pre_render_timepoints=None):
+    def start_stim(self, t, append_stim_frames=False, pre_render=False, pre_render_timepoints=None):
         """
         Start the stimulus animation, using the given time as t=0.
 
@@ -262,8 +262,7 @@ class StimDisplay(QOpenGLWidget):
         self.current_time_index = 0
         self.pre_render_timepoints = pre_render_timepoints
 
-        self.save_pos_history = save_pos_history
-        if save_pos_history:
+        if self.save_pos_history:
             self.pos_history = []
 
         self.stim_started = True
@@ -311,14 +310,14 @@ class StimDisplay(QOpenGLWidget):
 
         self.profile_frame_times = []
 
-        self.use_fly_trajectory = False
-        self.fly_x_trajectory = None
-        self.fly_y_trajectory = None
-        self.fly_theta_trajectory = None
-        self.set_global_fly_pos(0, 0, 0)
+        self.use_subject_trajectory = False
+        self.subject_x_trajectory = None
+        self.subject_y_trajectory = None
+        self.subject_theta_trajectory = None
+        self.set_global_subject_pos(0, 0, 0)
         self.set_global_theta_offset(0)
         self.set_global_phi_offset(0)
-        self.perspective = get_perspective(self.global_fly_pos, self.global_theta_offset, self.global_phi_offset, self.screen.subscreens[0].pa, self.screen.subscreens[0].pb, self.screen.subscreens[0].pc, self.screen.horizontal_flip)
+        self.perspective = get_perspective(self.global_subject_pos, self.global_theta_offset, self.global_phi_offset, self.screen.subscreens[0].pa, self.screen.subscreens[0].pb, self.screen.subscreens[0].pc, self.screen.horizontal_flip)
 
     def save_rendered_movie(self, file_path, downsample_xy=4):
         """
@@ -333,6 +332,9 @@ class StimDisplay(QOpenGLWidget):
         np.save(file_path, mov)
         print('Downsampled from {} to {} and saved to {}'.format(pre_size, mov.shape, file_path), flush=True)
 
+    def set_save_pos_history_flag(self, flag=True):
+        self.save_pos_history = flag
+        
     def set_save_pos_history_dir(self, save_dir):
         self.save_pos_history_dir = os.path.join(save_dir, '_'.join(['screen', self.screen.name]))
         os.makedirs(self.save_pos_history_dir, exist_ok=True)
@@ -403,17 +405,17 @@ class StimDisplay(QOpenGLWidget):
         """
         self.idle_background = util.get_rgba(color)
 
-    def set_global_fly_pos(self, x, y, z):
-        self.global_fly_pos = np.array([x, y, z], dtype=float)
+    def set_global_subject_pos(self, x, y, z):
+        self.global_subject_pos = np.array([x, y, z], dtype=float)
 
-    def set_global_fly_x(self, x):
-        self.global_fly_pos[0] = float(x)
+    def set_global_subject_x(self, x):
+        self.global_subject_pos[0] = float(x)
 
-    def set_global_fly_y(self, y):
-        self.global_fly_pos[1] = float(y)
+    def set_global_subject_y(self, y):
+        self.global_subject_pos[1] = float(y)
 
-    def set_global_fly_z(self, z):
-        self.global_fly_pos[2] = float(z)
+    def set_global_subject_z(self, z):
+        self.global_subject_pos[2] = float(z)
 
     def set_global_theta_offset(self, value):
         self.global_theta_offset = radians(value)
@@ -509,7 +511,7 @@ def main():
     stim_display = StimDisplay(screen=screen, server=server, app=app)
 
     # register functions
-    server.register_function(stim_display.set_fly_trajectory)
+    server.register_function(stim_display.set_subject_trajectory)
     server.register_function(stim_display.load_stim)
     server.register_function(stim_display.start_stim)
     server.register_function(stim_display.stop_stim)
@@ -522,12 +524,13 @@ def main():
     server.register_function(stim_display.show_corner_square)
     server.register_function(stim_display.hide_corner_square)
     server.register_function(stim_display.set_idle_background)
-    server.register_function(stim_display.set_global_fly_pos)
-    server.register_function(stim_display.set_global_fly_x)
-    server.register_function(stim_display.set_global_fly_y)
-    server.register_function(stim_display.set_global_fly_z)
+    server.register_function(stim_display.set_global_subject_pos)
+    server.register_function(stim_display.set_global_subject_x)
+    server.register_function(stim_display.set_global_subject_y)
+    server.register_function(stim_display.set_global_subject_z)
     server.register_function(stim_display.set_global_theta_offset)
     server.register_function(stim_display.set_global_phi_offset)
+    server.register_function(stim_display.set_save_pos_history_flag)
     server.register_function(stim_display.set_save_pos_history_dir)
     server.register_function(stim_display.save_pos_history_to_file)
     server.register_function(stim_display.import_stim_module)

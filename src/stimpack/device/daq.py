@@ -12,6 +12,14 @@ class DAQ():
     def __init__(self):
         pass
 
+    def handle_request_list(self, request_list):
+        for request in request_list:
+            if request['name'] in dir(self):
+                # If the request is a method of this class, execute it.
+                getattr(self, request['name'])(*request['args'], **request['kwargs'])
+            else:
+                print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
+    
     def send_trigger(self):
         print('Warning, send_trigger method has not been overwritten by a child class!')
         pass

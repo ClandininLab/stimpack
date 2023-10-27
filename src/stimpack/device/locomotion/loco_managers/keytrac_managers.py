@@ -46,10 +46,10 @@ class KeytracManager(LocoManager):
             print("Keytrac hasn't been started yet. Cannot be closed.")
 
 class KeytracClosedLoopManager(LocoClosedLoopManager):
-    def __init__(self, fs_manager, host=KEYTRAC_HOST, port=KEYTRAC_PORT, 
+    def __init__(self, stim_server, host=KEYTRAC_HOST, port=KEYTRAC_PORT, 
                        python_bin=PYTHON_BIN, kt_py_fn=KEYTRAC_PY, 
                        relative_control=True, start_at_init=False, udp=True):
-        super().__init__(fs_manager=fs_manager, host=host, port=port, save_directory=None, start_at_init=False, udp=udp)
+        super().__init__(stim_server=stim_server, host=host, port=port, save_directory=None, start_at_init=False, udp=udp)
         self.kt_manager = KeytracManager(python_bin=python_bin, kt_py_fn=kt_py_fn, relative_control=relative_control, start_at_init=False)
 
         if start_at_init:    self.start()
