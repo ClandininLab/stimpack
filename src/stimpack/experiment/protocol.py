@@ -255,13 +255,13 @@ class BaseProtocol():
             multicall = stimpack.rpc.multicall.MyMultiCall(manager)
 
         bg = self.run_parameters.get('idle_color')
-        multicall.load_stim('ConstantBackground', color=get_rgba(bg), hold=True)
+        multicall.target('visual').load_stim('ConstantBackground', color=get_rgba(bg), hold=True)
 
         if isinstance(self.epoch_stim_parameters, list):
             for ep in self.epoch_stim_parameters:
-                multicall.load_stim(**ep.copy(), hold=True)
+                multicall.target('visual').load_stim(**ep.copy(), hold=True)
         else:
-            multicall.load_stim(**self.epoch_stim_parameters.copy(), hold=True)
+            multicall.target('visual').load_stim(**self.epoch_stim_parameters.copy(), hold=True)
 
         multicall()
 
@@ -281,27 +281,28 @@ class BaseProtocol():
         ### stim time
         # locomotion / closed loop
         if do_loco:
-            multicall.loco_set_pos_0(theta_0=None, x_0=0, y_0=0, use_data_prev=True, write_log=self.save_metadata_flag)
+            multicall.target('locomotion').set_pos_0(theta_0=None, x_0=0, y_0=0, use_data_prev=True, write_log=self.save_metadata_flag)
         if do_loco_closed_loop:
-            multicall.loco_loop_update_closed_loop_vars(update_theta=True, update_x=False, update_y=False)
-            multicall.loco_loop_start_closed_loop()
+            multicall.target('locomotion').loop_update_closed_loop_vars(update_theta=True, update_x=False, update_y=False)
+            multicall.target('locomotion').loop_start_closed_loop()
         
-        multicall.start_stim(save_pos_history=save_pos_history, append_stim_frames=append_stim_frames)
-        multicall.corner_square_toggle_start()
+        multicall.target('all').set_save_pos_history_flag(save_pos_history)
+        multicall.target('all').start_stim(append_stim_frames=append_stim_frames)
+        multicall.target('visual').corner_square_toggle_start()
         multicall()
         sleep(self.epoch_protocol_parameters['stim_time'])
 
         ### tail time
         multicall = stimpack.rpc.multicall.MyMultiCall(manager)
-        multicall.stop_stim(print_profile=print_profile)
-        multicall.corner_square_toggle_stop()
-        multicall.corner_square_off()
+        multicall.target('all').stop_stim(print_profile=print_profile)
+        multicall.target('visual').corner_square_toggle_stop()
+        multicall.target('visual').corner_square_off()
 
         # locomotion / closed loop
         if do_loco_closed_loop:
-            multicall.loco_loop_stop_closed_loop()
+            multicall.target('locomotion').loop_stop_closed_loop()
         if save_pos_history:
-            multicall.save_pos_history_to_file(epoch_id=f'{self.num_epochs_completed:03d}')
+            multicall.target('all').save_pos_history_to_file(epoch_id=f'{self.num_epochs_completed:03d}')
 
         multicall()
 
@@ -498,16 +499,16 @@ class SharedPixMapProtocol(BaseProtocol):
             if not isinstance(self.epoch_shared_pixmap_stim_parameters, list):
                 self.epoch_shared_pixmap_stim_parameters = [self.epoch_shared_pixmap_stim_parameters]
             for ep in self.epoch_shared_pixmap_stim_parameters:
-                multicall.load_shared_pixmap_stim(**ep.copy())
+                multicall.target('visual').load_shared_pixmap_stim(**ep.copy())
 
         bg = self.run_parameters.get('idle_color')
-        multicall.load_stim('ConstantBackground', color=get_rgba(bg), hold=True)
+        multicall.target('visual').load_stim('ConstantBackground', color=get_rgba(bg), hold=True)
 
         if isinstance(self.epoch_stim_parameters, list):
             for ep in self.epoch_stim_parameters:
-                multicall.load_stim(**ep.copy(), hold=True)
+                multicall.target('visual').load_stim(**ep.copy(), hold=True)
         else:
-            multicall.load_stim(**self.epoch_stim_parameters.copy(), hold=True)
+            multicall.target('visual').load_stim(**self.epoch_stim_parameters.copy(), hold=True)
 
         multicall()
 
@@ -527,35 +528,35 @@ class SharedPixMapProtocol(BaseProtocol):
         ### stim time
         # locomotion / closed loop
         if do_loco:
-            multicall.loco_set_pos_0(theta_0=None, x_0=0, y_0=0, use_data_prev=True, write_log=self.save_metadata_flag)
+            multicall.target('locomotion').set_pos_0(theta_0=None, x_0=0, y_0=0, use_data_prev=True, write_log=self.save_metadata_flag)
         if do_loco_closed_loop:
-            multicall.loco_loop_update_closed_loop_vars(update_theta=True, update_x=False, update_y=False)
-            multicall.loco_loop_start_closed_loop()
+            multicall.target('locomotion').loop_update_closed_loop_vars(update_theta=True, update_x=False, update_y=False)
+            multicall.target('locomotion').loop_start_closed_loop()
         
         # Shared pixmap stimuli
         if self.epoch_shared_pixmap_stim_parameters is not None:
-            multicall.start_shared_pixmap_stim()
+            multicall.target('visual').start_shared_pixmap_stim()
         
-        multicall.start_stim()
-        multicall.corner_square_toggle_start()
+        multicall.target('all').start_stim()
+        multicall.target('visual').corner_square_toggle_start()
         multicall()
         sleep(self.epoch_protocol_parameters['stim_time'])
 
         ### tail time
         multicall = stimpack.rpc.multicall.MyMultiCall(manager)
-        multicall.stop_stim(print_profile=print_profile)
-        multicall.corner_square_toggle_stop()
-        multicall.corner_square_off()
+        multicall.target('all').stop_stim(print_profile=print_profile)
+        multicall.target('visual').corner_square_toggle_stop()
+        multicall.target('visual').corner_square_off()
 
         # locomotion / closed loop
         if do_loco_closed_loop:
-            multicall.loco_loop_stop_closed_loop()
+            multicall.target('locomotion').loop_stop_closed_loop()
         if save_pos_history:
-            multicall.save_pos_history_to_file(epoch_id=f'{self.num_epochs_completed:03d}')
+            multicall.target('all').save_pos_history_to_file(epoch_id=f'{self.num_epochs_completed:03d}')
 
         # shared pixmap clear
         if self.epoch_shared_pixmap_stim_parameters is not None:
-            multicall.clear_shared_pixmap_stim()
+            multicall.target('visual').clear_shared_pixmap_stim()
 
         multicall()
 

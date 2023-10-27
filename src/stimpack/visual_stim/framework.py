@@ -248,7 +248,7 @@ class StimDisplay(QOpenGLWidget):
         # clear the viewports
         self.clear_viewports_flag = True
 
-    def start_stim(self, t, save_pos_history=False, append_stim_frames=False, pre_render=False, pre_render_timepoints=None):
+    def start_stim(self, t, append_stim_frames=False, pre_render=False, pre_render_timepoints=None):
         """
         Start the stimulus animation, using the given time as t=0.
 
@@ -262,8 +262,7 @@ class StimDisplay(QOpenGLWidget):
         self.current_time_index = 0
         self.pre_render_timepoints = pre_render_timepoints
 
-        self.save_pos_history = save_pos_history
-        if save_pos_history:
+        if self.save_pos_history:
             self.pos_history = []
 
         self.stim_started = True
@@ -333,6 +332,9 @@ class StimDisplay(QOpenGLWidget):
         np.save(file_path, mov)
         print('Downsampled from {} to {} and saved to {}'.format(pre_size, mov.shape, file_path), flush=True)
 
+    def set_save_pos_history_flag(self, flag=True):
+        self.save_pos_history = flag
+        
     def set_save_pos_history_dir(self, save_dir):
         self.save_pos_history_dir = os.path.join(save_dir, '_'.join(['screen', self.screen.name]))
         os.makedirs(self.save_pos_history_dir, exist_ok=True)
@@ -528,6 +530,7 @@ def main():
     server.register_function(stim_display.set_global_subject_z)
     server.register_function(stim_display.set_global_theta_offset)
     server.register_function(stim_display.set_global_phi_offset)
+    server.register_function(stim_display.set_save_pos_history_flag)
     server.register_function(stim_display.set_save_pos_history_dir)
     server.register_function(stim_display.save_pos_history_to_file)
     server.register_function(stim_display.import_stim_module)

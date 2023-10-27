@@ -38,24 +38,25 @@ def launch_screen(screen, **kwargs):
 class VisualStimServer(MySocketServer):
     time_stamp_commands = ['start_stim', 'pause_stim', 'update_stim']
 
-    def __init__(self, screens, host=None, port=None, auto_stop=None, other_stim_module_paths=None, **kwargs):
+    def __init__(self, screens=[], host=None, port=None, auto_stop=None, other_stim_module_paths=None, **kwargs):
         # call super constructor
         super().__init__(host=host, port=port, threaded=False, auto_stop=auto_stop)
 
-        # Shared PixMap Memory stim
-        self.spms = None
-        self.register_function_on_root(self.load_shared_pixmap_stim, "load_shared_pixmap_stim")
-        self.register_function_on_root(self.start_shared_pixmap_stim, "start_shared_pixmap_stim")
-        self.register_function_on_root(self.clear_shared_pixmap_stim, "clear_shared_pixmap_stim")
-        
         # If other_stim_module_paths specified in kwargs, use that.
         if other_stim_module_paths is None:
             other_stim_module_paths = []
         if not isinstance(other_stim_module_paths, list):
             other_stim_module_paths = [other_stim_module_paths]
         
+        # Shared PixMap Memory stim
+        self.spms = None
+        
+        # If no screens are specified, create a default screen
+        if screens is None or len(screens) == 0:
+            screens = [Screen(server_number=-1, id=-1, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
+        
         # launch screens
-        self.clients = [launch_screen(screen=screen, other_stim_module_paths=other_stim_module_paths, **kwargs) for screen in screens]
+        self.screen_clients = [launch_screen(screen=screen, other_stim_module_paths=other_stim_module_paths, **kwargs) for screen in screens]
 
         self.corner_square_toggle_stop()
         self.corner_square_off()
@@ -75,6 +76,20 @@ class VisualStimServer(MySocketServer):
             self.handle_request_list([request])
         return f
 
+    def handle_request_list(self, request_list):
+        # pre-process the request list as necessary
+        for request in request_list:
+            if isinstance(request, dict) and ('name' in request) and (request['name'] in self.time_stamp_commands):
+                request['kwargs']['t'] = time()
+
+        # send modified request list to clients
+        for screen_client in self.screen_clients:
+            screen_client.write_request_list(request_list)
+
+    def close(self):
+        self.shutdown_flag.set()
+
+    ### Shared memory pixmap stim functions ###
     def load_shared_pixmap_stim(self, **kwargs):
         '''
         '''
@@ -87,19 +102,7 @@ class VisualStimServer(MySocketServer):
     def clear_shared_pixmap_stim(self):
         if self.spms is not None:
             self.spms.close()
-
-    def handle_request_list(self, request_list):
-        # pre-process the request list as necessary
-        for request in request_list:
-            if isinstance(request, dict) and ('name' in request) and (request['name'] in self.time_stamp_commands):
-                request['kwargs']['t'] = time()
-
-        # send modified request list to clients
-        for client in self.clients:
-            client.write_request_list(request_list)
-
-    def close(self):
-        self.shutdown_flag.set()
+    ### Shared memory pixmap stim functions ###
         
 def launch_stim_server(screen_or_screens=None, **kwargs):
     # set defaults

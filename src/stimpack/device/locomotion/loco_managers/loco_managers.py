@@ -18,6 +18,14 @@ class LocoManager():
     def close(self):
         pass
 
+    def handle_request_list(self, request_list):
+        for request in request_list:
+            if request['name'] in dir(self):
+                # If the request is a method of this class, execute it.
+                getattr(self, request['name'])(*request['args'], **request['kwargs'])
+            else:
+                print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
+    
 class LocoSocketManager():
     def __init__(self, host, port, udp=True) -> None:
         self.host = host
@@ -29,6 +37,14 @@ class LocoSocketManager():
         self.sock_buffer = "\n"
         self.data_prev = []
 
+    def handle_request_list(self, request_list):
+        for request in request_list:
+            if request['name'] in dir(self):
+                # If the request is a method of this class, execute it.
+                getattr(self, request['name'])(*request['args'], **request['kwargs'])
+            else:
+                print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
+    
     def connect(self):
         '''
         Open / connect to socket
@@ -193,6 +209,14 @@ class LocoClosedLoopManager(LocoManager):
 
         if start_at_init:
             self.start()
+
+    def handle_request_list(self, request_list):
+        for request in request_list:
+            if request['name'] in dir(self):
+                # If the request is a method of this class, execute it.
+                getattr(self, request['name'])(*request['args'], **request['kwargs'])
+            else:
+                print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
         
     def set_save_directory(self, save_directory):
         self.save_directory = save_directory
