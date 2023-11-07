@@ -35,7 +35,7 @@ class ConstantBackground(BaseProgram):
                   '+z': self.color, '-z': self.color}
         self.stim_object = shapes.GlCube(colors, center=self.center, side_length=self.side_length)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         pass
 
 class Floor(BaseProgram):
@@ -66,7 +66,7 @@ class Floor(BaseProgram):
 
         self.stim_object = shapes.GlQuad(v1, v2, v3, v4, color)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         pass
 
 class TexturedGround(BaseProgram):
@@ -109,7 +109,7 @@ class TexturedGround(BaseProgram):
         img = (255*face_colors).astype(np.uint8)
         self.add_texture_gl(img, texture_interpolation='LINEAR')
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         pass
 
 class CheckerboardFloor(BaseProgram):
@@ -162,7 +162,7 @@ class CheckerboardFloor(BaseProgram):
         img = (255*(mean + contrast*mean*texture_patch)).astype(np.uint8)
         self.add_texture_gl(img, texture_interpolation='NEAREST')
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         pass
 
 class MovingPatch(BaseProgram):
@@ -190,7 +190,7 @@ class MovingPatch(BaseProgram):
         self.phi = make_as_trajectory(phi)
         self.angle = make_as_trajectory(angle)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         width = return_for_time_t(self.width, t)
         height = return_for_time_t(self.height, t)
         theta = return_for_time_t(self.theta, t)
@@ -228,7 +228,7 @@ class MovingPatchOnCylinder(BaseProgram):
         self.phi = make_as_trajectory(phi)
         self.angle = make_as_trajectory(angle)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         width = return_for_time_t(self.width, t)
         height = return_for_time_t(self.height, t)
         theta = return_for_time_t(self.theta, t)
@@ -267,7 +267,7 @@ class MovingEllipse(BaseProgram):
         self.phi = make_as_trajectory(phi)
         self.angle = make_as_trajectory(angle)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         width = return_for_time_t(self.width, t)
         height = return_for_time_t(self.height, t)
         theta = return_for_time_t(self.theta, t)
@@ -307,7 +307,7 @@ class MovingEllipseOnCylinder(BaseProgram):
         self.phi = make_as_trajectory(phi)
         self.angle = make_as_trajectory(angle)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         width = return_for_time_t(self.width, t)
         height = return_for_time_t(self.height, t)
         theta = return_for_time_t(self.theta, t)
@@ -343,7 +343,7 @@ class MovingSpot(BaseProgram):
         self.theta = make_as_trajectory(theta)
         self.phi = make_as_trajectory(phi)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         radius = return_for_time_t(self.radius, t)
         theta = return_for_time_t(self.theta, t)
         phi = return_for_time_t(self.phi, t)
@@ -380,7 +380,7 @@ class LoomingCircle(BaseProgram):
                                         radius=self.radius, 
                                         n_steps=self.n_steps)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         color = return_for_time_t(self.color, t)
         speed = return_for_time_t(self.speed, t)
                 
@@ -424,7 +424,7 @@ class UniformWhiteNoise(BaseProgram):
                                  'rand_max': 1}
         self.noise_distribution = distribution.make_as_distribution(distribution_data)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         # set the seed
         seed = int(round(self.start_seed + t*self.update_rate))
         np.random.seed(seed)
@@ -473,7 +473,7 @@ class TexturedSphericalPatch(BaseProgram):
         # overwrite in subclass
         pass
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         # overwrite in subclass
         pass
 
@@ -540,7 +540,7 @@ class RandomGridOnSphericalPatch(TexturedSphericalPatch):
 
         self.update_texture_gl(img)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         self.updateTexture(t)
 
 class TexturedCylinder(BaseProgram):
@@ -571,7 +571,7 @@ class TexturedCylinder(BaseProgram):
         # overwrite in subclass
         pass
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         # overwrite in subclass
         pass
 
@@ -712,7 +712,7 @@ class CylindricalGrating(TexturedCylinder):
         self.n_patches_x = n_patches_x
         self.n_patches_y = n_patches_y
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         pass
 
 class RotatingGrating(CylindricalGrating):
@@ -744,7 +744,7 @@ class RotatingGrating(CylindricalGrating):
         self.angle_prev = return_for_time_t(self.angle, 0)
         self.t_prev = 0
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         theta = return_for_time_t(self.theta, t)
         phi = return_for_time_t(self.phi, t)
         angle = return_for_time_t(self.angle, t)
@@ -826,7 +826,7 @@ class ExpandingEdges(TexturedCylinder):
                                                     cylinder_location=self.cylinder_location,
                                                     texture=True)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         theta = return_for_time_t(self.theta, t)
         phi = return_for_time_t(self.phi, t)
         angle = return_for_time_t(self.angle, t)
@@ -911,7 +911,7 @@ class RandomBars(TexturedCylinder):
                                                     cylinder_location=self.cylinder_location,
                                                     texture=True)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         theta = return_for_time_t(self.theta, t)
         phi = return_for_time_t(self.phi, t)
         angle = return_for_time_t(self.angle, t)
@@ -996,7 +996,7 @@ class RandomGrid(TexturedCylinder):
                                             texture=True
                                             ).rotate(np.radians(self.theta), np.radians(self.phi), np.radians(self.angle))
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         # set the seed
         seed = int(round(self.start_seed + t*self.update_rate))
         np.random.seed(seed)
@@ -1066,7 +1066,7 @@ class Checkerboard(TexturedCylinder):
                                             texture=True
                                             ).rotate(np.radians(self.theta), np.radians(self.phi), np.radians(self.angle))
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         pass
 
 class MovingBox(BaseProgram):
@@ -1106,7 +1106,7 @@ class MovingBox(BaseProgram):
                   '+z': color, '-z': color}
         self.stim_object_template = shapes.GlBox(colors, (0, 0, 0), {'x':1, 'y':1, 'z':1})
         
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         x_length = return_for_time_t(self.x_length, t)
         y_length = return_for_time_t(self.y_length, t)
         z_length = return_for_time_t(self.z_length, t)
@@ -1150,7 +1150,7 @@ class Tower(BaseProgram):
                                             color=self.color,
                                             n_faces=self.n_faces)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         pass
 
 class Forest(BaseProgram):
@@ -1181,7 +1181,7 @@ class Forest(BaseProgram):
             new_cyl = copy.copy(cylinder).translate(tree_loc)
             self.stim_object.add(new_cyl)
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         pass
 
 # %%
@@ -1232,7 +1232,7 @@ class PixMap(TexturedCylinder):
         self.last_time = 0
         self.memname=memname        
 
-    def eval_at(self, t, fly_position=[0, 0, 0], fly_heading=[0, 0]):
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
 
         frame = np.ndarray(self.frame_size,dtype=np.uint8, buffer=self.existing_shm.buf)
         self.update_texture_gl(frame)

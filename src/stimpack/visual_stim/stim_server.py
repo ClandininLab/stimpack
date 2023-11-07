@@ -49,12 +49,13 @@ class VisualStimServer(MySocketServer):
             other_stim_module_paths = [other_stim_module_paths]
         
         self.functions_on_root = {}
+        self.register_function_on_root(self.close)
 
         # Shared memory PixMap stim functions to be run on the root node of visual stim server
         self.spms = None
-        self.register_function_on_root(self.load_shared_pixmap_stim, "load_shared_pixmap_stim")
-        self.register_function_on_root(self.start_shared_pixmap_stim, "start_shared_pixmap_stim")
-        self.register_function_on_root(self.clear_shared_pixmap_stim, "clear_shared_pixmap_stim")
+        self.register_function_on_root(self.load_shared_pixmap_stim)
+        self.register_function_on_root(self.start_shared_pixmap_stim)
+        self.register_function_on_root(self.clear_shared_pixmap_stim)
 
         # If no screens are specified, create a default screen
         if screens is None or len(screens) == 0:

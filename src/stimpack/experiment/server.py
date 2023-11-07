@@ -53,12 +53,6 @@ class BaseServer(MySocketServer):
         # Register functions to be executed on the server's root node, and not in modules.
         self.functions_on_root = {}
         self.register_function_on_root(lambda x: print(x), "print_on_server")
-        self.register_function_on_root(self.set_global_subject_pos)
-        self.register_function_on_root(self.set_global_subject_x)
-        self.register_function_on_root(self.set_global_subject_y)
-        self.register_function_on_root(self.set_global_subject_z)
-        self.register_function_on_root(self.set_global_theta_offset)
-        self.register_function_on_root(self.set_global_phi_offset)
 
         def signal_handler(sig, frame):
             print('Closing server after Ctrl+C...')
@@ -67,9 +61,8 @@ class BaseServer(MySocketServer):
         signal.signal(signal.SIGINT, signal_handler)
         
         # set the subject position parameters
-        self.set_global_subject_pos(0, 0, 0)
-        self.set_global_theta_offset(0) # deg -> radians
-        self.set_global_phi_offset(0) # deg -> radians
+        self.subject_state = {}
+        self.set_subject_state({'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll':0}) # meters and degrees
 
         if start_loop:
             start_daemon_thread(self.loop)
@@ -84,7 +77,7 @@ class BaseServer(MySocketServer):
         if name in dir(self):
             return self.name
 
-        # If call is target('module_name'), return the module object.
+        # If call is target('module_name'), return a dummy module object that will handle the request.
         elif name == 'target':
             def f(module_name):
                 class dummy_module:
@@ -94,7 +87,7 @@ class BaseServer(MySocketServer):
                                        'name': module_attr_name, 
                                        'args': args, 
                                        'kwargs': kwargs}
-                            self.handle_request_list([request])                            
+                            self.handle_request_list([request])
                         return g
                 return dummy_module()
             return f
@@ -157,46 +150,29 @@ class BaseServer(MySocketServer):
             if len(module_request_list) > 0:
                 module.handle_request_list(module_request_list)
 
-    def run_function_in_module(self, module, function_name, *args, **kwargs):
-        '''
-        Run a function in specified module, only if the function exists in the module.
-        '''
-        if hasattr(module, function_name):
-            getattr(module, function_name)(*args, **kwargs)
-    
-    def run_function_in_all_modules(self, function_name, *args, **kwargs):
-        '''
-        Run a function in each module manager, only if the function exists in the module manager.
-        '''
-        for module in self.modules.values():
-            self.run_function_in_module(module, function_name, *args, **kwargs)    
-
     def close(self):
-        self.run_function_in_all_modules('close')
+        # self.run_function_in_all_modules('close')
+        self.target('all').close()
 
-    ### Functions for setting global subject position parameters ###
-    # the function calls also get forwarded to each module manager
+    ### Functions for setting subject state ###
+    def set_subject_state(self, state_update={'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll':0}):
+        # Perform custom closed-loop control and get an updated state update
+        new_state_update = self.custom_state_dependent_control(self.subject_state, state_update)
 
-    def set_global_subject_pos(self, x, y, z):
-        self.global_subject_pos = np.array([x, y, z], dtype=float)
-        self.run_function_in_all_modules('set_global_subject_pos', x, y, z)
-
-    def set_global_subject_x(self, x):
-        self.global_subject_pos[0] = float(x)
-        self.run_function_in_all_modules('set_global_subject_x', x)
-
-    def set_global_subject_y(self, y):
-        self.global_subject_pos[1] = float(y)
-        self.run_function_in_all_modules('set_global_subject_y', y)
-
-    def set_global_subject_z(self, z):
-        self.global_subject_pos[2] = float(z)
-        self.run_function_in_all_modules('set_global_subject_z', z)
-
-    def set_global_theta_offset(self, value):
-        self.global_theta_offset = radians(value)
-        self.run_function_in_all_modules('set_global_theta_offset', value)
-
-    def set_global_phi_offset(self, value):
-        self.global_phi_offset = radians(value)
-        self.run_function_in_all_modules('set_global_phi_offset', value)
+        # Update the subject state
+        for k,v in new_state_update.items():
+            self.subject_state[k] = v
+        
+        # Forward state information to each module manager
+        self.target('all').set_subject_state(new_state_update)
+    
+    def custom_state_dependent_control(self, previous_state, state_update):
+        '''
+        Given the previous state of the subject and the current state update, 
+        perform custom closed-loop control here.
+        Return the updated state update.
+        '''
+        # TODO: Implement custom closed-loop control here
+        customized_state_update = state_update
+        
+        return customized_state_update

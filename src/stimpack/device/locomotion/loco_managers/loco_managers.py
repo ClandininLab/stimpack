@@ -6,7 +6,8 @@ from math import degrees
 from time import time
 
 class LocoManager():
-    def __init__(self) -> None:
+    def __init__(self, verbose=False) -> None:
+        self.verbose = verbose
         pass
     
     def set_save_directory(self, save_dir):
@@ -24,14 +25,16 @@ class LocoManager():
                 # If the request is a method of this class, execute it.
                 getattr(self, request['name'])(*request['args'], **request['kwargs'])
             else:
-                print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
+                if self.verbose: print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
     
 class LocoSocketManager():
-    def __init__(self, host, port, udp=True) -> None:
+    def __init__(self, host, port, udp=True, verbose=False) -> None:
         self.host = host
         self.port = port
         self.udp = udp
         self.client_addr = None
+        
+        self.verbose = verbose
 
         self.sock = None
         self.sock_buffer = "\n"
@@ -43,7 +46,7 @@ class LocoSocketManager():
                 # If the request is a method of this class, execute it.
                 getattr(self, request['name'])(*request['args'], **request['kwargs'])
             else:
-                print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
+                if self.verbose: print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
     
     def connect(self):
         '''
@@ -183,26 +186,28 @@ class LocoSocketManager():
         return line
 
 class LocoClosedLoopManager(LocoManager):
-    def __init__(self, stim_server, host, port, save_directory=None, start_at_init=False, udp=True) -> None:
-        super().__init__()
+    def __init__(self, stim_server, host, port, save_directory=None, start_at_init=False, udp=True, verbose=False) -> None:
+        super().__init__(verbose=verbose)
         self.stim_server = stim_server
-        self.socket_manager = LocoSocketManager(host=host, port=port, udp=udp)
+        self.socket_manager = LocoSocketManager(host=host, port=port, udp=udp, verbose=verbose)
         
         self.save_directory = save_directory
         self.log_file = None
 
         self.data_prev = []
-        self.pos_0 = {'theta': 0, 'x': 0, 'y': 0, 'z': 0}
-        self.pos   = {'theta': 0, 'x': 0, 'y': 0, 'z': 0}
+        self.pos_0 = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0} # meters and degrees
+        self.pos   = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0} # meters and degrees
 
         self.loop_attrs = {
             'thread': None,
             'looping': False,
             'closed_loop': False,
+            'update_x': True,
+            'update_y': True,
+            'update_z': True,
             'update_theta': True,
-            'update_x': False,
-            'update_y': False,
-            'update_z': False
+            'update_phi': False,
+            'update_roll': False
         }
 
         self.loop_custom_fxn = None
@@ -216,7 +221,7 @@ class LocoClosedLoopManager(LocoManager):
                 # If the request is a method of this class, execute it.
                 getattr(self, request['name'])(*request['args'], **request['kwargs'])
             else:
-                print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
+                if self.verbose: print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
         
     def set_save_directory(self, save_directory):
         self.save_directory = save_directory
@@ -259,22 +264,24 @@ class LocoClosedLoopManager(LocoManager):
 
         toks = line.split(", ")
         
-        print("Please implement __parse_line in the inheriting class!")
+        print(f"{self.__class__.__name__}: Please implement __parse_line in the inheriting class!")
 
-        theta = 0
         x = 0
         y = 0
         z = 0
+        theta = 0
+        phi = 0
+        roll = 0
         frame_num = 0
         ts = 0
         
-        return {'theta': theta, 'x': x, 'y': y, 'z': z, 'frame_num': frame_num, 'ts': ts}
+        return {'x': x, 'y': y, 'z': z, 'theta': theta, 'phi': phi, 'roll': roll, 'frame_num': frame_num, 'ts': ts}
   
-    def set_pos_0(self, theta_0=None, x_0=0, y_0=0, z_0=0, use_data_prev=True, get_most_recent=True, write_log=False):
+    def set_pos_0(self, x_0=None, y_0=None, z_0=None, theta_0=None, phi_0=0, roll_0=0, use_data_prev=True, get_most_recent=True, write_log=False):
         '''
         Sets position 0 for stimpack.visual_stim manager.
         
-        theta_0, x_0, y_0, z_0: 
+        x_0, y_0, z_0, theta_0, phi_0, roll_0: 
             if None, the current value is acquired from socket.
         
         get_most_recent:
@@ -282,19 +289,20 @@ class LocoClosedLoopManager(LocoManager):
             if True, grabs line that is most recent
             if False, grabs line that is the oldest
         '''
-        self.stim_server.set_global_theta_offset(0) #radians
-        self.stim_server.set_global_subject_pos(0, 0, 0)
+        self.stim_server.set_subject_state({'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0})
 
-        if None in [theta_0, x_0, y_0, z_0]:
+        if None in [x_0, y_0, z_0, theta_0, phi_0, roll_0]:
             if use_data_prev and len(self.data_prev)!=0:
                 data = self.data_prev
             else:
                 data = self.get_data(get_most_recent=get_most_recent)
 
-            if theta_0 is None: theta_0 = float(data['theta'])
-            if     x_0 is None:     x_0 = float(data['x'])
-            if     y_0 is None:     y_0 = float(data['y'])
-            if     z_0 is None:     z_0 = float(data['z'])
+            if     x_0 is None:     x_0 = float(data.get('x', 0))
+            if     y_0 is None:     y_0 = float(data.get('y', 0))
+            if     z_0 is None:     z_0 = float(data.get('z', 0))
+            if theta_0 is None: theta_0 = float(data.get('theta', 0))
+            if   phi_0 is None:   phi_0 = float(data.get('phi', 0))
+            if  roll_0 is None:  roll_0 = float(data.get('roll', 0))
         
             frame_num = int(data['frame_num'])
             ts = float(data['ts'])
@@ -302,38 +310,49 @@ class LocoClosedLoopManager(LocoManager):
             frame_num = -1
             ts = None
 
-        self.pos_0['theta'] = theta_0
         self.pos_0['x']     = x_0
         self.pos_0['y']     = y_0
         self.pos_0['z']     = z_0
-        self.pos['theta']   = theta_0
+        self.pos_0['theta'] = theta_0
+        self.pos_0['phi']   = phi_0
+        self.pos_0['roll']  = roll_0
         self.pos['x']       = x_0
         self.pos['y']       = y_0
         self.pos['z']       = z_0
+        self.pos['theta']   = theta_0
+        self.pos['phi']     = phi_0
+        self.pos['roll']    = roll_0
         
         if write_log and self.log_file is not None:
             if ts is None:
                 ts = time()
-            log_line = json.dumps({'set_pos_0': {'frame_num': frame_num, 'theta': theta_0, 'x': x_0, 'y': y_0, 'z': z_0}, 'ts': ts})
+            log_line = json.dumps({'set_pos_0': {'frame_num': frame_num, 'x': x_0, 'y': y_0, 'z': z_0, 'theta': theta_0, 'phi': phi_0, 'roll': roll_0}, 'ts': ts})
             self.write_to_log(log_line)
     
     def write_to_log(self, string):
         if self.log_file is not None:
             self.log_file.write(str(string) + "\n")
 
-    def update_pos(self, update_theta=True, update_x=False, update_y=False, update_z=False, return_pos=False):
+    def update_pos(self, update_x=True, update_y=True, update_z=True, update_theta=True, update_phi=False, update_roll=False, return_pos=False):
         data = self.get_data()
         
-        self.pos['theta'] = float(data['theta']) - self.pos_0['theta'] #radians
-        self.pos['x'] = float(data['x']) - self.pos_0['x']
-        self.pos['y'] = float(data['y']) - self.pos_0['y']
-        self.pos['z'] = float(data['z']) - self.pos_0['z']
-
-        if update_theta: self.stim_server.set_global_theta_offset(degrees(self.pos['theta']))
-        if update_x:     self.stim_server.set_global_subject_x(self.pos['x'])
-        if update_y:     self.stim_server.set_global_subject_y(self.pos['y'])
-        if update_z:     self.stim_server.set_global_subject_z(self.pos['z'])
-
+        self.pos['x']     = float(data.get('x',     0)) - self.pos_0['x']
+        self.pos['y']     = float(data.get('y',     0)) - self.pos_0['y']
+        self.pos['z']     = float(data.get('z',     0)) - self.pos_0['z']
+        self.pos['theta'] = float(data.get('theta', 0)) - self.pos_0['theta'] # degrees
+        self.pos['phi']   = float(data.get('phi',   0)) - self.pos_0['phi']   # degrees
+        self.pos['roll']  = float(data.get('roll',  0)) - self.pos_0['roll']  # degrees
+        
+        update_dict = {}
+        if update_x:     update_dict['x']     = self.pos['x']
+        if update_y:     update_dict['y']     = self.pos['y']
+        if update_z:     update_dict['z']     = self.pos['z']
+        if update_theta: update_dict['theta'] = self.pos['theta']
+        if update_phi:   update_dict['phi']   = self.pos['phi']
+        if update_roll:  update_dict['roll']  = self.pos['roll']
+        if len(update_dict) > 0:
+            self.stim_server.set_subject_state(update_dict)
+        
         if return_pos:
             return self.pos.copy()
         else:
@@ -347,21 +366,25 @@ class LocoClosedLoopManager(LocoManager):
             self.loop_attrs['looping'] = True
             while self.loop_attrs['looping']:
                 if self.loop_attrs['closed_loop']:
-                    self.update_pos(update_theta = self.loop_attrs['update_theta'], 
-                                    update_x     = self.loop_attrs['update_x'], 
+                    self.update_pos(update_x     = self.loop_attrs['update_x'], 
                                     update_y     = self.loop_attrs['update_y'],
-                                    update_z     = self.loop_attrs['update_z'])
+                                    update_z     = self.loop_attrs['update_z'],
+                                    update_theta = self.loop_attrs['update_theta'], 
+                                    update_phi   = self.loop_attrs['update_phi'],
+                                    update_roll  = self.loop_attrs['update_roll'])
                 else:
-                    self.update_pos(update_theta = False,
-                                    update_x     = False, 
+                    self.update_pos(update_x     = False, 
                                     update_y     = False,
-                                    update_z     = False)
+                                    update_z     = False,
+                                    update_theta = False,
+                                    update_phi   = False,
+                                    update_roll  = False)
                     
                 if self.loop_custom_fxn is not None:
                     self.loop_custom_fxn(self.pos)
 
         if self.loop_attrs['looping']:
-            print("Already looping")
+            if self.verbose: print(f"{self.__class__.__name__}: Already looping")
         else:
             self.loop_attrs['thread'] = threading.Thread(target=loop_helper, daemon=True)
             self.loop_attrs['thread'].start()
@@ -379,14 +402,16 @@ class LocoClosedLoopManager(LocoManager):
     def loop_stop_closed_loop(self):
         self.loop_attrs['closed_loop'] = False
 
-    def loop_update_closed_loop_vars(self, update_theta=True, update_x=False, update_y=False, update_z=False):
-        self.loop_attrs['update_theta'] = update_theta
+    def loop_update_closed_loop_vars(self, update_x=False, update_y=False, update_z=False, update_theta=True, update_phi=False, update_roll=False):
         self.loop_attrs['update_x']     = update_x
         self.loop_attrs['update_y']     = update_y
         self.loop_attrs['update_z']     = update_z
+        self.loop_attrs['update_theta'] = update_theta
+        self.loop_attrs['update_phi']   = update_phi
+        self.loop_attrs['update_roll']  = update_roll
     
-    def loop_update_custom_fxn(self, custom_fxn):
-        if isinstance(custom_fxn, function):
-            self.loop_custom_fxn = custom_fxn
-        else:
-            pass
+    # def loop_update_custom_fxn(self, custom_fxn):
+    #     if isinstance(custom_fxn, function):
+    #         self.loop_custom_fxn = custom_fxn
+    #     else:
+    #         pass

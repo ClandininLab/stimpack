@@ -60,23 +60,25 @@ class MyTransceiver:
         self.functions[name] = function
 
     def __getattr__(self, name):
-        def f(*args, **kwargs):
-            request = {'name': name, 'args': args, 'kwargs': kwargs}
-            self.write_request_list([request])
+        if name == 'target':
+            def f(target_name):
+                class dummy_target:
+                    def __getattr__(target_self, target_attr_name):
+                        def g(*args, **kwargs):
+                            request = {'target': target_name, 
+                                    'name': target_attr_name, 
+                                    'args': args, 
+                                    'kwargs': kwargs}
+                            self.write_request_list([request])
+                        return g
+                return dummy_target()
+            return f
+        else:
+            def f(*args, **kwargs):
+                request = {'name': name, 'args': args, 'kwargs': kwargs}
+                self.write_request_list([request])
 
-        return f
-
-    def target(self, target_name):
-        class dummy_target:
-            def __getattr__(target_self, target_attr_name):
-                def g(*args, **kwargs):
-                    request = {'target': target_name, 
-                               'name': target_attr_name, 
-                               'args': args, 
-                               'kwargs': kwargs}
-                    self.write_request_list([request])
-                return g
-        return dummy_target()
+            return f
     
     def parse_line(self, line):
         if isinstance(line, bytes):

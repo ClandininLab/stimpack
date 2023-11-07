@@ -79,10 +79,9 @@ class StimDisplay(QOpenGLWidget):
         # flag indicating whether to clear the viewports on the next paintGL call
         self.clear_viewports_flag = False
 
-        # set the subject position parameters
-        self.set_global_subject_pos(0, 0, 0)
-        self.set_global_theta_offset(0) # deg -> radians
-        self.set_global_phi_offset(0) # deg -> radians
+        # initialize subject state (e.g. position)
+        self.subject_position = {}
+        self.set_subject_state({'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}) # meters and degrees
 
         self.use_subject_trajectory = False
         self.subject_x_trajectory = None
@@ -165,22 +164,20 @@ class StimDisplay(QOpenGLWidget):
             else:  # real-time generation
                 t = time.time()
             if self.use_subject_trajectory:
-                self.set_global_subject_pos(return_for_time_t(self.subject_x_trajectory, self.get_stim_time(t)),
-                                        return_for_time_t(self.subject_y_trajectory, self.get_stim_time(t)),
-                                        0)
-                self.set_global_theta_offset(return_for_time_t(self.subject_theta_trajectory, self.get_stim_time(t)))  # deg -> radians
+                self.set_subject_state({'x': return_for_time_t(self.subject_x_trajectory, self.get_stim_time(t)),
+                                        'y': return_for_time_t(self.subject_y_trajectory, self.get_stim_time(t)),
+                                        'theta': return_for_time_t(self.subject_theta_trajectory, self.get_stim_time(t)) # deg -> radians
+                                        })
 
             # For each subscreen associated with this screen: get the perspective matrix
-            perspectives = [get_perspective(self.global_subject_pos, self.global_theta_offset, self.global_phi_offset, x.pa, x.pb, x.pc, self.screen.horizontal_flip) for x in self.screen.subscreens]
+            perspectives = [get_perspective(self.subject_position, x.pa, x.pb, x.pc, self.screen.horizontal_flip) for x in self.screen.subscreens]
 
             for stim in self.stim_list:
                 if self.stim_started:
                     stim.paint_at(self.get_stim_time(t),
                                   self.subscreen_viewports,
                                   perspectives,
-                                  fly_position=self.global_subject_pos.copy(),
-                                  fly_heading=[self.global_theta_offset+0, self.global_phi_offset+0])
-
+                                  subject_position=self.subject_position)
             self.profile_frame_times.append(t)
 
         # draw the corner square
@@ -200,7 +197,7 @@ class StimDisplay(QOpenGLWidget):
             # print('paintGL {:.2f} ms'.format((time.time()-t0)*1000)) #benchmarking
 
             if self.save_pos_history:
-                self.pos_history.append(np.append(self.global_subject_pos, [self.global_theta_offset, self.global_phi_offset])) # np.append creates a copy
+                self.pos_history.append([self.subject_position['x'], self.subject_position['y'], self.subject_position['z'], self.subject_position['theta'], self.subject_position['phi']])
 
             if self.append_stim_frames:
                 # grab frame buffer, convert to array, grab blue channel, append to list of stim_frames
@@ -314,10 +311,9 @@ class StimDisplay(QOpenGLWidget):
         self.subject_x_trajectory = None
         self.subject_y_trajectory = None
         self.subject_theta_trajectory = None
-        self.set_global_subject_pos(0, 0, 0)
-        self.set_global_theta_offset(0)
-        self.set_global_phi_offset(0)
-        self.perspective = get_perspective(self.global_subject_pos, self.global_theta_offset, self.global_phi_offset, self.screen.subscreens[0].pa, self.screen.subscreens[0].pb, self.screen.subscreens[0].pc, self.screen.horizontal_flip)
+        
+        self.set_subject_state({'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0})
+        self.perspective = get_perspective(self.subject_position, self.screen.subscreens[0].pa, self.screen.subscreens[0].pb, self.screen.subscreens[0].pc, self.screen.horizontal_flip)
 
     def save_rendered_movie(self, file_path, downsample_xy=4):
         """
@@ -405,23 +401,11 @@ class StimDisplay(QOpenGLWidget):
         """
         self.idle_background = util.get_rgba(color)
 
-    def set_global_subject_pos(self, x, y, z):
-        self.global_subject_pos = np.array([x, y, z], dtype=float)
-
-    def set_global_subject_x(self, x):
-        self.global_subject_pos[0] = float(x)
-
-    def set_global_subject_y(self, y):
-        self.global_subject_pos[1] = float(y)
-
-    def set_global_subject_z(self, z):
-        self.global_subject_pos[2] = float(z)
-
-    def set_global_theta_offset(self, value):
-        self.global_theta_offset = radians(value)
-
-    def set_global_phi_offset(self, value):
-        self.global_phi_offset = radians(value)
+    def set_subject_state(self, state_update):
+        # Update the subject state (only position for this module)
+        for k,v in state_update.items():
+            if k in ['x', 'y', 'z', 'theta', 'phi', 'roll']:
+                self.subject_position[k] = float(v)
         
     def import_stim_module(self, path):
         # Load other stim modules from paths containing subclasses of stimpack.visual_stim.stimuli.BaseProgram
@@ -430,30 +414,34 @@ class StimDisplay(QOpenGLWidget):
         self.imported_stim_module_names.append(barcode)
         print(f'Loaded stim module from {path} with key {barcode}')
         
-def get_perspective(fly_pos, theta, phi, pa, pb, pc, horizontal_flip):
+def get_perspective(subject_pos, pa, pb, pc, horizontal_flip):
     """
-    :param fly_pos: (x, y, z) position of fly, meters
-    :param theta: fly heading angle along azimuth, degrees
-    :param phi: fly heading angle along elevation, degrees
+    :param subject_pos: {'x', 'y', 'z', 'theta', 'phi', 'roll'}
+        - x, y, z = position of subject, meters
+        - theta = heading angle along azimuth, degrees
+        - phi = heading angle along elevation, degrees
+        - roll = roll angle, degrees
     :params (pa, pb, pc): xyz coordinates of screen corners, meters
     :param horizontal_flip: Boolean, apply horizontal flip to image, for rear-projection displays
     """
-
-    perspective = GenPerspective(pa=pa, pb=pb, pc=pc, fly_pos=fly_pos, horizontal_flip=horizontal_flip)
+    x, y, z = subject_pos['x'], subject_pos['y'], subject_pos['z']
+    perspective = GenPerspective(pa=pa, pb=pb, pc=pc, 
+                                 subject_xyz=(x,y,z), 
+                                 horizontal_flip=horizontal_flip)
 
     """
-    With (theta, phi, roll) = (0, 0, 0): fly looks down +y axis, +x is to the right, and +z is above the fly's head
+    With (theta, phi, roll) = (0, 0, 0): subject looks down +y axis, +x is to the right, and +z is above the subject's head
         +theta rotates view ccw around z axis / -theta is cw around z axis (looking down at xy plane)
-        +phi tilts fly view up towards the sky (+z) / -phi tilts down towards the ground (-z)
-        +roll rotates fly view cw around y axis / -roll rotates ccw around y axis
+        +phi tilts subject view up towards the sky (+z) / -phi tilts down towards the ground (-z)
+        +roll rotates subject view cw around y axis / -roll rotates ccw around y axis
 
     theta = yaw around z
     phi = pitch around x
     roll = roll around y
 
     """
-    roll = 0 # Set roll=0 until we have a need too change it
-    return perspective.rotz(theta).rotx(radians(phi)).roty(radians(roll)).matrix
+    theta, phi, roll = subject_pos['theta'], subject_pos['phi'], subject_pos.get('roll', 0)
+    return perspective.rotz(radians(theta)).rotx(radians(phi)).roty(radians(roll)).matrix
 
 
 def make_qt_format(vsync):
@@ -524,12 +512,7 @@ def main():
     server.register_function(stim_display.show_corner_square)
     server.register_function(stim_display.hide_corner_square)
     server.register_function(stim_display.set_idle_background)
-    server.register_function(stim_display.set_global_subject_pos)
-    server.register_function(stim_display.set_global_subject_x)
-    server.register_function(stim_display.set_global_subject_y)
-    server.register_function(stim_display.set_global_subject_z)
-    server.register_function(stim_display.set_global_theta_offset)
-    server.register_function(stim_display.set_global_phi_offset)
+    server.register_function(stim_display.set_subject_state)
     server.register_function(stim_display.set_save_pos_history_flag)
     server.register_function(stim_display.set_save_pos_history_dir)
     server.register_function(stim_display.save_pos_history_to_file)
