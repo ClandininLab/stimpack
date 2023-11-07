@@ -281,7 +281,7 @@ class BaseProtocol():
         ### stim time
         # locomotion / closed loop
         if do_loco:
-            multicall.target('locomotion').set_pos_0(theta_0=None, x_0=0, y_0=0, use_data_prev=True, write_log=self.save_metadata_flag)
+            multicall.target('locomotion').set_pos_0(theta_0=None, x_0=None, y_0=None, use_data_prev=True, write_log=self.save_metadata_flag)
         if do_loco_closed_loop:
             multicall.target('locomotion').loop_update_closed_loop_vars(update_theta=True, update_x=True, update_y=True)
             multicall.target('locomotion').loop_start_closed_loop()

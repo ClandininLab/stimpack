@@ -13,7 +13,7 @@ from stimpack.rpc.util import start_daemon_thread, find_free_port
 from stimpack.rpc.transceiver import MySocketServer
 
 class BaseServer(MySocketServer):
-    def __init__(self, host='127.0.0.1', port=60629, 
+    def __init__(self, host='', port=60629, 
                     visual_stim_kwargs={},
                     loco_class=None, loco_kwargs={}, 
                     daq_class=None,  daq_kwargs={}, 
