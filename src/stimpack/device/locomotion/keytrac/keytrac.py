@@ -31,11 +31,11 @@ class KeyTrac(QMainWindow):
         # self.sock.connect((self.host, self.port))
 
         self.key_count = 0
-        self.pos = {"x": 0, "y": 0, "z":0, "theta": 0}
+        self.pos = {"x": 0, "y": 0, "z":0, "theta": 0, "phi": 0, "roll": 0}
         if self.relative_control:
-            self.step = {"forward": 0.01, "right": 0.01, "up":0.01, "theta": np.pi/16} # in m and radians
+            self.step = {"forward": 0.01, "right": 0.01, "up":0.01, "theta": np.pi/16, "phi": np.pi/16, "roll": np.pi/16} # in m and radians
         else:
-            self.step = {"x": 0.01, "y": 0.01, "z":0.01, "theta": np.pi/16} # in m and radians
+            self.step = {"x": 0.01, "y": 0.01, "z":0.01, "theta": np.pi/16, "phi": np.pi/16, "roll": np.pi/16} # in m and radians
 
         self.initUI()
 
@@ -69,11 +69,15 @@ class KeyTrac(QMainWindow):
     
     def handle_key_absolute_control(self, key):
         if key == Qt.Key.Key_Left:
-            key_description = "left: theta step /= 2"
+            key_description = "left: theta,phi,roll step /= 2"
             self.step["theta"] /= 2
+            self.step["phi"] /= 2
+            self.step["roll"] /= 2
         elif key == Qt.Key.Key_Right:
-            key_description = "right: theta step *= 2"
+            key_description = "right: theta,phi,roll step *= 2"
             self.step["theta"] *= 2
+            self.step["phi"] *= 2
+            self.step["roll"] *= 2
         elif key == Qt.Key.Key_Up:
             key_description = "up: xyz step *= 2"
             self.step["x"] *= 2
@@ -84,12 +88,24 @@ class KeyTrac(QMainWindow):
             self.step["x"] /= 2
             self.step["y"] /= 2
             self.step["z"] /= 2
-        elif key == Qt.Key.Key_PageUp:
-            key_description = "pageup: z+"
+        elif key == Qt.Key.Key_Y:
+            key_description = "Y: z+"
             self.pos["z"] += self.step["z"]
-        elif key == Qt.Key.Key_PageDown:
-            key_description = "pagedown: z-"
+        elif key == Qt.Key.Key_H:
+            key_description = "H: z-"
             self.pos["z"] -= self.step["z"]
+        elif key == Qt.Key.Key_U:
+            key_description = "U: phi+"
+            self.pos["phi"] += self.step["phi"]
+        elif key == Qt.Key.Key_J:
+            key_description = "J: phi-"
+            self.pos["phi"] -= self.step["phi"]
+        elif key == Qt.Key.Key_I:
+            key_description = "I: roll+"
+            self.pos["roll"] += self.step["roll"]
+        elif key == Qt.Key.Key_K:
+            key_description = "K: roll-"
+            self.pos["roll"] -= self.step["roll"]
         elif key == Qt.Key.Key_W:
             key_description = "W: y+"
             self.pos["y"] += self.step["y"]
@@ -118,12 +134,17 @@ class KeyTrac(QMainWindow):
         return key_description
     
     def handle_key_relative_control(self, key):
+        # Incomplete implementation for phi and roll
         if key == Qt.Key.Key_Left:
             key_description = "left: rotation step /= 2"
             self.step["theta"] /= 2
+            self.step["phi"] /= 2
+            self.step["roll"] /= 2
         elif key == Qt.Key.Key_Right:
             key_description = "right: rotation step *= 2"
             self.step["theta"] *= 2
+            self.step["phi"] *= 2
+            self.step["roll"] *= 2
         elif key == Qt.Key.Key_Up:
             key_description = "up: translation step *= 2"
             self.step["forward"] *= 2
@@ -134,12 +155,24 @@ class KeyTrac(QMainWindow):
             self.step["forward"] /= 2
             self.step["right"] /= 2
             self.step["up"] /= 2
-        elif key == Qt.Key.Key_PageUp:
-            key_description = "pageup: up"
+        elif key == Qt.Key.Key_Y:
+            key_description = "Y: up"
             self.pos["z"] += self.step["up"]
-        elif key == Qt.Key.Key_PageDown:
-            key_description = "pagedown: down"
+        elif key == Qt.Key.Key_H:
+            key_description = "H: down"
             self.pos["z"] -= self.step["up"]
+        elif key == Qt.Key.Key_U:
+            key_description = "U: turn up"
+            self.pos["phi"] += self.step["phi"]
+        elif key == Qt.Key.Key_J:
+            key_description = "J: turn down"
+            self.pos["phi"] -= self.step["phi"]
+        elif key == Qt.Key.Key_I:
+            key_description = "I: roll right"
+            self.pos["roll"] += self.step["roll"]
+        elif key == Qt.Key.Key_K:
+            key_description = "K: roll left"
+            self.pos["roll"] -= self.step["roll"]
         elif key == Qt.Key.Key_W:
             key_description = "W: forward"
             self.pos["x"] -= self.step["forward"] * np.sin(self.pos["theta"])
@@ -176,7 +209,7 @@ class KeyTrac(QMainWindow):
             key_description = "No key pressed"
         timestamp = time.time()
         message = f"KT, {self.key_count}, {key_description}, " + \
-                    f"{self.pos['x']}, {self.pos['y']}, {self.pos['z']}, {self.pos['theta']}, " + \
+                    f"{self.pos['x']}, {self.pos['y']}, {self.pos['z']}, {self.pos['theta']}, {self.pos['phi']}, {self.pos['roll']}, " + \
                     f"{timestamp}\n"
         return message
 
@@ -210,7 +243,7 @@ class KeyTrac(QMainWindow):
             self.receive_message()
 
     def reset_position(self):
-        self.pos = {"x": 0, "y": 0, "z":0, "theta": 0}
+        self.pos = {"x": 0, "y": 0, "z":0, "theta": 0, "phi": 0, "roll": 0}
 
     def keyPressEvent(self, event):
         if self.relative_control:

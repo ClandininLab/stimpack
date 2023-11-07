@@ -1,5 +1,6 @@
 import subprocess
 import signal
+import numpy as np
 
 from stimpack.device.locomotion.loco_managers import LocoManager, LocoClosedLoopManager
 
@@ -9,7 +10,9 @@ PYTHON_BIN =   'python'
 KEYTRAC_PY =   'keytrac.py'
 
 class KeytracManager(LocoManager):
-    def __init__(self, python_bin=PYTHON_BIN, kt_py_fn=KEYTRAC_PY, relative_control=True, start_at_init=True):
+    def __init__(self, python_bin=PYTHON_BIN, kt_py_fn=KEYTRAC_PY, relative_control=True, start_at_init=True, verbose=False):
+        super().__init__(verbose=verbose)
+        
         self.python_bin = python_bin
         self.kt_py_fn = kt_py_fn
         self.relative_control = relative_control
@@ -24,7 +27,7 @@ class KeytracManager(LocoManager):
 
     def start(self):
         if self.started:
-            print("Keytrac is already running.")
+            if self.verbose: print("KeytracManager: Keytrac is already running.")
         else:
             self.p = subprocess.Popen([self.python_bin, self.kt_py_fn, self.keytrac_host, str(self.keytrac_port), self.relative_control], start_new_session=True)
             self.started = True
@@ -36,14 +39,14 @@ class KeytracManager(LocoManager):
             try:
                 self.p.wait(timeout=timeout)
             except:
-                print("Timeout expired for closing Keytrac. Killing process...")
+                print("KeytracManager: Timeout expired for closing Keytrac. Killing process...")
                 self.p.kill()
                 self.p.terminate()
 
             self.p = None
             self.started = False
         else:
-            print("Keytrac hasn't been started yet. Cannot be closed.")
+            if self.verbose: print("KeytracManager: Keytrac hasn't been started yet. Cannot be closed.")
 
 class KeytracClosedLoopManager(LocoClosedLoopManager):
     def __init__(self, stim_server, host=KEYTRAC_HOST, port=KEYTRAC_PORT, 
@@ -76,14 +79,16 @@ class KeytracClosedLoopManager(LocoClosedLoopManager):
         x = float(toks[2])
         y = float(toks[3])
         z = float(toks[4])
-        theta = float(toks[5])
-        ts = float(toks[6])
+        theta = np.rad2deg(float(toks[5]))
+        phi = np.rad2deg(float(toks[6]))
+        roll = np.rad2deg(float(toks[7]))
+        ts = float(toks[8])
 
-        return {'theta': theta, 'x': x, 'y': y, 'z':z, 'frame_num': key_count, 'ts': ts}
+        return {'x': x, 'y': y, 'z':z, 'theta': theta, 'phi': phi, 'roll': roll, 'frame_num': key_count, 'ts': ts}
 
-    def set_pos_0(self, theta_0=0, x_0=0, y_0=0, z_0=0, use_data_prev=True, get_most_recent=True, write_log=False):
+    def set_pos_0(self, x_0=0, y_0=0, z_0=0, theta_0=0, phi_0=0, roll_0=0, use_data_prev=True, get_most_recent=True, write_log=False):
         self.socket_manager.send_message("reset_pos")
-        super().set_pos_0(theta_0=0, x_0=0, y_0=0, z_0=0, 
+        super().set_pos_0(x_0=0, y_0=0, z_0=0, theta_0=0, phi_0=0, roll_0=0, 
                           use_data_prev=use_data_prev, 
                           get_most_recent=get_most_recent, 
                           write_log=write_log)
