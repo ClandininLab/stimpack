@@ -279,7 +279,7 @@ class LocoClosedLoopManager(LocoManager):
   
     def set_pos_0(self, x_0=None, y_0=None, z_0=None, theta_0=None, phi_0=0, roll_0=0, use_data_prev=True, get_most_recent=True, write_log=False):
         '''
-        Sets position 0 for stimpack.visual_stim manager.
+        Sets position 0 for stimpack.experiment.server.
         
         x_0, y_0, z_0, theta_0, phi_0, roll_0: 
             if None, the current value is acquired from socket.
