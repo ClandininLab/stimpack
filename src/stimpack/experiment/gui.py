@@ -10,15 +10,16 @@ import os
 import sys
 import time
 from enum import Enum
+import yaml
+
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
                              QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QFrame,
                              QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
                              QScrollArea, QListWidget, QSizePolicy, QAbstractItemView)
 import PyQt6.QtCore as QtCore
-from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, QUrl
 import PyQt6.QtGui as QtGui
-import yaml
 
 from stimpack.experiment.util import config_tools, h5io
 from stimpack.experiment import protocol, data, client
@@ -1228,34 +1229,50 @@ class InitializeRigGUI(QWidget):
         self.cfg = None
         self.available_rig_configs = []
     
-        self.layout = QFormLayout()
+        # self.layout = QFormLayout()
         if window_size is not None and len(window_size) == 2:
             self.resize(*window_size)
 
         self.labpack_dir = config_tools.get_labpack_directory()
+        
+        self.init_grid = QGridLayout()
 
         self.pb_labpack_dir = QPushButton('Labpack Dir')
         self.pb_labpack_dir.clicked.connect(self.on_pressed_labpack_dir_button)
+        self.pb_labpack_dir.setToolTip("You can customize your Stimpack by importing your own Labpack. Click the \"?\" button for a template Labpack repository.")
+        self.init_grid.addWidget(self.pb_labpack_dir, 0, 0)
+        
         self.le_labpack_dir = QLineEdit(self.labpack_dir)
         self.le_labpack_dir.setReadOnly(True)
-        self.layout.addRow(self.pb_labpack_dir, self.le_labpack_dir)
+        self.init_grid.addWidget(self.le_labpack_dir, 0, 1)
+        
+        self.pb_labpack_repo = QPushButton('?')
+        self.pb_labpack_repo.clicked.connect(lambda: QtGui.QDesktopServices.openUrl(QUrl("https://www.github.com/ClandininLab/labpack")))
+        self.pb_labpack_repo.setToolTip("You can customize your Stimpack by importing your own Labpack. Click here for a template Labpack repository.")
+        self.init_grid.addWidget(self.pb_labpack_repo, 0, 2)
 
         label_config = QLabel('Config')
+        label_config.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        self.init_grid.addWidget(label_config, 1, 0)
+        
         self.config_combobox = QComboBox()
         self.config_combobox.activated.connect(self.on_selected_config)
-        self.layout.addRow(label_config, self.config_combobox)
-
+        self.init_grid.addWidget(self.config_combobox, 1, 1, 1, 2)
+        
         label_rigname = QLabel('Rig Config')
+        label_rigname.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        self.init_grid.addWidget(label_rigname, 2, 0)
+        
         self.rig_combobox = QComboBox()
-        self.layout.addRow(label_rigname, self.rig_combobox)
+        self.init_grid.addWidget(self.rig_combobox, 2, 1, 1, 2)
+
         self.update_available_rigs()
 
         self.pb_enter = QPushButton('Enter')
         self.pb_enter.clicked.connect(self.on_pressed_enter_button)
-        self.layout.addRow(QLabel(''))
-        self.layout.addRow(self.pb_enter)
+        self.init_grid.addWidget(self.pb_enter, 4, 0, 1, 3)
 
-        self.setLayout(self.layout)
+        self.setLayout(self.init_grid)
 
         # Load the first config
         self.load_labpack()
