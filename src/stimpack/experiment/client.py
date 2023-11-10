@@ -47,7 +47,8 @@ class BaseClient():
                 'relative_control': 'True',
             }
             
-            server = BaseServer(port=None, 
+            server = BaseServer(host='127.0.0.1',
+                                port=None, 
                                 start_loop=True, 
                                 visual_stim_kwargs=visual_stim_kwargs, 
                                 loco_class=loco_class, 
