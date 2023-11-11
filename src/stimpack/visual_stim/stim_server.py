@@ -1,7 +1,5 @@
 import platform
 from time import time
-from math import radians
-import numpy as np
 
 import stimpack.visual_stim.framework
 from stimpack.visual_stim.screen import Screen
