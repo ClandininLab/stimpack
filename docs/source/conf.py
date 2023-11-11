@@ -18,6 +18,7 @@ import stimpack
 sys.path.insert(0, '../../stimpack/src/stimpack/')
 sys.path.insert(0, '../../stimpack/src/stimpack/visual_stim')
 sys.path.insert(0, '../../stimpack/src/stimpack/rpc')
+sys.path.insert(0, '../../')
 
 extensions = [
     'sphinx.ext.autodoc',

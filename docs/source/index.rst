@@ -1,20 +1,24 @@
-.. stimpack documentation master file, created by
-   sphinx-quickstart on Sat Nov 11 14:17:03 2023.
+.. stimpackdocumentation master file, created by
+   sphinx-quickstart on Wed Jan  7 11:32:20 2015.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to stimpack's documentation!
-====================================
+======================================
+stimpack: modular and precise framework for systems neuroscience experiments
+======================================
+
+`stimpack`_ is a modular and precise framework for systems neuroscience experiments. It supports a wide range of stimulus paradigms, including naturalistic stimuli, and is designed to be easily extensible. It is written in Python and is open source.
+
+
+.. _stimpack: https://github.com/clandininlab/stimpack/
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+    :maxdepth: 1
+    :caption: Contents
+
+    api
+    modules
+    visual_stim
 
 
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+:ref:`genindex` of all functions.
