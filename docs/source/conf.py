@@ -19,8 +19,7 @@ release = '1.0'
 sys.path.insert(0, os.path.abspath('/home/dennis/stimpack/src/stimpack'))
 extensions = [
     'sphinx.ext.autodoc',
-    'sphinx.ext.autosummary',
-    'sphinx_autodoc_typehints',  # Optional, for type hints
+    'sphinx.ext.autosummary'
 ]
 autosummary_generate = True  # Automatically generate summary pages
 templates_path = ['_templates']
