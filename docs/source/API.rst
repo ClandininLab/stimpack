@@ -1,4 +1,4 @@
-stimpack
+API
 ========
 
 .. toctree::

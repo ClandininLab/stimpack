@@ -16,9 +16,8 @@ stimpack: modular and precise framework for systems neuroscience experiments
     :maxdepth: 1
     :caption: Contents
 
-    api
-    modules
-    visual_stim
+    API 
+    quickstart
 
 
 :ref:`genindex` of all functions.
