@@ -15,9 +15,9 @@ import stimpack
 
 # sys.path.insert(0, os.path.abspath('/dennis/stimpack/src/stimpack/'))
 # sys.path.insert(0, os.path.abspath('/home/dennis/stimpack/src/stimpack/visual_stim'))
-sys.path.insert('../../stimpack/src/stimpack/')
-sys.path.insert('../../stimpack/src/stimpack/visual_stim')
-sys.path.insert('../../stimpack/src/stimpack/rpc')
+sys.path.insert(0, '../../stimpack/src/stimpack/')
+sys.path.insert(0, '../../stimpack/src/stimpack/visual_stim')
+sys.path.insert(0, '../../stimpack/src/stimpack/rpc')
 
 extensions = [
     'sphinx.ext.autodoc',
