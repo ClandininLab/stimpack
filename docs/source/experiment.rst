@@ -1,4 +1,4 @@
-experiment package
+stimpack.experiment
 ==================
 
 Subpackages
@@ -17,7 +17,6 @@ experiment.client module
 
 .. automodule:: experiment.client
    :members:
-   :undoc-members:
    :show-inheritance:
 
 experiment.data module
@@ -25,7 +24,6 @@ experiment.data module
 
 .. automodule:: experiment.data
    :members:
-   :undoc-members:
    :show-inheritance:
 
 experiment.gui module

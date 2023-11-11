@@ -1,4 +1,4 @@
-device package
+stimpack.device
 ==============
 
 Submodules
