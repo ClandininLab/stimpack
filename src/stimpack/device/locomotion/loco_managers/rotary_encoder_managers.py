@@ -49,13 +49,10 @@ class RotaryEncoderManager(LocoManager):
 
 class RotaryEncoderClosedLoopManager(LocoClosedLoopManager):
     def __init__(self, stim_server, host=ROTENC_HOST, port=ROTENC_PORT, 
-                       python_bin=PYTHON_BIN, rotenc_py_fn=ROTENC_PY, 
                        start_at_init=False, udp=True,
                        wheel_radius=0.1, n_pulses_per_rev=1024, pulse_polarity=1):
-        super().__init__(stim_server=stim_server, host=host, port=port, save_directory=None, start_at_init=False, udp=udp)
-        
-        self.rotenc_manager = RotaryEncoderManager(python_bin=python_bin, rotenc_py_fn=rotenc_py_fn, start_at_init=False)
-        
+        super().__init__(stim_server=stim_server, host=host, port=port, save_directory=None, start_at_init=start_at_init, udp=udp)
+                
         self.wheel_radius = wheel_radius
         self.n_pulses_per_rev = n_pulses_per_rev
         self.dist_per_pulse = 2*np.pi*self.wheel_radius/self.n_pulses_per_rev
@@ -67,11 +64,9 @@ class RotaryEncoderClosedLoopManager(LocoClosedLoopManager):
 
     def start(self):
         super().start()
-        self.rotenc_manager.start()
 
     def close(self):
         super().close()
-        self.rotenc_manager.close()
 
     def _parse_line(self, line):
         toks = line.split(", ")
@@ -81,9 +76,9 @@ class RotaryEncoderClosedLoopManager(LocoClosedLoopManager):
             print(f'RotaryEncoderClosedLoopManager: Bad line: {line}')
             return None
         
-        ts = float(toks[0])
-        frame_count = int(toks[1])
-        net_pulses_in_frame = int(toks[2])
+        frame_count = int(toks[0])
+        net_pulses_in_frame = int(toks[1])
+        ts = float(toks[2])
         # y = float(toks[3])
         self.y += self.pulse_polarity * net_pulses_in_frame * self.dist_per_pulse
 
