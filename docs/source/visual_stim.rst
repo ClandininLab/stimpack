@@ -7,7 +7,7 @@ Submodules
 visual\_stim.base module
 ------------------------
 
-.. automodule:: visual_stim.base
+.. automodule:: stimpack.visual_stim.base
    :members:
    :undoc-members:
    :show-inheritance:
