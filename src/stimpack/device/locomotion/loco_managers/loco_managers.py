@@ -277,56 +277,80 @@ class LocoClosedLoopManager(LocoManager):
         
         return {'x': x, 'y': y, 'z': z, 'theta': theta, 'phi': phi, 'roll': roll, 'frame_num': frame_num, 'ts': ts}
   
-    def set_pos_0(self, x_0=None, y_0=None, z_0=None, theta_0=None, phi_0=0, roll_0=0, use_data_prev=True, get_most_recent=True, write_log=False):
+    def set_pos_0(self, loco_pos = {'x': None, 'y': None, 'z': None, 'theta': None, 'phi': None, 'roll': None}, 
+                  use_data_prev=True, get_most_recent=True, write_log=False):
         '''
-        Sets position 0 for stimpack.experiment.server.
+        Maps the specified locomotion device's output to the stimpack.experiment.server's position 0.
         
-        x_0, y_0, z_0, theta_0, phi_0, roll_0: 
-            if None, the current value is acquired from socket.
+        loco_pos: 
+            dictionary of position variables to map to 0.
+            keys: position variables to map to 0
+            values: locomotion device position
+                    if None, the current value is acquired from socket.
         
         get_most_recent:
             Only relevant if getting data for the first time or use_data_prev = False
             if True, grabs line that is most recent
             if False, grabs line that is the oldest
         '''
-        self.stim_server.set_subject_state({'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0})
+        
+        loco_state_pos_pairs = {k: (loco_pos[k], 0) for k in loco_pos.keys()}
+        
+        self.map_loco_to_server_pos(loco_state_pos_pairs=loco_state_pos_pairs, 
+                                    use_data_prev=use_data_prev, 
+                                    get_most_recent=get_most_recent, 
+                                    write_log=write_log)
 
-        if None in [x_0, y_0, z_0, theta_0, phi_0, roll_0]:
+    def map_loco_to_server_pos(self, 
+                loco_state_pos_pairs = {'x': (None, 0), 'y': (None, 0), 'z': (None, 0), 'theta': (None, 0), 'phi': (None, 0), 'roll': (None, 0)}, 
+                use_data_prev=True, get_most_recent=True, write_log=False):
+        '''
+        Sets mapping between locomotion device's output and stimpack.experiment.server's position.
+        
+        loco_state_pos_pairs: 
+            dictionary of position variables to map from locomotion device to stimpack.experiment.server.
+            keys: position variables to map to stimpack.experiment.server
+            values: tuple of (locomotion device position, stimpack.experiment.server position)
+            If locomotion device position is None, the current value is acquired from socket.
+        
+        get_most_recent:
+            Only relevant if getting data for the first time or use_data_prev = False
+            if True, grabs line that is most recent
+            if False, grabs line that is the oldest
+        '''
+        
+        assert isinstance(loco_state_pos_pairs, dict), "loco_state_pos_pairs must be a dictionary."
+        assert all([k in ['x', 'y', 'z', 'theta', 'phi', 'roll'] for k in loco_state_pos_pairs.keys()]), "loco_state_pos_pairs must only contain keys in ['x', 'y', 'z', 'theta', 'phi', 'roll']"
+        
+        loco_pos   = {k:v[0] for k,v in loco_state_pos_pairs.items()}
+        server_pos = {k:v[1] for k,v in loco_state_pos_pairs.items()}
+        
+        self.stim_server.set_subject_state(server_pos)
+
+        if None in loco_pos.values():
             if use_data_prev and len(self.data_prev)!=0:
                 data = self.data_prev
             else:
                 data = self.get_data(get_most_recent=get_most_recent)
 
-            if     x_0 is None:     x_0 = float(data.get('x', 0))
-            if     y_0 is None:     y_0 = float(data.get('y', 0))
-            if     z_0 is None:     z_0 = float(data.get('z', 0))
-            if theta_0 is None: theta_0 = float(data.get('theta', 0))
-            if   phi_0 is None:   phi_0 = float(data.get('phi', 0))
-            if  roll_0 is None:  roll_0 = float(data.get('roll', 0))
+            for k,v in loco_pos.items():
+                if v is None: loco_pos[k] = float(data.get(k, 0))
         
             frame_num = int(data['frame_num'])
             ts = float(data['ts'])
         else:
             frame_num = -1
             ts = None
-
-        self.pos_0['x']     = x_0
-        self.pos_0['y']     = y_0
-        self.pos_0['z']     = z_0
-        self.pos_0['theta'] = theta_0
-        self.pos_0['phi']   = phi_0
-        self.pos_0['roll']  = roll_0
-        self.pos['x']       = x_0
-        self.pos['y']       = y_0
-        self.pos['z']       = z_0
-        self.pos['theta']   = theta_0
-        self.pos['phi']     = phi_0
-        self.pos['roll']    = roll_0
+        
+        for k in loco_state_pos_pairs.keys():
+            loco_state_pos_pairs[k] = (loco_pos[k], server_pos[k])
+            self.pos_0[k] = loco_pos[k] - server_pos[k] # the scalar offset to apply to the locomotion device's position to get the stimpack.experiment.server's position
+            self.pos[k]   = server_pos[k]
         
         if write_log and self.log_file is not None:
             if ts is None:
                 ts = time()
-            log_line = json.dumps({'set_pos_0': {'frame_num': frame_num, 'x': x_0, 'y': y_0, 'z': z_0, 'theta': theta_0, 'phi': phi_0, 'roll': roll_0}, 'ts': ts})
+            log_line = json.dumps({'set_pos': {'frame_num': frame_num}.update(loco_state_pos_pairs), 'ts': ts})
             self.write_to_log(log_line)
     
     def write_to_log(self, string):
@@ -410,8 +434,3 @@ class LocoClosedLoopManager(LocoManager):
         self.loop_attrs['update_phi']   = update_phi
         self.loop_attrs['update_roll']  = update_roll
     
-    # def loop_update_custom_fxn(self, custom_fxn):
-    #     if isinstance(custom_fxn, function):
-    #         self.loop_custom_fxn = custom_fxn
-    #     else:
-    #         pass

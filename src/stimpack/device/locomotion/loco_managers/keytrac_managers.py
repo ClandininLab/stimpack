@@ -86,9 +86,9 @@ class KeytracClosedLoopManager(LocoClosedLoopManager):
 
         return {'x': x, 'y': y, 'z':z, 'theta': theta, 'phi': phi, 'roll': roll, 'frame_num': key_count, 'ts': ts}
 
-    def set_pos_0(self, x_0=0, y_0=0, z_0=0, theta_0=0, phi_0=0, roll_0=0, use_data_prev=True, get_most_recent=True, write_log=False):
+    def set_pos_0(self, loco_pos = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}, use_data_prev=True, get_most_recent=True, write_log=False):
         self.socket_manager.send_message("reset_pos")
-        super().set_pos_0(x_0=0, y_0=0, z_0=0, theta_0=0, phi_0=0, roll_0=0, 
+        super().set_pos_0(loco_pos = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}, 
                           use_data_prev=use_data_prev, 
                           get_most_recent=get_most_recent, 
                           write_log=write_log)
