@@ -44,6 +44,12 @@ class StimDisplay(QOpenGLWidget):
         self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}')
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
 
+        # Set window size and position for fullscreen
+        if screen.fullscreen:
+            rect_screen = app.primaryScreen().geometry()
+            self.move(rect_screen.left(), rect_screen.top())
+            self.resize(rect_screen.width(), rect_screen.height())
+
         # stimulus initialization
         self.stim_list = []
 

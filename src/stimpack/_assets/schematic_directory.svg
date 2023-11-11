@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+<svg width="600mm" height="400mm" inkscape:version="1.2.2 (732a01da63, 2022-12-09, custom)" sodipodi:docname="schematic_directory.svg" version="1.1" viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd">
+ <sodipodi:namedview bordercolor="#000000" borderopacity="0.25" inkscape:current-layer="g13876" inkscape:cx="729.7342" inkscape:cy="557.20014" inkscape:deskcolor="#d1d1d1" inkscape:document-units="mm" inkscape:pagecheckerboard="0" inkscape:pageopacity="0.0" inkscape:showpageshadow="2" inkscape:window-height="1007" inkscape:window-maximized="1" inkscape:window-width="1920" inkscape:window-x="0" inkscape:window-y="0" inkscape:zoom="0.35355339" pagecolor="#ffffff" showgrid="false"/>
+ <g stroke-linejoin="bevel" inkscape:groupmode="layer" inkscape:label="Layer 1">
+  <g stroke="#000">
+   <rect x="309.6" y="13.641" width="263.11" height="322.39" fill="#e6e6e6" stroke-width="1.0553"/>
+   <rect x="16.012" y="13.758" width="273.02" height="322.27" fill="#e6e6e6" stroke-width="1.0553"/>
+   <path d="m22.174 27.246h258.07v299.6h-257.64z" fill="#51aac2" fill-opacity=".53126" stroke-width="1.0968"/>
+  </g>
+  <g>
+   <rect x="16.055" y="13.641" width="43.501" height="8.693" fill="#fff" stroke="#000" stroke-width=".95932"/>
+   <text x="16.119652" y="19.948536" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.9536px" font-weight="bold" stroke="#b3b3b3" stroke-width=".64082" text-align="justify" xml:space="preserve"><tspan x="16.119652" y="19.948536" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width=".64082" sodipodi:role="line">stimpack</tspan></text>
+   <rect x="22.568" y="27.154" width="66.948" height="8.8693" rx="0" ry="0" fill="#fff" stroke="#000" stroke-width=".95932"/>
+   <text x="23.717999" y="33.932312" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.9536px" font-weight="bold" stroke="#b3b3b3" stroke-width=".64082" text-align="justify" xml:space="preserve"><tspan x="23.717999" y="33.932312" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width=".64082" sodipodi:role="line">src/stimpack</tspan></text>
+  </g>
+  <g transform="matrix(.90644 0 0 .90644 8.0143 4.0444)">
+   <g transform="translate(.096401 -86.614)" stroke-width="1.0583">
+    <path d="m25.483 128.75 262.11-0.43986v58.201l-262.11-0.35152z" fill="#e6e6e6" stroke="#000" sodipodi:nodetypes="ccccc"/>
+    <rect x="25.251" y="128.71" width="19.156" height="10.385" rx="0" ry="0" fill="#fff" stroke="#000"/>
+    <text x="25.845789" y="135.69424" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="9.8778px" font-weight="bold" stroke="#b3b3b3" text-align="justify" xml:space="preserve"><tspan x="25.845789" y="135.69424" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width="1.0583" sodipodi:role="line">rpc</tspan></text>
+   </g>
+   <text x="40.928497" y="60.526493" fill="#000000" font-family="'Tlwg Mono'" font-size="7.0556px" font-weight="bold" stroke-width="1.0583" text-align="justify" xml:space="preserve"><tspan x="40.928497" y="60.526493" sodipodi:role="line">echo_server</tspan><tspan x="40.928497" y="69.34594" sodipodi:role="line">launch</tspan><tspan x="40.928497" y="78.16539" sodipodi:role="line">multicall</tspan><tspan x="40.928497" y="86.98484" sodipodi:role="line">transceiver</tspan><tspan x="40.928497" y="95.804291" sodipodi:role="line">util</tspan></text>
+   <g fill="#fff" stroke="#000">
+    <path d="m34.926 52.482v43.129" stroke-width="1.013"/>
+    <g stroke-width="1.0583">
+     <path d="m34.397 58.839h4.1099"/>
+     <path d="m34.926 67.197 3.5807-0.07581"/>
+     <path d="m34.926 76.021 3.5919 0.07381"/>
+     <path d="m34.915 86.205 3.6137-0.0709"/>
+     <path d="m34.905 95.083 3.6344-0.11079"/>
+    </g>
+   </g>
+  </g>
+  <g transform="matrix(.90644 0 0 .90644 8.5196 63.17)">
+   <g transform="translate(-.66395 -85.641)" stroke-width="1.0583">
+    <path d="m25.483 128.28 262.11-0.43986v58.201l-262.11-0.35152z" fill="#e6e6e6" stroke="#000" sodipodi:nodetypes="ccccc"/>
+    <rect x="25.483" y="128.22" width="65.257" height="9.5685" rx="0" ry="0" fill="#fff" stroke="#000"/>
+    <text x="28.396082" y="135.35217" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="9.8778px" font-weight="bold" stroke="#b3b3b3" text-align="justify" xml:space="preserve"><tspan x="28.396082" y="135.35217" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width="1.0583" sodipodi:role="line">experiment</tspan></text>
+   </g>
+   <text x="40.928497" y="60.526493" fill="#000000" font-family="'Tlwg Mono'" font-size="7.0556px" font-weight="bold" stroke-width="1.0583" text-align="justify" xml:space="preserve"><tspan x="40.928497" y="60.526493" sodipodi:role="line">client</tspan><tspan x="40.928497" y="69.34594" sodipodi:role="line">data</tspan><tspan x="40.928497" y="78.16539" sodipodi:role="line">gui</tspan><tspan x="40.928497" y="86.98484" sodipodi:role="line">protocol</tspan><tspan x="40.928497" y="95.804291" sodipodi:role="line">server</tspan></text>
+   <g fill="#fff" stroke="#000">
+    <path d="m34.926 52.482v43.129" stroke-width="1.013"/>
+    <g stroke-width="1.0583">
+     <path d="m34.397 58.839h4.1099"/>
+     <path d="m34.926 67.197 3.5807-0.07581"/>
+     <path d="m34.926 76.021 3.5919 0.07381"/>
+     <path d="m34.915 86.205 3.6137-0.0709"/>
+     <path d="m34.905 95.083 3.6344-0.11079"/>
+    </g>
+   </g>
+  </g>
+  <g transform="translate(6.6845 135.24)">
+   <g transform="matrix(1.0001 0 0 .97102 .48169 -83.352)">
+    <path d="m24.131 113.73 237.1-0.91617v121.23l-237.1-0.73218z" fill="#e6e6e6" stroke="#000" stroke-width=".96593" sodipodi:nodetypes="cccccc"/>
+    <rect x="23.842" y="113.66" width="62.337" height="8.639" rx="0" ry="0" fill="#fff" stroke="#000" stroke-width=".95932"/>
+    <text x="24.721371" y="120.39667" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.9536px" font-weight="bold" stroke="#b3b3b3" stroke-width=".95931" text-align="justify" xml:space="preserve"><tspan x="24.721371" y="120.39667" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width=".95931" sodipodi:role="line">visual_stim</tspan></text>
+   </g>
+   <text x="37.171307" y="43.876034" fill="#000000" font-family="'Tlwg Mono'" font-size="6.3954px" font-weight="bold" stroke-width=".95931" text-align="justify" xml:space="preserve"><tspan x="37.171307" y="43.876034" sodipodi:role="line">base</tspan><tspan x="37.171307" y="51.870323" sodipodi:role="line">distribution</tspan><tspan x="37.171307" y="59.864609" sodipodi:role="line">draw</tspan><tspan x="37.171307" y="67.858894" sodipodi:role="line">frameworkk</tspan><tspan x="37.171307" y="75.853188" sodipodi:role="line">perspective</tspan><tspan x="37.171307" y="83.847473" sodipodi:role="line">screen</tspan><tspan x="37.171307" y="91.841759" sodipodi:role="line">shapes</tspan><tspan x="37.171307" y="99.836044" sodipodi:role="line">shared_pixmap</tspan><tspan x="37.171307" y="107.83034" sodipodi:role="line">square</tspan><tspan x="37.171307" y="115.82462" sodipodi:role="line">stim_server</tspan><tspan x="37.171307" y="123.81891" sodipodi:role="line">stimuli</tspan><tspan x="37.171307" y="131.8132" sodipodi:role="line">trajectory</tspan><tspan x="37.171307" y="139.80748" sodipodi:role="line">util</tspan></text>
+   <g fill="#fff" stroke="#000">
+    <path d="m32.458 36.169v103.38" stroke-width=".92251" sodipodi:nodetypes="cc"/>
+    <g stroke-width=".95931">
+     <path d="m32.927 50.764 3.2457-0.06872"/>
+     <path d="m32.927 58.559 3.2559 0.0669"/>
+     <path d="m32.926 66.488 3.2756-0.06427"/>
+     <path d="m32.931 74.369 3.2944-0.10043"/>
+     <path d="m32.917 82.181h3.7254"/>
+     <path d="m32.927 90.078 3.2457-0.06872"/>
+     <path d="m32.927 97.873 3.2559 0.0669"/>
+     <path d="m32.926 105.8 3.2756-0.0643"/>
+     <path d="m32.931 113.68 3.2944-0.10043"/>
+     <path d="m32.931 129.41 3.2944-0.10043"/>
+     <path d="m32.931 121.55 3.2944-0.10043"/>
+     <path d="m32.902 139.07 3.2944-0.10043"/>
+     <path d="m32.927 43.885 3.2457-0.06872"/>
+    </g>
+   </g>
+  </g>
+  <g>
+   <path d="m31.218 286.43 237.56-0.25097v33.213l-237.56-0.2006z" fill="#e6e6e6" stroke="#000" stroke-width="1.0583" sodipodi:nodetypes="cccccc"/>
+   <rect x="31.029" y="286.9" width="33.809" height="8.6284" rx="0" ry="0" fill="#fff" stroke="#000" stroke-width="1.0583"/>
+   <text transform="scale(1.0148 .98538)" x="31.425907" y="298.23618" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.8232px" font-weight="bold" stroke="#b3b3b3" stroke-width=".94534" text-align="justify" xml:space="preserve"><tspan x="31.425907" y="298.23618" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width=".94534" sodipodi:role="line">device</tspan></text>
+   <text x="44.725918" y="303.66348" fill="#ffffff" font-family="'Tlwg Mono'" font-size="6.3954px" font-weight="bold" stroke-width=".95931" text-align="justify" xml:space="preserve"><tspan x="44.725918" y="303.66348" fill="#000000" font-family="'Tlwg Mono'" font-size="6.3954px" font-weight="bold" stroke-width=".95931" sodipodi:role="line">daq</tspan></text>
+   <path d="m39.285 296.37v14.278" fill="#fff" stroke="#000" stroke-width=".96411"/>
+   <g stroke-width=".95931">
+    <path d="m38.805 302.13h3.7254" fill="#fff" stroke="#000"/>
+    <text x="44.725918" y="312.65933" fill="#ffffff" font-family="'Tlwg Mono'" font-size="6.3954px" font-weight="bold" text-align="justify" xml:space="preserve"><tspan x="44.725918" y="312.65933" fill="#000000" font-family="'Tlwg Mono'" font-size="6.3954px" font-weight="bold" stroke-width=".95931" sodipodi:role="line">locomotion/</tspan></text>
+    <path d="m38.805 311.13h3.7254" fill="#fff" stroke="#000"/>
+   </g>
+   <rect x="309.6" y="13.641" width="43.501" height="9.8975" fill="#fff" stroke="#000" stroke-width=".95932"/>
+   <text x="311.77933" y="19.948536" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.9536px" font-weight="bold" stroke="#b3b3b3" stroke-width=".64082" text-align="justify" xml:space="preserve"><tspan x="311.77933" y="19.948536" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width=".64082" sodipodi:role="line">labpack</tspan></text>
+   <rect x="316.56" y="27.177" width="246.26" height="189.77" fill="#e2adb2" stroke="#000" stroke-width="1.0583"/>
+   <rect x="316.56" y="27.177" width="66.948" height="8.8693" rx="0" ry="0" fill="#fff" stroke="#000" stroke-width=".95932"/>
+   <text x="317.26099" y="33.932308" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.9536px" font-weight="bold" stroke="#b3b3b3" stroke-width=".64082" text-align="justify" xml:space="preserve"><tspan x="317.26099" y="33.932308" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width=".64082" sodipodi:role="line">labpack</tspan></text>
+  </g>
+  <g transform="matrix(.90644 0 0 .90644 301.56 4.0444)">
+   <g transform="matrix(.95679 0 0 1 1.1877 -86.614)" stroke-width="1.082">
+    <path d="m25.483 128.58 262.11-0.26473v35.028l-262.11-0.21157z" fill="#e6e6e6" stroke="#000" sodipodi:nodetypes="ccccc"/>
+    <rect x="25.251" y="128.71" width="20.169" height="10.385" rx="0" ry="0" fill="#fff" stroke="#000"/>
+    <text x="26.218935" y="135.86169" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="9.8778px" font-weight="bold" stroke="#b3b3b3" text-align="justify" xml:space="preserve"><tspan x="26.218935" y="135.86169" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width="1.082" sodipodi:role="line">daq</tspan></text>
+   </g>
+   <text x="40.928497" y="60.526493" fill="#000000" font-family="'Tlwg Mono'" font-size="7.0556px" font-weight="bold" stroke-width="1.0583" text-align="justify" xml:space="preserve"><tspan x="40.928497" y="60.526493" sodipodi:role="line">daq</tspan><tspan x="40.928497" y="69.34594" sodipodi:role="line">loco_manager</tspan></text>
+   <g fill="#fff" stroke="#000">
+    <path d="m34.926 52.482v14.715" stroke-width="1.013" sodipodi:nodetypes="cc"/>
+    <path d="m34.397 58.839h4.1099" stroke-width="1.0583"/>
+    <path d="m34.926 67.197 3.5807-0.07581" stroke-width="1.0583"/>
+   </g>
+  </g>
+  <g transform="matrix(.90644 0 0 .90644 302.25 39.971)">
+   <g transform="matrix(.95677 0 0 1 .43759 -85.641)" stroke-width="1.082">
+    <path d="m25.483 128.09 262.11-0.25109v33.224l-262.11-0.20066z" fill="#e6e6e6" stroke="#000" sodipodi:nodetypes="ccccc"/>
+    <rect x="25.483" y="128.22" width="65.257" height="9.5685" rx="0" ry="0" fill="#fff" stroke="#000"/>
+    <text x="28.396082" y="135.35217" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="9.8778px" font-weight="bold" stroke="#b3b3b3" text-align="justify" xml:space="preserve"><tspan x="28.396082" y="135.35217" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width="1.082" sodipodi:role="line">protocol</tspan></text>
+   </g>
+   <text x="40.928497" y="60.526493" fill="#000000" font-family="'Tlwg Mono'" font-size="7.0556px" font-weight="bold" stroke-width="1.0583" text-align="justify" xml:space="preserve"><tspan x="40.928497" y="60.526493" sodipodi:role="line">base_protocol</tspan><tspan x="40.928497" y="69.34594" sodipodi:role="line">JohnDoe_protocol</tspan></text>
+   <g fill="#fff" stroke="#000">
+    <path d="m34.926 52.482v15.244" stroke-width="1.013"/>
+    <path d="m34.397 58.839h4.1099" stroke-width="1.0583"/>
+    <path d="m34.926 67.197 3.5807-0.07581" stroke-width="1.0583"/>
+   </g>
+  </g>
+  <g transform="translate(300.01 90.15)">
+   <g transform="matrix(.95845 0 0 .97102 1.4738 -83.352)">
+    <path d="m24.131 113.27 237.1-0.45291v59.929l-237.1-0.36196z" fill="#e6e6e6" stroke="#000" stroke-width=".98667" sodipodi:nodetypes="cccccc"/>
+    <rect x="23.847" y="113.66" width="104.86" height="8.639" rx="0" ry="0" fill="#fff" stroke="#000" stroke-width=".97992"/>
+    <text x="24.721371" y="120.39667" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.9536px" font-weight="bold" stroke="#b3b3b3" stroke-width=".97991" text-align="justify" xml:space="preserve"><tspan x="24.721371" y="120.39667" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width=".97991" sodipodi:role="line">visual_stim/example</tspan></text>
+   </g>
+   <text x="36.783985" y="44.420418" fill="#000000" font-family="'Tlwg Mono'" font-size="6.3954px" font-weight="bold" stroke-width=".95931" text-align="justify" xml:space="preserve"><tspan x="36.783985" y="44.420418" sodipodi:role="line">distribution</tspan><tspan x="36.783985" y="52.414707" sodipodi:role="line">shapes</tspan><tspan x="36.783985" y="60.408993" sodipodi:role="line">stimuli</tspan><tspan x="36.783985" y="68.403282" sodipodi:role="line">trajectory</tspan><tspan x="36.783985" y="76.397568" sodipodi:role="line">util</tspan></text>
+   <g fill="#fff" stroke="#000">
+    <path d="m32.557 35.868v39.807" stroke-width=".92251" sodipodi:nodetypes="cc"/>
+    <g stroke-width=".95931">
+     <path d="m32.927 51.011 3.2457-0.06872"/>
+     <path d="m32.927 58.763 3.2559 0.0669"/>
+     <path d="m32.917 66.893 3.2756-0.06427"/>
+     <path d="m32.917 75.196 3.2944-0.10043"/>
+     <path d="m32.927 43.885 3.2457-0.06872"/>
+    </g>
+   </g>
+   <g transform="matrix(1.0001 0 0 .97102 .62184 -17.748)">
+    <text x="30.541853" y="120.39667" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.9536px" font-weight="bold" stroke="#b3b3b3" stroke-width=".95931" text-align="justify" xml:space="preserve"><tspan x="30.541853" y="120.39667" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" sodipodi:role="line"/></text>
+    <path d="m23.896 118.44h4.6263" fill="#fff" stroke="#000" stroke-width="1.074"/>
+    <path d="m23.896 136.55 4.6263 0.0674" fill="#fff" stroke="#000" stroke-width="1.074"/>
+    <text x="30.541853" y="138.40607" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.9536px" font-weight="bold" stroke="#b3b3b3" stroke-width=".95931" text-align="justify" xml:space="preserve"><tspan x="30.541853" y="138.40607" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" sodipodi:role="line"/></text>
+    <text x="30.541853" y="120.39667" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.9536px" font-weight="bold" stroke="#b3b3b3" stroke-width=".95931" text-align="justify" xml:space="preserve"><tspan x="30.541853" y="120.39667" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width=".95931" sodipodi:role="line">client</tspan></text>
+    <path d="m23.896 118.44h4.6263" fill="#fff" stroke="#000" stroke-width="1.074"/>
+    <path d="m23.896 136.55 4.6263 0.0674" fill="#fff" stroke="#000" stroke-width="1.074"/>
+    <text x="30.541853" y="138.40607" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.9536px" font-weight="bold" stroke="#b3b3b3" stroke-width=".95931" text-align="justify" xml:space="preserve"><tspan x="30.541853" y="138.40607" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width=".95931" sodipodi:role="line">data</tspan></text>
+   </g>
+  </g>
+  <g>
+   <path d="m315.79 228.38h246.48v36.521h-246.07z" fill="#e2adb2" stroke="#000" stroke-width="1.0968"/>
+   <rect x="315.79" y="228.38" width="66.948" height="8.8693" rx="0" ry="0" fill="#fff" stroke="#000" stroke-width=".95932"/>
+   <text x="316.86737" y="235.08801" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.9536px" font-weight="bold" stroke="#b3b3b3" stroke-width=".64082" text-align="justify" xml:space="preserve"><tspan x="316.86737" y="235.08801" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width=".64082" sodipodi:role="line">configs</tspan></text>
+   <path d="m315.79 275.71h246.48v49.993h-246.07z" fill="#e2adb2" stroke="#000" stroke-width="1.0968"/>
+   <rect x="315.79" y="275.71" width="66.948" height="8.8693" rx="0" ry="0" fill="#fff" stroke="#000" stroke-width=".95932"/>
+   <text x="316.86737" y="282.41992" fill="#b3b3b3" font-family="'Nimbus Mono PS'" font-size="8.9536px" font-weight="bold" stroke="#b3b3b3" stroke-width=".64082" text-align="justify" xml:space="preserve"><tspan x="316.86737" y="282.41992" fill="#000000" font-family="'Tlwg Mono'" font-weight="bold" stroke="none" stroke-width=".64082" sodipodi:role="line">server</tspan></text>
+  </g>
+  <g fill="none" stroke-width="1.0583">
+   <path d="m324.5 285.06v27.943h4.7096" stroke="#000"/>
+   <path d="m324.5 299.03 4.7096-0.058" stroke="#000"/>
+   <g font-family="'Tlwg Mono'" font-size="8.8194px" font-weight="bold" stroke="#000000">
+    <text x="331.6843" y="300.34549" text-align="justify" xml:space="preserve"><tspan x="331.6843" y="300.34549" fill="#000000" font-size="8.8194px" stroke="none" stroke-width="1.0583" sodipodi:role="line">base_server</tspan></text>
+    <text x="331.6843" y="313.19986" text-align="justify" xml:space="preserve"><tspan x="331.6843" y="313.19986" fill="#000000" font-size="8.8194px" stroke="none" stroke-width="1.0583" sodipodi:role="line">example_server</tspan></text>
+    <text x="329.81525" y="256.74176" text-align="justify" xml:space="preserve"><tspan x="329.81525" y="256.74176" fill="#000000" font-size="8.8194px" stroke="none" stroke-width="1.0583" sodipodi:role="line">base_server</tspan></text>
+   </g>
+   <path d="m322.99 237.25v17.118l3.862-0.24125" stroke="#000"/>
+  </g>
+ </g>
+</svg>
