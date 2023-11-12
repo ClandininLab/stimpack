@@ -3,10 +3,10 @@ from setuptools import setup
 setup(
     name='stimpack',
     version='0.0.1',
-    description='Suite for experiments involving various types of stimuli, such as visual and optogenetic.',
+    description='Precise and flexible generation of stimuli for neuroscience experiments.',
     url='https://github.com/ClandininLab/stimpack',
-    author='Max Turner, Minseung Choi',
-    author_email='mhturner@stanford.edu, minseung@stanford.edu',
+    author='Minseung Choi',
+    author_email='minseung@stanford.edu',
     packages=[
         'stimpack',
         'stimpack.rpc',
