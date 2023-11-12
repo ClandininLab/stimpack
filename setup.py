@@ -1,20 +1,13 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name='stimpack',
-    version='0.0.1',
+    version='0.0.9',
     description='Precise and flexible generation of stimuli for neuroscience experiments.',
     url='https://github.com/ClandininLab/stimpack',
     author='Minseung Choi',
     author_email='minseung@stanford.edu',
-    packages=[
-        'stimpack',
-        'stimpack.rpc',
-        'stimpack.experiment',
-        'stimpack.visual_stim',
-        'stimpack.device'
-    ],
-    package_dir = {"": "src"},
+    packages=find_packages(),
     install_requires=[
         'numpy',
         'scipy',

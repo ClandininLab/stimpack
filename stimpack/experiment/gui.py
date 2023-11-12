@@ -39,6 +39,7 @@ class ExperimentGUI(QWidget):
     def __init__(self):
         super().__init__()
         # set GUI icon
+        print(f'Icon path: {ICON_PATH}')
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
 
         self.note_text = ''
