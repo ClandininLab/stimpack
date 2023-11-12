@@ -65,6 +65,7 @@ class KeyTrac(QMainWindow):
             label = QLabel()
             label.setPixmap(pixmap)
             label.setScaledContents(True)  # Allow the image to be scaled when resizing
+            label.setMinimumSize(1, 1)  # Allow resizing thei mage down, and prevent the image from being resized to 0x0
             layout.addWidget(label)
     
     def handle_key_absolute_control(self, key):
