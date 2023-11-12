@@ -350,7 +350,7 @@ class LocoClosedLoopManager(LocoManager):
         if write_log and self.log_file is not None:
             if ts is None:
                 ts = time()
-            log_line = json.dumps({'set_pos': {'frame_num': frame_num}.update(loco_state_pos_pairs), 'ts': ts})
+            log_line = json.dumps({'set_pos': {'frame_num': frame_num} | loco_state_pos_pairs, 'ts': ts})
             self.write_to_log(log_line)
     
     def write_to_log(self, string):
