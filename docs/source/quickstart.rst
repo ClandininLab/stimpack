@@ -2,15 +2,11 @@
 Quickstart
 ==========
 
-Overview
---------
-``Stimpack``'s functionality is broken into modules.
+.. toctree::
+    :maxdepth: 1
+    :numbered:
 
-- ``visual_stim``: Functions for generating visual stimuli.
-- ``rpc``: Functions for communication between processes
-- ``experiment``: Functions for running experiments
-- ``device``: Functions for interfacing with hardware devices
-
-Demo
-----
+    install
+    install_labpack
+    customize_labpack
 

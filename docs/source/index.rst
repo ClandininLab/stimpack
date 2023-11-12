@@ -15,9 +15,11 @@ stimpack: modular and precise framework for systems neuroscience experiments
 .. toctree::
     :maxdepth: 1
     :caption: Contents
-
-    API 
+        
+    overview
     quickstart
+    API 
+    under_the_hood 
 
 
 :ref:`genindex` of all functions.
