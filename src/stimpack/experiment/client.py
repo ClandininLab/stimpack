@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os
+import os, sys
 from time import sleep
 import posixpath
 from PyQt6.QtWidgets import QApplication
@@ -42,7 +42,7 @@ class BaseClient():
             loco_kwargs = {
                 'host':          '127.0.0.1',
                 'port':           33335,
-                'python_bin':    'python',
+                'python_bin':    sys.executable,
                 'kt_py_fn':      os.path.join(ROOT_DIR, "device/locomotion/keytrac/keytrac.py"),
                 'relative_control': 'True',
             }
