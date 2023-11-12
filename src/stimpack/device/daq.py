@@ -9,7 +9,8 @@ DAQ (data acquisition) device classes
 from stimpack.rpc.multicall import MyMultiCall
 
 class DAQ():
-    def __init__(self):
+    def __init__(self, verbose=False):
+        self.verbose = verbose
         pass
 
     def handle_request_list(self, request_list):
@@ -18,7 +19,7 @@ class DAQ():
                 # If the request is a method of this class, execute it.
                 getattr(self, request['name'])(*request['args'], **request['kwargs'])
             else:
-                print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
+                if self.verbose:  print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
     
     def send_trigger(self):
         print('Warning, send_trigger method has not been overwritten by a child class!')
@@ -28,8 +29,8 @@ class DAQonServer(DAQ):
     '''
     Dummy DAQ class for when the DAQ resides on the server, so that we can call methods as if the DAQ is on the client side.
     '''
-    def __init__(self):
-        super().__init__()  # call the parent class init method
+    def __init__(self, verbose=False):
+        super().__init__(verbose=verbose)  # call the parent class init method
         self.manager = None
     def set_manager(self, manager):
         self.manager = manager
