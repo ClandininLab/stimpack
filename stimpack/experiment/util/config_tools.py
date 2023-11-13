@@ -37,7 +37,7 @@ def get_default_config():
             'rig_config' : {'default': {'screen_center': [0, 0]
                                         }
                             },
-            'loco_available': False
+            'loco_available': True
             }
 
 def user_config_directory_exists(labpack_dir=None):
@@ -176,10 +176,10 @@ def get_data_directory(cfg):
 
 def get_loco_available(cfg):
     if 'current_rig_name' in cfg:
-        loco_available = cfg.get('rig_config').get(cfg.get('current_rig_name')).get('loco_available', False)
+        loco_available = cfg.get('rig_config').get(cfg.get('current_rig_name')).get('loco_available', True)
     else:
-        print('No rig selected, not using locomotion')
-        loco_available = False
+        print('No rig selected, using locomotion')
+        loco_available = True
     return loco_available
 
 def get_experimenter(cfg):
