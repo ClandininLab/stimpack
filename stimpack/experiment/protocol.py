@@ -672,3 +672,174 @@ class MovingPatch(BaseProtocol):
                 'idle_color': 0.5,
                 'all_combinations': True,
                 'randomize_order': True}
+
+class LinearTrackWithTowers(BaseProtocol):
+    """
+    Linear track with towers. Towers can be rotating or stationary, and can be sine or square wave gratings.
+    """
+    def __init__(self, cfg):
+        super().__init__(cfg)
+
+        self.run_parameters = self.get_run_parameter_defaults()
+        self.protocol_parameters = self.get_protocol_parameter_defaults()
+
+    def process_input_parameters(self):
+        super().process_input_parameters()
+
+    def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
+        
+        # locomotion setting variables
+        do_loco = self.run_parameters.get('do_loco', False)
+        do_loco_closed_loop = do_loco and self.epoch_protocol_parameters.get('loco_pos_closed_loop', False)
+        save_pos_history = do_loco_closed_loop and self.save_metadata_flag
+        
+        ### pre time
+        sleep(self.epoch_protocol_parameters['pre_time'])
+        
+        if multicall is None:
+            multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+
+        ### stim time
+        # locomotion / closed loop
+        if do_loco:
+            multicall.target('locomotion').set_pos_0(loco_pos = {'x': None, 'y': None, 'z': None, 'theta': None, 'phi': None, 'roll': None}, 
+                                                                  use_data_prev=True, write_log=self.save_metadata_flag)
+        if do_loco_closed_loop:
+            multicall.target('locomotion').loop_update_closed_loop_vars(update_x=True, update_y=True, update_z=True, update_theta=True, update_phi=True, update_roll=True)
+            multicall.target('locomotion').loop_start_closed_loop()
+        
+        multicall.target('all').set_save_pos_history_flag(save_pos_history)
+        multicall.target('all').start_stim(append_stim_frames=append_stim_frames)
+        multicall.target('visual').corner_square_toggle_start()
+        multicall()
+        sleep(self.epoch_protocol_parameters['stim_time'])
+
+        ### tail time
+        multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+        multicall.target('all').stop_stim(print_profile=print_profile)
+        multicall.target('visual').corner_square_toggle_stop()
+        multicall.target('visual').corner_square_off()
+
+        # locomotion / closed loop
+        if do_loco_closed_loop:
+            multicall.target('locomotion').loop_stop_closed_loop()
+        if save_pos_history:
+            multicall.target('all').save_pos_history_to_file(epoch_id=f'{self.num_epochs_completed:03d}')
+
+        multicall()
+
+        sleep(self.epoch_protocol_parameters['tail_time'])
+
+    def get_epoch_parameters(self):
+        super().get_epoch_parameters()
+
+        # assert that all tower parameters are the same length
+        if not (len(self.epoch_protocol_parameters['tower_radius']) \
+            == len(self.epoch_protocol_parameters['tower_top_z']) \
+            == len(self.epoch_protocol_parameters['tower_bottom_z']) \
+            == len(self.epoch_protocol_parameters['tower_y_pos']) \
+            == len(self.epoch_protocol_parameters['tower_period']) \
+            == len(self.epoch_protocol_parameters['tower_angle']) \
+            == len(self.epoch_protocol_parameters['tower_mean']) \
+            == len(self.epoch_protocol_parameters['tower_contrast']) \
+            == len(self.epoch_protocol_parameters['tower_profile_sine']) \
+            == len(self.epoch_protocol_parameters['tower_rotating']) \
+            == len(self.epoch_protocol_parameters['tower_on_left'])):
+            print('Error: tower parameters are not the same length.')
+        
+        n_repeat_track = int(self.epoch_protocol_parameters['n_repeat_track'])
+        n_towers = len(self.epoch_protocol_parameters['tower_radius'])
+
+        track_width = float(self.epoch_protocol_parameters['track_width']) / 100 # m
+        track_patch_width = float(self.epoch_protocol_parameters['track_patch_width']) / 100 # m
+        track_length = float(self.epoch_protocol_parameters['track_length']) / 100 # m
+        track_z_level = float(self.epoch_protocol_parameters['track_z_level']) / 100 # m
+        
+        tower_radius = np.array(self.epoch_protocol_parameters['tower_radius'], dtype=float) / 100 # m
+        tower_top_z = np.array(self.epoch_protocol_parameters['tower_top_z'], dtype=float) / 100 # m
+        tower_bottom_z = np.array(self.epoch_protocol_parameters['tower_bottom_z'], dtype=float) / 100 # m
+        tower_y_pos = np.array(self.epoch_protocol_parameters['tower_y_pos'], dtype=float) / 100 # m
+        tower_period = np.array(self.epoch_protocol_parameters['tower_period'], dtype=float) # deg
+        tower_angle = np.array(self.epoch_protocol_parameters['tower_angle'], dtype=float) # deg
+
+        tower_height = tower_top_z - tower_bottom_z
+        tower_z_pos = tower_top_z/2 + tower_bottom_z/2
+        tower_x_pos_l = -track_width/2 - tower_radius
+        tower_x_pos_r = +track_width/2 + tower_radius
+
+        # Create stimpack.visual_stim epoch parameters dictionary
+
+        track = {'name':  'CheckerboardFloor',
+                'mean': self.epoch_protocol_parameters['track_color_mean'],
+                'contrast': self.epoch_protocol_parameters['track_color_contrast'],
+                'center': (0, track_length * n_repeat_track / 2, track_z_level),
+                'side_length': (track_width, track_length * n_repeat_track),
+                'patch_width': track_patch_width}
+        
+        self.epoch_stim_parameters = [track]
+
+        for r in range(n_repeat_track):
+            for i in range(n_towers):
+                tower_x_pos = tower_x_pos_l[i] if self.epoch_protocol_parameters['tower_on_left'][i] else tower_x_pos_r[i]
+                tower_y_pos_r = tower_y_pos[i] + r * track_length
+                tower = {'name': 'CylindricalGrating' if not self.epoch_protocol_parameters['tower_rotating'][i] else 'RotatingGrating',
+                        'period': tower_period[i],
+                        'mean': self.epoch_protocol_parameters['tower_mean'][i], 
+                        'contrast': self.epoch_protocol_parameters['tower_contrast'][i],
+                        'offset': 0.0,
+                        'grating_angle': tower_angle[i],
+                        'profile': 'sine' if self.epoch_protocol_parameters['tower_profile_sine'][i] else 'square',
+                        'color': [1, 1, 1, 1],
+                        'cylinder_radius': tower_radius[i],
+                        'cylinder_location': (tower_x_pos, tower_y_pos_r, tower_z_pos[i]),
+                        'cylinder_height': tower_height[i],
+                        'theta': 0,
+                        'phi': 0,
+                        'angle': 0}
+                if self.epoch_protocol_parameters['tower_rotating'][i]:
+                    tower['rate'] = tower_period[i]
+                self.epoch_stim_parameters.append(tower)
+        
+    def load_stimuli(self, client, multicall=None):
+        if multicall is None:
+            multicall = stimpack.rpc.multicall.MyMultiCall(client)
+        
+        params_to_print = {k:self.epoch_protocol_parameters[k] for k in self.persistent_parameters['variable_protocol_parameter_names']}
+        multicall.print_on_server(f'{params_to_print}')
+
+        super().load_stimuli(client, multicall)
+
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 1.0,
+                'stim_time': 10.0,
+                'tail_time': 1.0,
+                'loco_pos_closed_loop': 1,
+
+                'track_z_level': -5,
+                'track_length': 400,
+                'track_width': 40,
+                'track_patch_width': 5,
+                'track_color_mean': 0.3,
+                'track_color_contrast': 1.0,
+
+                'tower_radius':       ( 15,  15,   5,   5,  10,  10,  10,  10,   8,   8),
+                'tower_bottom_z':     (-10, -10, -10, -10, -10, -10, -10, -10, -10, -10),
+                'tower_top_z':        ( 30,  30,  40,  40,  20,  20,  40,  40,  50,  50),
+                'tower_y_pos':        ( 80,  80, 160, 160, 240, 240, 320, 320, 400, 400),
+                'tower_on_left':      (   1,  0,   1,   0,   1,   0,   1,   0,   1,   0),
+                'tower_angle':        (   0,180,  45, -45,  90,  90,  60, -60, -30,  30),
+                'tower_period':       ( 30,  30,  60,  60,  45,  45,  30,  30,  60,  60),
+                'tower_mean':         (0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5),
+                'tower_contrast':     (  1,   1,   1,   1, 0.6, 0.6,   1,   1,   1,   1),
+                'tower_profile_sine': (  0,   0,   1,   1,   1,   1,   0,   0,   1,   1),
+                'tower_rotating':     (  0,   0,   1,   1,   0,   0,   1,   1,   0,   0),
+
+                'n_repeat_track': 2,
+                }
+
+    def get_run_parameter_defaults(self):
+        return {'num_epochs': 40,
+                'idle_color': 0.5,
+                'all_combinations': True,
+                'randomize_order': True}
+
