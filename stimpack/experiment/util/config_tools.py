@@ -43,7 +43,7 @@ def get_default_config():
 def user_config_directory_exists(labpack_dir=None):
     if labpack_dir is None:
         labpack_dir = get_labpack_directory()
-    if os.path.exists(os.path.join(labpack_dir, 'configs')):
+    if not labpack_dir.strip()=="" and os.path.exists(os.path.join(labpack_dir, 'configs')):
         return True
     else:
         return False

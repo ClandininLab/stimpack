@@ -1294,11 +1294,10 @@ class InitializeRigGUI(QWidget):
         self.le_labpack_dir.setText(self.labpack_dir)
 
         self.config_combobox.clear()
+        self.config_combobox.addItem('default')
         if len(config_tools.get_available_config_files(self.labpack_dir)) > 0:
             for choiceID in config_tools.get_available_config_files(self.labpack_dir):
                 self.config_combobox.addItem(choiceID)
-        else:
-            self.config_combobox.addItem('default')
         self.on_selected_config()
 
     def update_available_rigs(self):
