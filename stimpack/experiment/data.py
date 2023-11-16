@@ -21,6 +21,7 @@ import h5py
 import os
 from datetime import datetime
 import numpy as np
+from pathlib import Path
 
 from stimpack.experiment.util import config_tools
 
@@ -289,31 +290,19 @@ class NWBData():
 # # # # # # # # #  Creating experiment file and groups  # # # # # # # # # # # #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-    def initialize_experiment_file(self):
-        
-        # Create one nwbfile per subject
-        
-        from pynwb import NWBFile, NWBHDF5IO
-        
-        # Experiment date/time
-        
+    def initialize_experiment_file(self):     
         """
         Create NWB data file and initialize top-level hierarchy nodes
         """
-        session_start_time = datetime.now()
+        from pynwb import NWBFile, NWBHDF5IO
         
-        # The nwbfile is per-subject so we only store the metadata at this level to create a 
-        self.nwbfile_metadata = dict(
-            session_description='Experiment data', #TODO what should this be? 
-            identifier="identifier", #TODO  What should this be? Most likely subject id
-            session_start_time=session_start_time,
-            experimenter=self.experimenter,
-            lab='Clandinin',  #TODO could be added to the config.yaml for more flexibility
-            institution='Stanford University',  # TODO could be added to the config.yaml for more flexibility
-            experiment_description='Description of the experiment', 
-            session_id='Session ID'
-        )
-        
+        self.nwb_file_directory = self.data_directory / Path(self.experiment_file_name)
+        self.nwb_file_directory.mkdir(parents=True, exist_ok=True)
+
+        from datetime import datetime, timezone
+        session_start_time = datetime.now(timezone.utc)
+
+
         
         # TODO: Discuss this attribute, looks like a stimuli
         # One option is experiment_description but I need to think where it should go
@@ -330,65 +319,72 @@ class NWBData():
 
 
         # Meanwhile make it available as a top level attribute
-        self.rig_config_name = self.cfg.get('rig_config').get(self.cfg.get('current_rig_name'))
-        rig_config = self.cfg.get('rig_config').get(self.rig_config_name)
+        rig_config = self.cfg.get('rig_config').get(self.cfg.get('current_rig_name'))        
         self.rig_config_parameters = dict()
-        
         for key in rig_config:
-                self.rig_config_parameters[key] = str(rig_config.get(key))
+            self.rig_config_parameters[key] = str(rig_config.get(key, ""))
 
+        experiment_description = str(self.rig_config_parameters)
+        
 
-       
+        # The nwbfile is per-subject so we only store the metadata that all the files will share
+        self.general_nwb_kwargs = dict(
+            session_description='Experiment data', # what should this be? 
+            session_start_time=session_start_time,
+            experimenter=self.experimenter,
+            lab='Clandinin',  #TODO could be added to the config.yaml for more flexibility
+            institution='Stanford University',  # TODO could be added to the config.yaml for more flexibility
+            experiment_description=experiment_description, 
+        )
+        
+
     def create_subject(self, subject_metadata):
         """
+        Create a NWB file for the subject
         """
-        
-        # Subject metadata looks like this:
-        # subject_metadata = {}
-        # # Built-ins
-        # subject_metadata['subject_id'] = self.subject_id_input.text()
-        # subject_metadata['age'] = self.subject_age_input.value()
-        # subject_metadata['notes'] = self.subject_notes_input.toPlainText()
+        # Inline imports unless you decide to add pynwb as a dependency
+        from pynwb.file import Subject
+        from pynwb import NWBFile, NWBHDF5IO
 
-        # # user-defined:
-        # for key in self.subject_metadata_inputs:
-        #     subject_metadata[key] = self.subject_metadata_inputs[key].currentText()
-        # From
-        #https://github.com/h-mayorquin/stimpack/blob/89a326fcfc218b17bfaae3420ac9f9bf711b58d9/src/stimpack/experiment/gui.py#L733-L740
-        
-        # Here is were we create the nwbfile for the subject
-        # First we check if the file already does not exists
-        if subject_metadata.get('subject_id') in [x.get('subject_id') for x in self.get_existing_subject_data()]:
+        subject_id = subject_metadata.get('subject_id')
+        nwbfile_path = self.nwb_file_directory / f"{subject_id}.nwb"
+        if nwbfile_path.is_file():
             print('A subject with this ID already exists')
             return
 
+        if not self.experiment_file_exists():
+            print('Initialize a data file before defining a subject')
+            return 
+        
+        nwbfile_path = self.nwb_file_directory / f"{subject_id}.nwb"
+        
+        # If those files are passed as metadata, they will be mapped to their canonical place in the nwbfile
+        keywords_in_the_nwb_subject_class = ["age", "genotype", "sex", "genotype", "weight", "age__reference", 
+                                                "species", "subject_id", "date_of_birth", "strain", ]
+        
+        # Here we deep copy the general dictionary and we modify it for the specific subject 
+        from copy import deepcopy
+        nwbfile_kwargs = deepcopy(self.general_nwb_kwargs)
+        nwbfile_kwargs["identifier"] = subject_id
+        # Create the subject object
+        subject_kwargs = {key: subject_metadata[key] for key in keywords_in_the_nwb_subject_class if key in subject_metadata}
+        
+        # In NWB the age is a string
+        if 'age' in subject_kwargs:
+            subject_kwargs['age'] = str(subject_kwargs['age'])
+        
+        # Save the rest as subject description
+        rest_of_the_subject_metadata = {key: subject_metadata[key] for key in subject_metadata if key not in keywords_in_the_nwb_subject_class}
+        subject_kwargs['description'] = str(rest_of_the_subject_metadata)
+        
+        subject = Subject(**subject_kwargs)
+        
+        # Create the nwbfile
+        self.nwbfile = NWBFile(**nwbfile_kwargs, subject=subject)
 
-        if self.experiment_file_exists():
-            self.nwb_file_directory = self.data_directory / Path(self.experiment_file_name)
-            subject_id = subject_metadata.get('subject_id')
-            nwbfile_path = self.nwb_file_directory / f"{subject_id}.nwb"
-            
-            
-            keywords_in_the_nwb_subject_class = ["age", "genotype", "sex", "genotype", "weight", "age__reference", 
-                                                 "species", "suject_id", "date_of_birth", "strain", ]
-            
-            # Have the imports here until you decide to add pynwb as a dependency
-            from pynwb import Subject, NWBFile, NWBHDF5IO
-            
-            # Create the subject object
-            subject_kwargs = {key: subject_metadata[key] for key in keywords_in_the_nwb_subject_class if key in subject_metadata}
-            rest_of_the_subject_metadata = {key: subject_metadata[key] for key in subject_metadata if key not in keywords_in_the_nwb_subject_class}
-            # Save the rest as subject description
-            subject_kwargs['description'] = str(rest_of_the_subject_metadata)
-            
-            subject = Subject(**subject_kwargs)
-            
-            # Create the nwbfile
-            self.nwbfile = NWBFile(**self.nwbfile_metadata, subject=subject)
-
-            # Save it to disk
-            with NWBHDF5IO(nwbfile_path, 'w') as io:
-                io.write(self.nwbfile)
+        # Save it to disk
+        with NWBHDF5IO(nwbfile_path, 'w') as io:
+            io.write(self.nwbfile)
 
     def create_epoch_run(self, protocol_object):
         """"
@@ -399,7 +395,7 @@ class NWBData():
         if (self.current_subject_exists() and self.experiment_file_exists()):
   
             # Have the imports here until you decide to add pynwb as a dependency
-            from pynwb import Subject, NWBFile, NWBHDF5IO
+            from pynwb import NWBFile, NWBHDF5IO
 
         
             # Open the nwbfile in append mode (do we need to close this? maybe we can keep an open reference)
@@ -538,6 +534,22 @@ class NWBData():
             return np.max(series)
 
     def get_existing_subject_data(self):
+        
+        from pynwb import NWBHDF5IO
+
+        subject_data_list = []
+        
+        all_files = [path for path in self.nwb_file_directory.iterdir()]
+        # Iterate over all the files open them with nwb and extract the subject metadata
+        for file_path in all_files:
+            with NWBHDF5IO(file_path, 'r') as io:
+                nwbfile = io.read()
+                subject_metadata = nwbfile.subject.fields
+                subject_data_list.append(subject_metadata)
+        
+        return subject_data_list
+        
+        
         #TODO:
         # this should be asier
         pass 
