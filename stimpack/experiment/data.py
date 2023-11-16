@@ -19,6 +19,7 @@ yyyy-mm-dd
 """
 import h5py
 import os
+import json
 from datetime import datetime
 import numpy as np
 from pathlib import Path
@@ -156,6 +157,13 @@ class BaseData():
             epoch_group = epoch_run_group['epoch_{}'.format(str(protocol_object.num_epochs_completed+1).zfill(3))]
             epoch_group.attrs['epoch_end_unix_time'] = epoch_end_unix_time
 
+    
+    def end_epoch_run(protocol_object):
+        """
+        Empty for the hdf5 data file
+        """
+        pass
+
     def create_note(self, note_text):
         ""
         ""
@@ -193,6 +201,8 @@ class BaseData():
                 all_series.append(new_series)
         all_series = [val for s in all_series for val in s]
         series = [int(x.split('_')[-1]) for x in all_series]
+        print(f"{all_series=}")
+        print(f"{series=}")
         return series
 
     def get_highest_series_count(self):
@@ -292,33 +302,18 @@ class NWBData():
 
     def initialize_experiment_file(self):     
         """
-        Create NWB data file and initialize top-level hierarchy nodes
+        Save top level metadata that all the nwb files will share
+        Also create the directory where the nwb files will be stored
         """
-        from pynwb import NWBFile, NWBHDF5IO
         
         self.nwb_file_directory = self.data_directory / Path(self.experiment_file_name)
         self.nwb_file_directory.mkdir(parents=True, exist_ok=True)
 
         from datetime import datetime, timezone
-        session_start_time = datetime.now(timezone.utc)
+        self.timezone = timezone.utc  # This could be changed if desired
+        session_start_time = datetime.now(self.timezone)
 
 
-        
-        # TODO: Discuss this attribute, looks like a stimuli
-        # One option is experiment_description but I need to think where it should go
-        # rig_config:
-        # Bruker_LeftScreen:
-        #     data_directory: /home/johndoe/Desktop
-        #     screen_center: [0,-30]
-        #     rig: Bruker
-        #     server_options: {'host': '171.65.17.246',
-        #                     'port': 60629,
-        #                     'use_server': True,
-        #                     'visual_stim_module_paths': ['/home/johndoe/src/labpack/labpack/stimulus/example']} # Where your custom visual stimulus modules reside
-        #     trigger: NIUSB6001(dev='Dev5', trigger_channel='ctr0')  # This trigger class should be defined in your daq module
-
-
-        # Meanwhile make it available as a top level attribute
         rig_config = self.cfg.get('rig_config').get(self.cfg.get('current_rig_name'))        
         self.rig_config_parameters = dict()
         for key in rig_config:
@@ -326,7 +321,6 @@ class NWBData():
 
         experiment_description = str(self.rig_config_parameters)
         
-
         # The nwbfile is per-subject so we only store the metadata that all the files will share
         self.general_nwb_kwargs = dict(
             session_description='Experiment data', # what should this be? 
@@ -345,8 +339,10 @@ class NWBData():
         # Inline imports unless you decide to add pynwb as a dependency
         from pynwb.file import Subject
         from pynwb import NWBFile, NWBHDF5IO
+        from copy import deepcopy
 
         subject_id = subject_metadata.get('subject_id')
+        self.current_subject = subject_id
         nwbfile_path = self.nwb_file_directory / f"{subject_id}.nwb"
         if nwbfile_path.is_file():
             print('A subject with this ID already exists')
@@ -363,9 +359,9 @@ class NWBData():
                                                 "species", "subject_id", "date_of_birth", "strain", ]
         
         # Here we deep copy the general dictionary and we modify it for the specific subject 
-        from copy import deepcopy
         nwbfile_kwargs = deepcopy(self.general_nwb_kwargs)
         nwbfile_kwargs["identifier"] = subject_id
+
         # Create the subject object
         subject_kwargs = {key: subject_metadata[key] for key in keywords_in_the_nwb_subject_class if key in subject_metadata}
         
@@ -375,60 +371,81 @@ class NWBData():
         
         # Save the rest as subject description
         rest_of_the_subject_metadata = {key: subject_metadata[key] for key in subject_metadata if key not in keywords_in_the_nwb_subject_class}
-        subject_kwargs['description'] = str(rest_of_the_subject_metadata)
+        subject_kwargs['description'] = json.dumps(rest_of_the_subject_metadata)
         
+        # Creates  a subject object with allthe metadata
         subject = Subject(**subject_kwargs)
         
-        # Create the nwbfile
-        self.nwbfile = NWBFile(**nwbfile_kwargs, subject=subject)
-
-        # Save it to disk
-        with NWBHDF5IO(nwbfile_path, 'w') as io:
-            io.write(self.nwbfile)
+        # Create the nwbfile and save it to disk
+        nwbfile = NWBFile(**nwbfile_kwargs, subject=subject)
+        with NWBHDF5IO(nwbfile_path, 'w-') as io:
+            io.write(nwbfile)
 
     def create_epoch_run(self, protocol_object):
-        """"
         """
+        This will only store the protocol parameters and the protocol ID.
+        The epoch 
+        """
+        
+        
+        self.epoch_parameters = {}
         
         # TODO: Get an example of protocol_object from Minseung and Max
         
         if (self.current_subject_exists() and self.experiment_file_exists()):
-  
-            # Have the imports here until you decide to add pynwb as a dependency
-            from pynwb import NWBFile, NWBHDF5IO
-
-        
-            # Open the nwbfile in append mode (do we need to close this? maybe we can keep an open reference)
-            nwbfile_path = self.nwb_file_directory / f"{self.current_subject}.nwb"
-            with NWBHDF5IO(nwbfile_path, 'a') as io:
-                subject_nwbfile = io.read()
-                
-            # We will create the columns of the nwbfile here
-            run_start_unix_time = datetime.now().timestamp()
-            protocol_parameters = dict()
+            
+            self.epoch_parameters = {}
+            self.epoch_parameters["series"] = f"series_{str(self.series_count).zfill(3)}"
+            self.epoch_parameters['protocol_id'] = protocol_object.__class__.__name__
+            
+            # Add the protocol parameters to the epoch_parameters
             for key in protocol_object.run_parameters:  # add run parameter attributes
-                protocol_parameters[key] = hdf5ify_parameter(protocol_object.run_parameters[key])
+                self.epoch_parameters[key] = hdf5ify_parameter(protocol_object.run_parameters[key])
                 
-            protocol_id = protocol_object.__class__.__name__
+            for key in protocol_object.protocol_parameters:  # add user-entered protocol params
+                self.epoch_parameters[key] = hdf5ify_parameter(protocol_object.protocol_parameters[key])
+                
+            # Add the epoch start time
+            self.epoch_parameters['epoch_start_time'] = datetime.now(self.timezone).timestamp()
             
-            
-            # Most likely I will add a TimeIntervals table to the nwbfile
-            # But if all the experiments are successive or parts of the same 'session` then maybe all the epochs
-            # Across all of the series should be added to an epochs table, not clear yet
-            # TODO: Discuss with Max and Minseung
             
         else:
             print('Create a data file and/or define a subject first')
 
+    def end_epoch_run(self, protocol_object):
+        """
+        
+        """
+        
+        # Have the imports here until you decide to add pynwb as a dependency
+        from pynwb import NWBHDF5IO
+
+        
+        # Open the nwbfile in append mode (do we need to close this? maybe we can keep an open reference)
+        nwbfile_path = self.nwb_file_directory / f"{self.current_subject}.nwb"
+        with NWBHDF5IO(nwbfile_path, 'r+') as io:
+            subject_nwbfile = io.read()
+            session_start_time = subject_nwbfile.session_start_time
+            
+            start_time = self.epoch_parameters.pop('epoch_start_time')
+            start_time = start_time - session_start_time.timestamp()
+            stop_time = datetime.now(self.timezone).timestamp() - session_start_time.timestamp()
+            
+            for key in self.epoch_parameters:
+                subject_nwbfile.add_epoch_column(name=key, description=key)
+            
+            epoch_row_kargs = self.epoch_parameters
+            epoch_row_kargs["start_time"] = start_time
+            epoch_row_kargs["stop_time"] = stop_time
+            subject_nwbfile.add_epoch(**epoch_row_kargs)
+            
+            io.write(subject_nwbfile)
+            
     def create_epoch(self, protocol_object):
         """
         This will create a row on either the epochs table or the TimeIntervals table
         """
-        
-        # TODO: Discuss with Max and Minseung how does the protcol_object looks like
-        
-
-        
+                
         if (self.current_subject_exists() and self.experiment_file_exists()):
             
             # Have the imports here until you decide to add pynwb as a dependency
@@ -437,9 +454,11 @@ class NWBData():
             nwbfile_path = self.nwb_file_directory / f"{self.current_subject}.nwb"
             with NWBHDF5IO(nwbfile_path, 'a') as io:
                 subject_nwbfile = io.read()
-            
-            epoch_unix_time = datetime.now().timestamp()
-
+                
+                session_start_time = subject_nwbfile.sesstion_start_time
+                start_time =  datetime.now().timestamp() - session_start_time.timestamp()
+                
+                
             # If we go for one table per series we will need: str(self.series_count) in the table name
             
             # Extract protocol parameters
@@ -472,10 +491,12 @@ class NWBData():
 
     def end_epoch(self, protocol_object):
         """
-        Save the timestamp when the epoch ends
+        This adds the the trials table
         """
-        # Probably not nececesary for nwb but I can store this somewhere else
+        
+    
 
+    
     def create_note(self, note_text):
         
         pass 
@@ -511,20 +532,23 @@ class NWBData():
         return tf
 
     def get_existing_series(self):
-        #TODO:
-        # Might be complicated and require to keep a memory structure / state.
-        # They rely on the position of the series to identify structure but in nwb each file has defined place already
-        # So better keep a record of which objects were already added. 
-        pass
-    
-        # all_series = []
-        # with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r') as experiment_file:
-        #     for subject_id in list(experiment_file['/Subjects'].keys()):
-        #         new_series = list(experiment_file['/Subjects/{}/epoch_runs'.format(subject_id)].keys())
-        #         all_series.append(new_series)
-        # all_series = [val for s in all_series for val in s]
-        # series = [int(x.split('_')[-1]) for x in all_series]
-        # return series
+        from pynwb import NWBHDF5IO
+
+        all_series = []
+        # Gets all the paths for the NWB files 
+        all_files = [path for path in self.nwb_file_directory.iterdir()]
+        
+        # Iterate over all the files open them with nwb and extract the subject metadata
+        for file_path in all_files:
+
+            with NWBHDF5IO(file_path, 'r') as io:
+                subject_nwbfile = io.read()
+                subject_series = subject_nwbfile.epochs["series"].data
+                all_series.extend(subject_series)
+        
+        series = [int(x.split('_')[-1]) for x in all_series]
+        return series  
+        
 
     def get_highest_series_count(self):
         series = self.get_existing_series()
@@ -539,32 +563,23 @@ class NWBData():
 
         subject_data_list = []
         
+        # Gets all the paths for the NWB files 
         all_files = [path for path in self.nwb_file_directory.iterdir()]
+        
         # Iterate over all the files open them with nwb and extract the subject metadata
         for file_path in all_files:
             with NWBHDF5IO(file_path, 'r') as io:
-                nwbfile = io.read()
-                subject_metadata = nwbfile.subject.fields
+                subject_nwbfile = io.read()
+                subject_metadata = subject_nwbfile.subject.fields
+                # Unfold description as that was all the rest of the attributes that are non-canonical in nwb
+                description_json = subject_metadata.pop('description')
+                description = json.loads(description_json)
+                subject_metadata.update(**description)
+                
                 subject_data_list.append(subject_metadata)
-        
+
         return subject_data_list
         
-        
-        #TODO:
-        # this should be asier
-        pass 
-        # # return list of dicts for subject metadata already present in experiment file
-        # subject_data_list = []
-        # if self.experiment_file_exists():
-        #     with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r') as experiment_file:
-        #         for subject in experiment_file['/Subjects']:
-        #             new_subject = experiment_file['/Subjects'][subject]
-        #             new_dict = {}
-        #             for at in new_subject.attrs:
-        #                 new_dict[at] = new_subject.attrs[at]
-
-        #             subject_data_list.append(new_dict)
-        # return subject_data_list
 
     def select_subject(self, subject_id):
         self.current_subject = subject_id

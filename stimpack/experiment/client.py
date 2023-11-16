@@ -137,6 +137,8 @@ class BaseClient():
         if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
             self.stop_loco()
 
+        if save_metadata_flag:
+            data.end_epoch_run(protocol_object)
         self.manager.print_on_server('Run ended.')
 
     def start_epoch(self, protocol_object, data, save_metadata_flag=True):
