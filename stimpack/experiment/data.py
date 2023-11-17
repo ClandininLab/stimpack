@@ -408,15 +408,19 @@ class NWBData():
             # Add the epoch start time
             self.epoch_parameters['epoch_start_time'] = datetime.now(self.timezone).timestamp()
             
+            # Given that we are using epochs, epochs in nwb for your "epochs runs" and "trials " for your "epochs" 
+            # I am going to shift the nomencalture to be consistent with nwb
+            self.epoch_parameters["num_trials"] = self.epoch_parameters.get("num_epochs", "")
             
         else:
             print('Create a data file and/or define a subject first')
 
     def end_epoch_run(self, protocol_object):
         """
-        
+        NWB requires the stop time to be set when the epoch is created
+        So this function is called after an epoch run is concluded and this adds an entry
+        to the epochs table that corresponds to the whole epoch run
         """
-        
         # Have the imports here until you decide to add pynwb as a dependency
         from pynwb import NWBHDF5IO
 
@@ -425,76 +429,103 @@ class NWBData():
         nwbfile_path = self.nwb_file_directory / f"{self.current_subject}.nwb"
         with NWBHDF5IO(nwbfile_path, 'r+') as io:
             subject_nwbfile = io.read()
-            session_start_time = subject_nwbfile.session_start_time
             
+            # Shift the time to be relative to the session start time            
+            session_start_time = subject_nwbfile.session_start_time
             start_time = self.epoch_parameters.pop('epoch_start_time')
             start_time = start_time - session_start_time.timestamp()
             stop_time = datetime.now(self.timezone).timestamp() - session_start_time.timestamp()
+
+            # Add columns to the epochs table if they don't exist
+            previous_columns = []
+            if subject_nwbfile.epochs:
+                previous_columns = subject_nwbfile.epochs.colnames if subject_nwbfile.epochs.colnames is not None else []
             
-            for key in self.epoch_parameters:
-                subject_nwbfile.add_epoch_column(name=key, description=key)
+            columns_to_add = [key for key in self.epoch_parameters if key not in previous_columns]
+            for column in columns_to_add:
+                subject_nwbfile.add_epoch_column(name=column, description=column)
             
+            # Add the row to the epochs table
             epoch_row_kargs = self.epoch_parameters
             epoch_row_kargs["start_time"] = start_time
             epoch_row_kargs["stop_time"] = stop_time
             subject_nwbfile.add_epoch(**epoch_row_kargs)
             
+            # Write the nwbfile to disk
             io.write(subject_nwbfile)
             
     def create_epoch(self, protocol_object):
         """
-        This will create a row on either the epochs table or the TimeIntervals table
+        This loads the data from the protocol object stim parameters.
+        Then, when the epoch is concluded, we add the data as a row of the trials table.
         """
                 
-        if (self.current_subject_exists() and self.experiment_file_exists()):
-            
-            # Have the imports here until you decide to add pynwb as a dependency
-            from pynwb import Subject, NWBFile, NWBHDF5IO
-            
-            nwbfile_path = self.nwb_file_directory / f"{self.current_subject}.nwb"
-            with NWBHDF5IO(nwbfile_path, 'a') as io:
-                subject_nwbfile = io.read()
-                
-                session_start_time = subject_nwbfile.sesstion_start_time
-                start_time =  datetime.now().timestamp() - session_start_time.timestamp()
-                
-                
-            # If we go for one table per series we will need: str(self.series_count) in the table name
-            
-            # Extract protocol parameters
-            if type(protocol_object.epoch_stim_parameters) is tuple:  # stimulus is tuple of multiple stims layered on top of one another
-                # In this case add one row per stimuli with an extra attribute to identify the stimuli
-                num_stims = len(protocol_object.epoch_stim_parameters)
-                for stim_ind in range(num_stims):
-                    stimuli_index = stim_ind 
-                    row_name = f"stimulus_{stimuli_index}"
-                    row_parameters = dict()
-                    row_parameters["row_name"] = row_name
-                    # TODO Add check that column exists on the table
-                        
-                
-                    for key in protocol_object.epoch_stim_parameters[stim_ind]:
-                        row_parameters[key] = hdf5ify_parameter(protocol_object.epoch_stim_parameters[stim_ind][key])
-
-                    # Here add row to the table
-                    # DO
-                    
-            elif type(protocol_object.epoch_stim_parameters) is dict:  # single stim class
-                row_parameters = dict()
-                for key in protocol_object.epoch_stim_parameters:
-                    row_parameters[key] = hdf5ify_parameter(protocol_object.epoch_stim_parameters[key])
-            
-                # Here add row to the table
-                # TODO
-        else:
+        if not (self.current_subject_exists() and self.experiment_file_exists()):
             print('Create a data file and/or define a subject first')
+
+            
+        self.trial_parameters = {}
+        self.trial_parameters['trial_start_time'] = datetime.now(self.timezone).timestamp()
+        
+        # Extract epoch stim parameters
+        if type(protocol_object.epoch_stim_parameters) is tuple:  # stimulus is tuple of multiple stims layered on top of one another
+            num_stims = len(protocol_object.epoch_stim_parameters)
+            for stim_ind in range(num_stims):
+                
+                prefix = f"stim{stim_ind}_"
+                for key in protocol_object.epoch_stim_parameters[stim_ind]:
+                    value = protocol_object.epoch_stim_parameters[stim_ind][key]
+                    self.trial_parameters[prefix + key] = hdf5ify_parameter(value)
+
+                
+        elif type(protocol_object.epoch_stim_parameters) is dict:  # single stim class
+            for key, value in protocol_object.epoch_stim_parameters.items():
+                self.trial_parameters[key] = hdf5ify_parameter(value)
+            
+
+        # Extract and store protocol parameters
+            for key, value in protocol_object.epoch_protocol_parameters.items():
+                self.trial_parameters[key] = hdf5ify_parameter(value)
+
+        # In NWB the name is reserved so I am adding a prefix
+        self.trial_parameters["protocol"] = self.trial_parameters.pop("name", "")
 
     def end_epoch(self, protocol_object):
         """
-        This adds the the trials table
+        Finalize the trial information and add the trial to the trials table.
         """
+        # Have the imports here until you decide to add pynwb as a dependency
+        from pynwb import NWBHDF5IO
         
-    
+
+        nwbfile_path = self.nwb_file_directory / f"{self.current_subject}.nwb"
+        with NWBHDF5IO(nwbfile_path, 'r+') as io:
+            subject_nwbfile = io.read()
+
+            # Shift the time to be relative to the session start time
+            session_start_time = subject_nwbfile.session_start_time
+            start_time = self.trial_parameters.pop('trial_start_time')
+            start_time = start_time - session_start_time.timestamp()
+            stop_time = datetime.now(self.timezone).timestamp() - session_start_time.timestamp()
+            
+            
+            # Create columns if they don't exist
+            previous_columns = []
+            if subject_nwbfile.trials:
+                previous_columns = subject_nwbfile.trials
+            
+            columns_to_add = [key for key in self.trial_parameters if key not in previous_columns]
+            for column in columns_to_add:
+                subject_nwbfile.add_trial_column(name=column, description=column)
+
+            # Add the trial to the table
+            trial_row_kargs = self.trial_parameters
+            trial_row_kargs["start_time"] = start_time
+            trial_row_kargs["stop_time"] = stop_time    
+            subject_nwbfile.add_trial(**trial_row_kargs)
+
+            # Write the nwbfile to disk
+            io.write(subject_nwbfile)
 
     
     def create_note(self, note_text):
@@ -594,19 +625,21 @@ class NWBData():
         return self.series_count
 
     def reload_series_count(self):
-        #TODO
-        # Same comments as in the `get_existing_series` method
-        pass
-        # all_series = []
-        # with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r') as experiment_file:
-        #     for subject_id in list(experiment_file['/Subjects'].keys()):
-        #         new_series = list(experiment_file['/Subjects/{}/epoch_runs'.format(subject_id)].keys())
-        #         all_series.append(new_series)
-        # all_series = [val for s in all_series for val in s]
-        # series = [int(x.split('_')[-1]) for x in all_series]
+        from pynwb import NWBHDF5IO
+        import numpy as np
 
-        # if len(series) == 0:
-        #     self.series_count = 0 + 1
-        # else:
-        #     self.series_count = np.max(series) + 1
+        all_series = []
+        # Iterate over all NWB files in the directory
+        all_files = [path for path in self.nwb_file_directory.iterdir() if path.is_file()]
 
+        for file_path in all_files:
+            with NWBHDF5IO(file_path, 'r') as io:
+                subject_nwbfile = io.read()
+                # Extract 'series' data from the 'epochs' table
+                if 'epochs' in subject_nwbfile and 'series' in subject_nwbfile.epochs.colnames:
+                    subject_series = subject_nwbfile.epochs['series'].data[:]
+                    all_series.extend(subject_series)
+
+        # Convert series identifiers to integers and find the max
+        series_numbers = [int(x.split('_')[-1]) for x in all_series if isinstance(x, str) and x.startswith('series_')]
+        self.series_count = np.max(series_numbers) + 1 if series_numbers else 1
