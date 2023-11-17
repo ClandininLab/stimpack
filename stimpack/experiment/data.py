@@ -201,8 +201,6 @@ class BaseData():
                 all_series.append(new_series)
         all_series = [val for s in all_series for val in s]
         series = [int(x.split('_')[-1]) for x in all_series]
-        print(f"{all_series=}")
-        print(f"{series=}")
         return series
 
     def get_highest_series_count(self):
@@ -530,19 +528,41 @@ class NWBData():
     
     def create_note(self, note_text):
         
-        pass 
-        # TODO: Discuss with catalystneuro what is the best representation for notes
-        # I am thinking on an AnnotationSeries object
-        
-        # ""
-        # if self.experiment_file_exists():
-        #     with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
-        #         note_unix_time = str(datetime.now().timestamp())
-        #         notes = experiment_file['/Notes']
-        #         notes.attrs[note_unix_time] = note_text
-        # else:
-        #     print('Initialize a data file before writing a note')
+        # Have the imports here until you decide to add pynwb as a dependency
+        from pynwb import NWBHDF5IO, ProcessingModule
+        from pynwb.core import DynamicTable
 
+        if self.experiment_file_exists():
+            nwbfile_path = Path(self.nwb_file_directory) / f"{self.current_subject}.nwb"
+
+            with NWBHDF5IO(str(nwbfile_path), 'r+') as io:
+                nwbfile = io.read()
+
+                # Check if a processing module for notes exists, if not, create it
+                module_name = 'NotesModule'
+                table_name = "Notes"
+                if module_name not in nwbfile.processing:
+                    notes_module = ProcessingModule(name=module_name,
+                                                    description='Module to store experiment notes')
+                    nwbfile.add_processing_module(notes_module)
+
+                    notes_table = DynamicTable(name=table_name, description='Experiment notes')
+                    notes_table.add_column(name='timestamp', description='Timestamp of the note')
+                    notes_table.add_column(name='note', description='Text of the note')
+
+                    notes_module.add(notes_table)
+                else:
+                    notes_module = nwbfile.processing[module_name]
+                    notes_table = notes_module.get_data_interface(table_name)
+
+                # Add the new note
+                timestamp = datetime.now().timestamp() - nwbfile.session_start_time.timestamp()    
+                notes_table.add_row(timestamp=timestamp, note=note_text)
+                
+                # Write changes to file
+                io.write(nwbfile)
+        else:
+            print('Initialize a NWB file before writing a note')
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # # # # # # # #  Retrieve / query data file # # # # # # # # # # # # # # # # #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
