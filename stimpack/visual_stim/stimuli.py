@@ -1191,7 +1191,9 @@ class PixMap(TexturedCylinder):
         super().__init__(screen=screen, num_tri=10000)
 
     def configure(self, memname='test', frame_size=None, rgb_texture=True, width=180, radius=1, 
-                        n_steps=16, surface='cylindrical'):
+                        n_steps=16, surface='cylindrical', rotation=0):
+
+        self.rotation = rotation
 
         height = frame_size[0] / frame_size[1]
         height *= width
@@ -1223,7 +1225,7 @@ class PixMap(TexturedCylinder):
         elif surface == 'spherical':
             self.stim_object = shapes.GlSphericalTexturedRect(height=height, width=width, sphere_radius=radius,
                                                                 n_steps_x = n_steps, n_steps_y = n_steps, 
-                                                                color=[1,1,1,1], texture=True)
+                                                                color=[1,1,1,1], texture=True).rotate(np.radians(self.rotation),0,0)
             # self.stim_object = shapes.GlSphericalTexturedRect(width=10,
             #                                                 height=10,
             #                                                 sphere_radius=1,

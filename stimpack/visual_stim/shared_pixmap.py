@@ -1,4 +1,8 @@
 from multiprocessing import shared_memory
+import os
+import glob
+import multiprocessing
+import cv2
 import numpy as np
 import time
 import sched
@@ -7,31 +11,45 @@ import threading
 class SharedPixMapStimulus:
     def __init__(self, memname, shape=None):
         self.memname = memname
+
         if shape is not None:
             dummy = np.ones(shape).astype(np.uint8)
             self.reserve_memblock(dummy)
         else:
             print('SharedPixMapStimulus initialized without shape, waiting for frame')
+        
+        
+        if os.path.exists(os.path.expanduser('~/.config/fly/{}.txt'.format(memname))):
+            print('ERROR MEMNAME LOG EXISTS')
+        else:
+            self.filepath = os.path.expanduser('~/.config/fly/{}.txt'.format(memname))
 
     def reserve_memblock(self,frame):
         self.frame_shape = frame.shape
+        print('Pixmap with dimensions: {}'.format(self.frame_shape))
         self.frame_bytes = frame.nbytes
         self.frame_dtype = frame.dtype
 
         zz = np.zeros((10))
 
         self.memblock = shared_memory.SharedMemory(create=True,size=self.frame_bytes,name=self.memname)
-        self.recblock = shared_memory.SharedMemory(create=True,size=zz.nbytes,name=self.memname+'_rec')
+        # self.recblock = shared_memory.SharedMemory(create=True,size=zz.nbytes,name=self.memname+'_rec')
 
         self.global_frame = np.ndarray(self.frame_shape, dtype = self.frame_dtype, buffer=self.memblock.buf)
         self.global_frame[:] = np.zeros(self.frame_shape)
 
     def close(self):
         self.memblock.close()
-        self.recblock.close()
+        # self.recblock.close()
         self.memblock.unlink()
-        self.recblock.unlink()
+        # self.recblock.unlink()
+
         self.thread.join()
+
+
+        print('Closed')
+
+
 
     def genframe(self):
         '''
@@ -39,7 +57,9 @@ class SharedPixMapStimulus:
         '''
         pass
         
-    def load_stream(self):
+
+
+    def start_stream(self):
 
         self.s = sched.scheduler(time.time, time.sleep)
         
@@ -49,23 +69,21 @@ class SharedPixMapStimulus:
             self.s.enter(ti, 1, self.genframe)
 
         self.thread = threading.Thread(target=self.s.run)
-
-    def start_stream(self):
         self.t = time.time()
         self.thread.start()
 
+
+        print('STARTING')
 class WhiteNoise(SharedPixMapStimulus):
-    def __init__(self, memname, frame_shape, nominal_frame_rate, dur, seed=37, coverage='full'):
+    def __init__(self, memname, frame_shape, nominal_frame_rate, dur, seed=37):
         super().__init__(memname = memname, shape=frame_shape)
 
-        self.coverage=coverage
         self.nominal_frame_rate = nominal_frame_rate
         self.dur = dur
         self.seed = seed
         dummy = np.zeros((frame_shape[0], frame_shape[1], 3))*255
         dummy = dummy.astype(np.uint8)
 
-        self.load_stream()
 
     
     def genframe(self):
@@ -75,12 +93,94 @@ class WhiteNoise(SharedPixMapStimulus):
         np.random.seed(seed)
         img = np.random.rand(self.frame_shape[0], self.frame_shape[1])
 
-        img_int = img*255/2+10
+        img_int = img*255
         img_int = img_int.astype(np.uint8)
-            
-        if self.coverage=='left':
-            img_int[:,:int(img_int.shape[1]/2)] = 0
-        self.global_frame[:,:,0] = img_int
-        self.global_frame[:,:,1] = img_int
+        
         self.global_frame[:,:,2] = img_int
+        self.global_frame[:,:,1] = img_int
+        self.global_frame[:,:,0] = img_int
 
+        t = time.time()
+        fr = seed
+        with open(self.filepath, 'a') as f:
+            f.write(str(fr)+' '+str(t)+'\n')
+
+class StreamMovie(SharedPixMapStimulus):
+    def __init__(self, memname, filepath, nominal_frame_rate, duration, start_frame=0):
+        dur = duration
+
+        self.nominal_frame_rate = nominal_frame_rate
+        self.dur = dur
+       
+        self.cap = cv2.VideoCapture(filepath)
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        ret = False
+
+        while ret is False:
+            ret, frame = self.cap.read()
+
+        dummy = np.zeros(frame.shape)*255
+        dummy = dummy.astype(np.uint8)
+
+        self.frame_shape = frame.shape
+        super().__init__(memname = memname, shape=self.frame_shape)
+
+        
+        # check if temp file exists
+        # if so, delete it
+        # if not, create it
+        # make a config directory
+
+    def genframe(self):
+        ret = False
+
+        while ret is False:
+            ret, img = self.cap.read()
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.uint8)
+
+        fr = self.cap.get(cv2.CAP_PROP_POS_FRAMES)
+        self.global_frame[:] = img
+
+        t = time.time()
+        with open(self.filepath, 'a') as f:
+            f.write(str(fr)+' '+str(t)+'\n')
+
+
+class TriColorWhiteNoise(SharedPixMapStimulus):
+    def __init__(self, memname, frame_shape, nominal_frame_rate, dur, seed=37):
+        super().__init__(memname = memname, shape=frame_shape)
+
+        self.nominal_frame_rate = nominal_frame_rate
+        self.dur = dur
+        self.seed = seed
+        dummy = np.zeros((frame_shape[0], frame_shape[1], 3))*255
+        dummy = dummy.astype(np.uint8)
+
+
+    
+    def genframe(self):
+
+        t = time.time()-self.t
+        seed = int(round(self.seed + t*self.nominal_frame_rate)) # slightly risky, as t could be imprecise with PixMap approach
+        np.random.seed(seed)
+
+
+
+        
+        img = np.random.rand(self.frame_shape[0], self.frame_shape[1])
+        img_int = img*255
+        img_int = img_int.astype(np.uint8)
+        self.global_frame[:,:,0] = img_int[:]
+        img = np.random.rand(self.frame_shape[0], self.frame_shape[1])
+        img_int = img*255
+        img_int = img_int.astype(np.uint8)
+        self.global_frame[:,:,1] = img_int[:]
+        img = np.random.rand(self.frame_shape[0], self.frame_shape[1])
+        img_int = img*255
+        img_int = img_int.astype(np.uint8)
+        self.global_frame[:,:,2] = img_int[:]
+
+        t = time.time()
+        fr = seed
+        with open(self.filepath, 'a') as f:
+            f.write(str(fr)+' '+str(t)+'\n')
