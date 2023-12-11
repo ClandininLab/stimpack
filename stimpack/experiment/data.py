@@ -531,7 +531,11 @@ class NWBData():
         # Have the imports here until you decide to add pynwb as a dependency
         from pynwb import NWBHDF5IO, ProcessingModule
         from pynwb.core import DynamicTable
+        from hdmf.common import VectorData
+        from hdmf.backends.hdf5.h5_utils import H5DataIO
+        from hdmf.common.table import ElementIdentifiers
 
+        
         if self.experiment_file_exists():
             nwbfile_path = Path(self.nwb_file_directory) / f"{self.current_subject}.nwb"
 
@@ -546,18 +550,32 @@ class NWBData():
                                                     description='Module to store experiment notes')
                     nwbfile.add_processing_module(notes_module)
 
-                    notes_table = DynamicTable(name=table_name, description='Experiment notes')
-                    notes_table.add_column(name='timestamp', description='Timestamp of the note')
-                    notes_table.add_column(name='note', description='Text of the note')
+                
+                    timestamp = datetime.now().timestamp() - nwbfile.session_start_time.timestamp()    
 
+                    timestamp_column = VectorData(name='timestamp', description="the time the note was taken",
+                                                  data=H5DataIO(data=[timestamp], maxshape=(None,)))
+                    text_column = VectorData(name='note', description="a note",
+                                             data=H5DataIO(data=[note_text], maxshape=(None,)))
+
+                    ids = ElementIdentifiers(
+                        name='id',
+                        data=H5DataIO(data=[0], maxshape=(None,)),
+                    )
+                    notes_table = DynamicTable(
+                        name=table_name,
+                        description="Experiment notes",
+                        columns=[timestamp_column, text_column],
+                        id=ids,
+                    )                    
                     notes_module.add(notes_table)
                 else:
                     notes_module = nwbfile.processing[module_name]
                     notes_table = notes_module.get_data_interface(table_name)
 
-                # Add the new note
-                timestamp = datetime.now().timestamp() - nwbfile.session_start_time.timestamp()    
-                notes_table.add_row(timestamp=timestamp, note=note_text)
+                    # Add the new note
+                    timestamp = datetime.now().timestamp() - nwbfile.session_start_time.timestamp()    
+                    notes_table.add_row(timestamp=timestamp, note=note_text)
                 
                 # Write changes to file
                 io.write(nwbfile)
