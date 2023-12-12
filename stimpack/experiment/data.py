@@ -421,11 +421,14 @@ class NWBData():
         """
         # Have the imports here until you decide to add pynwb as a dependency
         from pynwb import NWBHDF5IO
-
+        from pynwb.epoch import TimeIntervals
+        from hdmf.common import VectorData,VectorIndex
+        from hdmf.backends.hdf5.h5_utils import H5DataIO
+        from hdmf.common.table import ElementIdentifiers        
         
         # Open the nwbfile in append mode (do we need to close this? maybe we can keep an open reference)
         nwbfile_path = self.nwb_file_directory / f"{self.current_subject}.nwb"
-        with NWBHDF5IO(nwbfile_path, 'r+') as io:
+        with NWBHDF5IO(nwbfile_path, 'r+') as io: 
             subject_nwbfile = io.read()
             
             # Shift the time to be relative to the session start time            
@@ -433,21 +436,67 @@ class NWBData():
             start_time = self.epoch_parameters.pop('epoch_start_time')
             start_time = start_time - session_start_time.timestamp()
             stop_time = datetime.now(self.timezone).timestamp() - session_start_time.timestamp()
+        
+            # Creates the table such that is dynamically grows
+            if subject_nwbfile.epochs is None:
+                ids = ElementIdentifiers(
+                    name='id',
+                    data=H5DataIO(data=[0], maxshape=(None,)),
+                )
+                
+                columns_to_add = []
+                start_time = VectorData(name='start_time', description="the time the trial started",
+                                              data=H5DataIO(data=[start_time], maxshape=(None,)))
+                columns_to_add.append(start_time)
+                stop_time = VectorData(name='stop_time', description="the time the trial ended",
+                                             data=H5DataIO(data=[stop_time], maxshape=(None,)))
+                columns_to_add.append(stop_time)
 
-            # Add columns to the epochs table if they don't exist
-            previous_columns = []
-            if subject_nwbfile.epochs:
-                previous_columns = subject_nwbfile.epochs.colnames if subject_nwbfile.epochs.colnames is not None else []
+                for column in self.epoch_parameters:
+                    value = self.epoch_parameters[column]
+                    value_is_list_tuple_or_array = isinstance(value, (tuple, list, np.ndarray))
+                    if not value_is_list_tuple_or_array:
+                        vector_column = VectorData(name=column, description=column, data=H5DataIO(data=[value], maxshape=(None,)))
+                        # columns_to_add.append(vector_column)
+                    else:
+                        value_has_list_tuple_or_array_as_elements = isinstance(value[0], (tuple, list, np.ndarray))
+                        if not value_has_list_tuple_or_array_as_elements:
+                            data = list(value)
+                            # Recursion to second level for nested lists
+                            
+                            vector_column = VectorData(name=column, description=column, data=H5DataIO(data=data, maxshape=(None, )))
+                            end_index_first_element = len(value)
+                            vector_index = VectorIndex(name=column + "_index", target=vector_column, data=H5DataIO(data=[end_index_first_element], maxshape=(None,)))
+                            columns_to_add.append(vector_column)
+                            columns_to_add.append(vector_index) 
+                        else:
+                            # Flatten the value
+                            data = [item for sublist in value for item in sublist]
+                            lengths = [len(x) for x in value]
+                            vector_column = VectorData(name=column, description=column, data=H5DataIO(data=data, maxshape=(None, )))
+                            # Cumulative value of the lengths
+                            data_index = np.cumsum(lengths).tolist()
+                            vector_index = VectorIndex(name=column + "_index", target=vector_column, data=H5DataIO(data=data_index, maxshape=(None,)))
+                            end_index_first_element = len(lengths)
+                            vector_index_index = VectorIndex(name=column + "_index_index", target=vector_index, data=H5DataIO(data=[end_index_first_element], maxshape=(None,)))
+                            columns_to_add.append(vector_column)
+                            columns_to_add.append(vector_index)
+                            columns_to_add.append(vector_index_index)
+                            
+                epochs_table = TimeIntervals(
+                    name='epochs',
+                    description="experimental epochs",
+                    columns=columns_to_add,
+                    id=ids,
+                )
+                
+                subject_nwbfile.epochs = epochs_table
             
-            columns_to_add = [key for key in self.epoch_parameters if key not in previous_columns]
-            for column in columns_to_add:
-                subject_nwbfile.add_epoch_column(name=column, description=column)
-            
-            # Add the row to the epochs table
-            epoch_row_kargs = self.epoch_parameters
-            epoch_row_kargs["start_time"] = start_time
-            epoch_row_kargs["stop_time"] = stop_time
-            subject_nwbfile.add_epoch(**epoch_row_kargs)
+            else: # If the table exists just add a row
+                epoch_row_kargs = self.epoch_parameters
+                epoch_row_kargs["start_time"] = start_time
+                epoch_row_kargs["stop_time"] = stop_time
+                subject_nwbfile.add_epoch(**epoch_row_kargs)
             
             # Write the nwbfile to disk
             io.write(subject_nwbfile)
@@ -494,7 +543,10 @@ class NWBData():
         """
         # Have the imports here until you decide to add pynwb as a dependency
         from pynwb import NWBHDF5IO
-        
+        from pynwb.epoch import TimeIntervals
+        from hdmf.common import VectorData,VectorIndex
+        from hdmf.backends.hdf5.h5_utils import H5DataIO
+        from hdmf.common.table import ElementIdentifiers        
 
         nwbfile_path = self.nwb_file_directory / f"{self.current_subject}.nwb"
         with NWBHDF5IO(nwbfile_path, 'r+') as io:
@@ -506,21 +558,48 @@ class NWBData():
             start_time = start_time - session_start_time.timestamp()
             stop_time = datetime.now(self.timezone).timestamp() - session_start_time.timestamp()
             
+            # Create the table if it doesn't exist
+            if subject_nwbfile.trials is None:
+                ids = ElementIdentifiers(
+                    name='id',
+                    data=H5DataIO(data=[0], maxshape=(None,)),
+                )
+                
+                columns_to_add = []
+                start_time = VectorData(name='start_time', description="the time the trial started",
+                                              data=H5DataIO(data=[start_time], maxshape=(None,)))
+                columns_to_add.append(start_time)
+                stop_time = VectorData(name='stop_time', description="the time the trial ended",
+                                             data=H5DataIO(data=[stop_time], maxshape=(None,)))
+                columns_to_add.append(stop_time)
+                for column in self.trial_parameters:
+                    value = self.trial_parameters[column]
+                    value_is_list_tuple_or_array = isinstance(value, (tuple, list, np.ndarray))
+                    if not value_is_list_tuple_or_array:
+                        vector_column = VectorData(name=column, description=column, data=H5DataIO(data=[value], maxshape=(None,)))
+                        columns_to_add.append(vector_column)
+                    else:
+                        data = list(value)
+                        vector_column = VectorData(name=column, description=column, data=H5DataIO(data=data, maxshape=(None, )))
+                        end_index_first_element = len(value)
+                        vector_index = VectorIndex(name=column + "_index", target=vector_column, data=H5DataIO(data=[end_index_first_element], maxshape=(None,)))
+                        columns_to_add.append(vector_column)
+                        columns_to_add.append(vector_index)
+                          
+                trials_table = TimeIntervals(
+                    name='trials',
+                    description="experimental trials",
+                    columns=columns_to_add,
+                    id=ids,
+                )
+                
+                subject_nwbfile.trials = trials_table
             
-            # Create columns if they don't exist
-            previous_columns = []
-            if subject_nwbfile.trials:
-                previous_columns = subject_nwbfile.trials
-            
-            columns_to_add = [key for key in self.trial_parameters if key not in previous_columns]
-            for column in columns_to_add:
-                subject_nwbfile.add_trial_column(name=column, description=column)
-
-            # Add the trial to the table
-            trial_row_kargs = self.trial_parameters
-            trial_row_kargs["start_time"] = start_time
-            trial_row_kargs["stop_time"] = stop_time    
-            subject_nwbfile.add_trial(**trial_row_kargs)
+            else:  # Just add a row to the table
+                trial_row_kargs = self.trial_parameters
+                trial_row_kargs["start_time"] = start_time
+                trial_row_kargs["stop_time"] = stop_time    
+                subject_nwbfile.add_trial(**trial_row_kargs)
 
             # Write the nwbfile to disk
             io.write(subject_nwbfile)
