@@ -35,7 +35,8 @@ class BaseClient():
                 disp_server, disp_id = -1, -1
             
             visual_stim_kwargs = {
-                'screens': [Screen(server_number=disp_server, id=disp_id, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
+                'screens': [Screen(server_number=disp_server, id=disp_id, fullscreen=False, vsync=True, square_size=(0.1, 0.1),
+                                   pa=(-0.15, 0.15, -0.15), pb=(+0.15, 0.15, -0.15), pc=(-0.15, 0.15, +0.15))] # -45 to 45 deg in both theta and phi
             }
             
             loco_class = KeytracClosedLoopManager
