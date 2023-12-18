@@ -132,10 +132,6 @@ class StimDisplay(QOpenGLWidget):
         for viewport in viewports:
             self.ctx.clear(red=color[0], green=color[1], blue=color[2], alpha=color[3], viewport=viewport)
         
-        # doneCurrent() and makeCurrent() are necessary to allow painting over the cleared viewport
-        self.doneCurrent()
-        self.makeCurrent()
-
     def paintGL(self):
         # t0 = time.time() # benchmarking
 
@@ -248,9 +244,6 @@ class StimDisplay(QOpenGLWidget):
         stim.configure(**stim.kwargs) # Configure stim on load
         self.stim_list.append(stim)
         
-        # clear the viewports
-        self.clear_viewports_flag = True
-
     def start_stim(self, t, append_stim_frames=False, pre_render=False, pre_render_timepoints=None):
         """
         Start the stimulus animation, using the given time as t=0.
