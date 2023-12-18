@@ -52,10 +52,14 @@ class StimDisplay(QOpenGLWidget):
 
         # stimulus initialization
         self.stim_list = []
+        self.constitutive_stim_list = []
 
         # stimulus state
         self.stim_started = False
         self.stim_start_time = None
+
+        self.constitutive_stim_started = False
+        self.constitutive_stim_start_time = None
 
         # profiling information
         self.profile_frame_times = []
@@ -156,8 +160,8 @@ class StimDisplay(QOpenGLWidget):
             self.clear_viewports_flag = False
         
         # draw the stimulus
-        if self.stim_list:
-            if self.pre_render:
+        if self.stim_list or self.constitutive_stim_list:
+            if self.pre_render: # not updated for constitutive stims
                 if self.current_time_index < len(self.pre_render_timepoints):
                     t = self.pre_render_timepoints[self.current_time_index]
                 else:
@@ -165,7 +169,8 @@ class StimDisplay(QOpenGLWidget):
                     self.stop_stim()
             else:  # real-time generation
                 t = time.time()
-            if self.use_subject_trajectory:
+
+            if self.use_subject_trajectory: # not updated for constitutive stims
                 self.set_subject_state({'x': return_for_time_t(self.subject_x_trajectory, self.get_stim_time(t)),
                                         'y': return_for_time_t(self.subject_y_trajectory, self.get_stim_time(t)),
                                         'theta': return_for_time_t(self.subject_theta_trajectory, self.get_stim_time(t)) # deg -> radians
@@ -180,6 +185,14 @@ class StimDisplay(QOpenGLWidget):
                                   self.subscreen_viewports,
                                   perspectives,
                                   subject_position=self.subject_position)
+                    
+            for stim in self.constitutive_stim_list:
+                if self.constitutive_stim_started:
+                    stim.paint_at(self.get_stim_time(t),
+                                  self.subscreen_viewports,
+                                  perspectives,
+                                  subject_position=self.subject_position)
+                    
             self.profile_frame_times.append(t)
 
         # draw the corner square
@@ -267,7 +280,7 @@ class StimDisplay(QOpenGLWidget):
         else:
             self.stim_start_time = t
 
-    def stop_stim(self, print_profile=False):
+    def stop_stim(self, print_profile=False, clear_stim_list=True):
         """
         Stops the stimulus animation and removes it from the display.
         """
@@ -276,7 +289,7 @@ class StimDisplay(QOpenGLWidget):
         self.ctx.extra['n_textures_loaded'] = 0
 
         # clear the viewports
-        self.clear_viewports_flag = True
+        self.clear_viewports_flag = False
 
         for stim in self.stim_list:
             stim.prog.release()
@@ -298,7 +311,8 @@ class StimDisplay(QOpenGLWidget):
 
 
         # reset stim variables
-        self.stim_list = []
+        if clear_stim_list:
+            self.stim_list = []
 
         self.stim_started = False
         self.stim_start_time = None
@@ -313,6 +327,50 @@ class StimDisplay(QOpenGLWidget):
         
         self.set_subject_state({'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0})
         self.perspective = get_perspective(self.subject_position, self.screen.subscreens[0].pa, self.screen.subscreens[0].pb, self.screen.subscreens[0].pc, self.screen.horizontal_flip)
+
+    def load_constitutive_stim(self, name, hold=False, **kwargs):
+        """
+        Load stim that is part of a constitutive stimulus, e.g. a stimulus that is always on.
+        """
+        if hold is False:
+            self.constitutive_stim_list = []
+
+        stim_classes = get_all_subclasses(stimuli.BaseProgram)
+        stim_class_candidates = [x for x in stim_classes if x.__name__ == name]
+        num_candidates = len(stim_class_candidates)
+        
+        assert num_candidates == 1, 'ERROR: {} stimulus candidates found with name {}. There should be exactly one'.format(num_candidates, name)
+
+        chosen_stim_class = stim_class_candidates[0]
+        stim = chosen_stim_class(screen=self.screen)
+        stim.initialize(self.ctx)
+        stim.kwargs = kwargs
+        stim.configure(**stim.kwargs) # Configure stim on load
+        self.constitutive_stim_list.append(stim)
+    
+    def start_constitutive_stim(self, t):
+        """
+        Start the constitutive stimulus animation, using the given time as t=0.
+        """
+        self.constitutive_stim_started = True
+        self.constitutive_stim_start_time = t
+    
+    def stop_constitutive_stim(self):
+        """
+        Stops the constitutive stimulus animation and removes it from the display.
+        """
+        # clear the viewports
+        self.clear_viewports_flag = True
+
+        for stim in self.constitutive_stim_list:
+            stim.prog.release()
+            stim.destroy()
+
+        # reset stim variables
+        self.constitutive_stim_list = []
+
+        self.constitutive_stim_started = False
+        self.constitutive_stim_start_time = None
 
     def save_rendered_movie(self, file_path, downsample_xy=4):
         """
@@ -502,6 +560,9 @@ def main():
     server.register_function(stim_display.load_stim)
     server.register_function(stim_display.start_stim)
     server.register_function(stim_display.stop_stim)
+    server.register_function(stim_display.load_constitutive_stim)
+    server.register_function(stim_display.start_constitutive_stim)
+    server.register_function(stim_display.stop_constitutive_stim)
     server.register_function(stim_display.save_rendered_movie)
     server.register_function(stim_display.corner_square_toggle_start)
     server.register_function(stim_display.corner_square_toggle_stop)

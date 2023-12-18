@@ -34,7 +34,7 @@ def launch_screen(screen, **kwargs):
     return launch_server(stimpack.visual_stim.framework, screen=screen.serialize(), new_env_vars=new_env_vars, **kwargs)
 
 class VisualStimServer(MySocketServer):
-    time_stamp_commands = ['start_stim', 'pause_stim', 'update_stim']
+    time_stamp_commands = ['start_stim', 'pause_stim', 'update_stim', 'start_constitutive_stim']
 
     def __init__(self, screens=[], host=None, port=None, auto_stop=None, other_stim_module_paths=None, **kwargs):
         # call super constructor
