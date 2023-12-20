@@ -6,6 +6,7 @@ Handles GL context, shader programs common to all stimpack.visual_stim stim clas
 See stimpack.visual_stim.stimuli for available child stimulus classes. Overwrite methods in child classes like:
     configure
     eval_at
+    update
 
 """
 
@@ -41,6 +42,9 @@ class BaseProgram:
         self.prog['rgb_texture'].value = False
 
     def configure(self, *args, **kwargs):
+        pass
+
+    def update(self, *args, **kwargs):
         pass
 
     def destroy(self):
