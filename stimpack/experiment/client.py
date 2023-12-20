@@ -123,12 +123,15 @@ class BaseClient():
             QApplication.processEvents()
             if self.stop is True:
                 self.stop = False
+                protocol_object.finish_run(self.manager)
                 break # break out of epoch run loop
 
             if self.pause is True:
                 pass # do nothing until resumed or stopped
             else: # start epoch and advance counter
                 self.start_epoch(protocol_object, data, save_metadata_flag=save_metadata_flag)
+
+        protocol_object.finish_run(self.manager)
 
         # Set frame tracker to dark
         self.manager.target('visual').corner_square_toggle_stop()

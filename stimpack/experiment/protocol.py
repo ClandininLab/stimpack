@@ -309,6 +309,14 @@ class BaseProtocol():
 
         sleep(self.epoch_protocol_parameters['tail_time'])
         
+    def finish_run(self, manager, multicall=None):
+        """
+        Method that is called at the end of each run, either when the run is completed or when the run is stopped.
+        Fill in if you want to do something at the end of each run.
+        Overwrite me in the child subclass.
+        """
+        pass
+        
     def get_parameter_sequence(self, parameter_list, all_combinations=True, randomize_order=False):
         """
         inputs
@@ -577,6 +585,14 @@ class SharedPixMapProtocol(BaseProtocol):
         multicall()
 
         sleep(self.epoch_protocol_parameters['tail_time'])
+
+    def finish_run(self, manager, multicall=None):
+        """
+        Method that is called at the end of each run, either when the run is completed or when the run is stopped.
+        Fill in if you want to do something at the end of each run.
+        Overwrite me in the child subclass.
+        """
+        pass
 
 # %% Some simple visual stimulus protocol classes
 
