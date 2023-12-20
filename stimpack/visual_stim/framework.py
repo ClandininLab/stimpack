@@ -44,11 +44,33 @@ class StimDisplay(QOpenGLWidget):
         self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}')
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
 
-        # Set window size and position for fullscreen
+        rect_display = app.primaryScreen().geometry() # Get hardware display size
         if screen.fullscreen:
-            rect_screen = app.primaryScreen().geometry()
-            self.move(rect_screen.left(), rect_screen.top())
-            self.resize(rect_screen.width(), rect_screen.height())
+            # Set window size and position for fullscreen
+            self.move(rect_display.left(), rect_display.top())
+            self.resize(rect_display.width(), rect_display.height())
+        else:
+            # Set window size such that neither heignt nor width exceeds half that of the display, 
+            #   while maintaining aspect ratio
+            window_aspect_ratio = screen.width / screen.height
+            display_aspect_ratio = rect_display.width() / rect_display.height()
+
+            # Maximum allowed size (half of the display's size)
+            max_window_width = rect_display.width() // 2
+            max_window_height = rect_display.height() // 2
+
+            # Determine the scaling factor based on aspect ratios and maximum allowed dimensions
+            if window_aspect_ratio > display_aspect_ratio:
+                # Window is wider in aspect than the display. Width is the constraining dimension.
+                window_width = max_window_width
+                window_height = int(window_width / window_aspect_ratio)
+            else:
+                # Window is taller in aspect than the display, or both have the same aspect ratio. Height is the constraining dimension.
+                window_height = max_window_height
+                window_width = int(window_height * window_aspect_ratio)
+
+            # Set window size
+            self.resize(window_width, window_height)
 
         # stimulus initialization
         self.stim_list = []

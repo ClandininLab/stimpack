@@ -1,4 +1,4 @@
-from math import sin, cos, radians
+from math import sin, cos, radians, sqrt
 
 class SubScreen:
     """
@@ -119,6 +119,8 @@ class Screen:
         self.pa = pa
         self.pb = pb
         self.pc = pc
+        self.width = sqrt((pa[0]-pb[0])**2 + (pa[1]-pb[1])**2 + (pa[2]-pb[2])**2)
+        self.height = sqrt((pa[0]-pc[0])**2 + (pa[1]-pc[1])**2 + (pa[2]-pc[2])**2)
 
     def serialize(self):
         # get all variables needed to reconstruct the screen object
