@@ -1,4 +1,4 @@
-from PyQt6 import QtWidgets, QtCore
+from PyQt6 import QtWidgets, QtCore, QtGui
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 
 import sys
@@ -79,7 +79,7 @@ class SpotProgram:
         # render to screen
         self.vao.render(mode=moderngl.TRIANGLE_STRIP)
 
-class SpotDisplay(QtWidgets.QOpenGLWidget):
+class SpotDisplay(QOpenGLWidget):
     """
     Class that controls the stimulus display on one screen.  It contains the pyglet window object for that screen,
     and also controls rendering of the stimulus, toggling corner square, and/or debug information.
@@ -87,7 +87,8 @@ class SpotDisplay(QtWidgets.QOpenGLWidget):
 
     def __init__(self, app):
         # call super constructor
-        super().__init__(self.make_qt_format())
+        super().__init__()
+        self.setFormat(self.make_qt_format(vsync=False))
 
         self.app = app
         self.spot_program = SpotProgram()
@@ -119,45 +120,45 @@ class SpotDisplay(QtWidgets.QOpenGLWidget):
         self.update()
 
     def keyPressEvent(self, event):
-        if event.key() == QtCore.Qt.Key_Escape:
+        if event.key() == QtCore.Qt.Key.Key_Escape:
             self.app.quit()
 
-        if event.key() == QtCore.Qt.Key_Left:
+        if event.key() == QtCore.Qt.Key.Key_Left:
             self.x = max(-1, self.x-self.delta)
-        elif event.key() == QtCore.Qt.Key_Right:
+        elif event.key() == QtCore.Qt.Key.Key_Right:
             self.x = min(+1, self.x+self.delta)
 
-        if event.key() == QtCore.Qt.Key_Down:
+        if event.key() == QtCore.Qt.Key.Key_Down:
             self.y = max(-1, self.y-self.delta)
-        elif event.key() == QtCore.Qt.Key_Up:
+        elif event.key() == QtCore.Qt.Key.Key_Up:
             self.y = min(+1, self.y+self.delta)
 
-        if event.key() == QtCore.Qt.Key_L:
+        if event.key() == QtCore.Qt.Key.Key_L:
             self.scale /= 1.3
-        elif event.key() == QtCore.Qt.Key_M:
+        elif event.key() == QtCore.Qt.Key.Key_M:
             self.scale *= 1.3
 
-        if event.key() == QtCore.Qt.Key_S:
+        if event.key() == QtCore.Qt.Key.Key_S:
             self.delta /= 2
-        elif event.key() == QtCore.Qt.Key_F:
+        elif event.key() == QtCore.Qt.Key.Key_F:
             self.delta *= 2
 
-        if event.key() == QtCore.Qt.Key_Space:
+        if event.key() == QtCore.Qt.Key.Key_Space:
             print(f'({self.x}, {self.y})')
 
     @classmethod
-    def make_qt_format(cls, vsync=True):
+    def make_qt_format(self, vsync):
         """
         Initializes the Qt OpenGL format.
         :param vsync: If True, use VSYNC, otherwise update as fast as possible
         """
 
         # create format with default settings
-        format = QOpenGLWidget.defaultFormat()
+        format = QtGui.QSurfaceFormat()
 
         # use OpenGL 3.3
         format.setVersion(3, 3)
-        format.setProfile(QOpenGLWidget.CoreProfile)
+        format.setProfile(QtGui.QSurfaceFormat.OpenGLContextProfile.CoreProfile)
 
         # use VSYNC
         if vsync:
@@ -166,11 +167,11 @@ class SpotDisplay(QtWidgets.QOpenGLWidget):
             format.setSwapInterval(0)
 
         # TODO: determine what these lines do and whether they are necessary
-        format.setSampleBuffers(True)
+        format.setSamples(24)
         format.setDepthBufferSize(24)
 
         # needed to enable transparency
-        format.setAlpha(True)
+        format.setAlphaBufferSize(24)
 
         return format
 
@@ -179,6 +180,12 @@ def main():
     parser = ArgumentParser()
     parser.add_argument('--windowed', action='store_true')
     args = parser.parse_args()
+
+    # set default format with OpenGL context
+    format = QtGui.QSurfaceFormat()
+    format.setVersion(3, 3)
+    format.setProfile(QtGui.QSurfaceFormat.OpenGLContextProfile.CoreProfile)
+    QtGui.QSurfaceFormat.setDefaultFormat(format)
 
     # launch application
     app = QtWidgets.QApplication([])
@@ -198,7 +205,7 @@ def main():
     # Use Ctrl+C to exit.
     # ref: https://stackoverflow.com/questions/2300401/qapplication-how-to-shutdown-gracefully-on-ctrl-c
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 if __name__ == '__main__':
     main()
