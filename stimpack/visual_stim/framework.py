@@ -251,7 +251,8 @@ class StimDisplay(QOpenGLWidget):
         :param t: Time corresponding to t=0 of the animation
         :param append_stim_frames: bool, append frames to stim_frames list, for saving stim movie. May affect performance.
         """
-        self.profile_frame_times = []
+        self.clear_profile()
+
         self.stim_frames = []
         self.append_stim_frames = append_stim_frames
         self.pre_render = pre_render
@@ -283,19 +284,9 @@ class StimDisplay(QOpenGLWidget):
             stim.destroy()
 
         # print profiling information if applicable
-        if (print_profile):
-            # filter out frame times of duration zero
-            fps_data = np.diff(np.array(self.profile_frame_times))
-            fps_data = fps_data[fps_data != 0]
-
-            if len(fps_data) > 0:
-                fps_data = pd.Series(1.0/fps_data)
-                stim_names = ', '.join([type(stim).__name__ for stim in self.stim_list])
-                if print_profile:
-                    print(f'*** {self.screen.name}: {stim_names} ***')
-                    print(fps_data.describe(percentiles=[0.01, 0.05, 0.1, 0.9, 0.95, 0.99]))
-                    print('*** end of statistics ***')
-
+        if print_profile:
+            self.print_profile()
+        self.clear_profile()
 
         # reset stim variables
         self.stim_list = []
@@ -303,8 +294,6 @@ class StimDisplay(QOpenGLWidget):
         self.stim_started = False
         self.stim_start_time = None
         self.current_time_index = 0
-
-        self.profile_frame_times = []
 
         self.use_subject_trajectory = False
         self.subject_x_trajectory = None
@@ -314,6 +303,31 @@ class StimDisplay(QOpenGLWidget):
         self.set_subject_state({'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0})
         self.perspective = get_perspective(self.subject_position, self.screen.subscreens[0].pa, self.screen.subscreens[0].pb, self.screen.subscreens[0].pc, self.screen.horizontal_flip)
 
+    def update_stim(self, t, **kwargs):
+        for stim in self.stim_list:
+            stim.update(**kwargs)
+        
+    def clear_profile(self):
+        """
+        Clear profiling information for the last stimulus.
+        """
+        self.profile_frame_times = []
+
+    def print_profile(self):
+        """
+        Print profiling information for the last stimulus.
+        """
+        # filter out frame times of duration zero
+        fps_data = np.diff(np.array(self.profile_frame_times))
+        fps_data = fps_data[fps_data != 0]
+
+        if len(fps_data) > 0:
+            fps_data = pd.Series(1.0/fps_data)
+            stim_names = ', '.join([type(stim).__name__ for stim in self.stim_list])
+            print(f'*** {self.screen.name}: {stim_names} ***')
+            print(fps_data.describe(percentiles=[0.01, 0.05, 0.1, 0.9, 0.95, 0.99]))
+            print('*** end of statistics ***')
+        
     def save_rendered_movie(self, file_path, downsample_xy=4):
         """
         Save rendered stim frames from stim_frames as 3D np array
@@ -502,6 +516,9 @@ def main():
     server.register_function(stim_display.load_stim)
     server.register_function(stim_display.start_stim)
     server.register_function(stim_display.stop_stim)
+    server.register_function(stim_display.update_stim)
+    server.register_function(stim_display.clear_profile)
+    server.register_function(stim_display.print_profile)
     server.register_function(stim_display.save_rendered_movie)
     server.register_function(stim_display.corner_square_toggle_start)
     server.register_function(stim_display.corner_square_toggle_stop)
