@@ -39,3 +39,16 @@ Press `Enter` (red). You should now see a window that looks like this:
     :width: 500px
     :align: center
     :alt: Stimpack window
+
+Installation issues
+^^^^^^^^^^^^^^^^^^^^^^^
+**X11 vs. wayland**
+
+Stimpack needs an X11 window system to run properly. Newer versions of Ubuntu default to Wayland. To run stimpack on Ubuntu, log in using an X11 session instead of the default Wayland
+
+**Qt dependency issues**
+
+If you run into errors on Ubuntu relating to your Qt installation, you can try to install some Qt libraries to see if that helps. See these resources:
+
+https://askubuntu.com/questions/1485442/issue-with-installing-pyqt6-on-ubuntu-22-04
+
