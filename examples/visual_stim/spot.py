@@ -88,7 +88,7 @@ class SpotDisplay(QOpenGLWidget):
     def __init__(self, app):
         # call super constructor
         super().__init__()
-        self.setFormat(self.make_qt_format(vsync=False))
+        self.setFormat(self.make_qt_format(vsync=True))
 
         self.app = app
         self.spot_program = SpotProgram()
@@ -111,6 +111,8 @@ class SpotDisplay(QOpenGLWidget):
 
         # clear the display
         self.ctx.clear(0, 0, 0, 1)
+        self.doneCurrent()
+        self.makeCurrent()
         self.ctx.enable(moderngl.BLEND)
 
         # draw the spot
