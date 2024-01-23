@@ -435,6 +435,7 @@ class StimDisplay(QOpenGLWidget):
         (sometimes called the interleave period).
         """
         self.idle_background = util.get_rgba(color)
+        self.clear_viewports_flag = True
 
     def set_subject_state(self, state_update):
         # Update the subject state (only position for this module)
