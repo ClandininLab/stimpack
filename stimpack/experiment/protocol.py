@@ -255,6 +255,7 @@ class BaseProtocol():
             multicall = stimpack.rpc.multicall.MyMultiCall(manager)
 
         bg = self.run_parameters.get('idle_color')
+        multicall.target('visual').set_idle_background(bg)
         multicall.target('visual').load_stim('ConstantBackground', color=get_rgba(bg), hold=True)
 
         if isinstance(self.epoch_stim_parameters, list):
