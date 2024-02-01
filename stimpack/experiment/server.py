@@ -53,6 +53,7 @@ class BaseServer(MySocketServer):
         # Register functions to be executed on the server's root node, and not in modules.
         self.functions_on_root = {}
         self.register_function_on_root(lambda x: print(x), "print_on_server")
+        self.register_function_on_root(self.set_subject_state, "set_subject_state")
 
         def signal_handler(sig, frame):
             print('Closing server after Ctrl+C...')
@@ -155,7 +156,7 @@ class BaseServer(MySocketServer):
         self.target('all').close()
 
     ### Functions for setting subject state ###
-    def set_subject_state(self, state_update={'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll':0}):
+    def set_subject_state(self, state_update:dict={'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll':0}) -> None:
         # Perform custom closed-loop control and get an updated state update
         new_state_update = self.custom_state_dependent_control(self.subject_state, state_update)
 
@@ -166,7 +167,7 @@ class BaseServer(MySocketServer):
         # Forward state information to each module manager
         self.target('all').set_subject_state(new_state_update)
     
-    def custom_state_dependent_control(self, previous_state, state_update):
+    def custom_state_dependent_control(self, previous_state:dict, state_update:dict) -> dict:
         '''
         Given the previous state of the subject and the current state update, 
         perform custom closed-loop control here.
