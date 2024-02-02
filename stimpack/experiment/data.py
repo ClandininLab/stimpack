@@ -261,5 +261,10 @@ def hdf5ify_parameter(value):
                 value = np.array(new_value)
             except ValueError:
                 value = str(value)
+    # if tuple, every element must be the same length. If not, convert to string
+    if type(value) is tuple:
+        element_lengths = [len(x) if type(x) in [list, tuple, np.ndarray] else 1 for x in value]
+        if not all([x == element_lengths[0] for x in element_lengths]):
+            value = str(value) 
 
     return value
