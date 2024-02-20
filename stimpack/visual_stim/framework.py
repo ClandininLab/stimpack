@@ -104,9 +104,6 @@ class StimDisplay(QOpenGLWidget):
         # initialize background color
         self.idle_background = (0.5, 0.5, 0.5, 1.0)
         
-        # flag indicating whether to clear the viewports on the next paintGL call
-        self.clear_viewports_flag = False
-
         # initialize subject state (e.g. position)
         self.subject_position = {}
         self.set_subject_state({'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}) # meters and degrees
@@ -130,7 +127,8 @@ class StimDisplay(QOpenGLWidget):
         self.ctx.extra['n_textures_loaded'] = 0
 
         # clear the whole screen
-        self.clear_viewports(color=(0, 0, 0, 1), viewports=None)
+        # self.clear_viewports(color=(0, 0, 0, 1), viewports=None)
+        self.ctx.fbo.clear(0, 0, 0, 1)
 
         # initialize square program
         self.square_program.initialize(self.ctx)
@@ -152,7 +150,7 @@ class StimDisplay(QOpenGLWidget):
             viewports = [viewports]
         
         for viewport in viewports:
-            self.ctx.clear(red=color[0], green=color[1], blue=color[2], alpha=color[3], viewport=viewport)
+            self.ctx.fbo.clear(red=color[0], green=color[1], blue=color[2], alpha=color[3], viewport=viewport)
         
     def paintGL(self):
         # t0 = time.time() # benchmarking
@@ -172,11 +170,11 @@ class StimDisplay(QOpenGLWidget):
         # Get viewport for corner square
         self.square_program.set_viewport(display_width, display_height)
 
-        # clear the viewports if clear_viewports_flag is set, and reset the flag
-        if self.clear_viewports_flag:
-            self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
-            self.clear_viewports_flag = False
-        
+        self.ctx.detect_framebuffer().use()
+
+        # clear the previous frame across the whole display
+        self.clear_viewports(color=(0,0,0,1), viewports=None)
+
         # draw the stimulus
         if self.stim_list:
             if self.pre_render:
@@ -202,7 +200,12 @@ class StimDisplay(QOpenGLWidget):
                                   self.subscreen_viewports,
                                   perspectives,
                                   subject_position=self.subject_position)
+                else: # Clear when there is stim loaded but not started (pre-time for the most part)
+                    self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
+
             self.profile_frame_times.append(t)
+        else: # Clear when there is no stim loaded (tail-time and when on standby)
+            self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
 
         # draw the corner square
         self.square_program.paint()
@@ -297,9 +300,6 @@ class StimDisplay(QOpenGLWidget):
         # clear texture
         self.ctx.clear_samplers()
         self.ctx.extra['n_textures_loaded'] = 0
-
-        # clear the viewports
-        self.clear_viewports_flag = True
 
         for stim in self.stim_list:
             stim.prog.release()
@@ -435,7 +435,6 @@ class StimDisplay(QOpenGLWidget):
         (sometimes called the interleave period).
         """
         self.idle_background = util.get_rgba(color)
-        self.clear_viewports_flag = True
 
     def set_subject_state(self, state_update):
         # Update the subject state (only position for this module)
