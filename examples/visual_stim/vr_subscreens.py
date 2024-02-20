@@ -50,6 +50,8 @@ def main():
     # draw_screens(screen)
 
     manager = launch_stim_server(screen)
+
+    manager.set_idle_background(0.5)
     manager.corner_square_toggle_stop()
     manager.corner_square_off() # turn off square as server starts up
 
