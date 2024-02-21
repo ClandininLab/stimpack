@@ -167,7 +167,7 @@ def get_rgba(val, def_alpha=1):
 
     # convert single value to float
     if np.asarray(val).size == 1:
-        val = float(val)
+        val = float(np.asarray(val))
 
     # if a single number is given treat as monochrome
     if isinstance(val, Number):
