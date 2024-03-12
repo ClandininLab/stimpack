@@ -481,7 +481,7 @@ class ExperimentGUI(QWidget):
         # update display lists of run & protocol parameters
         self.protocol_object.load_parameter_presets()
         self.protocol_object.select_protocol_preset(name=preset_name)
-        self.protocol_object.prepare_run()
+        self.protocol_object.prepare_run(manager=self.client.manager)
         self.update_parameter_preset_selector()
         self.update_parameters_input()
         self.update_window_width()
@@ -797,7 +797,7 @@ class ExperimentGUI(QWidget):
             for key, value in self.protocol_object.run_parameters.items():
                 self.run_parameter_input[key] = make_parameter_input_field(key, value, self.parameters_grid_row_ct)
                 self.parameters_grid_row_ct += 1
-                set_validator(self.run_parameter_input[key], type(value))
+                # set_validator(self.run_parameter_input[key], type(value))
 
         def update_protocol_parameters_input():
             # update display window to show parameters for this protocol
@@ -1038,8 +1038,22 @@ class ExperimentGUI(QWidget):
             if isinstance(self.run_parameter_input[key], QCheckBox): #QCheckBox
                 self.protocol_object.run_parameters[key] = self.run_parameter_input[key].isChecked()
             else: # QLineEdit
-                run_parameter_input_text = self.run_parameter_input[key].text()
-                self.protocol_object.run_parameters[key] = float(run_parameter_input_text) if len(run_parameter_input_text)>0 else 0
+                # run_parameter_input_text = self.run_parameter_input[key].text()
+                # self.protocol_object.run_parameters[key] = float(run_parameter_input_text) if len(run_parameter_input_text)>0 else 0
+                raw_input = self.run_parameter_input[key].text()
+                parsed_input = parse_param_str(raw_input)
+
+                if isinstance(parsed_input, ParseError): # Parse error
+                    default_value = self.protocol_object.get_run_parameter_defaults()[key]
+                    default_value_input_text = self.make_parameter_input_text(default_value)
+                    error_text = parsed_input.message + '\n' + \
+                                    'Raw input: ' + raw_input + '\n' + \
+                                    'Using default value: ' + default_value_input_text
+                    open_message_window(title='Parameter parse error', text=error_text)
+                    self.protocol_object.run_parameters[key] = default_value
+                    self.run_parameter_input[key].setText(default_value_input_text)
+                else: # Successful parse
+                    self.protocol_object.run_parameters[key] = parsed_input
 
         for key, value in self.protocol_parameter_input.items():
             if isinstance(self.protocol_parameter_input[key], QCheckBox): #QCheckBox
@@ -1060,7 +1074,7 @@ class ExperimentGUI(QWidget):
                 else: # Successful parse
                     self.protocol_object.protocol_parameters[key] = parsed_input
 
-        self.protocol_object.prepare_run(recompute_epoch_parameters=compute_epoch_parameters)
+        self.protocol_object.prepare_run(manager=self.client.manager, recompute_epoch_parameters=compute_epoch_parameters)
         self.update_run_progress()
 
         self.mid_parameter_edit = False

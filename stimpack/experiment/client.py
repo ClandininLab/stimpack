@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QApplication
 
 from stimpack.rpc.transceiver import MySocketClient
 from stimpack.visual_stim.screen import Screen
+from stimpack.visual_stim.util import get_rgba
 from stimpack.experiment.server import BaseServer
 from stimpack.experiment.util import config_tools
 from stimpack.device import daq
@@ -95,7 +96,7 @@ class BaseClient():
         protocol_object.prepare_run(recompute_epoch_parameters=False)
 
         # Set background to idle_color
-        self.manager.target('visual').set_idle_background(protocol_object.run_parameters['idle_color'])
+        self.manager.target('visual').set_idle_background(get_rgba(protocol_object.run_parameters.get('idle_color', 0)))
 
         if save_metadata_flag:
             data.create_epoch_run(protocol_object)

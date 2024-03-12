@@ -197,7 +197,7 @@ class BaseProtocol():
         required_run_parameters: list of tuples (parameter_name, parameter_dtype)
             parameter is cast to parameter_dtype; if no cast is needed, use None
         """
-        required_run_parameters = [('num_epochs', int), ('idle_color', float)]
+        required_run_parameters = [('num_epochs', int), ('idle_color', None)]
         if self.loco_available:
             required_run_parameters.append(('do_loco', bool))
         
@@ -206,10 +206,19 @@ class BaseProtocol():
                 raise ValueError(f'Run parameter {p} is required but not found in {self.run_parameters}')
             else:
                 if dtype is not None:
-                    try:
-                        self.run_parameters[p] = dtype(self.run_parameters[p])
-                    except:
-                        raise ValueError(f'Run parameter {p} could not be cast to {dtype}')
+                    if not isinstance(dtype, list):
+                        dtype = [dtype]
+
+                    value_error = False
+                    for d in dtype:
+                        try:
+                            self.run_parameters[p] = d(self.run_parameters[p])
+                            value_error = False
+                            break
+                        except:
+                            value_error = True
+                    if value_error:
+                        raise ValueError(f'Run parameter {p} could not be cast to {dtype}.')
     
     def check_required_epoch_protocol_parameters(self):
         """
@@ -228,7 +237,7 @@ class BaseProtocol():
                     except:
                         raise ValueError(f'Epoch protocol parameter {p} could not be cast to {dtype}')
 
-    def prepare_run(self, recompute_epoch_parameters=True):
+    def prepare_run(self, manager=None, recompute_epoch_parameters=True):
         """
         recompute_epoch_parameters: bool
             If True, precompute epoch parameters even if they have been computed already
@@ -250,13 +259,17 @@ class BaseProtocol():
         # Estimate run time
         self.__estimate_run_time()
 
+        # If manager exists, set visual_stim background to idle_color
+        if manager is not None:
+            manager.target('visual').set_idle_background(get_rgba(self.run_parameters.get('idle_color', 0)))
+
     def load_stimuli(self, manager, multicall=None):
         if multicall is None:
             multicall = stimpack.rpc.multicall.MyMultiCall(manager)
 
-        bg = self.run_parameters.get('idle_color')
+        bg = get_rgba(self.run_parameters.get('idle_color', 0))
         multicall.target('visual').set_idle_background(bg)
-        multicall.target('visual').load_stim('ConstantBackground', color=get_rgba(bg), hold=True)
+        multicall.target('visual').load_stim('ConstantBackground', color=bg, hold=True)
 
         if isinstance(self.epoch_stim_parameters, list):
             for ep in self.epoch_stim_parameters:
