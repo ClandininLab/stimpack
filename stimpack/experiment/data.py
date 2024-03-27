@@ -716,8 +716,11 @@ class NWBData():
 
         subject_data_list = []
         
-        # Gets all the paths for the NWB files 
-        all_files = [path for path in self.nwb_file_directory.iterdir()]
+        # Gets all the paths for the NWB files
+        if self.nwb_file_directory is not None:
+            all_files = [path for path in self.nwb_file_directory.iterdir()]
+        else:
+            all_files = []
         
         # Iterate over all the files open them with nwb and extract the subject metadata
         for file_path in all_files:
