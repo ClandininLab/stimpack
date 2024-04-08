@@ -1092,7 +1092,11 @@ class ExperimentGUI(QWidget):
 
     def populate_groups(self):
         file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_dset_dict = h5io.get_hierarchy(file_path, additional_exclusions='rois')
+
+        # Retrieve subject metadata from nwb directory
+        subjects = self.data.get_existing_subject_data()
+        group_dset_dict = {'subjects': subjects}
+
         self._populateTree(self.group_tree, group_dset_dict)
 
     def _populateTree(self, widget, dict):

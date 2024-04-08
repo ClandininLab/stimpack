@@ -309,6 +309,7 @@ class NWBData():
         Also create the directory where the nwb files will be stored
         """
         
+        # Create experiment file directory:
         self.nwb_file_directory = self.data_directory / Path(self.experiment_file_name)
         self.nwb_file_directory.mkdir(parents=True, exist_ok=True)
 
@@ -333,7 +334,7 @@ class NWBData():
             institution='Stanford University',  # TODO could be added to the config.yaml for more flexibility
             experiment_description=experiment_description, 
         )
-        
+
 
     def create_subject(self, subject_metadata):
         """
