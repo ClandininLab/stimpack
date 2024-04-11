@@ -579,8 +579,8 @@ class ExperimentGUI(QWidget):
             self.data.data_directory = dialog.ui.le_data_directory.text()
             self.data.experimenter = dialog.ui.le_experimenter.text()
 
-            self.update_existing_subject_input()
-            self.populate_groups()
+            #self.update_existing_subject_input()
+            #self.populate_groups()
 
         elif sender.text() == 'Load experiment':
             if os.path.isdir(self.data.data_directory):
