@@ -20,9 +20,19 @@ yyyy-mm-dd
 import h5py
 import os
 import json
-from datetime import datetime
 import numpy as np
 from pathlib import Path
+from datetime import datetime, timezone
+
+
+from pynwb.file import Subject
+from pynwb import NWBFile, NWBHDF5IO
+from copy import deepcopy
+from pynwb.epoch import TimeIntervals
+from hdmf.common import VectorData,VectorIndex
+from hdmf.backends.hdf5.h5_utils import H5DataIO
+from hdmf.common.table import ElementIdentifiers     
+
 
 from stimpack.experiment.util import config_tools
 
@@ -280,43 +290,43 @@ def hdf5ify_parameter(value):
 
 
 class NWBData():
+    """
+
+    Data class corresponding to a series of .nwb files. One .nwb file per trial run / series
+    
+    """
     def __init__(self, cfg):
         self.cfg = cfg
-
-
-        # In the case of nwb this should be a directory, where the subjects are store as nwbfile is one-file-per-subject
-        # I am keeping the semantics to make the gui compatible
-        self.experiment_file_name = None
-        self.series_count = 1
         self.subject_metadata = {}  # populated in GUI or user protocol
-        self.current_subject = None
 
-        # default data_directory, experiment_file_name, experimenter from cfg
-        # may be overwritten by GUI or other before initialize_experiment_file() is called
-        self.data_directory = Path(config_tools.get_data_directory(self.cfg))
+        self.subject = None
+        self.nwb_directory = None
+
+        self.series_count = 1
+        self.current_subject_id = None
+
+        # default parent_directory, experimenter from cfg
+        # may be overwritten by GUI or other before initialize_experiment() is called
+        self.parent_directory = Path(config_tools.get_data_directory(self.cfg))
         self.experimenter = config_tools.get_experimenter(self.cfg)
         
-        self.nwb_file_directory = None  # Should be data_directory / experiment_file_name when that is created
-        # This is where all the subjects will be preserved
     
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # # # # # # # #  Creating experiment file and groups  # # # # # # # # # # # #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-    def initialize_experiment_file(self):     
+    def initialize_experiment(self):     
         """
-        Save top level metadata that all the nwb files will share
+        Create a dict of top level metadata that all the nwb files will share
         Also create the directory where the nwb files will be stored
         """
         
         # Create experiment file directory:
-        self.nwb_file_directory = self.data_directory / Path(self.experiment_file_name)
-        self.nwb_file_directory.mkdir(parents=True, exist_ok=True)
+        self.nwb_directory_path = Path(os.path.join(self.parent_directory, self.nwb_directory))
+        self.nwb_directory_path.mkdir(parents=True, exist_ok=True)
 
-        from datetime import datetime, timezone
         self.timezone = timezone.utc  # This could be changed if desired
         session_start_time = datetime.now(self.timezone)
-
 
         rig_config = self.cfg.get('rig_config').get(self.cfg.get('current_rig_name'))        
         self.rig_config_parameters = dict()
@@ -325,7 +335,8 @@ class NWBData():
 
         experiment_description = str(self.rig_config_parameters)
         
-        # The nwbfile is per-subject so we only store the metadata that all the files will share
+        # Store the metadata that all the files will share
+        # TODO pull more of this from the config file
         self.general_nwb_kwargs = dict(
             session_description='Experiment data', # what should this be? 
             session_start_time=session_start_time,
@@ -335,36 +346,26 @@ class NWBData():
             experiment_description=experiment_description, 
         )
 
+    def define_subject(self, subject_metadata):
+        self.subject_metadata = subject_metadata
+        self.current_subject_id = subject_metadata['subject_id']
 
     def create_subject(self, subject_metadata):
         """
-        Create a NWB file for the subject
+        Create an NWB subject for the data object
         """
-        # Inline imports unless you decide to add pynwb as a dependency
-        from pynwb.file import Subject
-        from pynwb import NWBFile, NWBHDF5IO
-        from copy import deepcopy
 
-        subject_id = subject_metadata.get('subject_id')
-        self.current_subject = subject_id
-        nwbfile_path = self.nwb_file_directory / f"{subject_id}.nwb"
-        if nwbfile_path.is_file():
-            print('A subject with this ID already exists')
-            return
-
-        if not self.experiment_file_exists():
-            print('Initialize a data file before defining a subject')
+        if not self.nwb_directory_exists():
+            print('Initialize a nwb directory before defining a subject')
             return 
-        
-        nwbfile_path = self.nwb_file_directory / f"{subject_id}.nwb"
-        
+                
         # If those files are passed as metadata, they will be mapped to their canonical place in the nwbfile
         keywords_in_the_nwb_subject_class = ["age", "genotype", "sex", "genotype", "weight", "age__reference", 
                                                 "species", "subject_id", "date_of_birth", "strain", ]
         
         # Here we deep copy the general dictionary and we modify it for the specific subject 
-        nwbfile_kwargs = deepcopy(self.general_nwb_kwargs)
-        nwbfile_kwargs["identifier"] = subject_id
+        self.subject_nwbfile_kwargs = deepcopy(self.general_nwb_kwargs)
+        self.subject_nwbfile_kwargs["identifier"] = subject_metadata.get('subject_id')
 
         # Create the subject object
         subject_kwargs = {key: subject_metadata[key] for key in keywords_in_the_nwb_subject_class if key in subject_metadata}
@@ -377,26 +378,34 @@ class NWBData():
         rest_of_the_subject_metadata = {key: subject_metadata[key] for key in subject_metadata if key not in keywords_in_the_nwb_subject_class}
         subject_kwargs['description'] = json.dumps(rest_of_the_subject_metadata)
         
-        # Creates  a subject object with allthe metadata
-        subject = Subject(**subject_kwargs)
+        # Creates a subject object with all the metadata
+        self.subject = Subject(**subject_kwargs)
         
-        # Create the nwbfile and save it to disk
-        nwbfile = NWBFile(**nwbfile_kwargs, subject=subject)
-        with NWBHDF5IO(nwbfile_path, 'w-') as io:
-            io.write(nwbfile)
 
     def create_epoch_run(self, protocol_object):
         """
-        This will only store the protocol parameters and the protocol ID.
-        The epoch 
+        Store the protocol parameters and the protocol ID.
+        Write the file for this trial run
         """
+
+        # Re-create the nwb subject object
+        self.create_subject(self.subject_metadata)
+
+        nwbfile_kwargs = self.subject_nwbfile_kwargs
+        nwbfile_kwargs = deepcopy(self.subject_nwbfile_kwargs)
+        # TODO: any more kwargs to add here?
+
+        nwbfile_path = self.get_nwb_file_path()
+
+        # Create the nwbfile and save it to disk
+        nwbfile = NWBFile(**nwbfile_kwargs, subject=self.subject)
+        with NWBHDF5IO(nwbfile_path, 'w-') as io:
+            io.write(nwbfile)
         
         
         self.epoch_parameters = {}
-        
-        # TODO: Get an example of protocol_object from Minseung and Max
-        
-        if (self.current_subject_exists() and self.experiment_file_exists()):
+                
+        if (self.current_subject_exists() and self.nwb_directory_exists()):
             
             self.epoch_parameters = {}
             self.epoch_parameters["series"] = f"series_{str(self.series_count).zfill(3)}"
@@ -417,23 +426,17 @@ class NWBData():
             self.epoch_parameters["num_trials"] = self.epoch_parameters.get("num_epochs", "")
             
         else:
-            print('Create a data file and/or define a subject first')
+            print('Create an nwb file directory and/or define a subject first')
 
     def end_epoch_run(self, protocol_object):
         """
         NWB requires the stop time to be set when the epoch is created
         So this function is called after an epoch run is concluded and this adds an entry
         to the epochs table that corresponds to the whole epoch run
-        """
-        # Have the imports here until you decide to add pynwb as a dependency
-        from pynwb import NWBHDF5IO
-        from pynwb.epoch import TimeIntervals
-        from hdmf.common import VectorData,VectorIndex
-        from hdmf.backends.hdf5.h5_utils import H5DataIO
-        from hdmf.common.table import ElementIdentifiers        
+        """   
         
-        # Open the nwbfile in append mode (do we need to close this? maybe we can keep an open reference)
-        nwbfile_path = self.nwb_file_directory / f"{self.current_subject}.nwb"
+        # Open the nwbfile in append mode
+        nwbfile_path = self.get_nwb_file_path()
         with NWBHDF5IO(nwbfile_path, 'r+') as io: 
             subject_nwbfile = io.read()
             
@@ -513,7 +516,7 @@ class NWBData():
         Then, when the epoch is concluded, we add the data as a row of the trials table.
         """
                 
-        if not (self.current_subject_exists() and self.experiment_file_exists()):
+        if not (self.current_subject_exists() and self.nwb_directory_exists()):
             print('Create a data file and/or define a subject first')
 
             
@@ -554,7 +557,7 @@ class NWBData():
         from hdmf.backends.hdf5.h5_utils import H5DataIO
         from hdmf.common.table import ElementIdentifiers        
 
-        nwbfile_path = self.nwb_file_directory / f"{self.current_subject}.nwb"
+        nwbfile_path = self.get_nwb_file_path()
         with NWBHDF5IO(nwbfile_path, 'r+') as io:
             subject_nwbfile = io.read()
 
@@ -621,8 +624,8 @@ class NWBData():
         from hdmf.common.table import ElementIdentifiers
 
         
-        if self.experiment_file_exists():
-            nwbfile_path = Path(self.nwb_file_directory) / f"{self.current_subject}.nwb"
+        if self.nwb_directory_exists():
+            nwbfile_path = self.get_nwb_file_path()
 
             with NWBHDF5IO(str(nwbfile_path), 'r+') as io:
                 nwbfile = io.read()
@@ -670,16 +673,19 @@ class NWBData():
 # # # # # # # # #  Retrieve / query data file # # # # # # # # # # # # # # # # #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-    def experiment_file_exists(self):
-        if self.experiment_file_name is None:
-            return False 
+    def nwb_directory_exists(self):
+        if self.nwb_directory is None:
+            return False
         
-        # Directory with the nwb files, one per subject
-        return Path(self.data_directory / self.experiment_file_name).is_dir()
+        # Directory with the nwb files
+        return self.nwb_directory_path.is_dir()
 
-        
+
+    def get_nwb_file_path(self):
+        return Path(os.path.join(self.nwb_directory_path, f"{self.current_subject_id}_{self.series_count}.nwb"))
+            
     def current_subject_exists(self):
-        if self.current_subject is None:
+        if self.current_subject_id is None:
             tf = False
         else:
             tf = True
@@ -690,15 +696,17 @@ class NWBData():
 
         all_series = []
         # Gets all the paths for the NWB files 
-        all_files = [path for path in self.nwb_file_directory.iterdir()]
+        all_files = [path for path in self.nwb_directory_path.iterdir()]
         
         # Iterate over all the files open them with nwb and extract the subject metadata
         for file_path in all_files:
 
             with NWBHDF5IO(file_path, 'r') as io:
                 subject_nwbfile = io.read()
-                subject_series = subject_nwbfile.epochs["series"].data
-                all_series.extend(subject_series)
+                if subject_nwbfile.epochs is not None:
+                    if subject_nwbfile.epochs.get("series") is not None:
+                        subject_series = subject_nwbfile.epochs["series"].data
+                        all_series.extend(subject_series)
         
         series = [int(x.split('_')[-1]) for x in all_series]
         return series  
@@ -712,14 +720,11 @@ class NWBData():
             return np.max(series)
 
     def get_existing_subject_data(self):
-        
-        from pynwb import NWBHDF5IO
-
         subject_data_list = []
         
         # Gets all the paths for the NWB files
-        if self.nwb_file_directory is not None:
-            all_files = [path for path in self.nwb_file_directory.iterdir()]
+        if self.nwb_directory is not None:
+            all_files = [path for path in self.nwb_directory_path.iterdir()]
         else:
             all_files = []
         
@@ -756,7 +761,7 @@ class NWBData():
 
         all_series = []
         # Iterate over all NWB files in the directory
-        all_files = [path for path in self.nwb_file_directory.iterdir() if path.is_file()]
+        all_files = [path for path in self.nwb_directory_path.iterdir() if path.is_file()]
 
         for file_path in all_files:
             with NWBHDF5IO(file_path, 'r') as io:
