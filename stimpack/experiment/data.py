@@ -17,6 +17,7 @@ yyyy-mm-dd
     Notes
 
 """
+from copy import deepcopy
 import h5py
 import os
 import json
@@ -27,11 +28,10 @@ from datetime import datetime, timezone
 
 from pynwb.file import Subject
 from pynwb import NWBFile, NWBHDF5IO
-from copy import deepcopy
 from pynwb.epoch import TimeIntervals
 from hdmf.common import VectorData,VectorIndex
 from hdmf.backends.hdf5.h5_utils import H5DataIO
-from hdmf.common.table import ElementIdentifiers     
+from hdmf.common.table import ElementIdentifiers
 
 
 from stimpack.experiment.util import config_tools
@@ -325,6 +325,15 @@ class NWBData():
         self.nwb_directory_path = Path(os.path.join(self.parent_directory, self.nwb_directory))
         self.nwb_directory_path.mkdir(parents=True, exist_ok=True)
 
+        self.initialize_session()
+
+    def load_experiment(self, nwb_directory_path):
+        self.nwb_directory_path = Path(nwb_directory_path)
+        self.parent_directory = os.path.split(nwb_directory_path)[:-1]
+        self.nwb_directory = os.path.split(nwb_directory_path)[-1]
+        self.initialize_session()
+
+    def initialize_session(self):
         self.timezone = timezone.utc  # This could be changed if desired
         session_start_time = datetime.now(self.timezone)
 
@@ -341,10 +350,12 @@ class NWBData():
             session_description='Experiment data', # what should this be? 
             session_start_time=session_start_time,
             experimenter=self.experimenter,
-            lab='Clandinin',  #TODO could be added to the config.yaml for more flexibility
-            institution='Stanford University',  # TODO could be added to the config.yaml for more flexibility
+            lab='',  #TODO could be added to the config.yaml for more flexibility
+            institution='',  # TODO could be added to the config.yaml for more flexibility
             experiment_description=experiment_description, 
         )
+
+
 
     def define_subject(self, subject_metadata):
         self.subject_metadata = subject_metadata
@@ -682,7 +693,7 @@ class NWBData():
 
 
     def get_nwb_file_path(self):
-        return Path(os.path.join(self.nwb_directory_path, f"{self.current_subject_id}_{self.series_count}.nwb"))
+        return Path(os.path.join(self.nwb_directory_path, f"{self.current_subject_id}_{str(self.series_count).zfill(3)}.nwb"))
             
     def current_subject_exists(self):
         if self.current_subject_id is None:
@@ -692,26 +703,16 @@ class NWBData():
         return tf
 
     def get_existing_series(self):
-        from pynwb import NWBHDF5IO
+        series_numbers = []
+        # Iterate over all NWB files in the directory
+        all_files = [path for path in self.nwb_directory_path.iterdir() if str(path).split('.')[-1] == 'nwb']
 
-        all_series = []
-        # Gets all the paths for the NWB files 
-        all_files = [path for path in self.nwb_directory_path.iterdir()]
-        
-        # Iterate over all the files open them with nwb and extract the subject metadata
         for file_path in all_files:
+            series_no = int(os.path.split(file_path)[-1].split('.')[0][-3:])
+            series_numbers.append(series_no)
 
-            with NWBHDF5IO(file_path, 'r') as io:
-                subject_nwbfile = io.read()
-                if subject_nwbfile.epochs is not None:
-                    if subject_nwbfile.epochs.get("series") is not None:
-                        subject_series = subject_nwbfile.epochs["series"].data
-                        all_series.extend(subject_series)
+        return series_numbers
         
-        series = [int(x.split('_')[-1]) for x in all_series]
-        return series  
-        
-
     def get_highest_series_count(self):
         series = self.get_existing_series()
         if len(series) == 0:
@@ -756,21 +757,7 @@ class NWBData():
         return self.series_count
 
     def reload_series_count(self):
-        from pynwb import NWBHDF5IO
-        import numpy as np
+        series_numbers = self.get_existing_series()
 
-        all_series = []
-        # Iterate over all NWB files in the directory
-        all_files = [path for path in self.nwb_directory_path.iterdir() if path.is_file()]
-
-        for file_path in all_files:
-            with NWBHDF5IO(file_path, 'r') as io:
-                subject_nwbfile = io.read()
-                # Extract 'series' data from the 'epochs' table
-                if 'epochs' in subject_nwbfile and 'series' in subject_nwbfile.epochs.colnames:
-                    subject_series = subject_nwbfile.epochs['series'].data[:]
-                    all_series.extend(subject_series)
-
-        # Convert series identifiers to integers and find the max
-        series_numbers = [int(x.split('_')[-1]) for x in all_series if isinstance(x, str) and x.startswith('series_')]
+        # Find the max
         self.series_count = np.max(series_numbers) + 1 if series_numbers else 1

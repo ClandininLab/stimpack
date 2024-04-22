@@ -7,6 +7,7 @@ Created on Thu Jun 21 10:51:42 2018
 """
 from datetime import datetime
 import os
+import numpy as np
 import sys
 import time
 from enum import Enum
@@ -522,7 +523,7 @@ class ExperimentGUI(QWidget):
                 msg.setInformativeText("You can show stimuli by clicking the View button, but no metadata will be saved")
                 msg.setWindowTitle("No experiment file and/or subject")
                 msg.setDetailedText("Initialize or load both a nwb directory and a subject if you'd like to save your metadata")
-                msg.setStandardButtons(QMessageBox.Ok)
+                msg.setStandardButtons(QMessageBox.StandardButton.Ok)
                 msg.exec()
 
         elif sender.text() == 'View':
@@ -584,14 +585,13 @@ class ExperimentGUI(QWidget):
 
         elif sender.text() == 'Load experiment':
             if os.path.isdir(self.data.parent_directory):
-                self.data.nwb_file_directory = str(QFileDialog.getExistingDirectory(self, "Select Directory", str(self.data.parent_directory)))
+                nwb_directory_path = str(QFileDialog.getExistingDirectory(self, "Select Directory", str(self.data.parent_directory)))
             else:
-                self.data.nwb_file_directory = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
-            self.data.experiment_file_name = os.path.split(self.data.nwb_file_directory)[-1]
-            self.data.nwb_file_directory = os.path.split(self.data.nwb_file_directoryself.data.nwb_file_directory)[0]
+                nwb_directory_path = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
 
-            if self.data.nwb_file_directory is not None:
-                self.current_nwb_directory_label.setText(self.data.nwb_file_directory)
+            if nwb_directory_path is not None:
+                self.data.load_experiment(nwb_directory_path)
+                self.current_nwb_directory_label.setText(nwb_directory_path)
                 # update series count to reflect already-collected series
                 self.data.reload_series_count()
                 self.series_counter_input.setValue(self.data.get_highest_series_count() + 1)
@@ -847,15 +847,16 @@ class ExperimentGUI(QWidget):
 
     def update_existing_subject_input(self):
         self.existing_subject_input.clear()
-        for subject_data in self.data.get_existing_subject_data():
-            self.existing_subject_input.addItem(subject_data['subject_id'])
+        existing_subjects = [x['subject_id'] for x in self.data.get_existing_subject_data()]
+        [self.existing_subject_input.addItem(x) for x in set(existing_subjects)]
+
         index = self.existing_subject_input.findText(self.data.current_subject_id)
         if index >= 0:
             self.existing_subject_input.setCurrentIndex(index)
 
     def populate_subject_metadata_fields(self, subject_data_dict):
         self.subject_id_input.setText(subject_data_dict['subject_id'])
-        self.subject_age_input.setValue(subject_data_dict['age'])
+        self.subject_age_input.setValue(int(subject_data_dict['age']))
         self.subject_notes_input.setText(subject_data_dict['notes'])
         for key in self.subject_metadata_inputs:
             self.subject_metadata_inputs[key].setCurrentText(subject_data_dict[key])
@@ -876,6 +877,8 @@ class ExperimentGUI(QWidget):
 
         # check to make sure the series count does not already exist
         if save_metadata_flag:
+            print('series_count is {}'.format(self.data.get_series_count()))
+            print('existing_series is {}'.format(self.data.get_existing_series()))
             self.data.update_series_count(self.series_counter_input.value())
             if (self.data.get_series_count() in self.data.get_existing_series()):
                 self.series_counter_input.setStyleSheet("background-color: rgb(255, 0, 0);")
