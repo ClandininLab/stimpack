@@ -850,7 +850,7 @@ class ExperimentGUI(QWidget):
         existing_subjects = [x['subject_id'] for x in self.data.get_existing_subject_data()]
         [self.existing_subject_input.addItem(x) for x in set(existing_subjects)]
 
-        index = self.existing_subject_input.findText(self.data.current_subject)
+        index = self.existing_subject_input.findText(self.data.current_subject_id)
         if index >= 0:
             self.existing_subject_input.setCurrentIndex(index)
 
