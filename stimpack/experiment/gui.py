@@ -877,6 +877,11 @@ class ExperimentGUI(QWidget):
 
         # check to make sure the series count does not already exist
         if save_metadata_flag:
+            ### TEST
+            # TODO: what is going on here. Need this sleep and import else a segfault when writing?
+            time.sleep(1)
+            from pynwb import NWBFile, NWBHDF5IO
+            # ### TEST
             print('series_count is {}'.format(self.data.get_series_count()))
             print('existing_series is {}'.format(self.data.get_existing_series()))
             self.data.update_series_count(self.series_counter_input.value())
