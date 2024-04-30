@@ -18,6 +18,7 @@ yyyy-mm-dd
 
 """
 from copy import deepcopy
+from csv import writer
 import h5py
 import os
 import json
@@ -25,14 +26,13 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime, timezone
 
-
 from pynwb.file import Subject
-from pynwb import NWBFile, NWBHDF5IO
+from pynwb import NWBFile, NWBHDF5IO, ProcessingModule
+from pynwb.core import DynamicTable
 from pynwb.epoch import TimeIntervals
 from hdmf.common import VectorData,VectorIndex
 from hdmf.backends.hdf5.h5_utils import H5DataIO
 from hdmf.common.table import ElementIdentifiers
-
 
 from stimpack.experiment.util import config_tools
 
@@ -345,16 +345,14 @@ class NWBData():
         experiment_description = str(self.rig_config_parameters)
         
         # Store the metadata that all the files will share
-        # TODO pull more of this from the config file
         self.general_nwb_kwargs = dict(
-            session_description='Experiment data', # what should this be? 
+            session_description='Experiment data',
             session_start_time=session_start_time,
             experimenter=self.experimenter,
-            lab='',  #TODO could be added to the config.yaml for more flexibility
-            institution='',  # TODO could be added to the config.yaml for more flexibility
+            lab=config_tools.get_lab(self.cfg),
+            institution=config_tools.get_institution(self.cfg),
             experiment_description=experiment_description, 
         )
-
 
 
     def define_subject(self, subject_metadata):
@@ -371,7 +369,7 @@ class NWBData():
             return 
                 
         # If those files are passed as metadata, they will be mapped to their canonical place in the nwbfile
-        keywords_in_the_nwb_subject_class = ["age", "genotype", "sex", "genotype", "weight", "age__reference", 
+        keywords_in_the_nwb_subject_class = ["age", "genotype", "sex", "weight", "age__reference", 
                                                 "species", "subject_id", "date_of_birth", "strain", ]
         
         # Here we deep copy the general dictionary and we modify it for the specific subject 
@@ -561,12 +559,6 @@ class NWBData():
         """
         Finalize the trial information and add the trial to the trials table.
         """
-        # Have the imports here until you decide to add pynwb as a dependency
-        from pynwb import NWBHDF5IO
-        from pynwb.epoch import TimeIntervals
-        from hdmf.common import VectorData,VectorIndex
-        from hdmf.backends.hdf5.h5_utils import H5DataIO
-        from hdmf.common.table import ElementIdentifiers        
 
         nwbfile_path = self.get_nwb_file_path()
         with NWBHDF5IO(nwbfile_path, 'r+') as io:
@@ -626,60 +618,23 @@ class NWBData():
 
     
     def create_note(self, note_text):
-        
-        # Have the imports here until you decide to add pynwb as a dependency
-        from pynwb import NWBHDF5IO, ProcessingModule
-        from pynwb.core import DynamicTable
-        from hdmf.common import VectorData
-        from hdmf.backends.hdf5.h5_utils import H5DataIO
-        from hdmf.common.table import ElementIdentifiers
+        """
+        Because every trial run has its own file, and it isn't written until 'record'
+        just use a big .csv file for experiment notes and timestamps
+        """
+        if self.nwb_directory_exists():            
+            timestamp = datetime.now(self.timezone).timestamp()
 
-        
-        if self.nwb_directory_exists():
-            nwbfile_path = self.get_nwb_file_path()
+            notes_path = os.path.join(self.nwb_directory_path, 'notes.csv')
 
-            with NWBHDF5IO(str(nwbfile_path), 'r+') as io:
-                nwbfile = io.read()
+            with open(notes_path, 'a') as f_object:
+                new_row = [timestamp, note_text]
 
-                # Check if a processing module for notes exists, if not, create it
-                module_name = 'NotesModule'
-                table_name = "Notes"
-                if module_name not in nwbfile.processing:
-                    notes_module = ProcessingModule(name=module_name,
-                                                    description='Module to store experiment notes')
-                    nwbfile.add_processing_module(notes_module)
+                writer(f_object).writerow(new_row)
 
-                
-                    timestamp = datetime.now().timestamp() - nwbfile.session_start_time.timestamp()    
-
-                    timestamp_column = VectorData(name='timestamp', description="the time the note was taken",
-                                                  data=H5DataIO(data=[timestamp], maxshape=(None,)))
-                    text_column = VectorData(name='note', description="a note",
-                                             data=H5DataIO(data=[note_text], maxshape=(None,)))
-
-                    ids = ElementIdentifiers(
-                        name='id',
-                        data=H5DataIO(data=[0], maxshape=(None,)),
-                    )
-                    notes_table = DynamicTable(
-                        name=table_name,
-                        description="Experiment notes",
-                        columns=[timestamp_column, text_column],
-                        id=ids,
-                    )                    
-                    notes_module.add(notes_table)
-                else:
-                    notes_module = nwbfile.processing[module_name]
-                    notes_table = notes_module.get_data_interface(table_name)
-
-                    # Add the new note
-                    timestamp = datetime.now().timestamp() - nwbfile.session_start_time.timestamp()    
-                    notes_table.add_row(timestamp=timestamp, note=note_text)
-                
-                # Write changes to file
-                io.write(nwbfile)
         else:
-            print('Initialize a NWB file before writing a note')
+            print('Initialize a NWB file directory before writing a note')
+
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # # # # # # # #  Retrieve / query data file # # # # # # # # # # # # # # # # #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -690,7 +645,6 @@ class NWBData():
         
         # Directory with the nwb files
         return self.nwb_directory_path.is_dir()
-
 
     def get_nwb_file_path(self):
         return Path(os.path.join(self.nwb_directory_path, f"{self.current_subject_id}_{str(self.series_count).zfill(3)}.nwb"))
@@ -725,7 +679,7 @@ class NWBData():
         
         # Gets all the paths for the NWB files
         if self.nwb_directory is not None:
-            all_files = [path for path in self.nwb_directory_path.iterdir()]
+            all_files = [path for path in self.nwb_directory_path.iterdir() if '.nwb' in str(path)]
         else:
             all_files = []
         
