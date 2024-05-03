@@ -408,8 +408,31 @@ class NWBData():
 
         # Create the nwbfile and save it to disk
         nwbfile = NWBFile(**nwbfile_kwargs, subject=self.subject)
+        
+        nwbfile_path = '/home/turnerlab/data/max/test.nwb'
+        session_start_time = datetime.now(timezone.utc)
+
+        # ##TEST
+        # print('-----------IN TEST-----------')
+        # session_start_time = datetime.now(timezone.utc)
+
+        # nwbfile = NWBFile(
+        #     session_description="Mouse exploring an open field",
+        #     identifier='bob',  
+        #     session_start_time=session_start_time)
+
+
+        # nwbfile_path = '/home/turnerlab/data/max/test.nwb'
+
+        # with NWBHDF5IO(nwbfile_path, 'w-') as io:
+        #     io.write(nwbfile)
+        # print('-----------OUT TEST-----------')
+        # ##TEST
         with NWBHDF5IO(nwbfile_path, 'w-') as io:
             io.write(nwbfile)
+            # TODO SEGFAULT HERE on linux
+            # segfault only when writing nwb in the run series thread
+        
         
         
         self.epoch_parameters = {}

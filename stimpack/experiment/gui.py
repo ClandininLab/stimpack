@@ -877,13 +877,6 @@ class ExperimentGUI(QWidget):
 
         # check to make sure the series count does not already exist
         if save_metadata_flag:
-            ### TEST
-            # TODO: what is going on here. Need this sleep and import else a segfault when writing?
-            time.sleep(1)
-            from pynwb import NWBFile, NWBHDF5IO
-            # ### TEST
-            print('series_count is {}'.format(self.data.get_series_count()))
-            print('existing_series is {}'.format(self.data.get_existing_series()))
             self.data.update_series_count(self.series_counter_input.value())
             if (self.data.get_series_count() in self.data.get_existing_series()):
                 self.series_counter_input.setStyleSheet("background-color: rgb(255, 0, 0);")
@@ -896,7 +889,6 @@ class ExperimentGUI(QWidget):
         if self.mid_parameter_edit:
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
 
-        # start the epoch run thread:
         self.run_series_thread = runSeriesThread(self.protocol_object,
                                                  self.data,
                                                  self.client,
@@ -1363,7 +1355,6 @@ class runSeriesThread(QThread):
 
     def _send_run(self):
         self.client.start_run(self.protocol_object, self.data, save_metadata_flag=self.save_metadata_flag)
-
     def run(self):
         self._send_run()
 
