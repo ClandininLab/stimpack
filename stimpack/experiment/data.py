@@ -389,28 +389,37 @@ class NWBData():
         
         # Creates a subject object with all the metadata
         self.subject = Subject(**subject_kwargs)
+
+    def create_data_file(self):
+        """
+        Write the file for this trial run
+
+        """
+        if (self.current_subject_exists() and self.nwb_directory_exists()):
+            # Re-create the nwb subject object
+            self.create_subject(self.subject_metadata)
+
+            nwbfile_kwargs = self.subject_nwbfile_kwargs
+            nwbfile_kwargs = deepcopy(self.subject_nwbfile_kwargs)
+            # TODO: any more kwargs to add here?
+
+            nwbfile_path = self.get_nwb_file_path()
+
+            # Create the nwbfile and save it to disk
+            nwbfile = NWBFile(**nwbfile_kwargs, subject=self.subject)
+
+            with NWBHDF5IO(nwbfile_path, 'w-') as io:
+                io.write(nwbfile)
+
+        else:
+            print('Create an nwb file directory and/or define a subject first')
+
         
 
     def create_epoch_run(self, protocol_object):
         """
         Store the protocol parameters and the protocol ID.
-        Write the file for this trial run
         """
-
-        # Re-create the nwb subject object
-        self.create_subject(self.subject_metadata)
-
-        nwbfile_kwargs = self.subject_nwbfile_kwargs
-        nwbfile_kwargs = deepcopy(self.subject_nwbfile_kwargs)
-        # TODO: any more kwargs to add here?
-
-        nwbfile_path = self.get_nwb_file_path()
-
-        # Create the nwbfile and save it to disk
-        nwbfile = NWBFile(**nwbfile_kwargs, subject=self.subject)
-
-        with NWBHDF5IO(nwbfile_path, 'w-') as io:
-            io.write(nwbfile)
         
         self.epoch_parameters = {}
                 

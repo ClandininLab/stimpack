@@ -890,6 +890,9 @@ class ExperimentGUI(QWidget):
         if self.mid_parameter_edit:
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
 
+        if save_metadata_flag:
+            self.data.create_data_file()
+
         self.run_series_thread = runSeriesThread(self.protocol_object,
                                                  self.data,
                                                  self.client,
@@ -899,10 +902,6 @@ class ExperimentGUI(QWidget):
         self.run_series_thread.started.connect(lambda: self.run_started(save_metadata_flag))
 
         self.run_series_thread.start()
-        # TODO this sleep here lets the file be written and run series proceed
-        # Segfault when the main thread gui comes back
-        from time import sleep
-        sleep(20)
 
     def run_started(self, save_metadata_flag):
         # Lock the view and run buttons to prevent spinning up multiple threads
