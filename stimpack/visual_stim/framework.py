@@ -144,8 +144,7 @@ class StimDisplay(QOpenGLWidget):
         if platform.system() == 'Linux' and os.getenv('XDG_SESSION_TYPE').lower() == 'wayland':
             # On Wayland, we need to use EGL for context creation
 
-            from OpenGL import EGL
-            from OpenGL.GL import GL_VERSION, glGetString
+            from OpenGL import EGL, GL
 
             def create_egl_context():
                 # Get an EGL display connection
@@ -190,6 +189,9 @@ class StimDisplay(QOpenGLWidget):
                 if ctx == EGL.EGL_NO_CONTEXT:
                     raise RuntimeError("Failed to create EGL context")
                 
+                GL.glEnable(GL.GL_DEPTH_TEST)         # Enable depth testing
+                GL.glDepthFunc(GL.GL_LESS)            # Specify depth comparison function
+
                 return display, ctx, config
 
             display, ctx, config = create_egl_context()
@@ -199,7 +201,7 @@ class StimDisplay(QOpenGLWidget):
                 raise RuntimeError("Failed to make the EGL context current")
 
             # Verify the context by printing the OpenGL version
-            print("OpenGL version:", glGetString(GL_VERSION).decode())
+            print("OpenGL version:", GL.glGetString(GL.GL_VERSION).decode())
 
             # Grab the EGL context with moderngl
             self.ctx = moderngl.get_context()
