@@ -23,7 +23,7 @@ def launch_screen(screen, **kwargs):
     new_env_vars = {}
     if platform.system() in ['Linux', 'Darwin']:
         if screen.server_number == -1 and screen.id == -1:
-            print('Initializing screen with default X display server.')
+            print('Initializing screen without specifying Xorg server or id number.')
         elif screen.server_number == -1:
             new_env_vars['DISPLAY'] = ':{}'.format(screen.id)
         elif screen.id == -1:

@@ -68,8 +68,8 @@ class Screen:
                  pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15)):
         """
         :param subscreens: list of SubScreen objects (see above), if none are provided, one full-viewport subscreen will be produced using inputs pa, pb, pc
-        :param server_number: ID # of the X server
-        :param id: ID # of the screen
+        :param server_number: ID # of the X server / display. Relevant for Xorg setup with one X Screen per display device (recommended when using Xorg with displays with different refresh rates).
+        :param id: ID # of the screen. Relevant for all other display server configurations.
         :param fullscreen: Boolean.  If True, display stimulus fullscreen (default).  Otherwise, display stimulus
         in a window.
         :param vsync: Boolean.  If True, lock the framerate to the redraw rate of the screen.

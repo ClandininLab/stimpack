@@ -44,20 +44,41 @@ class StimDisplay(QOpenGLWidget):
         self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}')
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
 
-        rect_display = app.primaryScreen().geometry() # Get hardware display size
+        # if no screen ID is specified, set it to 0
+        if screen.id == -1:
+            screen.id = 0
+
+        # Get the correct QScreen object for the display hardware
+        qscreens = app.screens()
+        if len(qscreens) == 0:
+            raise ValueError('ERROR: No screens detected.')
+        elif len(qscreens) == 1: 
+            # If only one screen is detected, use that screen
+            # Either there is just one display OR using Xorg with one Xscreen for each display 
+            qscreen = qscreens[0]
+        else:
+            # If multiple screens are detected, use the screen with the correct ID
+            # Likely the case when NOT using Xorg with one Xscreen for each display
+            assert len(qscreens) > screen.id, f'ERROR: Screen ID {screen.id} not found in detected screens. There are {len(qscreens)} screens detected.'
+            qscreen = qscreens[screen.id]
+
+        screen_geometry = qscreen.geometry() # Get hardware display size
+
+        # Move the window to the correct screen
+        self.move(screen_geometry.left(), screen_geometry.top())
+
         if screen.fullscreen:
-            # Set window size and position for fullscreen
-            self.move(rect_display.left(), rect_display.top())
-            self.resize(rect_display.width(), rect_display.height())
+            # Set window size for fullscreen
+            self.resize(screen_geometry.width(), screen_geometry.height())
         else:
             # Set window size such that neither heignt nor width exceeds half that of the display, 
             #   while maintaining aspect ratio
             window_aspect_ratio = screen.width / screen.height
-            display_aspect_ratio = rect_display.width() / rect_display.height()
+            display_aspect_ratio = screen_geometry.width() / screen_geometry.height()
 
             # Maximum allowed size (half of the display's size)
-            max_window_width = rect_display.width() // 2
-            max_window_height = rect_display.height() // 2
+            max_window_width = screen_geometry.width() // 2
+            max_window_height = screen_geometry.height() // 2
 
             # Determine the scaling factor based on aspect ratios and maximum allowed dimensions
             if window_aspect_ratio > display_aspect_ratio:
