@@ -301,6 +301,10 @@ class StimDisplay(QOpenGLWidget):
         # draw the corner square
         self.square_program.paint()
 
+        # error = self.ctx.error
+        # if error != 'GL_NO_ERROR':
+        #     print(f'{self.counter} OpenGL Error: {error}')
+
         # update the window
         self.ctx.finish()
         self.update()
