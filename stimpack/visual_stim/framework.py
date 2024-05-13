@@ -163,7 +163,8 @@ class StimDisplay(QOpenGLWidget):
                     EGL.EGL_BLUE_SIZE, 8,
                     EGL.EGL_GREEN_SIZE, 8,
                     EGL.EGL_RED_SIZE, 8,
-                    EGL.EGL_DEPTH_SIZE, 8,
+                    EGL.EGL_ALPHA_SIZE, 24,
+                    EGL.EGL_DEPTH_SIZE, 24,
                     EGL.EGL_RENDERABLE_TYPE, EGL.EGL_OPENGL_BIT,
                     EGL.EGL_NONE
                 ]
@@ -223,6 +224,8 @@ class StimDisplay(QOpenGLWidget):
 
         # initialize square program
         self.square_program.initialize(self.ctx)
+
+        self.counter = 0
 
     def get_stim_time(self, t):
         stim_time = 0
@@ -301,9 +304,10 @@ class StimDisplay(QOpenGLWidget):
         # draw the corner square
         self.square_program.paint()
 
-        # error = self.ctx.error
-        # if error != 'GL_NO_ERROR':
-        #     print(f'{self.counter} OpenGL Error: {error}')
+        error = self.ctx.error
+        if error != 'GL_NO_ERROR':
+            print(f'{self.counter} OpenGL Error: {error}')
+        self.counter += 1
 
         # update the window
         self.ctx.finish()

@@ -103,6 +103,9 @@ class SquareProgram:
     def paint(self):
 
         if self.draw:
+ 
+            # self.ctx.disable_direct(GL.GL_DEPTH_TEST)
+
             # Set viewport
             self.ctx.viewport = self.viewport
 
@@ -117,10 +120,10 @@ class SquareProgram:
             # create vertex array object
             self.vao = self.ctx.simple_vertex_array(self.prog, vbo, 'pos')
 
-            # print(f'color: {self.prog['color'].value}')
-            # print(f'pos: {self.prog['pos'].dimension}')
-            # for x in self.prog:
-            #     print(x)
+            print(f'color: {self.prog['color'].value}')
+            print(f'pos: {self.prog['pos'].dimension}')
+            for x in self.prog:
+                print(x)
 
             ######################################################
 
@@ -129,8 +132,9 @@ class SquareProgram:
                 
             # render to screen
             self.vao.render(mode=moderngl.TRIANGLE_STRIP)
-                
-        
+            
+            # self.ctx.enable_direct(GL.GL_DEPTH_TEST)
+
         if self.toggle:
             self.on = not self.on
             self.color = self.on_color if self.on else self.off_color
