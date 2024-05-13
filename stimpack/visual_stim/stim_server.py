@@ -33,12 +33,11 @@ def launch_screen(screen, **kwargs):
         else:
             if session_type == 'x11':
                 print("No X display specified, using default X11 settings.")
-                new_env_vars['QT_QPA_PLATFORM'] = 'xcb'
                 screen.name += f" ({os.environ.get('DISPLAY', '')})"
+                new_env_vars['QT_QPA_PLATFORM'] = 'xcb'
             elif session_type == 'wayland':
-                print("No X display specified, using Wayland.")
-                # new_env_vars['QT_QPA_PLATFORM'] = 'wayland'
                 screen.name += " (Wayland)"
+                # new_env_vars['QT_QPA_PLATFORM'] = 'wayland'
             else:
                 print(f"Unknown session type: {session_type}")
 

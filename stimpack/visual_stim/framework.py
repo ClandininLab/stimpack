@@ -135,7 +135,8 @@ class StimDisplay(QOpenGLWidget):
 
     def initializeGL(self):
          # get OpenGL context
-        if platform.system() in ['Linux', 'Darwin'] and os.getenv('XDG_SESSION_TYPE').lower() == 'wayland':
+        qt_session_type = os.environ.get('QT_QPA_PLATFORM', "unknown") # stim_server sets this env variable to xcb if x11 was wanted.
+        if platform.system() in ['Linux', 'Darwin'] and qt_session_type != 'xcb':
             # On Wayland, we need to use EGL for context creation
 
             from OpenGL import EGL, GL
