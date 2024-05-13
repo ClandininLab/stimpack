@@ -1,4 +1,4 @@
-from math import sin, cos, radians, sqrt
+from math import sqrt
 
 class SubScreen:
     """
@@ -63,13 +63,13 @@ class Screen:
     Parameters such as screen coordinates and the ID # are represented.
     """
 
-    def __init__(self, subscreens=None, server_number=None, id=None, fullscreen=None, vsync=None,
+    def __init__(self, subscreens=None, x_display=None, display_index=0, fullscreen=None, vsync=None,
                  square_size=None, square_loc=None, square_on_color=None, square_off_color=None, name=None, horizontal_flip=False, 
                  pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15)):
         """
         :param subscreens: list of SubScreen objects (see above), if none are provided, one full-viewport subscreen will be produced using inputs pa, pb, pc
-        :param server_number: ID # of the X server / display. Relevant for Xorg setup with one X Screen per display device (recommended when using Xorg with displays with different refresh rates).
-        :param id: ID # of the screen. Relevant for all other display server configurations.
+        :param x_display: $DISPLAY environment variable relevant if using Xorg as display server. If None, the default display is used.
+        :param display_index: Index # of the screen (starts from 0). Follows what QT uses for screen numbering. 
         :param fullscreen: Boolean.  If True, display stimulus fullscreen (default).  Otherwise, display stimulus
         in a window.
         :param vsync: Boolean.  If True, lock the framerate to the redraw rate of the screen.
@@ -82,10 +82,8 @@ class Screen:
         """
         if subscreens is None:
             subscreens = [ SubScreen(pa=pa, pb=pb, pc=pc) ]
-        if server_number is None: # server_number and id of -1 means use default X server. See stim_server.launch_screen
-            server_number = -1
-        if id is None:
-            id = -1
+        if display_index is None:
+            display_index = 0
         if fullscreen is None:
             fullscreen = True
         if vsync is None:
@@ -102,12 +100,12 @@ class Screen:
         square_off_color = max(min(square_off_color, 1.0), 0.0)
 
         if name is None:
-            name = 'Screen' + str(id)
+            name = 'Screen ' + str(display_index) + (f" ({x_display})" if x_display is not None else '')
 
         # Save settings
         self.subscreens=subscreens
-        self.id = id
-        self.server_number = server_number
+        self.x_display = x_display
+        self.display_index = display_index
         self.fullscreen = fullscreen
         self.vsync = vsync
         self.square_size = square_size
@@ -124,7 +122,7 @@ class Screen:
 
     def serialize(self):
         # get all variables needed to reconstruct the screen object
-        vars = ['id', 'server_number', 'fullscreen', 'vsync', 'square_size', 'square_loc', 
+        vars = ['x_display', 'display_index', 'fullscreen', 'vsync', 'square_size', 'square_loc', 
                 'square_on_color', 'square_off_color', 'name', 'horizontal_flip', 'pa', 'pb', 'pc']
         data = {var: getattr(self, var) for var in vars}
 

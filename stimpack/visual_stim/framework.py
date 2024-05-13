@@ -46,23 +46,17 @@ class StimDisplay(QOpenGLWidget):
         self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}')
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
 
-        # if no screen ID is specified, set it to 0
-        if screen.id == -1:
-            screen.id = 0
-
         # Get the correct QScreen object for the display hardware
         qscreens = app.screens()
         if len(qscreens) == 0:
             raise ValueError('ERROR: No screens detected.')
         elif len(qscreens) == 1: 
             # If only one screen is detected, use that screen
-            # Either there is just one display OR using Xorg with one Xscreen for each display 
             qscreen = qscreens[0]
         else:
-            # If multiple screens are detected, use the screen with the correct ID
-            # Likely the case when NOT using Xorg with one Xscreen for each display
-            assert len(qscreens) > screen.id, f'ERROR: Screen ID {screen.id} not found in detected screens. There are {len(qscreens)} screens detected.'
-            qscreen = qscreens[screen.id]
+            # If multiple screens are detected, index the screen with screen.display_index
+            assert len(qscreens) > screen.display_index, f'ERROR: Display index ({screen.display_index}) must be less than # of screens ({len(qscreens)} detected).'
+            qscreen = qscreens[screen.display_index]
 
         screen_geometry = qscreen.geometry() # Get hardware display size
 
@@ -141,7 +135,7 @@ class StimDisplay(QOpenGLWidget):
 
     def initializeGL(self):
          # get OpenGL context
-        if platform.system() == 'Linux' and os.getenv('XDG_SESSION_TYPE').lower() == 'wayland':
+        if platform.system() in ['Linux', 'Darwin'] and os.getenv('XDG_SESSION_TYPE').lower() == 'wayland':
             # On Wayland, we need to use EGL for context creation
 
             from OpenGL import EGL, GL

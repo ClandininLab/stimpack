@@ -30,13 +30,11 @@ class BaseClient():
             self.manager = MySocketClient(host=self.server_options['host'], port=self.server_options['port'])
             
         else:
-            if 'disp_server_id' in self.server_options:
-                disp_server, disp_id = self.server_options['disp_server_id']
-            else:
-                disp_server, disp_id = -1, -1
-            
+            x_display = self.server_options.get('x_display', None)
+            display_index = self.server_options.get('display_index', 0)
+
             visual_stim_kwargs = {
-                'screens': [Screen(server_number=disp_server, id=disp_id, fullscreen=False, vsync=True, square_size=(0.1, 0.1),
+                'screens': [Screen(x_display=x_display, display_index=display_index, fullscreen=False, vsync=True, square_size=(0.1, 0.1),
                                    pa=(-0.15, 0.15, -0.15), pb=(+0.15, 0.15, -0.15), pc=(-0.15, 0.15, +0.15))] # -45 to 45 deg in both theta and phi
             }
             

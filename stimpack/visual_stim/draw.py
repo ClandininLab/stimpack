@@ -24,13 +24,13 @@ def draw_screens(screens):
             pc = np.array(subscreen.pc)
 
             # draw the primary screen triangle
-            tri_draw(pa, pb, pc, ax=ax, color=COLOR_LIST[screen.id % len(COLOR_LIST)])
+            tri_draw(pa, pb, pc, ax=ax, color=COLOR_LIST[screen.display_index % len(COLOR_LIST)])
 
             # draw the screen normal, should point TOWARDS the viewer
             vr = normalize(pb - pa)
             vu = normalize(pc - pa)
             vn = normalize(np.cross(vr, vu))
-            ax.quiver(pa[0], pa[1], pa[2], vn[0], vn[1], vn[2], length=0.1, normalize=True, color=COLOR_LIST[screen.id % len(COLOR_LIST)])
+            ax.quiver(pa[0], pa[1], pa[2], vn[0], vn[1], vn[2], length=0.1, normalize=True, color=COLOR_LIST[screen.display_index % len(COLOR_LIST)])
 
     # draw fly in the center
     ax.scatter(0, 0, 0, c='g')
