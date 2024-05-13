@@ -120,8 +120,8 @@ class SquareProgram:
             # create vertex array object
             self.vao = self.ctx.simple_vertex_array(self.prog, vbo, 'pos')
 
-            print(f'color: {self.prog['color'].value}')
-            print(f'pos: {self.prog['pos'].dimension}')
+            print(f"color: {self.prog['color'].value}")
+            print(f"pos: {self.prog['pos'].dimension}")
             for x in self.prog:
                 print(x)
 
