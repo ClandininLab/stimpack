@@ -29,16 +29,13 @@ class SquareProgram:
         self.prog = self.create_prog()
 
         # create VBO to represent vertex positions
-        pts = np.array([-1, -1, 1, -1, -1, 1, 1, 1]) # fill the viewport
-        vbo = self.ctx.buffer(pts.astype('f4').tobytes())
-        # self.vbo = vbo
+        self.pts = np.array([-1, -1, 1, -1, -1, 1, 1, 1]).astype('f4').tobytes() # fill the viewport
+        self.vbo = self.ctx.buffer(self.pts)
 
         # create vertex array object
-        self.vao = self.ctx.simple_vertex_array(self.prog, vbo, 'pos')
-
-        # print('Square program init!!!!')
-        # print(f'color: {self.prog['color'].value}')
-        # print(f'pos: {self.prog['pos'].dimension}')
+        self.vao = self.ctx.vertex_array(program = self.prog, 
+                                         content = [(self.vbo, '2f', 'pos')], 
+                                         mode = moderngl.TRIANGLE_STRIP)
 
     def create_prog(self):
         return self.ctx.program(
@@ -103,22 +100,16 @@ class SquareProgram:
     def paint(self):
 
         if self.draw:
- 
-            # self.ctx.disable_direct(GL.GL_DEPTH_TEST)
-
             # Set viewport
             self.ctx.viewport = self.viewport
 
             ############### Hack for now to get square working #########
 
             self.create_prog()
-            
-            # create VBO to represent vertex positions
-            pts = np.array([-1, -1, 1, -1, -1, 1, 1, 1]) # fill the viewport
-            vbo = self.ctx.buffer(pts.astype('f4').tobytes())
-
-            # create vertex array object
-            self.vao = self.ctx.simple_vertex_array(self.prog, vbo, 'pos')
+            self.ctx.buffer(self.pts)
+            self.ctx.vertex_array(program = self.prog, 
+                                    content = [(self.vbo, '2f', 'pos')], 
+                                    mode = moderngl.TRIANGLE_STRIP)
 
             # print(f"color: {self.prog['color'].value}")
             # print(f"pos: {self.prog['pos'].dimension}")
@@ -133,8 +124,6 @@ class SquareProgram:
             # render to screen
             self.vao.render(mode=moderngl.TRIANGLE_STRIP)
             
-            # self.ctx.enable_direct(GL.GL_DEPTH_TEST)
-
         if self.toggle:
             self.on = not self.on
             self.color = self.on_color if self.on else self.off_color

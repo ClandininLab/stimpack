@@ -300,7 +300,7 @@ class StimDisplay(QOpenGLWidget):
         self.square_program.paint()
 
         error = self.ctx.error
-        if error != 'GL_NO_ERROR':
+        if error != 'GL_NO_ERROR' and self.counter < 10:
             print(f'{self.counter} OpenGL Error: {error}')
         self.counter += 1
 
