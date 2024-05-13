@@ -7,7 +7,10 @@ from time import sleep
 
 def main():
     # This must contain a file called stimuli.py that defines the custom stimuli
-    PATH_TO_CUSTOM_STIMULI = '/home/jblvn/Code/stimpack/examples/custom_visual_stimuli/'
+    PATH_TO_CUSTOM_STIMULI = '/home/jblvn/Code/stimpack/examples/example_custom_module/'
+
+    # Import the custom stimulus module onto server
+
 
     # Initialize your display canvas
     subscreen = SubScreen(pa=(-1, 1, -1),
@@ -36,19 +39,15 @@ def main():
     # Present 5 epochs of the stimulus
     rotation = 0
     for i in range(200):
-        # Load a stimulus
+        # Load a stimulus - here ShowImage is a new stimulus class found within the custom module directory
         manager.load_stim(name='ShowImage', image_path='/home/jblvn/Code/stimpack/examples/assets/cactus.png', vertical_extent=30, horizontal_extent=30, rotate=rotation)
-        rotation+=10
-
-        # Pre time: wait for 0.5 second
+        rotation+=15
 
         # Start the stimulus
         manager.start_stim()
 
         # Stim time: client waits for 4 seconds while server shows the stimulus
-        sleep(0.2)
-
-        # Tail time: wait for 0.5 second at the end of the stimulus
+        sleep(0.1)
 
         # Stop the stimulus
         manager.stop_stim(print_profile=True)
