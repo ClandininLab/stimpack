@@ -24,7 +24,7 @@ def launch_screen(screen, **kwargs):
 
     session_type = os.environ.get('XDG_SESSION_TYPE', "unknown")
     print(f"Display session type: {session_type}")
-    if platform.system() in ['Linux', 'Darwin']:
+    if platform.system() == 'Linux':
         if screen.x_display is not None:
             if session_type != 'x11':
                 print("Host session type is not X11 but attempting to use X11.")
