@@ -311,7 +311,10 @@ class StimDisplay(QOpenGLWidget):
         # clear the buffer objects
         for stim in self.stim_list:
             if self.stim_started:
-                stim.vbo.release()
+                stim.vbo_vert.release()
+                stim.vbo_color.release()
+                if stim.use_texture:
+                    stim.vbo_texture.release()
                 stim.vao.release()
 
         if self.stim_started:
