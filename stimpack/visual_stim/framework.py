@@ -308,15 +308,6 @@ class StimDisplay(QOpenGLWidget):
         self.ctx.finish()
         self.update()
 
-        # clear the buffer objects
-        for stim in self.stim_list:
-            if self.stim_started:
-                stim.vbo_vert.release()
-                stim.vbo_color.release()
-                if stim.use_texture:
-                    stim.vbo_texture.release()
-                stim.vao.release()
-
         if self.stim_started:
             # print('paintGL {:.2f} ms'.format((time.time()-t0)*1000)) #benchmarking
 
@@ -399,6 +390,11 @@ class StimDisplay(QOpenGLWidget):
         self.ctx.extra['n_textures_loaded'] = 0
 
         for stim in self.stim_list:
+            stim.vbo_vert.release()
+            stim.vbo_color.release()
+            if stim.use_texture:
+                stim.vbo_texture.release()
+            stim.vao.release()
             stim.prog.release()
             stim.destroy()
 

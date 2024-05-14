@@ -33,9 +33,18 @@ class BaseProgram:
         """
         # save context
         self.ctx = ctx
-        self.prog = self.create_prog()
+        self.prog = self.ctx.program(vertex_shader=self.get_vertex_shader(), fragment_shader=self.get_fragment_shader())
 
-        self.update_vertex_objects()
+        # Initialize vertex objects
+        # 3 points, (3 for vert, 4 for color, 2 for tex_coords), 4 bytes per value
+        self.vbo_vert    = self.ctx.buffer(reserve=self.num_tri*3*3*4)
+        self.vbo_color   = self.ctx.buffer(reserve=self.num_tri*3*4*4)
+        vao_content  = [(self.vbo_vert,  '3f', 'in_vert'),
+                        (self.vbo_color, '4f', 'in_color')]
+        if self.use_texture:
+            self.vbo_texture = self.ctx.buffer(reserve=self.num_tri*3*2*4)
+            vao_content.append((self.vbo_texture, '2f', 'in_tex_coord'))
+        self.vao = self.ctx.vertex_array(program = self.prog, content = vao_content)
 
         # Default texture booleans for the shader program
         self.prog['use_texture'].value = False
@@ -58,8 +67,6 @@ class BaseProgram:
         :param subject_position: x, y, z position of subject (meters)
         """
         self.eval_at(t, subject_position=subject_position) # update any stim objects that depend on subject position
-
-        self.update_vertex_objects()
 
         # get data from stim object
         vert_coords = self.stim_object.vertices  # x, y, z
@@ -87,18 +94,6 @@ class BaseProgram:
                 self.ctx.point_size=self.point_size
             elif self.draw_mode == 'TRIANGLES':
                 self.vao.render(mode=moderngl.TRIANGLES, vertices=n_vertices)
-
-    def update_vertex_objects(self):
-        # 3 points, (3 for vert, 4 for color, 2 for tex_coords), 4 bytes per value
-        self.vbo_vert    = self.ctx.buffer(reserve=self.num_tri*3*3*4)
-        self.vbo_color   = self.ctx.buffer(reserve=self.num_tri*3*4*4)
-        vao_content  = [(self.vbo_vert,  '3f', 'in_vert'),
-                        (self.vbo_color, '4f', 'in_color')]
-        if self.use_texture:
-            self.vbo_texture = self.ctx.buffer(reserve=self.num_tri*3*2*4)
-            vao_content.append((self.vbo_texture, '2f', 'in_tex_coord'))
-        
-        self.vao = self.ctx.vertex_array(program = self.prog, content = vao_content)
 
     def add_texture_gl(self, texture_image, texture_interpolation='LINEAR'):
         # Update the texture booleans for the shader program
@@ -137,10 +132,6 @@ class BaseProgram:
         """
 
         pass
-
-    def create_prog(self):
-
-        return self.ctx.program(vertex_shader=self.get_vertex_shader(), fragment_shader=self.get_fragment_shader())
 
     def get_vertex_shader(self):
         vertex_shader = '''
