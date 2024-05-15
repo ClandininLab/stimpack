@@ -105,9 +105,9 @@ class SquareProgram:
 
             # When using EGL, the context state needs to be reset. Temporary fix.
             if self.screen.use_egl:
-                self.create_prog()
-                self.ctx.buffer(self.pts)
-                self.ctx.vertex_array(program = self.prog, 
+                self.prog = self.create_prog()
+                self.vbo = self.ctx.buffer(self.pts)
+                self.vao = self.ctx.vertex_array(program = self.prog, 
                                         content = [(self.vbo, '2f', 'pos')], 
                                         mode = moderngl.TRIANGLE_STRIP)
 
