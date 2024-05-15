@@ -7,7 +7,7 @@ from time import sleep
 
 def main():
     # This must contain a file called stimuli.py that defines the custom stimuli
-    PATH_TO_CUSTOM_STIMULI = '/home/jblvn/Code/stimpack/examples/example_custom_module/'
+    PATH_TO_CUSTOM_STIMULI = './example_custom_module/'
 
     # Import the custom stimulus module onto server
 
@@ -40,7 +40,7 @@ def main():
     rotation = 0
     for i in range(200):
         # Load a stimulus - here ShowImage is a new stimulus class found within the custom module directory
-        manager.load_stim(name='ShowImage', image_path='/home/jblvn/Code/stimpack/examples/assets/cactus.png', vertical_extent=30, horizontal_extent=30, rotate=rotation)
+        manager.load_stim(name='ShowImage', image_path='./assets/cactus.png', vertical_extent=30, horizontal_extent=30, rotate=rotation)
         rotation+=15
 
         # Start the stimulus
