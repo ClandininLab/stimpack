@@ -62,15 +62,14 @@ class StimDisplay(QOpenGLWidget):
             assert len(qscreens) > screen.display_index, f'ERROR: Display index ({screen.display_index}) must be less than # of screens ({len(qscreens)} detected).'
             qscreen = qscreens[screen.display_index]
 
-        screen_geometry = qscreen.geometry() # Get hardware display size
-
-        # Move the window to the correct screen
-        self.move(screen_geometry.left(), screen_geometry.top())
-
         if screen.fullscreen:
-            # Set window size for fullscreen
+            screen_geometry = qscreen.geometry() # Get hardware display size
+            self.move(screen_geometry.left(), screen_geometry.top())
             self.resize(screen_geometry.width(), screen_geometry.height())
         else:
+            screen_geometry = qscreen.availableGeometry() # Get available display size
+            self.move(screen_geometry.left(), screen_geometry.top())
+
             # Set window size such that neither heignt nor width exceeds half that of the display, 
             #   while maintaining aspect ratio
             window_aspect_ratio = screen.width / screen.height
