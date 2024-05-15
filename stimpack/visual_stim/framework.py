@@ -32,7 +32,7 @@ class StimDisplay(QOpenGLWidget):
     and also controls rendering of the stimulus, toggling corner square, and/or debug information.
     """
 
-    def __init__(self, screen, server, app):
+    def __init__(self, screen, server, app, debug=False):
         """
         Initialize the StimDisplay obect.
 
@@ -45,6 +45,10 @@ class StimDisplay(QOpenGLWidget):
 
         self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}' + " (EGL)" if screen.use_egl else "")
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
+
+        self.debug = debug
+        if self.debug:
+            print('Debug mode enabled')
 
         # Get the correct QScreen object for the display hardware
         qscreens = app.screens()
@@ -299,9 +303,10 @@ class StimDisplay(QOpenGLWidget):
         # draw the corner square
         self.square_program.paint()
 
-        # error = self.ctx.error
-        # if error != 'GL_NO_ERROR' and self.counter < 10:
-        #     print(f'{self.counter} OpenGL Error: {error}')
+        if self.debug:
+            error = self.ctx.error
+            if error != 'GL_NO_ERROR' and self.frame_count < 5:
+                print(f'{self.frame_count} OpenGL Error: {error}')
 
         # update the window
         self.ctx.finish()
@@ -622,7 +627,8 @@ def main():
 
     # create the StimDisplay object
     screen = Screen.deserialize(kwargs.get('screen', {}))
-    stim_display = StimDisplay(screen=screen, server=server, app=app)
+    debug = kwargs.get('debug', False)
+    stim_display = StimDisplay(screen=screen, server=server, app=app, debug=debug)
 
     # register functions
     server.register_function(stim_display.set_subject_trajectory)
