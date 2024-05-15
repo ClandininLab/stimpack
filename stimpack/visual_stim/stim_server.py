@@ -23,21 +23,26 @@ def launch_screen(screen, **kwargs):
     new_env_vars = {}
 
     session_type = os.environ.get('XDG_SESSION_TYPE', "unknown")
+    qt_platform_type = os.environ.get('QT_QPA_PLATFORM', "unknown")
     print(f"Display session type: {session_type}")
+    print(f"QT platform type: {qt_platform_type}")
+
     if platform.system() == 'Linux':
         if screen.x_display is not None:
             if session_type != 'x11':
                 print("Host session type is not X11 but attempting to use X11.")
+            screen.name += f" (X11 {screen.x_display})"
             new_env_vars['DISPLAY'] = screen.x_display
             new_env_vars['QT_QPA_PLATFORM'] = 'xcb'
         else:
-            if session_type == 'x11':
+            if session_type == 'x11' or qt_platform_type == 'xcb':
                 print("No X display specified, using default X11 settings.")
-                screen.name += f" ({os.environ.get('DISPLAY', '')})"
+                screen.name += f" (X11 {os.environ.get('DISPLAY', '')})"
                 new_env_vars['QT_QPA_PLATFORM'] = 'xcb'
-            elif session_type == 'wayland':
+            elif session_type == 'wayland' or 'wayland' in qt_platform_type:
                 screen.name += " (Wayland)"
-                # new_env_vars['QT_QPA_PLATFORM'] = 'wayland'
+                new_env_vars['LD_LIBRARY_PATH'] = '/usr/lib64:/usr/lib:' + os.environ.get('LD_LIBRARY_PATH', "")
+                new_env_vars['QT_QPA_PLATFORM'] = 'wayland'
             else:
                 print(f"Unknown session type: {session_type}")
 
