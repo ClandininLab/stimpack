@@ -65,7 +65,7 @@ class Screen:
 
     def __init__(self, subscreens=None, x_display=None, display_index=0, fullscreen=None, vsync=None,
                  square_size=None, square_loc=None, square_on_color=None, square_off_color=None, name=None, horizontal_flip=False, 
-                 pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15)):
+                 pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15), use_egl=None):
         """
         :param subscreens: list of SubScreen objects (see above), if none are provided, one full-viewport subscreen will be produced using inputs pa, pb, pc
         :param x_display: $DISPLAY environment variable relevant if using Xorg as display server. If None, the default display is used.
@@ -78,7 +78,8 @@ class Screen:
         :param square_max_color: scales square color such that maximum value is set as indicated (0 - square_max_color)
         :param name: descriptive name to associate with this screen
         :param horizontal_flip: Boolean. Flip horizontal axis of image, for rear-projection devices
-
+        :param use_egl: Boolean. If True, use EGL for rendering. If False (Default), use GLX. 
+                                 If the display server is Wayland (Linux), EGL will be used regardless.
         """
         if subscreens is None:
             subscreens = [ SubScreen(pa=pa, pb=pb, pc=pc) ]
@@ -98,9 +99,11 @@ class Screen:
             square_off_color = 1.0
         square_on_color = max(min(square_on_color, 1.0), 0.0)
         square_off_color = max(min(square_off_color, 1.0), 0.0)
+        if use_egl is None:
+            use_egl = False
 
         if name is None:
-            name = 'Screen ' + str(display_index) + (f" ({x_display})" if x_display is not None else '')
+            name = 'Screen ' + str(display_index)
 
         # Save settings
         self.subscreens=subscreens
@@ -117,13 +120,14 @@ class Screen:
         self.pa = pa
         self.pb = pb
         self.pc = pc
+        self.use_egl = use_egl
         self.width = sqrt((pa[0]-pb[0])**2 + (pa[1]-pb[1])**2 + (pa[2]-pb[2])**2)
         self.height = sqrt((pa[0]-pc[0])**2 + (pa[1]-pc[1])**2 + (pa[2]-pc[2])**2)
 
     def serialize(self):
         # get all variables needed to reconstruct the screen object
         vars = ['x_display', 'display_index', 'fullscreen', 'vsync', 'square_size', 'square_loc', 
-                'square_on_color', 'square_off_color', 'name', 'horizontal_flip', 'pa', 'pb', 'pc']
+                'square_on_color', 'square_off_color', 'name', 'horizontal_flip', 'pa', 'pb', 'pc', 'use_egl']
         data = {var: getattr(self, var) for var in vars}
 
         # special handling for tri_list since it could contain numpy values

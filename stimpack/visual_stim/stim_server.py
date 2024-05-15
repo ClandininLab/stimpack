@@ -41,8 +41,8 @@ def launch_screen(screen, **kwargs):
                 new_env_vars['QT_QPA_PLATFORM'] = 'xcb'
             elif session_type == 'wayland' or 'wayland' in qt_platform_type:
                 screen.name += " (Wayland)"
-                new_env_vars['LD_LIBRARY_PATH'] = '/usr/lib64:/usr/lib:' + os.environ.get('LD_LIBRARY_PATH', "")
                 new_env_vars['QT_QPA_PLATFORM'] = 'wayland'
+                screen.use_egl = True
             else:
                 print(f"Unknown session type: {session_type}")
 

@@ -43,7 +43,7 @@ class StimDisplay(QOpenGLWidget):
         super().__init__()
         self.setFormat(make_qt_format(vsync=screen.vsync))
 
-        self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}')
+        self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}' + " (EGL)" if screen.use_egl else "")
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
 
         # Get the correct QScreen object for the display hardware
@@ -135,10 +135,8 @@ class StimDisplay(QOpenGLWidget):
 
     def initializeGL(self):
          # get OpenGL context
-        qt_session_type = os.environ.get('QT_QPA_PLATFORM', "unknown") # stim_server sets this env variable to xcb if x11 was wanted.
-        if platform.system() == 'Linux' and qt_session_type != 'xcb':
-            # On Wayland, we need to use EGL for context creation
-
+        if self.screen.use_egl:
+            # Get EGL context with PyOpenGL then hand it over to moderngl
             from OpenGL import EGL, GL
 
             def create_egl_context():
@@ -196,15 +194,16 @@ class StimDisplay(QOpenGLWidget):
             if not EGL.eglMakeCurrent(display, EGL.EGL_NO_SURFACE, EGL.EGL_NO_SURFACE, ctx):
                 raise RuntimeError("Failed to make the EGL context current")
 
-            # Verify the context by printing the OpenGL version
-            print("OpenGL version:", GL.glGetString(GL.GL_VERSION).decode())
-
             # Grab the EGL context with moderngl
             self.ctx = moderngl.get_context()
         
         else: 
-            # On Linux-Xorg, Mac, or Windows, we can use the default moderngl context creation
+            # Use moderngl context creation
             self.ctx = moderngl.create_context(require=330) # TODO: can we make this run headless in render_movie_mode?
+
+        print(f"OpenGL version: {self.ctx.info['GL_VERSION']}")
+        print(f"OpenGL vendor: {self.ctx.info['GL_VENDOR']}")
+        print(f"OpenGL renderer: {self.ctx.info['GL_RENDERER']}")
 
         self.ctx.enable(moderngl.BLEND) # enable alpha blending
         self.ctx.enable(moderngl.DEPTH_TEST) # enable depth test
@@ -299,10 +298,10 @@ class StimDisplay(QOpenGLWidget):
         # draw the corner square
         self.square_program.paint()
 
-        error = self.ctx.error
-        if error != 'GL_NO_ERROR' and self.counter < 10:
-            print(f'{self.counter} OpenGL Error: {error}')
-        self.counter += 1
+        # error = self.ctx.error
+        # if error != 'GL_NO_ERROR' and self.counter < 10:
+        #     print(f'{self.counter} OpenGL Error: {error}')
+        # self.counter += 1
 
         # update the window
         self.ctx.finish()

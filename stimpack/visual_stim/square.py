@@ -103,20 +103,13 @@ class SquareProgram:
             # Set viewport
             self.ctx.viewport = self.viewport
 
-            ############### Hack for now to get square working #########
-
-            self.create_prog()
-            self.ctx.buffer(self.pts)
-            self.ctx.vertex_array(program = self.prog, 
-                                    content = [(self.vbo, '2f', 'pos')], 
-                                    mode = moderngl.TRIANGLE_STRIP)
-
-            # print(f"color: {self.prog['color'].value}")
-            # print(f"pos: {self.prog['pos'].dimension}")
-            # for x in self.prog:
-            #     print(x)
-
-            ######################################################
+            # When using EGL, the context state needs to be reset. Temporary fix.
+            if self.screen.use_egl:
+                self.create_prog()
+                self.ctx.buffer(self.pts)
+                self.ctx.vertex_array(program = self.prog, 
+                                        content = [(self.vbo, '2f', 'pos')], 
+                                        mode = moderngl.TRIANGLE_STRIP)
 
             # write color
             self.prog['color'].value = self.color
