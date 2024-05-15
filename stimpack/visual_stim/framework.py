@@ -219,7 +219,7 @@ class StimDisplay(QOpenGLWidget):
         # initialize square program
         self.square_program.initialize(self.ctx)
 
-        self.counter = 0
+        self.frame_count = 0
 
     def get_stim_time(self, t):
         stim_time = 0
@@ -242,6 +242,7 @@ class StimDisplay(QOpenGLWidget):
         
     def paintGL(self):
         # t0 = time.time() # benchmarking
+        self.frame_count += 1
 
         # quit if desired
         if self.server.shutdown_flag.is_set():
@@ -301,7 +302,6 @@ class StimDisplay(QOpenGLWidget):
         # error = self.ctx.error
         # if error != 'GL_NO_ERROR' and self.counter < 10:
         #     print(f'{self.counter} OpenGL Error: {error}')
-        # self.counter += 1
 
         # update the window
         self.ctx.finish()
