@@ -621,7 +621,7 @@ def main():
     # launch application
     app = QtWidgets.QApplication([])
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))
-    app.setApplicationName('Stimpack visual_stim screen: {screen.name}')
+    app.setApplicationName(f'Stimpack visual_stim screen: {screen.name}')
 
     # create the StimDisplay object
     screen = Screen.deserialize(kwargs.get('screen', {}))
