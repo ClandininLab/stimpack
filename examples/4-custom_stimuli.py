@@ -29,6 +29,7 @@ def main():
 
     # Launch the stim server
     manager = launch_stim_server(screen)
+    sleep(2)
 
     # Import the custom stimulus module
     manager.import_stim_module(PATH_TO_CUSTOM_STIMULI)

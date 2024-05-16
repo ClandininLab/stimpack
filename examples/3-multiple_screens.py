@@ -42,6 +42,7 @@ def main():
 
     # Launch the stim server
     manager = launch_stim_server(screens)
+    sleep(2)
 
     # Set the background color of the screen
     manager.set_idle_background(0.5)
