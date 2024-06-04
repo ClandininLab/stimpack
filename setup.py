@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='stimpack',
-    version='0.1.1',
+    version='0.2.0',
     description='Precise and flexible generation of stimuli for neuroscience experiments.',
     url='https://github.com/ClandininLab/stimpack',
     author='Minseung Choi',
@@ -18,7 +18,6 @@ setup(
         'PyQT6',
         'h5py',
         'pyYaml',
-        
         'moderngl',
         'scikit-image',
     ],

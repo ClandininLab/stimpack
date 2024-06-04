@@ -7,6 +7,7 @@ Created on Thu Jun 21 10:51:42 2018
 """
 from datetime import datetime
 import os
+import numpy as np
 import sys
 import time
 from enum import Enum
@@ -15,13 +16,12 @@ import yaml
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
                              QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QFrame,
-                             QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
                              QScrollArea, QListWidget, QSizePolicy, QAbstractItemView)
 import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, QUrl
 import PyQt6.QtGui as QtGui
 
-from stimpack.experiment.util import config_tools, h5io
+from stimpack.experiment.util import config_tools
 from stimpack.experiment import protocol, data, client
 
 from stimpack.util import get_all_subclasses, ICON_PATH
@@ -100,7 +100,7 @@ class ExperimentGUI(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle(f"Stimpack Experiment ({self.cfg['current_cfg_name'].split('.')[0]}: {self.cfg['current_rig_name']})")
+        self.setWindowTitle(f"Stimpack Experiment (NWB, {self.cfg['current_cfg_name'].split('.')[0]}: {self.cfg['current_rig_name']})")
 
         # # # TAB 1: MAIN controls, for selecting / playing stimuli
 
@@ -342,9 +342,9 @@ class ExperimentGUI(QWidget):
         self.data_form.addRow(new_label, self.existing_subject_input)
         self.update_existing_subject_input()
 
-        new_label = QLabel('Current Subject info:')
-        new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.data_form.addRow(new_label)
+        new_label = QLabel('Current Subject:')
+        self.current_subject_display = QLabel('')
+        self.data_form.addRow(new_label, self.current_subject_display)
 
         # Only built-ins are "subject_id," "age" and "notes"
         # subject ID:
@@ -395,58 +395,13 @@ class ExperimentGUI(QWidget):
         # Initialize new experiment button
         initialize_button = QPushButton("Initialize experiment", self)
         initialize_button.clicked.connect(self.on_pressed_button)
-        new_label = QLabel('Current data file:')
-        self.file_form.addRow(initialize_button, new_label)
+        self.file_form.addRow(initialize_button, QLabel('Current nwb directory:'))
         # Load existing experiment button
         load_button = QPushButton("Load experiment", self)
         load_button.clicked.connect(self.on_pressed_button)
         # Label with current expt file
-        self.current_experiment_label = QLabel('')
-        self.file_form.addRow(load_button, self.current_experiment_label)
-
-        # # # # Data browser: # # # # # # # #
-        self.group_tree = QTreeWidget(self)
-        self.group_tree.setHeaderHidden(True)
-        self.group_tree.itemClicked.connect(self.on_tree_item_clicked)
-        self.file_form.addRow(self.group_tree)
-
-        # Attribute table
-        self.table_attributes = QTableWidget()
-        self.table_attributes.setStyleSheet("")
-        self.table_attributes.setColumnCount(2)
-        self.table_attributes.setObjectName("table_attributes")
-        self.table_attributes.setRowCount(0)
-        item = QTableWidgetItem()
-        font = QtGui.QFont()
-        font.setPointSize(10)
-        item.setFont(font)
-        item.setBackground(QtGui.QColor(121, 121, 121))
-        brush = QtGui.QBrush(QtGui.QColor(91, 91, 91))
-        brush.setStyle(Qt.BrushStyle.SolidPattern)
-        item.setForeground(brush)
-        self.table_attributes.setHorizontalHeaderItem(0, item)
-        item = QTableWidgetItem()
-        item.setBackground(QtGui.QColor(123, 123, 123))
-        brush = QtGui.QBrush(QtGui.QColor(91, 91, 91))
-        brush.setStyle(Qt.BrushStyle.SolidPattern)
-        item.setForeground(brush)
-        self.table_attributes.setHorizontalHeaderItem(1, item)
-        self.table_attributes.horizontalHeader().setCascadingSectionResizes(True)
-        self.table_attributes.horizontalHeader().setDefaultSectionSize(200)
-        self.table_attributes.horizontalHeader().setHighlightSections(False)
-        self.table_attributes.horizontalHeader().setSortIndicatorShown(True)
-        self.table_attributes.horizontalHeader().setStretchLastSection(True)
-        self.table_attributes.verticalHeader().setVisible(False)
-        self.table_attributes.verticalHeader().setHighlightSections(False)
-        self.table_attributes.setMinimumSize(QtCore.QSize(200, 400))
-        item = self.table_attributes.horizontalHeaderItem(0)
-        item.setText("Attribute")
-        item = self.table_attributes.horizontalHeaderItem(1)
-        item.setText("Value")
-
-        self.table_attributes.itemChanged.connect(self.update_attrs_to_file)
-
-        self.file_form.addRow(self.table_attributes)
+        self.current_nwb_directory_label = QLabel('')
+        self.file_form.addRow(load_button, self.current_nwb_directory_label)
 
         # # # Add each tab to the main layout # # #
         self.tabs = QTabWidget()
@@ -515,16 +470,15 @@ class ExperimentGUI(QWidget):
     def on_pressed_button(self):
         sender = self.sender()
         if sender.text() == 'Record':
-            if (self.data.experiment_file_exists() and self.data.current_subject_exists()):
+            if (self.data.nwb_directory_exists() and self.data.current_subject_exists()):
                 self.send_run(save_metadata_flag=True)
             else:
                 msg = QMessageBox()
-                msg.setIcon(QMessageBox.Warning)
-                msg.setText("You have not initialized a data file and/or subject yet")
+                msg.setText("You have not initialized a nwb directory and/or subject yet")
                 msg.setInformativeText("You can show stimuli by clicking the View button, but no metadata will be saved")
                 msg.setWindowTitle("No experiment file and/or subject")
-                msg.setDetailedText("Initialize or load both an experiment file and a subject if you'd like to save your metadata")
-                msg.setStandardButtons(QMessageBox.Ok)
+                msg.setDetailedText("Initialize or load both a nwb directory and a subject if you'd like to save your metadata")
+                msg.setStandardButtons(QMessageBox.StandardButton.Ok)
                 msg.exec()
 
         elif sender.text() == 'View':
@@ -549,7 +503,7 @@ class ExperimentGUI(QWidget):
 
         elif sender.text() == 'Enter note':
             self.note_text = self.notes_edit.toPlainText()
-            if self.data.experiment_file_exists() is True:
+            if self.data.nwb_directory_exists() is True:
                 self.data.create_note(self.note_text)  # save note to expt file
                 self.notes_edit.clear()  # clear notes box
             else:
@@ -575,28 +529,23 @@ class ExperimentGUI(QWidget):
             dialog.setFixedSize(300, 200)
             dialog.exec()
 
-            self.data.experiment_file_name = dialog.ui.le_filename.text()
-            self.data.data_directory = dialog.ui.le_data_directory.text()
-            self.data.experimenter = dialog.ui.le_experimenter.text()
-
-            self.update_existing_subject_input()
-            self.populate_groups()
+            # Assigns three attributes to self.data:
+            # .nwb_directory
+            # .parent_directory
+            # .experimenter
 
         elif sender.text() == 'Load experiment':
-            if os.path.isdir(self.data.data_directory):
-                filePath, _ = QFileDialog.getOpenFileName(self, "Open file", self.data.data_directory)
+            if os.path.isdir(self.data.parent_directory):
+                nwb_directory_path = str(QFileDialog.getExistingDirectory(self, "Select Directory", str(self.data.parent_directory)))
             else:
-                filePath, _ = QFileDialog.getOpenFileName(self, "Open file")
-            self.data.experiment_file_name = os.path.split(filePath)[1].split('.')[0]
-            self.data.data_directory = os.path.split(filePath)[0]
+                nwb_directory_path = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
 
-            if self.data.experiment_file_name != '':
-                self.current_experiment_label.setText(self.data.experiment_file_name)
+            if nwb_directory_path is not None:
+                self.data.load_experiment(nwb_directory_path)
+                self.current_nwb_directory_label.setText(nwb_directory_path)
                 # update series count to reflect already-collected series
                 self.data.reload_series_count()
                 self.series_counter_input.setValue(self.data.get_highest_series_count() + 1)
-                self.update_existing_subject_input()
-                self.populate_groups()
 
         # # # Buttons for ensemble tab # # #
 
@@ -741,8 +690,9 @@ class ExperimentGUI(QWidget):
         for key in self.subject_metadata_inputs:
             subject_metadata[key] = self.subject_metadata_inputs[key].currentText()
 
-        self.data.create_subject(subject_metadata)  # creates new subject and selects it as the current subject
+        self.data.define_subject(subject_metadata)  # creates new subject and selects it as the current subject
         self.update_existing_subject_input()
+        self.current_subject_display.setText(subject_metadata['subject_id'])
 
     def reset_layout(self):
         for ii in range(self.parameters_grid.rowCount()):
@@ -846,22 +796,23 @@ class ExperimentGUI(QWidget):
 
     def update_existing_subject_input(self):
         self.existing_subject_input.clear()
-        for subject_data in self.data.get_existing_subject_data():
-            self.existing_subject_input.addItem(subject_data['subject_id'])
-        index = self.existing_subject_input.findText(self.data.current_subject)
+        existing_subjects = [x['subject_id'] for x in self.data.get_existing_subject_data()]
+        [self.existing_subject_input.addItem(x) for x in set(existing_subjects)]
+
+        index = self.existing_subject_input.findText(self.data.current_subject_id)
         if index >= 0:
             self.existing_subject_input.setCurrentIndex(index)
 
     def populate_subject_metadata_fields(self, subject_data_dict):
         self.subject_id_input.setText(subject_data_dict['subject_id'])
-        self.subject_age_input.setValue(subject_data_dict['age'])
+        self.subject_age_input.setValue(int(subject_data_dict['age']))
         self.subject_notes_input.setText(subject_data_dict['notes'])
         for key in self.subject_metadata_inputs:
             self.subject_metadata_inputs[key].setCurrentText(subject_data_dict[key])
 
     def on_entered_series_count(self):
         self.data.update_series_count(self.series_counter_input.value())
-        if self.data.experiment_file_exists() is True:
+        if self.data.nwb_directory_exists() is True:
             if self.data.get_series_count() <= self.data.get_highest_series_count():
                 self.series_counter_input.setStyleSheet("background-color: rgb(255, 0, 0);")
             else:
@@ -887,7 +838,9 @@ class ExperimentGUI(QWidget):
         if self.mid_parameter_edit:
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
 
-        # start the epoch run thread:
+        if save_metadata_flag:
+            self.data.create_data_file()
+
         self.run_series_thread = runSeriesThread(self.protocol_object,
                                                  self.data,
                                                  self.client,
@@ -943,7 +896,7 @@ class ExperimentGUI(QWidget):
             # Advance the series_count:
             self.data.advance_series_count()
             self.series_counter_input.setValue(self.data.get_series_count())
-            self.populate_groups()
+            # self.populate_groups()
         
         if self.ensemble_running:
             self.run_ensemble_item(save_metadata_flag=save_metadata_flag)
@@ -1090,87 +1043,6 @@ class ExperimentGUI(QWidget):
         self.elapsed_time_label.setText(f'{elapsed_time} / {self.protocol_object.est_run_time:.0f}')
         self.epoch_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_epochs", "?")}')
 
-    def populate_groups(self):
-        file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_dset_dict = h5io.get_hierarchy(file_path, additional_exclusions='rois')
-        self._populateTree(self.group_tree, group_dset_dict)
-
-    def _populateTree(self, widget, dict):
-        widget.clear()
-        self.fill_item(widget.invisibleRootItem(), dict)
-
-    def fill_item(self, item, value):
-        item.setExpanded(True)
-        if type(value) is dict:
-            for key, val in sorted(value.items()):
-                child = QTreeWidgetItem()
-                child.setText(0, key)
-                item.addChild(child)
-                self.fill_item(child, val)
-        elif type(value) is list:
-            for val in value:
-                child = QTreeWidgetItem()
-                item.addChild(child)
-                if type(val) is dict:
-                    child.setText(0, '[dict]')
-                    self.fill_item(child, val)
-                elif type(val) is list:
-                    child.setText(0, '[list]')
-                    self.fill_item(child, val)
-                else:
-                    child.setText(0, val)
-                child.setExpanded(True)
-        else:
-            child = QTreeWidgetItem()
-            child.setText(0, value)
-            item.addChild(child)
-
-    def on_tree_item_clicked(self, item, column):
-        file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
-
-        if group_path != '':
-            attr_dict = h5io.get_attributes_from_group(file_path, group_path)
-            if 'series' in group_path.split('/')[-1]:
-                editable_values = False  # don't let user edit epoch parameters
-            else:
-                editable_values = True
-            self.populate_attrs(attr_dict = attr_dict, editable_values = editable_values)
-
-    def populate_attrs(self, attr_dict=None, editable_values=False):
-        """ Populate attribute for currently selected group """
-        self.table_attributes.blockSignals(True)  # block udpate signals for auto-filled forms
-        self.table_attributes.setRowCount(0)
-        self.table_attributes.setColumnCount(2)
-        self.table_attributes.setSortingEnabled(False)
-
-        if attr_dict:
-            for num, key in enumerate(attr_dict):
-                self.table_attributes.insertRow(self.table_attributes.rowCount())
-                key_item = QTableWidgetItem(key)
-                key_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                self.table_attributes.setItem(num, 0, key_item)
-
-                val_item = QTableWidgetItem(str(attr_dict[key]))
-                if editable_values:
-                    val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEditable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                else:
-                    val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                self.table_attributes.setItem(num, 1, val_item)
-
-        self.table_attributes.blockSignals(False)
-
-    def update_attrs_to_file(self, item):
-        file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
-
-        attr_key = self.table_attributes.item(item.row(), 0).text()
-        attr_val = item.text()
-
-        # update attr in file
-        h5io.change_attribute(file_path, group_path, attr_key, attr_val)
-        print('Changed attr {} to = {}'.format(attr_key, attr_val))
-
     def update_window_width(self):
         self.resize(100, self.height())
         window_width = self.parameters_box.sizeHint().width() + self.parameters_scroll_area.verticalScrollBar().sizeHint().width() + 40
@@ -1184,20 +1056,18 @@ class InitializeExperimentGUI(QWidget):
         self.experiment_gui_object = experiment_gui_object
         layout = QFormLayout()
 
-        label_filename = QLabel('File Name:')
         init_now = datetime.now()
         defaultName = init_now.isoformat()[:-16]
-        self.le_filename = QLineEdit(defaultName)
-        layout.addRow(label_filename, self.le_filename)
+        self.le_nwb_directory = QLineEdit(defaultName)
+        layout.addRow(QLabel('YYYY-MM-DD:'), self.le_nwb_directory)
 
-        select_directory_button = QPushButton("Select Directory...", self)
+        select_directory_button = QPushButton("Parent Directory...", self)
         select_directory_button.clicked.connect(self.on_pressed_directory_button)
-        self.le_data_directory = QLineEdit(config_tools.get_data_directory(self.experiment_gui_object.cfg))
-        layout.addRow(select_directory_button, self.le_data_directory)
+        self.le_parent_directory = QLineEdit(config_tools.get_data_directory(self.experiment_gui_object.cfg))
+        layout.addRow(select_directory_button, self.le_parent_directory)
 
-        label_experimenter = QLabel('Experimenter:')
         self.le_experimenter = QLineEdit(config_tools.get_experimenter(self.experiment_gui_object.cfg))
-        layout.addRow(label_experimenter, self.le_experimenter)
+        layout.addRow(QLabel('Experimenter:'), self.le_experimenter)
 
         self.label_status = QLabel('Enter experiment info')
         layout.addRow(self.label_status)
@@ -1209,29 +1079,29 @@ class InitializeExperimentGUI(QWidget):
         self.setLayout(layout)
 
     def on_pressed_enter_button(self):
-        self.experiment_gui_object.data.experiment_file_name = self.le_filename.text()
-        self.experiment_gui_object.data.data_directory = self.le_data_directory.text()
+        self.experiment_gui_object.data.nwb_directory = self.le_nwb_directory.text()
+        self.experiment_gui_object.data.parent_directory = self.le_parent_directory.text()
         self.experiment_gui_object.data.experimenter = self.le_experimenter.text()
 
-        if os.path.isfile(os.path.join(self.experiment_gui_object.data.data_directory, self.experiment_gui_object.data.experiment_file_name) + '.hdf5'):
-           self.label_status.setText('Experiment file already exists!')
-        elif not os.path.isdir(self.experiment_gui_object.data.data_directory):
-            self.label_status.setText('Data directory does not exist!')
+        if os.path.isdir(os.path.join(self.experiment_gui_object.data.parent_directory, self.experiment_gui_object.data.nwb_directory)):
+           self.label_status.setText('NWB directory already exists!')
+        elif not os.path.isdir(self.experiment_gui_object.data.parent_directory):
+            self.label_status.setText('Parent directory does not exist!')
         else:
             self.label_status.setText('Data entered')
-            self.experiment_gui_object.current_experiment_label.setText(self.experiment_gui_object.data.experiment_file_name)
-            self.experiment_gui_object.data.initialize_experiment_file()
+            self.experiment_gui_object.current_nwb_directory_label.setText(self.experiment_gui_object.data.nwb_directory)
+            self.experiment_gui_object.data.initialize_experiment()
             self.experiment_gui_object.series_counter_input.setValue(1)
             self.close()
             self.parent.close()
 
     def on_pressed_directory_button(self):
-        if os.path.isdir(self.experiment_gui_object.data.data_directory):
-            filepath = str(QFileDialog.getExistingDirectory(self, "Select Directory", self.experiment_gui_object.data.data_directory))
+        if os.path.isdir(self.experiment_gui_object.data.parent_directory):
+            filepath = str(QFileDialog.getExistingDirectory(self, "Select parent directory", self.experiment_gui_object.data.parent_directory))
         else:
-            filepath = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
+            filepath = str(QFileDialog.getExistingDirectory(self, "Select parent directory"))
         
-        self.le_data_directory.setText(filepath)
+        self.le_parent_directory.setText(filepath)
 
 class InitializeRigGUI(QWidget):
     def setupUI(self, experiment_gui_object, parent=None, window_size=None):
@@ -1354,7 +1224,6 @@ class runSeriesThread(QThread):
 
     def _send_run(self):
         self.client.start_run(self.protocol_object, self.data, save_metadata_flag=self.save_metadata_flag)
-
     def run(self):
         self._send_run()
 
@@ -1424,7 +1293,7 @@ class EnsembleList(QListWidget):
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName('Stimpack Experiment')
+    app.setApplicationName('Stimpack Experiment (NWB)')
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))
     ex = ExperimentGUI()
     sys.exit(app.exec())
