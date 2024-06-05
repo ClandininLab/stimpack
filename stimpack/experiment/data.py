@@ -247,6 +247,9 @@ class BaseData():
         else:
             self.series_count = np.max(series) + 1
 
+    def get_server_subdir(self):
+        return self.experiment_file_name
+
 
 def hdf5ify_parameter(value):
     if value is None:

@@ -10,6 +10,7 @@ import os
 import json
 import numpy as np
 from pathlib import Path
+import posixpath
 from datetime import datetime, timezone
 
 from pynwb.file import Subject
@@ -456,7 +457,8 @@ class NWBData():
         # Find the max
         self.series_count = np.max(series_numbers) + 1 if series_numbers else 1
 
-
+    def get_server_subdir(self):
+        return posixpath.join(self.nwb_directory, self.current_subject_id)
 
 def hdf5ify_parameter(value):
     if value is None:
