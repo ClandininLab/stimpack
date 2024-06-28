@@ -273,9 +273,11 @@ class BaseProtocol():
 
         if isinstance(self.epoch_stim_parameters, list):
             for ep in self.epoch_stim_parameters:
-                multicall.target('visual').load_stim(**ep.copy(), hold=True)
+                if ep is not None:
+                    multicall.target('visual').load_stim(**ep.copy(), hold=True)
         else:
-            multicall.target('visual').load_stim(**self.epoch_stim_parameters.copy(), hold=True)
+            if self.epoch_stim_parameters is not None:
+                multicall.target('visual').load_stim(**self.epoch_stim_parameters.copy(), hold=True)
 
         multicall()
 
