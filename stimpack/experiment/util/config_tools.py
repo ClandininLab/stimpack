@@ -101,7 +101,10 @@ def get_path_to_module(cfg, module_name):
     if module_path is None:
         return None
     else:
-        full_module_path = os.path.join(get_labpack_directory(), module_path)
+        if os.path.isabs(module_path):
+            full_module_path = module_path
+        else:
+            full_module_path = os.path.join(get_labpack_directory(), module_path)
 
     return full_module_path
 

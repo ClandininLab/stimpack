@@ -4,8 +4,10 @@
 import os, sys
 from time import sleep
 import posixpath
+import warnings
 from PyQt6.QtWidgets import QApplication
 
+from stimpack.rpc.launch import launch_server
 from stimpack.rpc.transceiver import MySocketClient
 from stimpack.visual_stim.screen import Screen
 from stimpack.visual_stim.util import get_rgba
@@ -19,6 +21,7 @@ class BaseClient():
     def __init__(self, cfg):
         self.stop = False
         self.pause = False
+        self.manager = None
         self.cfg = cfg
         
         # # # Load server options from config file and selections # # #
@@ -26,36 +29,48 @@ class BaseClient():
         self.trigger_device = config_tools.load_trigger_device(self.cfg)
 
         # # # Start the stim manager and set the frame tracker square to black # # #
-        if self.server_options['use_server']:
+        if self.server_options.get('use_server', False) or self.server_options.get('use_remote_server', False):
             self.manager = MySocketClient(host=self.server_options['host'], port=self.server_options['port'])
+        
+        else: # use default local server
+            if 'local_server_path' in self.server_options:
+                server_path = self.server_options['local_server_path']
+                port = self.server_options.get('port', 60629)
+                if not os.path.isabs(server_path):
+                    server_path = os.path.join(config_tools.get_labpack_directory(), server_path)
+                if os.path.exists(server_path):
+                    # start the server in a separate process
+                    self.manager = launch_server(server_path, host='', port=port)
+                else:
+                    warnings.warn(f"Server path {server_path} does not exist. Using default local server.")
             
-        else:
-            if 'disp_server_id' in self.server_options:
-                disp_server, disp_id = self.server_options['disp_server_id']
-            else:
-                disp_server, disp_id = -1, -1
-            
-            visual_stim_kwargs = {
-                'screens': [Screen(server_number=disp_server, id=disp_id, fullscreen=False, vsync=True, square_size=(0.1, 0.1),
-                                   pa=(-0.15, 0.15, -0.15), pb=(+0.15, 0.15, -0.15), pc=(-0.15, 0.15, +0.15))] # -45 to 45 deg in both theta and phi
-            }
-            
-            loco_class = KeytracClosedLoopManager
-            loco_kwargs = {
-                'host':          '127.0.0.1',
-                'port':           33335,
-                'python_bin':    sys.executable,
-                'kt_py_fn':      os.path.join(ROOT_DIR, "device/locomotion/keytrac/keytrac.py"),
-                'relative_control': 'True',
-            }
-            
-            server = BaseServer(host='127.0.0.1',
-                                port=None, 
-                                start_loop=True, 
-                                visual_stim_kwargs=visual_stim_kwargs, 
-                                loco_class=loco_class, 
-                                loco_kwargs=loco_kwargs)
-            self.manager = MySocketClient(host=server.host, port=server.port)
+            if self.manager is None:
+                if 'disp_server_id' in self.server_options:
+                    disp_server, disp_id = self.server_options['disp_server_id']
+                else:
+                    disp_server, disp_id = -1, -1
+                
+                visual_stim_kwargs = {
+                    'screens': [Screen(server_number=disp_server, id=disp_id, fullscreen=False, vsync=True, square_size=(0.1, 0.1),
+                                    pa=(-0.15, 0.15, -0.15), pb=(+0.15, 0.15, -0.15), pc=(-0.15, 0.15, +0.15))] # -45 to 45 deg in both theta and phi
+                }
+                
+                loco_class = KeytracClosedLoopManager
+                loco_kwargs = {
+                    'host':          '127.0.0.1',
+                    'port':           33335,
+                    'python_bin':    sys.executable,
+                    'kt_py_fn':      os.path.join(ROOT_DIR, "device/locomotion/keytrac/keytrac.py"),
+                    'relative_control': 'True',
+                }
+                
+                server = BaseServer(host='127.0.0.1',
+                                    port=None, 
+                                    start_loop=True, 
+                                    visual_stim_kwargs=visual_stim_kwargs, 
+                                    loco_class=loco_class, 
+                                    loco_kwargs=loco_kwargs)
+                self.manager = MySocketClient(host=server.host, port=server.port)
 
         # if the trigger device is on the server, set the manager for the trigger device
         if isinstance(self.trigger_device, daq.DAQonServer):
@@ -66,7 +81,9 @@ class BaseClient():
         self.manager.target('visual').set_idle_background(0)
 
         # # # Import user-defined stimpack.visual_stim stimuli modules on server screens # # #
-        visual_stim_module_paths = self.server_options.get('visual_stim_module_paths', [])
+        visual_stim_module_paths = self.server_options.get('visual_stim_module_paths', None)
+        if visual_stim_module_paths is None:
+            visual_stim_module_paths = []
         [self.manager.target('visual').import_stim_module(dir) for dir in visual_stim_module_paths]
 
     def stop_run(self):
