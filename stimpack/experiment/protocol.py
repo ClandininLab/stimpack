@@ -49,6 +49,7 @@ class BaseProtocol():
         self.trigger_on_epoch = False  # Used in control.EpochRun.start_epoch(), sends a TTL trigger to start acquisition devices
         self.save_metadata_flag = False  # Bool, whether or not to save this series. Set to True by GUI on 'record' but not 'view'.
         self.use_precomputed_epoch_parameters = True  # Bool, whether or not to precompute epoch parameters
+        self.save_stringified_params = False  # Bool, whether to stringify epoch stim params for nwb saving. Helpful for protocols with different param keys across trials. Need to supply all_epoch_stim_parameter_keys
 
         self.num_epochs_completed = 0
         self.persistent_parameters = {}

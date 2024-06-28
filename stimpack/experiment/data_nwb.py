@@ -272,24 +272,32 @@ class NWBData():
             
         self.trial_parameters = {}
         self.trial_parameters['trial_start_time'] = datetime.now(self.timezone).timestamp()
-        
-        # Extract epoch stim parameters
-        if type(protocol_object.epoch_stim_parameters) is tuple:  # stimulus is tuple of multiple stims layered on top of one another
-            num_stims = len(protocol_object.epoch_stim_parameters)
-            for stim_ind in range(num_stims):
-                
-                prefix = f"stim{stim_ind}_"
-                for key in protocol_object.epoch_stim_parameters[stim_ind]:
-                    value = protocol_object.epoch_stim_parameters[stim_ind][key]
-                    self.trial_parameters[prefix + key] = hdf5ify_parameter(value)
 
-                
-        elif type(protocol_object.epoch_stim_parameters) is dict:  # single stim class
-            for key, value in protocol_object.epoch_stim_parameters.items():
-                self.trial_parameters[key] = hdf5ify_parameter(value)
+        if protocol_object.save_stringified_params:
+            assert hasattr(protocol_object, 'all_epoch_stim_parameter_keys'), 'must specify a list of all_epoch_stim_parameter_keys within protocol object to use save_stringified_params flag'
+            for key in protocol_object.all_epoch_stim_parameter_keys:
+                if key in protocol_object.epoch_stim_parameters:
+                    # Note string-ifying everything so we can build a big trial matrix with potentially different data types across trials within a column
+                    self.trial_parameters[key] = str(protocol_object.epoch_stim_parameters[key])
+                else:  # store a dummy value
+                    self.trial_parameters[key] = str(None)
+
+        else:
+            # Extract epoch stim parameters
+            if type(protocol_object.epoch_stim_parameters) is tuple:  # stimulus is tuple of multiple stims layered on top of one another
+                num_stims = len(protocol_object.epoch_stim_parameters)
+                for stim_ind in range(num_stims):
+                    
+                    prefix = f"stim{stim_ind}_"
+                    for key in protocol_object.epoch_stim_parameters[stim_ind]:
+                        value = protocol_object.epoch_stim_parameters[stim_ind][key]
+                        self.trial_parameters[prefix + key] = hdf5ify_parameter(value)
+
+            elif type(protocol_object.epoch_stim_parameters) is dict:  # single stim class
+                for key, value in protocol_object.epoch_stim_parameters.items():
+                    self.trial_parameters[key] = hdf5ify_parameter(value)
             
-
-        # Extract and store protocol parameters
+            # Extract and store protocol parameters
             for key, value in protocol_object.epoch_protocol_parameters.items():
                 self.trial_parameters[key] = hdf5ify_parameter(value)
 
@@ -351,7 +359,7 @@ class NWBData():
             else:  # Just add a row to the table
                 trial_row_kargs = self.trial_parameters
                 trial_row_kargs["start_time"] = start_time
-                trial_row_kargs["stop_time"] = stop_time    
+                trial_row_kargs["stop_time"] = stop_time
                 subject_nwbfile.add_trial(**trial_row_kargs)
 
             # Write the nwbfile to disk
