@@ -48,6 +48,7 @@ class VisualStimServer(MySocketServer):
         
         self.functions_on_root = {}
         self.register_function_on_root(self.close)
+        self.register_function_on_root(self.on_connection_close)
 
         # Shared memory PixMap stim functions to be run on the root node of visual stim server
         self.spms = None
@@ -124,6 +125,15 @@ class VisualStimServer(MySocketServer):
 
     def close(self):
         self.shutdown_flag.set()
+
+    def on_connection_close(self):
+        '''
+        Clean up the loaded "other stim modules".
+        '''
+        # Unload all the stim modules from the screen clients
+        for screen_client in self.screen_clients:
+            screen_client.unload_stim_module(barcodes=None)
+        return
 
     ### Shared memory pixmap stim functions ###
     def load_shared_pixmap_stim(self, **kwargs):
