@@ -226,5 +226,4 @@ class MySocketServer(MyTransceiver):
         This function is called when the connection is closed / dropped.
         Can serve as a hook for subclasses to implement custom behavior.
         '''
-        print("YOOOOO")
         pass

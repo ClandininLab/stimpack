@@ -48,7 +48,6 @@ class VisualStimServer(MySocketServer):
         
         self.functions_on_root = {}
         self.register_function_on_root(self.close)
-        self.register_function_on_root(self.on_connection_close)
 
         # Shared memory PixMap stim functions to be run on the root node of visual stim server
         self.spms = None
