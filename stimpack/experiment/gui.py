@@ -463,6 +463,11 @@ class ExperimentGUI(QWidget):
         self.update_window_width()
 
         self.show()
+    
+    def closeEvent(self, event):
+        print("Closing Experiment GUI")
+        self.client.close()
+        super().closeEvent(event)
 
     def on_reordered_ensemble_list(self):
         if not self.ensemble_file_label.text().endswith('(changes unsaved)'):

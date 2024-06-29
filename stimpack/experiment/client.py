@@ -29,10 +29,13 @@ class BaseClient():
         self.trigger_device = config_tools.load_trigger_device(self.cfg)
 
         # # # Start the stim manager and set the frame tracker square to black # # #
-        if self.server_options.get('use_server', False) or self.server_options.get('use_remote_server', False):
+        # use a remote server
+        if self.server_options.get('use_server', False) or self.server_options.get('use_remote_server', False): 
+            # Assume the remote server is already running and listening on the specified host and port
             self.manager = MySocketClient(host=self.server_options['host'], port=self.server_options['port'])
         
-        else: # use default local server
+        else: # use a local server, either the default or a specified one
+            # local server path is specified; start it in a separate process
             if 'local_server_path' in self.server_options:
                 server_path = self.server_options['local_server_path']
                 port = self.server_options.get('port', 60629)
@@ -40,10 +43,11 @@ class BaseClient():
                     server_path = os.path.join(config_tools.get_labpack_directory(), server_path)
                 if os.path.exists(server_path):
                     # start the server in a separate process
-                    self.manager = launch_server(server_path, host='', port=port)
+                    self.manager, self.local_server_process = launch_server(server_path, host='', port=port, return_process_handle=True)
                 else:
                     warnings.warn(f"Server path {server_path} does not exist. Using default local server.")
             
+            # no local server path specified; start the default local server
             if self.manager is None:
                 if 'disp_server_id' in self.server_options:
                     disp_server, disp_id = self.server_options['disp_server_id']
@@ -226,3 +230,8 @@ class BaseClient():
         self.manager.target('locomotion').close()
         self.manager.target('locomotion').set_save_directory(None)
     
+    def close(self):
+        # We had started a local server in a separate process; terminate it.
+        if 'local_server_process' in self.__dict__:
+            print("Closing local server.")
+            self.local_server_process.terminate()

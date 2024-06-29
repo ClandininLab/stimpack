@@ -152,7 +152,6 @@ class BaseServer(MySocketServer):
                 module.handle_request_list(module_request_list)
 
     def close(self):
-        # self.run_function_in_all_modules('close')
         self.target('all').close()
 
     def on_connection_close(self):
