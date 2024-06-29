@@ -177,12 +177,13 @@ def get_screen_center(cfg):
     return screen_center
 
 def get_server_options(cfg):
+    default_server_options = {'use_remote_server': False,
+                              'data_directory': None}
     if 'current_rig_name' in cfg:
-        server_options = cfg.get('rig_config').get(cfg.get('current_rig_name')).get('server_options', {'host': '0.0.0.0', 'port': 60629, 'use_server': False})
+        server_options = cfg.get('rig_config').get(cfg.get('current_rig_name')).get('server_options', default_server_options)
     else:
         print('No rig selected, using default server settings')
-        server_options = {'use_remote_server': False,
-                          'data_directory': None}
+        server_options = default_server_options
     return server_options
 
 def get_data_directory(cfg):
