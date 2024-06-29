@@ -141,6 +141,15 @@ class VisualStimServer(MySocketServer):
     def close(self):
         self.shutdown_flag.set()
 
+    def on_connection_close(self):
+        '''
+        Clean up the loaded "other stim modules".
+        '''
+        # Unload all the stim modules from the screen clients
+        for screen_client in self.screen_clients:
+            screen_client.unload_stim_module(barcodes=None)
+        return
+
     ### Shared memory pixmap stim functions ###
     def load_shared_pixmap_stim(self, **kwargs):
         '''

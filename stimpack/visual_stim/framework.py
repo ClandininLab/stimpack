@@ -543,6 +543,24 @@ class StimDisplay(QOpenGLWidget):
         util.load_stim_module_from_path(path, barcode)
         self.imported_stim_module_names.append(barcode)
         print(f'Loaded stim module from {path} with key {barcode}')
+    
+    def unload_stim_module(self, barcodes=None):
+        '''
+        barcodes: list of keys for the stim modules to be unloaded. If None, all loaded stim modules will be unloaded.
+        '''
+        if barcodes is None:
+            barcodes = self.imported_stim_module_names
+
+        for barcode in barcodes:
+            if barcode not in self.imported_stim_module_names:
+                print(f'Error: stim module with key {barcode} not found in loaded visual stim modules.')
+                continue
+            else:
+                # Unload the submodules associated with each barcode from sys.modules
+                submodule_names = [x for x in sys.modules.keys() if x.startswith(barcode)]
+                [util.unload_module(x) for x in submodule_names]
+                self.imported_stim_module_names.remove(barcode)
+                print(f'Unloaded stim module with key {barcode}')
         
 def get_perspective(subject_pos, pa, pb, pc, horizontal_flip):
     """
@@ -650,6 +668,7 @@ def main():
     server.register_function(stim_display.set_save_pos_history_dir)
     server.register_function(stim_display.save_pos_history_to_file)
     server.register_function(stim_display.import_stim_module)
+    server.register_function(stim_display.unload_stim_module)
     
     # Load other stimuli from paths given in kwargs.
     # These modules contain subclasses of stimpack.visual_stim.stimuli.BaseProgram

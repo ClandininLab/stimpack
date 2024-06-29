@@ -155,6 +155,14 @@ class BaseServer(MySocketServer):
         # self.run_function_in_all_modules('close')
         self.target('all').close()
 
+    def on_connection_close(self):
+        '''
+        This function is called when the connection is closed / dropped.
+        Overrides the function in MySocketServer.
+        It calls on_connection_close() for each module.
+        '''
+        [module.on_connection_close() for module in self.modules.values()]
+        
     ### Functions for setting subject state ###
     def set_subject_state(self, state_update:dict={'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll':0}) -> None:
         # Perform custom closed-loop control and get an updated state update

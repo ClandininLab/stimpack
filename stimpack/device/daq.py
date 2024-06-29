@@ -13,6 +13,9 @@ class DAQ():
         self.verbose = verbose
         pass
 
+    def on_connection_close(self):
+        pass
+
     def handle_request_list(self, request_list):
         for request in request_list:
             if request['name'] in dir(self):
