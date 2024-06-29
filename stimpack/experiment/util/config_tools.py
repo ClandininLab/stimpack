@@ -89,39 +89,57 @@ def get_parameter_preset_directory(cfg):
 
 # %% Functions for finding and loading user-defined modules
 
-def get_path_to_module(cfg, module_name):
+def get_paths_to_module(cfg, module_name, single_item_in_list=False):
     """Returns full path to user defined module as specified in cfg file"""
 
     module_paths_entry = cfg.get('module_paths', None)
     if module_paths_entry is None:
         return None
     else:
-        module_path = module_paths_entry.get(module_name, None)
+        module_paths = module_paths_entry.get(module_name, None)
 
-    if module_path is None:
+    if module_paths is None:
         return None
     else:
-        if os.path.isabs(module_path):
-            full_module_path = module_path
-        else:
-            full_module_path = os.path.join(get_labpack_directory(), module_path)
+        if not isinstance(module_paths, list):
+            module_paths = [module_paths]
+        
+        full_module_paths = []
+        for module_path in module_paths:
+            if os.path.isabs(module_path):
+                full_module_path = module_path
+            else:
+                full_module_path = os.path.join(get_labpack_directory(), module_path)
+            full_module_paths.append(full_module_path)
+        if len(full_module_paths) == 1 and not single_item_in_list:
+            return full_module_paths[0]
+    
+    return full_module_paths
 
-    return full_module_path
+def user_module_exists(cfg, module_name, single_item_in_list=False):
+    """
+    Checks whether specified user module is defined and exists on this machine. 
+    Returns False if module_name is not in the cfg.
+    If module_name is in the cfg, 
+        returns True/False based on whether the specified module path exists.
+        If there are multiple paths specified for the module, returns a list of booleans.
+        If there is only one path specified, single_item_in_list determines whether the return is in a list or not.
+    """
 
-def user_module_exists(cfg, module_name):
-    """Checks whether specified user module is defined and exists on this machine. Returns True/False."""
-
-    full_module_path = get_path_to_module(cfg, module_name)
-    if full_module_path is None:
+    full_module_paths = get_paths_to_module(cfg, module_name, single_item_in_list=True)
+    if full_module_paths is None:
         return False
     else:
-        return os.path.exists(full_module_path)
+        exists = [os.path.exists(p) for p in full_module_paths]
+        if len(exists) == 1 and not single_item_in_list:
+            return exists[0]
+        return exists
 
 
 def load_user_module(cfg, module_name):
     """Imports user defined module and returns the loaded package."""
     if user_module_exists(cfg, module_name):
-        path_to_module = get_path_to_module(cfg, module_name)
+        path_to_module = get_paths_to_module(cfg, module_name)
         spec = spec_from_file_location(module_name, path_to_module)
         loaded_mod = module_from_spec(spec)
         sys.modules[module_name] = loaded_mod
@@ -144,7 +162,7 @@ def load_trigger_device(cfg):
         return None
     else:
         trigger_device = eval('daq.{}'.format(trigger_device_definition))
-        print('Loaded trigger device from {}.{}'.format(get_path_to_module(cfg, 'daq'), trigger_device_definition))
+        print('Loaded trigger device from {}.{}'.format(get_paths_to_module(cfg, 'daq'), trigger_device_definition))
         return trigger_device
 
 # %%
@@ -163,9 +181,7 @@ def get_server_options(cfg):
         server_options = cfg.get('rig_config').get(cfg.get('current_rig_name')).get('server_options', {'host': '0.0.0.0', 'port': 60629, 'use_server': False})
     else:
         print('No rig selected, using default server settings')
-        server_options = {'host': '0.0.0.0',
-                          'port': 60629,
-                          'use_server': False,
+        server_options = {'use_remote_server': False,
                           'data_directory': None}
     return server_options
 
