@@ -29,10 +29,13 @@ class BaseClient():
         self.trigger_device = config_tools.load_trigger_device(self.cfg)
 
         # # # Start the stim manager and set the frame tracker square to black # # #
-        if self.server_options.get('use_server', False) or self.server_options.get('use_remote_server', False):
+        # use a remote server
+        if self.server_options.get('use_server', False) or self.server_options.get('use_remote_server', False): 
+            # Assume the remote server is already running and listening on the specified host and port
             self.manager = MySocketClient(host=self.server_options['host'], port=self.server_options['port'])
         
-        else: # use default local server
+        else: # use a local server, either the default or a specified one
+            # local server path is specified; start it in a separate process
             if 'local_server_path' in self.server_options:
                 server_path = self.server_options['local_server_path']
                 port = self.server_options.get('port', 60629)
@@ -40,10 +43,11 @@ class BaseClient():
                     server_path = os.path.join(config_tools.get_labpack_directory(), server_path)
                 if os.path.exists(server_path):
                     # start the server in a separate process
-                    self.manager = launch_server(server_path, host='', port=port)
+                    self.manager, self.local_server_process = launch_server(server_path, host='', port=port, return_process_handle=True)
                 else:
                     warnings.warn(f"Server path {server_path} does not exist. Using default local server.")
             
+            # no local server path specified; start the default local server
             if self.manager is None:
                 if 'disp_server_id' in self.server_options:
                     disp_server, disp_id = self.server_options['disp_server_id']
@@ -114,7 +118,7 @@ class BaseClient():
 
         # Check run parameters, compute persistent parameters, and precompute epoch parameters
         # Do not recompute epoch parameters if they have been computed already
-        protocol_object.prepare_run(recompute_epoch_parameters=False)
+        protocol_object.prepare_run(manager=self.manager, recompute_epoch_parameters=False)
 
         # Set background to idle_color
         self.manager.target('visual').set_idle_background(get_rgba(protocol_object.run_parameters.get('idle_color', 0)))
@@ -140,12 +144,12 @@ class BaseClient():
 
         # # # Epoch run loop # # #
         self.manager.print_on_server("Starting run.")
-        protocol_object.num_epochs_completed = 0
+        protocol_object.on_run_start(self.manager)
         while protocol_object.num_epochs_completed < protocol_object.run_parameters['num_epochs']:
             QApplication.processEvents()
             if self.stop is True:
                 self.stop = False
-                protocol_object.finish_run(self.manager)
+                protocol_object.on_run_finish(self.manager)
                 break # break out of epoch run loop
 
             if self.pause is True:
@@ -153,7 +157,7 @@ class BaseClient():
             else: # start epoch and advance counter
                 self.start_epoch(protocol_object, data, save_metadata_flag=save_metadata_flag)
 
-        protocol_object.finish_run(self.manager)
+        protocol_object.on_run_finish(self.manager)
 
         # Set frame tracker to dark
         self.manager.target('visual').corner_square_toggle_stop()
@@ -230,3 +234,8 @@ class BaseClient():
         self.manager.target('locomotion').close()
         self.manager.target('locomotion').set_save_directory(None)
     
+    def close(self):
+        # We had started a local server in a separate process; terminate it.
+        if 'local_server_process' in self.__dict__:
+            print("Closing local server.")
+            self.local_server_process.terminate()

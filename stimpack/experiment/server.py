@@ -1,4 +1,4 @@
-import signal, sys
+import signal, sys, os
 from math import radians
 
 import numpy as np
@@ -11,6 +11,10 @@ from stimpack.device.daq import DAQ
 
 from stimpack.rpc.util import start_daemon_thread, find_free_port
 from stimpack.rpc.transceiver import MySocketServer
+
+from stimpack.experiment.util import config_tools
+
+from stimpack.util import ROOT_DIR
 
 class BaseServer(MySocketServer):
     def __init__(self, host='', port=60629, 
@@ -54,13 +58,18 @@ class BaseServer(MySocketServer):
         self.functions_on_root = {}
         self.register_function_on_root(lambda x: print(x), "print_on_server")
         self.register_function_on_root(self.set_subject_state, "set_subject_state")
+        self.register_function_on_root(self.load_server_side_state_dependent_control, "load_server_side_state_dependent_control")
+        self.register_function_on_root(self.unload_server_side_state_dependent_control, "unload_server_side_state_dependent_control")
 
         def signal_handler(sig, frame):
             print('Closing server after Ctrl+C...')
             self.close()
             sys.exit(0)
         signal.signal(signal.SIGINT, signal_handler)
-        
+
+        # Custom state-dependent control function, initialized to None        
+        self.loaded_custom_state_dependent_control = None
+
         # set the subject position parameters
         self.subject_state = {}
         self.set_subject_state({'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll':0}) # meters and degrees
@@ -152,7 +161,6 @@ class BaseServer(MySocketServer):
                 module.handle_request_list(module_request_list)
 
     def close(self):
-        # self.run_function_in_all_modules('close')
         self.target('all').close()
 
     def on_connection_close(self):
@@ -166,22 +174,32 @@ class BaseServer(MySocketServer):
     ### Functions for setting subject state ###
     def set_subject_state(self, state_update:dict={'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll':0}) -> None:
         # Perform custom closed-loop control and get an updated state update
-        new_state_update = self.custom_state_dependent_control(self.subject_state, state_update)
+        if self.loaded_custom_state_dependent_control is not None:
+            state_update = self.loaded_custom_state_dependent_control(self, self.subject_state, state_update)
 
         # Update the subject state
-        for k,v in new_state_update.items():
+        for k,v in state_update.items():
             self.subject_state[k] = v
         
         # Forward state information to each module manager
-        self.target('all').set_subject_state(new_state_update)
+        self.target('all').set_subject_state(state_update)
     
-    def custom_state_dependent_control(self, previous_state:dict, state_update:dict) -> dict:
+    def load_server_side_state_dependent_control(self, protocol_module_path, protocol_name):
         '''
-        Given the previous state of the subject and the current state update, 
-        perform custom closed-loop control here.
-        Return the updated state update.
+        Load a custom state-dependent control function.
         '''
-        # TODO: Implement custom closed-loop control here
-        customized_state_update = state_update
-        
-        return customized_state_update
+        if protocol_module_path is None: # No user-specified protocol module, use Stimpack protocol
+            protocol_module_full_path = os.path.join(ROOT_DIR, 'experiment', 'example_protocol.py')
+        else:
+            protocol_module_full_path = config_tools.convert_labpack_relative_path_to_full_path(protocol_module_path)
+        protocol_module = config_tools.load_user_module_from_path(protocol_module_full_path, 'client_protocol')
+        if protocol_module is not None:
+            self.loaded_custom_state_dependent_control = getattr(protocol_module, protocol_name).server_side_state_dependent_control
+        else:
+            print(f"Failed to load custom state-dependent control function from {protocol_module_path}.")
+
+    def unload_server_side_state_dependent_control(self):
+        '''
+        Unload custom state-dependent control function.
+        '''
+        self.loaded_custom_state_dependent_control = None
