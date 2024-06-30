@@ -261,6 +261,10 @@ class BaseProtocol():
         # Estimate run time
         self.__estimate_run_time()
 
+        # If manager exists, set visual_stim background to idle_color
+        if manager is not None:
+            manager.target('visual').set_idle_background(get_rgba(self.run_parameters.get('idle_color', 0)))
+
     def on_run_start(self, manager):
         """
         Method that is called at the beginning of each run. Does not itself start the run.
