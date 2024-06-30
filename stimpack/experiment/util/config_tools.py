@@ -90,28 +90,36 @@ def get_parameter_preset_directory(cfg):
 # %% Functions for finding and loading user-defined modules
 
 def get_path_to_module(cfg, module_name):
-    """Returns full path to user defined module as specified in cfg file"""
+    """Returns path to user defined module as specified in cfg file"""
 
     module_paths_entry = cfg.get('module_paths', None)
     if module_paths_entry is None:
         return None
     else:
         module_path = module_paths_entry.get(module_name, None)
+    return module_path
 
+def convert_labpack_relative_path_to_full_path(module_path):
+    """Converts a path relative to the labpack directory to a full path"""
+    if os.path.isabs(module_path):
+        full_module_path = module_path
+    else:
+        full_module_path = os.path.join(get_labpack_directory(), module_path)
+
+    return full_module_path
+
+def get_full_path_to_module(cfg, module_name):
+    """Returns full path to user defined module as specified in cfg file"""
+    module_path = get_path_to_module(cfg, module_name)
     if module_path is None:
         return None
     else:
-        if os.path.isabs(module_path):
-            full_module_path = module_path
-        else:
-            full_module_path = os.path.join(get_labpack_directory(), module_path)
-
-    return full_module_path
+        return convert_labpack_relative_path_to_full_path(module_path)
 
 def user_module_exists(cfg, module_name):
     """Checks whether specified user module is defined and exists on this machine. Returns True/False."""
 
-    full_module_path = get_path_to_module(cfg, module_name)
+    full_module_path = get_full_path_to_module(cfg, module_name)
     if full_module_path is None:
         return False
     else:
@@ -121,17 +129,24 @@ def user_module_exists(cfg, module_name):
 def load_user_module(cfg, module_name):
     """Imports user defined module and returns the loaded package."""
     if user_module_exists(cfg, module_name):
-        path_to_module = get_path_to_module(cfg, module_name)
-        spec = spec_from_file_location(module_name, path_to_module)
+        path_to_module = get_full_path_to_module(cfg, module_name)
+        return load_user_module_from_path(path_to_module, module_name)
+    else:
+        return None
+
+def load_user_module_from_path(full_module_path, module_name):
+    """Imports user defined module and returns the loaded package."""
+    if os.path.exists(full_module_path):
+        spec = spec_from_file_location(module_name, full_module_path)
         loaded_mod = module_from_spec(spec)
         sys.modules[module_name] = loaded_mod
         spec.loader.exec_module(loaded_mod)
 
-        print('Loaded {} module from {}'.format(module_name, path_to_module))
+        print('Loaded {} module from {}'.format(module_name, full_module_path))
         return loaded_mod
     else:
+        print(f'Error: {full_module_path} does not exist. Could not load module {module_name}.')
         return None
-
 
 def load_trigger_device(cfg):
     """Loads trigger device specified in rig config from the user daq module """
@@ -144,7 +159,7 @@ def load_trigger_device(cfg):
         return None
     else:
         trigger_device = eval('daq.{}'.format(trigger_device_definition))
-        print('Loaded trigger device from {}.{}'.format(get_path_to_module(cfg, 'daq'), trigger_device_definition))
+        print('Loaded trigger device from {}.{}'.format(get_full_path_to_module(cfg, 'daq'), trigger_device_definition))
         return trigger_device
 
 # %%

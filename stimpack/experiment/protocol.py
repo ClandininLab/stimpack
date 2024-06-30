@@ -50,6 +50,8 @@ class BaseProtocol():
         self.save_metadata_flag = False  # Bool, whether or not to save this series. Set to True by GUI on 'record' but not 'view'.
         self.use_precomputed_epoch_parameters = True  # Bool, whether or not to precompute epoch parameters
 
+        self.use_server_side_state_dependent_control = False  # Bool, whether or not to use custom closed-loop control
+        
         self.num_epochs_completed = 0
         self.persistent_parameters = {}
         self.precomputed_epoch_parameters = {}
@@ -259,9 +261,20 @@ class BaseProtocol():
         # Estimate run time
         self.__estimate_run_time()
 
-        # If manager exists, set visual_stim background to idle_color
-        if manager is not None:
-            manager.target('visual').set_idle_background(get_rgba(self.run_parameters.get('idle_color', 0)))
+    def on_run_start(self, manager):
+        """
+        Method that is called at the beginning of each run. Does not itself start the run.
+        Can be overwritten in the child subclass with super().on_run_start(manager) to add additional functionality.
+        """
+        # If self.use_server_side_state_dependent_control is True, signal to the server that custom closed-loop control is being used
+        # We currently assume that the protocol module is in the labpack and that its path is specified in the config file as relative to the labpack
+        if self.use_server_side_state_dependent_control:
+            protocol_module_path = config_tools.get_path_to_module(self.cfg, 'protocol')
+            manager.target('root').load_server_side_state_dependent_control(
+                protocol_module_path = protocol_module_path,
+                protocol_name = self.__class__.__name__
+            )
+        self.num_epochs_completed = 0
 
     def load_stimuli(self, manager, multicall=None):
         if multicall is None:
@@ -323,13 +336,15 @@ class BaseProtocol():
 
         sleep(self.epoch_protocol_parameters['tail_time'])
         
-    def finish_run(self, manager, multicall=None):
+    def on_run_finish(self, manager, multicall=None):
         """
         Method that is called at the end of each run, either when the run is completed or when the run is stopped.
         Fill in if you want to do something at the end of each run.
         Overwrite me in the child subclass.
         """
-        pass
+        # If self.use_server_side_state_dependent_control is True, signal to the server that custom closed-loop control is no longer being used
+        if self.use_server_side_state_dependent_control:
+            manager.target('root').unload_server_side_state_dependent_control()
         
     def get_parameter_sequence(self, parameter_list, all_combinations=True, randomize_order=False):
         """
@@ -492,6 +507,25 @@ class BaseProtocol():
                             'angle': angle}
         return patch_parameters
 
+    def server_side_state_dependent_control(manager, previous_state:dict, state_update:dict) -> dict:
+        '''
+        If self.use_server_side_state_dependent_control is True, 
+            this function is called by the server when the subject state is updated.
+        The server doesn't have direct access to the client's protocol class, 
+            so epoch_protocol_parameters are not available.
+        However, the server can access the current state of the subject and the state update.
+        The client can send variables / parameters that are relevant to state-dependent control 
+            through manager.set_subject_state().
+    
+        Given the previous state of the subject and the current state update, 
+            perform custom closed-loop control here.
+        Return the updated state update.
+        '''
+        # TODO: Implement custom closed-loop control here
+        customized_state_update = state_update
+        
+        return customized_state_update
+
 
 class SharedPixMapProtocol(BaseProtocol):
     def __init__(self, cfg):
@@ -600,7 +634,7 @@ class SharedPixMapProtocol(BaseProtocol):
 
         sleep(self.epoch_protocol_parameters['tail_time'])
 
-    def finish_run(self, manager, multicall=None):
+    def on_run_finish(self, manager, multicall=None):
         """
         Method that is called at the end of each run, either when the run is completed or when the run is stopped.
         Fill in if you want to do something at the end of each run.
@@ -713,6 +747,8 @@ class LinearTrackWithTowers(BaseProtocol):
         self.run_parameters = self.get_run_parameter_defaults()
         self.protocol_parameters = self.get_protocol_parameter_defaults()
 
+        self.use_server_side_state_dependent_control = True
+
     def process_input_parameters(self):
         super().process_input_parameters()
 
@@ -723,6 +759,9 @@ class LinearTrackWithTowers(BaseProtocol):
         do_loco_closed_loop = do_loco and self.epoch_protocol_parameters.get('loco_pos_closed_loop', False)
         save_pos_history = do_loco_closed_loop and self.save_metadata_flag
         
+        manager.set_subject_state(state_update={'y_pos_modulo': self.epoch_protocol_parameters['y_pos_modulo'], 
+                                                'y_pos_offset': self.epoch_protocol_parameters['y_pos_offset']})
+
         ### pre time
         sleep(self.epoch_protocol_parameters['pre_time'])
         
@@ -829,7 +868,16 @@ class LinearTrackWithTowers(BaseProtocol):
                 if self.epoch_protocol_parameters['tower_rotating'][i]:
                     tower['rate'] = tower_period[i]
                 self.epoch_stim_parameters.append(tower)
+
+    def server_side_state_dependent_control(manager, previous_state:dict, state_update:dict) -> dict:
+        y = state_update.get('y', previous_state.get('y', 0))
+        y_pos_modulo = state_update.get('y_pos_modulo', previous_state.get('y_pos_modulo', 400)) / 100  # cm -> meters
+        y_pos_offset = state_update.get('y_pos_offset', previous_state.get('y_pos_offset', 400)) / 100  # cm -> meters
         
+        state_update['y'] = (y % y_pos_modulo) + y_pos_offset
+
+        return state_update
+
     def load_stimuli(self, client, multicall=None):
         if multicall is None:
             multicall = stimpack.rpc.multicall.MyMultiCall(client)
@@ -864,7 +912,9 @@ class LinearTrackWithTowers(BaseProtocol):
                 'tower_profile_sine': (  0,   0,   1,   1,   1,   1,   0,   0,   1,   1),
                 'tower_rotating':     (  0,   0,   1,   1,   0,   0,   1,   1,   0,   0),
 
-                'n_repeat_track': 2,
+                'n_repeat_track': 3,
+                'y_pos_modulo': 400,
+                'y_pos_offset': 400
                 }
 
     def get_run_parameter_defaults(self):

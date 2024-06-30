@@ -114,7 +114,7 @@ class BaseClient():
 
         # Check run parameters, compute persistent parameters, and precompute epoch parameters
         # Do not recompute epoch parameters if they have been computed already
-        protocol_object.prepare_run(recompute_epoch_parameters=False)
+        protocol_object.prepare_run(manager=self.manager, recompute_epoch_parameters=False)
 
         # Set background to idle_color
         self.manager.target('visual').set_idle_background(get_rgba(protocol_object.run_parameters.get('idle_color', 0)))
@@ -140,12 +140,12 @@ class BaseClient():
 
         # # # Epoch run loop # # #
         self.manager.print_on_server("Starting run.")
-        protocol_object.num_epochs_completed = 0
+        protocol_object.on_run_start(self.manager)
         while protocol_object.num_epochs_completed < protocol_object.run_parameters['num_epochs']:
             QApplication.processEvents()
             if self.stop is True:
                 self.stop = False
-                protocol_object.finish_run(self.manager)
+                protocol_object.on_run_finish(self.manager)
                 break # break out of epoch run loop
 
             if self.pause is True:
@@ -153,7 +153,7 @@ class BaseClient():
             else: # start epoch and advance counter
                 self.start_epoch(protocol_object, data, save_metadata_flag=save_metadata_flag)
 
-        protocol_object.finish_run(self.manager)
+        protocol_object.on_run_finish(self.manager)
 
         # Set frame tracker to dark
         self.manager.target('visual').corner_square_toggle_stop()
