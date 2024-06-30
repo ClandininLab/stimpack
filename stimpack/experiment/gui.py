@@ -24,7 +24,7 @@ import PyQt6.QtGui as QtGui
 from stimpack.experiment.util import config_tools, h5io
 from stimpack.experiment import protocol, data, client
 
-from stimpack.util import get_all_subclasses, ICON_PATH
+from stimpack.util import get_all_subclasses, ICON_PATH, ROOT_DIR
 from stimpack.util import open_message_window
 
 Status = Enum('Status', ['STANDBY', 'RECORDING', 'VIEWING'])
@@ -66,14 +66,15 @@ class ExperimentGUI(QWidget):
             sys.exit()
 
         print('# # # Loading protocol, data and client modules # # #')
+        user_protocol_exists = config_tools.user_module_exists(self.cfg, 'protocol')
         if config_tools.user_module_exists(self.cfg, 'protocol'):
-            user_protocol_module = config_tools.load_user_module(self.cfg, 'protocol')
-            self.protocol_object = user_protocol_module.BaseProtocol(self.cfg)
-            self.available_protocols =  get_all_subclasses(user_protocol_module.BaseProtocol)
+            protocol_module = config_tools.load_user_module(self.cfg, 'protocol')
         else:   # use the built-in
             print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('protocol'))
-            self.protocol_object =  protocol.BaseProtocol(self.cfg)
-            self.available_protocols =  [x for x in get_all_subclasses(protocol.BaseProtocol) if x.__name__ not in ['BaseProtocol', 'SharedPixMapProtocol']]
+            example_protocol_path = os.path.join(ROOT_DIR, 'experiment', 'example_protocol.py')
+            protocol_module = config_tools.load_user_module_from_path(example_protocol_path, 'protocol')
+        self.protocol_object =  protocol.BaseProtocol(self.cfg)
+        self.available_protocols =  [x for x in get_all_subclasses(protocol.BaseProtocol) if x.__name__ not in ['BaseProtocol', 'SharedPixMapProtocol']]
 
         # start a data object
         if config_tools.user_module_exists(self.cfg, 'data'):

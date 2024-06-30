@@ -189,10 +189,10 @@ class BaseServer(MySocketServer):
         Load a custom state-dependent control function.
         '''
         if protocol_module_path is None: # No user-specified protocol module, use Stimpack protocol
-            protocol_module_full_path = os.path.join(ROOT_DIR, 'experiment', 'protocol.py')
+            protocol_module_full_path = os.path.join(ROOT_DIR, 'experiment', 'example_protocol.py')
         else:
             protocol_module_full_path = config_tools.convert_labpack_relative_path_to_full_path(protocol_module_path)
-        protocol_module = config_tools.load_user_module_from_path(protocol_module_full_path, 'user_protocol')
+        protocol_module = config_tools.load_user_module_from_path(protocol_module_full_path, 'client_protocol')
         if protocol_module is not None:
             self.loaded_custom_state_dependent_control = getattr(protocol_module, protocol_name).server_side_state_dependent_control
         else:
