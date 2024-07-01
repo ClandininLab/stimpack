@@ -66,13 +66,18 @@ class ExperimentGUI(QWidget):
             sys.exit()
 
         print('# # # Loading protocol, data and client modules # # #')
-        user_protocol_exists = config_tools.user_module_exists(self.cfg, 'protocol')
-        if config_tools.user_module_exists(self.cfg, 'protocol'):
-            protocol_module = config_tools.load_user_module(self.cfg, 'protocol')
+
+        # Load protocol module(s). Multiple user-specific protocol modules can be loaded.
+        user_protocol_exists = config_tools.user_module_exists(self.cfg, 'protocol', single_item_in_list=True)
+        if isinstance(user_protocol_exists, list) and (True in user_protocol_exists): # at least one user protocol exists
+            protocol_module_full_paths = config_tools.get_full_paths_to_module(self.cfg, 'protocol', single_item_in_list=True)
+            protocol_modules = [config_tools.load_user_module_from_path(fp, f'protocol_{i:02d}') for i,fp in enumerate(protocol_module_full_paths)]
         else:   # use the built-in
             print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('protocol'))
             example_protocol_path = os.path.join(ROOT_DIR, 'experiment', 'example_protocol.py')
             protocol_module = config_tools.load_user_module_from_path(example_protocol_path, 'protocol')
+        
+        # start a protocol object
         self.protocol_object =  protocol.BaseProtocol(self.cfg)
         self.available_protocols =  [x for x in get_all_subclasses(protocol.BaseProtocol) if x.__name__ not in ['BaseProtocol', 'SharedPixMapProtocol']]
 
