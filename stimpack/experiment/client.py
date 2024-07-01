@@ -87,7 +87,7 @@ class BaseClient():
         # # # Import user-defined stimpack.visual_stim stimuli modules on server screens # # #
         visual_stim_modules_exist = config_tools.user_module_exists(self.cfg, 'visual_stim', single_item_in_list=True)
         if visual_stim_modules_exist is not False: # 'visual_stim' is specified under module_paths in the cfg file
-            visual_stim_module_paths = config_tools.get_paths_to_module(self.cfg, 'visual_stim', single_item_in_list=True)
+            visual_stim_module_paths = config_tools.get_full_paths_to_module(self.cfg, 'visual_stim', single_item_in_list=True)
             for exists, path in zip(visual_stim_modules_exist, visual_stim_module_paths):
                 if not exists:
                     warnings.warn(f"Visual stim module {path} does not exist.")
