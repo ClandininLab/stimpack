@@ -1,4 +1,4 @@
-from math import sin, cos, radians, sqrt
+from math import sqrt
 
 class SubScreen:
     """
@@ -63,13 +63,13 @@ class Screen:
     Parameters such as screen coordinates and the ID # are represented.
     """
 
-    def __init__(self, subscreens=None, server_number=None, id=None, fullscreen=None, vsync=None,
+    def __init__(self, subscreens=None, x_display=None, display_index=0, fullscreen=None, vsync=None,
                  square_size=None, square_loc=None, square_on_color=None, square_off_color=None, name=None, horizontal_flip=False, 
-                 pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15)):
+                 pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15), use_egl=None):
         """
         :param subscreens: list of SubScreen objects (see above), if none are provided, one full-viewport subscreen will be produced using inputs pa, pb, pc
-        :param server_number: ID # of the X server
-        :param id: ID # of the screen
+        :param x_display: $DISPLAY environment variable relevant if using Xorg as display server. If None, the default display is used.
+        :param display_index: Index # of the screen (starts from 0). Follows what QT uses for screen numbering. 
         :param fullscreen: Boolean.  If True, display stimulus fullscreen (default).  Otherwise, display stimulus
         in a window.
         :param vsync: Boolean.  If True, lock the framerate to the redraw rate of the screen.
@@ -78,14 +78,13 @@ class Screen:
         :param square_max_color: scales square color such that maximum value is set as indicated (0 - square_max_color)
         :param name: descriptive name to associate with this screen
         :param horizontal_flip: Boolean. Flip horizontal axis of image, for rear-projection devices
-
+        :param use_egl: Boolean. If True, use EGL for rendering. If False (Default), use GLX. 
+                                 If the display server is Wayland (Linux), EGL will be used regardless.
         """
         if subscreens is None:
             subscreens = [ SubScreen(pa=pa, pb=pb, pc=pc) ]
-        if server_number is None: # server_number and id of -1 means use default X server. See stim_server.launch_screen
-            server_number = -1
-        if id is None:
-            id = -1
+        if display_index is None:
+            display_index = 0
         if fullscreen is None:
             fullscreen = True
         if vsync is None:
@@ -100,14 +99,16 @@ class Screen:
             square_off_color = 1.0
         square_on_color = max(min(square_on_color, 1.0), 0.0)
         square_off_color = max(min(square_off_color, 1.0), 0.0)
+        if use_egl is None:
+            use_egl = False
 
         if name is None:
-            name = 'Screen' + str(id)
+            name = 'Screen ' + str(display_index)
 
         # Save settings
         self.subscreens=subscreens
-        self.id = id
-        self.server_number = server_number
+        self.x_display = x_display
+        self.display_index = display_index
         self.fullscreen = fullscreen
         self.vsync = vsync
         self.square_size = square_size
@@ -119,13 +120,14 @@ class Screen:
         self.pa = pa
         self.pb = pb
         self.pc = pc
+        self.use_egl = use_egl
         self.width = sqrt((pa[0]-pb[0])**2 + (pa[1]-pb[1])**2 + (pa[2]-pb[2])**2)
         self.height = sqrt((pa[0]-pc[0])**2 + (pa[1]-pc[1])**2 + (pa[2]-pc[2])**2)
 
     def serialize(self):
         # get all variables needed to reconstruct the screen object
-        vars = ['id', 'server_number', 'fullscreen', 'vsync', 'square_size', 'square_loc', 
-                'square_on_color', 'square_off_color', 'name', 'horizontal_flip', 'pa', 'pb', 'pc']
+        vars = ['x_display', 'display_index', 'fullscreen', 'vsync', 'square_size', 'square_loc', 
+                'square_on_color', 'square_off_color', 'name', 'horizontal_flip', 'pa', 'pb', 'pc', 'use_egl']
         data = {var: getattr(self, var) for var in vars}
 
         # special handling for tri_list since it could contain numpy values

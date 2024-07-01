@@ -20,6 +20,7 @@ setup(
         'pyYaml',
         
         'moderngl',
+        'PyOpenGL; platform_system=="Linux"',
         'scikit-image',
     ],
     entry_points={
