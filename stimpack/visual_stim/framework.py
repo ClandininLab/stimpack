@@ -19,7 +19,7 @@ from stimpack.visual_stim.trajectory import make_as_trajectory, return_for_time_
 
 from stimpack.visual_stim.perspective import GenPerspective
 from stimpack.visual_stim.square import SquareProgram
-from stimpack.visual_stim.screen import Screen
+from stimpack.visual_stim.screen import Screen, SubScreen, TriSubScreen
 
 from stimpack.rpc.transceiver import MySocketServer
 from stimpack.rpc.util import get_kwargs
@@ -87,6 +87,10 @@ class StimDisplay(QOpenGLWidget):
         self.server = server
         self.app = app
 
+        # Split the subscreens by their types
+        self.rect_subscreens = [sub for sub in self.screen.subscreens if isinstance(sub, SubScreen)]
+        self.tri_subscreens = [sub for sub in self.screen.subscreens if isinstance(sub, TriSubScreen)]
+
         # Initialize stuff for rendering & saving stim frames
         self.stim_frames = []
         self.append_stim_frames = False
@@ -133,6 +137,116 @@ class StimDisplay(QOpenGLWidget):
         # initialize square program
         self.square_program.initialize(self.ctx)
 
+        # For each rect_screen, get the viewport
+        self.rect_subscreen_viewports = [sub.get_viewport(self.width(), self.height()) for sub in self.rect_subscreens]
+
+        # For each tri_subscreen, get the viewport
+        self.tri_subscreen_viewports = [sub.get_viewport(self.width(), self.height()) for sub in self.tri_subscreens]
+    
+        if len(self.tri_subscreens) > 0:
+            # For each tri_subscreen, build a stencil
+            self.stencil_prog = self.ctx.program(
+                vertex_shader="""
+                    #version 330
+                    in vec2 in_vert;
+                    void main() {
+                        gl_Position = vec4(in_vert, 0.0, 1.0);
+                    }
+                """,
+                fragment_shader="""
+                    #version 330
+                    out float f_color;
+                    void main() {
+                        f_color = 1.0;
+                    }
+                """,
+            )
+            self.stencil_vaos = []
+            self.tri_subscreen_stencil_textures = []
+            self.ctx.disable(moderngl.BLEND)
+            for sub in self.tri_subscreens:
+                p1, p2, p3 = sub.get_relative_ndc_coords()
+                stencil_vertices = np.array([
+                    p1[0], p1[1],
+                    p2[0], p2[1],
+                    p3[0], p3[1]
+                ], dtype='f4')
+                stencil_vbo = self.ctx.buffer(stencil_vertices.tobytes())
+                stencil_vao = self.ctx.vertex_array(
+                    self.stencil_prog,
+                    [(stencil_vbo, '2f', 'in_vert')]
+                )
+                stencil_texture = self.ctx.texture((self.width(), self.height()), 1, dtype='f1')
+                stencil_fbo = self.ctx.framebuffer(color_attachments=[stencil_texture])
+                stencil_fbo.use()
+                stencil_fbo.clear(0.0, 0.0, 0.0, 0.0)
+                stencil_vao.render(mode=moderngl.TRIANGLES)
+                self.stencil_vaos.append(stencil_vao)
+                self.tri_subscreen_stencil_textures.append(stencil_texture)
+            self.ctx.enable(moderngl.BLEND)
+
+            # Initialize the program for clearing the tri_subscreens
+            self.tri_clear_prog = self.ctx.program(
+                vertex_shader="""
+                    #version 330
+                    in vec2 in_vert;
+                    void main() {
+                        gl_Position = vec4(in_vert, 0.0, 1.0);
+                    }
+                """,
+                fragment_shader="""
+                    #version 330
+                    uniform vec4 color;
+                    out vec4 f_color;
+                    void main() {
+                        f_color = color;
+                    }
+                """,
+            )
+            self.tri_subscreen_vertices = []
+            for sub in self.tri_subscreens:
+                p1, p2, p3 = sub.get_ndc_coords()
+                vertices = [
+                    p1[0], p1[1],
+                    p2[0], p2[1],
+                    p3[0], p3[1]
+                ]
+                self.tri_subscreen_vertices += vertices
+
+            self.tri_subscreen_vbo = self.ctx.buffer(np.array(self.tri_subscreen_vertices, dtype='f4').tobytes())
+            self.tri_subscreen_vao = self.ctx.vertex_array(
+                self.tri_clear_prog,
+                [(self.tri_subscreen_vbo, '2f', 'in_vert')]
+            )
+
+    
+    def resizeGL(self, w, h):
+        self.ctx.viewport = (0, 0, w, h)
+
+        # get display size and set viewports
+        display_width = self.width()*self.devicePixelRatio()
+        display_height = self.height()*self.devicePixelRatio()
+
+        if len(self.rect_subscreens) > 0:
+            # For each rect_screen, get the viewport
+            self.rect_subscreen_viewports = [sub.get_viewport(display_width, display_height) for sub in self.rect_subscreens]
+
+        if len(self.tri_subscreens) > 0:
+            # For each tri_screen, get the viewport
+            self.tri_subscreen_viewports = [sub.get_viewport(display_width, display_height) for sub in self.tri_subscreens]
+
+            # Update the stencils for the tri_subscreens
+            self.ctx.disable(moderngl.BLEND)
+            for i, (sub, stencil_vao, stencil_texture) in enumerate(zip(self.tri_subscreens, self.stencil_vaos, self.tri_subscreen_stencil_textures)):
+                stencil_texture.release()
+                stencil_texture = self.ctx.texture((w, h), 1, dtype='f1')
+                stencil_fbo = self.ctx.framebuffer(color_attachments=[stencil_texture])
+                stencil_fbo.use()
+                stencil_fbo.clear(0.0, 0.0, 0.0, 0.0)
+                stencil_vao.render(mode=moderngl.TRIANGLES)
+                self.tri_subscreen_stencil_textures[i] = stencil_texture
+            self.ctx.enable(moderngl.BLEND)
+
     def get_stim_time(self, t):
         stim_time = 0
 
@@ -141,6 +255,19 @@ class StimDisplay(QOpenGLWidget):
 
         return stim_time
 
+    def clear_subscreens(self, color=None):
+        if color is None:
+            color = self.idle_background
+        assert len(color) == 4, 'ERROR: color must be a tuple of length 4 (RGBA)'
+
+        # Clear rect subscreens by clearing their viewports
+        self.clear_viewports(color=color, viewports=self.rect_subscreen_viewports)
+
+        if len(self.tri_subscreens) > 0:
+            # Clear tri subscreens by painting them with the stencil
+            self.tri_clear_prog['color'].value = color
+            self.tri_subscreen_vao.render(moderngl.TRIANGLES)
+            
     def clear_viewports(self, color=None, viewports=None):
         if color is None:
             color = self.idle_background
@@ -166,7 +293,6 @@ class StimDisplay(QOpenGLWidget):
         display_width = self.width()*self.devicePixelRatio()
         display_height = self.height()*self.devicePixelRatio()
 
-        self.subscreen_viewports = [sub.get_viewport(display_width, display_height) for sub in self.screen.subscreens]
         # Get viewport for corner square
         self.square_program.set_viewport(display_width, display_height)
 
@@ -192,20 +318,34 @@ class StimDisplay(QOpenGLWidget):
                                         })
 
             # For each subscreen associated with this screen: get the perspective matrix
-            perspectives = [get_perspective(self.subject_position, x.pa, x.pb, x.pc, self.screen.horizontal_flip) for x in self.screen.subscreens]
+            subscreen_dicts = []
+            if len(self.rect_subscreens) > 0:
+                subscreen_dicts += [{'type': 'rect', 
+                                     'perspective': get_perspective(self.subject_position, 
+                                                                    *subscreen.get_cartesian_coords(), 
+                                                                    self.screen.horizontal_flip),
+                                     'viewport': viewport
+                                    } for subscreen, viewport in zip(self.rect_subscreens, self.rect_subscreen_viewports)]
+            if len(self.tri_subscreens) > 0:
+                subscreen_dicts += [{'type': 'tri',
+                                     'perspective': get_perspective(self.subject_position, 
+                                                                    *subscreen.get_bounding_box_cart_coords(), 
+                                                                    self.screen.horizontal_flip),
+                                     'viewport': viewport,
+                                     'stencil': stencil,
+                                    } for subscreen, viewport, stencil in zip(self.tri_subscreens, self.tri_subscreen_viewports, self.tri_subscreen_stencil_textures)]
 
             for stim in self.stim_list:
                 if self.stim_started:
                     stim.paint_at(self.get_stim_time(t),
-                                  self.subscreen_viewports,
-                                  perspectives,
+                                  subscreen_dicts,
                                   subject_position=self.subject_position)
                 else: # Clear when there is stim loaded but not started (pre-time for the most part)
-                    self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
+                    self.clear_subscreens(color=self.idle_background)
 
             self.profile_frame_times.append(t)
         else: # Clear when there is no stim loaded (tail-time and when on standby)
-            self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
+            self.clear_subscreens(color=self.idle_background)
 
         # draw the corner square
         self.square_program.paint()
@@ -323,7 +463,7 @@ class StimDisplay(QOpenGLWidget):
         self.subject_theta_trajectory = None
         
         self.set_subject_state({'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0})
-        self.perspective = get_perspective(self.subject_position, self.screen.subscreens[0].pa, self.screen.subscreens[0].pb, self.screen.subscreens[0].pc, self.screen.horizontal_flip)
+        self.perspective = get_perspective(self.subject_position, *self.screen.subscreens[0].get_cartesian_coords(), self.screen.horizontal_flip)
 
     def update_stim(self, t, **kwargs):
         for stim in self.stim_list:

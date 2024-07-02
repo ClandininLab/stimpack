@@ -1,51 +1,51 @@
 #!/usr/bin/env python3
 from stimpack.visual_stim.stim_server import launch_stim_server
-from stimpack.visual_stim.screen import Screen, SubScreen
+from stimpack.visual_stim.screen import Screen, SubScreen, TriSubScreen, ScreenPoint
 from stimpack.visual_stim.draw import draw_screens
 from stimpack.rpc.multicall import MyMultiCall
 
 from time import sleep
 
 def get_subscreen(dir):
-    '''
-    Tuned for ballrig with "rotate left" in /etc/X11/xorg.conf
-    Because screens are flipped l<->r, viewport_ll is actually lower right corner.
-    '''
-    north_w = 2.956e-2
-    side_w = 2.96e-2
-
-    # set coordinates as a function of direction
+    w = 3.0e-2 #meters
+    h = 3.0e-2
+    viewport_width = 0.6 #ndc
+    viewport_height = 0.6
     if dir == 'w':
-       # set screen width and height
-       h = 3.10e-2
-       pa = (-north_w/2, -side_w/2, -h/2)
-       pb = (-north_w/2, +side_w/2, -h/2)
-       pc = (-north_w/2, -side_w/2, +h/2)
-       viewport_ll = (-0.636, -0.5)
-       viewport_width = -0.636 - (-0.345)
-       viewport_height = -0.289 - (-0.5)
+        viewport_ll = (-0.8, -0.6)
+        # pa = (-w/2, +w/2, -h/2)
+        # pb = (+w/2, +w/2, -h/2)
+        # pc = (-w/2, +w/2, +h/2)
+        # return SubScreen(pa=pa, pb=pb, pc=pc, viewport_ll=viewport_ll, viewport_width=viewport_width, viewport_height=viewport_height)
+        pa = (+w/2, +w/2, -h/2)
+        pb = (+w/2, -w/2, -h/2)
+        pc = (+w/2, +w/2, +h/2)
+        return SubScreen(pa=pa, pb=pb, pc=pc, viewport_ll=viewport_ll, viewport_width=viewport_width, viewport_height=viewport_height)
     elif dir == 'n':
-       # set screen width and height
-       h = 3.29e-2
-       pa = (-north_w/2, +side_w/2, -h/2)
-       pb = (+north_w/2, +side_w/2, -h/2)
-       pc = (-north_w/2, +side_w/2, +h/2)
-       viewport_ll = (+0.2956, -0.1853)
-       viewport_width = +0.2956 - 0.5875
-       viewport_height = +0.015 - (-0.1853)
+        viewport_ll = (-0.3, 0.0)
+        # pa = (-w/2, +w/2, -h/2)
+        # pb = (+w/2, +w/2, -h/2)
+        # pc = (-w/2, +w/2, +h/2)
+        # return SubScreen(pa=pa, pb=pb, pc=pc, viewport_ll=viewport_ll, viewport_width=viewport_width, viewport_height=viewport_height)
+        p1 = ScreenPoint(viewport_ll, (-w/2, +w/2, -h/2))
+        p2 = ScreenPoint((viewport_ll[0] + viewport_width, viewport_ll[1]), (+w/2, +w/2, -h/2))
+        p3 = ScreenPoint((viewport_ll[0] + viewport_width/2, viewport_ll[1] + viewport_height), (0, +w/2, +h/2))
+        return TriSubScreen(p1, p2, p3)
+
     elif dir == 'e':
-        # set screen width and height
-        h = 3.40e-2
-        pa = (+north_w/2, +side_w/2, -h/2)
-        pb = (+north_w/2, -side_w/2, -h/2)
-        pc = (+north_w/2, +side_w/2, +h/2)
-        viewport_ll = (-0.631, +0.135)
-        viewport_width = -0.631 - (-0.355)
-        viewport_height = +0.3397- (+0.135)
+        viewport_ll = (+0.2, -0.6)
+        pa = (+w/2, +w/2, -h/2)
+        pb = (+w/2, -w/2, -h/2)
+        pc = (+w/2, +w/2, +h/2)
+        # return SubScreen(pa=pa, pb=pb, pc=pc, viewport_ll=viewport_ll, viewport_width=viewport_width, viewport_height=viewport_height)
+        p1 = ScreenPoint(viewport_ll, pa)
+        p2 = ScreenPoint((viewport_ll[0] + viewport_width, viewport_ll[1]), pb)
+        p3 = ScreenPoint((viewport_ll[0], viewport_ll[1] + viewport_height), pc)
+        return TriSubScreen(p1, p2, p3)
+
     else:
         raise ValueError('Invalid direction.')
 
-    return SubScreen(pa=pa, pb=pb, pc=pc, viewport_ll=viewport_ll, viewport_width=abs(viewport_width), viewport_height=abs(viewport_height))
 
 
 def main():

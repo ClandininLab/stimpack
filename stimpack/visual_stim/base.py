@@ -12,6 +12,7 @@ See stimpack.visual_stim.stimuli for available child stimulus classes. Overwrite
 
 import moderngl
 
+from PIL import Image
 
 class BaseProgram:
     def __init__(self, screen, num_tri=500):
@@ -50,7 +51,7 @@ class BaseProgram:
     def destroy(self):
         pass
 
-    def paint_at(self, t, viewports, perspectives, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0}):
+    def paint_at(self, t, subscreen_dicts, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0}):
         """
         :param t: current time in seconds
         :param viewports: list of viewport arrays for each subscreen - (xmin, ymin, width, height) in display device pixels
@@ -73,12 +74,27 @@ class BaseProgram:
         self.vbo.write(data.astype('f4'))
 
         # Render to each subscreen
-        for v_ind, vp in enumerate(viewports):
-            # set the perspective matrix
-            self.prog['Mvp'].write(perspectives[v_ind])
-            # set the viewport
-            self.ctx.viewport = vp
+        for subscreen_dict in subscreen_dicts:
+            self.ctx.viewport = subscreen_dict['viewport']
 
+            if subscreen_dict['type'] == 'rect':
+                self.prog['use_stencil'].value = False
+
+            elif subscreen_dict['type'] == 'tri':
+                stencil_location = 0
+                self.prog['use_stencil'].value = True
+                self.prog['stencil_texture'].value = stencil_location
+                subscreen_dict['stencil'].use(location=stencil_location)
+
+                # print("Stencil texture bound with ID:", stencil.glo)
+                # Image.frombytes(
+                #     "L", stencil.size, stencil.read(),
+                #     "raw", "L", 0, -1
+                # ).show()
+
+            # set the perspective matrix
+            self.prog['Mvp'].write(subscreen_dict['perspective'])
+            
             # render the object
             if self.draw_mode == 'POINTS':
                 self.vao.render(mode=moderngl.POINTS, vertices=vertices)
@@ -119,8 +135,9 @@ class BaseProgram:
         else:
             self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
 
-        self.prog['texture_matrix'].value = self.prog.ctx.extra['n_textures_loaded']
-        self.texture.use(self.prog.ctx.extra['n_textures_loaded'])
+        texture_location = self.prog.ctx.extra['n_textures_loaded'] + 1 # texture unit 0 is reserved for stencil
+        self.prog['texture_matrix'].value = texture_location
+        self.texture.use(texture_location)
 
         self.prog.ctx.extra['n_textures_loaded'] += 1
 
@@ -148,6 +165,7 @@ class BaseProgram:
 
             out vec4 v_color;
             out vec2 v_tex_coord;
+            out vec2 v_screen_coord;
 
             uniform mat4 Mvp;
 
@@ -155,6 +173,9 @@ class BaseProgram:
                 v_color = in_color;
                 v_tex_coord = in_tex_coord;
                 gl_Position = Mvp * vec4(in_vert, 1.0);
+
+                // Calculate screen-space coordinates
+                v_screen_coord = (gl_Position.xy / gl_Position.w) * 0.5 + 0.5;
             }
         '''
         return vertex_shader
@@ -165,14 +186,24 @@ class BaseProgram:
 
             in vec4 v_color;
             in vec2 v_tex_coord;
+            in vec2 v_screen_coord;
 
             uniform bool use_texture;
             uniform bool rgb_texture;
             uniform sampler2D texture_matrix;
+            
+            uniform bool use_stencil;
+            uniform sampler2D stencil_texture;
 
             out vec4 f_color;
 
             void main() {
+                if (use_stencil) {
+                    float stencil_value = texture(stencil_texture, v_screen_coord).r;
+                    if (stencil_value < 0.5) {
+                        discard;
+                    }
+                }
                 if (use_texture) {
                     vec4 texFrag = texture(texture_matrix, v_tex_coord);
                     if (rgb_texture) {

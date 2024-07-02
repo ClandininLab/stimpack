@@ -27,10 +27,12 @@ def main():
 
 
     sleep(2)
-
+    manager.corner_square_toggle_start()
     manager.start_stim()
     sleep(4)
 
+    manager.corner_square_toggle_stop()
+    manager.corner_square_off()
     manager.stop_stim(print_profile=True)
     sleep(1)
 

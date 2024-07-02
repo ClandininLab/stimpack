@@ -1,8 +1,132 @@
 from math import sin, cos, radians, sqrt
+import numpy as np
+
+class ScreenPoint:
+    def __init__(self, ndc, cart):
+        self.ndc = ndc  # Normalized Device Coordinates (x, y)
+        self.cart = cart  # Cartesian coordinates (x, y, z)
+
+    def serialize(self):
+        return [
+            self.ndc,
+            self.cart
+        ]
+
+    @classmethod
+    def deserialize(cls, data):
+        return ScreenPoint(
+            ndc=data[0],
+            cart=data[1]
+        )
+
+    def __str__(self):
+        return f'({str(self.ndc)}, {str(self.cart)})'
+
+class TriSubScreen:
+    def __init__(self, p1: ScreenPoint, p2: ScreenPoint, p3: ScreenPoint):
+        self.p1 = p1
+        self.p2 = p2
+        self.p3 = p3
+
+        # Calculate the bounding box in NDC
+        ndc_x = [p1.ndc[0], p2.ndc[0], p3.ndc[0]]
+        ndc_y = [p1.ndc[1], p2.ndc[1], p3.ndc[1]]
+
+        ndc_x_min = min(ndc_x)
+        ndc_x_max = max(ndc_x)
+        ndc_y_min = min(ndc_y)
+        ndc_y_max = max(ndc_y)
+
+        ndc_points = np.array([
+            [p1.ndc[0], p1.ndc[1], 1],
+            [p2.ndc[0], p2.ndc[1], 1],
+            [p3.ndc[0], p3.ndc[1], 1]
+        ])
+        cart_points = np.array([
+            [p1.cart[0], p1.cart[1], p1.cart[2]],
+            [p2.cart[0], p2.cart[1], p2.cart[2]],
+            [p3.cart[0], p3.cart[1], p3.cart[2]]
+        ])
+        ndc_to_cart_transfom = np.linalg.solve(ndc_points, cart_points)
+
+        self.viewport_ll = (ndc_x_min, ndc_y_min)  # Lower-left corner in NDC
+        self.viewport_width = ndc_x_max - ndc_x_min
+        self.viewport_height = ndc_y_max - ndc_y_min
+
+        # Bounding box. Same geometry as that of rectangular SubScreen
+        self.pa = ScreenPoint((ndc_x_min, ndc_y_min), np.dot([ndc_x_min, ndc_y_min, 1], ndc_to_cart_transfom))
+        self.pb = ScreenPoint((ndc_x_max, ndc_y_min), np.dot([ndc_x_max, ndc_y_min, 1], ndc_to_cart_transfom))
+        self.pc = ScreenPoint((ndc_x_min, ndc_y_max), np.dot([ndc_x_min, ndc_y_max, 1], ndc_to_cart_transfom))
+
+        # Calculate p1, p2, p3 NDC coordinates relative to the viewport
+        p1_rel_ndc = (2 * (p1.ndc[0] - ndc_x_min) / self.viewport_width - 1, 2 * (p1.ndc[1] - ndc_y_min) / self.viewport_height - 1)
+        p2_rel_ndc = (2 * (p2.ndc[0] - ndc_x_min) / self.viewport_width - 1, 2 * (p2.ndc[1] - ndc_y_min) / self.viewport_height - 1)
+        p3_rel_ndc = (2 * (p3.ndc[0] - ndc_x_min) / self.viewport_width - 1, 2 * (p3.ndc[1] - ndc_y_min) / self.viewport_height - 1)
+
+        self.p1_rel = ScreenPoint(p1_rel_ndc, p1.cart)
+        self.p2_rel = ScreenPoint(p2_rel_ndc, p2.cart)
+        self.p3_rel = ScreenPoint(p3_rel_ndc, p3.cart)
+
+        print((self.pa.cart, self.pb.cart, self.pc.cart))
+
+    def get_cartesian_coords(self):
+        return (self.p1.cart, self.p2.cart, self.p3.cart)
+    
+    def get_ndc_coords(self):
+        return (self.p1.ndc, self.p2.ndc, self.p3.ndc)
+
+    def get_relative_cartesian_coords(self):
+        return (self.p1_rel.cart, self.p2_rel.cart, self.p3_rel.cart)
+    
+    def get_relative_ndc_coords(self):
+        return (self.p1_rel.ndc, self.p2_rel.ndc, self.p3_rel.ndc)
+    
+    def get_bounding_box_cart_coords(self):
+        return (self.pa.cart, self.pb.cart, self.pc.cart)
+    
+    def get_bounding_box_ndc_coords(self):
+        return (self.pa.ndc, self.pb.ndc, self.pc.ndc)
+
+    def get_viewport(self, display_width, display_height):
+        # convert from ndc to viewport
+        # ref: https://github.com/pyqtgraph/pyqtgraph/issues/422
+        x = (1+self.viewport_ll[0]) * display_width/2
+        y = (1+self.viewport_ll[1]) * display_height/2
+        viewport =  (int(x), int(y), int((self.viewport_width/2)*display_width), int((self.viewport_height/2)*display_height))
+        return viewport
+
+    def serialize(self):
+        return [
+            self.p1.serialize(),
+            self.p2.serialize(),
+            self.p3.serialize()
+        ]
+
+    @classmethod
+    def deserialize(cls, data):
+        return TriSubScreen(
+            p1=ScreenPoint.deserialize(data[0]),
+            p2=ScreenPoint.deserialize(data[1]),
+            p3=ScreenPoint.deserialize(data[2])
+        )
+
+    def __str__(self):
+        return f'({str(self.p1)}, {str(self.p2)}, {str(self.p3)})'
+    
+    # @classmethod
+    # def quad_to_tri_list(cls, p1, p2, p3, p4):
+    #     # convert points to ScreenPoints if necessary
+    #     p1 = p1 if isinstance(p1, ScreenPoint) else ScreenPoint.deserialize(p1)
+    #     p2 = p2 if isinstance(p2, ScreenPoint) else ScreenPoint.deserialize(p2)
+    #     p3 = p3 if isinstance(p3, ScreenPoint) else ScreenPoint.deserialize(p3)
+    #     p4 = p4 if isinstance(p4, ScreenPoint) else ScreenPoint.deserialize(p4)
+
+    #     # create a mesh consisting of two triangles
+    #     return [ScreenTriangle(p1, p2, p4), ScreenTriangle(p2, p3, p4)]
 
 class SubScreen:
     """
-    SubScreen of a Screen object
+    Rectangular SubScreen of a Screen object
     defined by physical screen dimensions and a viewport on the display device
     pa, pb, pc as in: https://csc.lsu.edu/~kooima/articles/genperspective/index.html
     i.e. pa is the lower-left corner of the screen, from the perspective of the viewer
@@ -16,7 +140,8 @@ class SubScreen:
 
     """
 
-    def __init__(self, pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15), viewport_ll=(-1,-1), viewport_width=2, viewport_height=2):
+    def __init__(self, pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15), 
+                 viewport_ll=(-1,-1), viewport_width=2, viewport_height=2):
         """
         :param pa: meters (x,y,z)
         :param pb: meters (x,y,z)
@@ -24,7 +149,9 @@ class SubScreen:
         :param viewport_ll: (x, y) NDC coordinates of lower-left corner of viewport for SubScreen [-1, +1]
         :param viewport_width: NDC width of viewport [0, 2]
         :param viewport_height: NDC height of viewport [0, 2]
-
+        :param tri_list: list of triangular patches defining the subscreen geometry.  this is a list of ScreenTriangles.
+                if the triangle list is not specified, then one is constructed automatically using pa, pb, and pc.
+                if using tri_list, the pa, pb, and pc values are ignored. 
         """
         self.pa = pa
         self.pb = pb
@@ -33,6 +160,9 @@ class SubScreen:
         self.viewport_ll = viewport_ll
         self.viewport_width = viewport_width
         self.viewport_height = viewport_height
+
+    def get_cartesian_coords(self):
+        return (self.pa, self.pb, self.pc)
 
     def get_viewport(self, display_width, display_height):
         # convert from ndc to viewport
@@ -55,7 +185,6 @@ class SubScreen:
     @classmethod
     def deserialize(cls, data):
         return SubScreen(*data)
-
 
 class Screen:
     """
@@ -129,7 +258,7 @@ class Screen:
         data = {var: getattr(self, var) for var in vars}
 
         # special handling for tri_list since it could contain numpy values
-        data['subscreens'] = [sub.serialize() for sub in self.subscreens]
+        data['subscreens'] = [(type(sub).__name__, sub.serialize()) for sub in self.subscreens]
 
         return data
 
@@ -139,7 +268,14 @@ class Screen:
         kwargs = data.copy()
 
         # do some post-processing as necessary
-        kwargs['subscreens'] = [SubScreen.deserialize(sub) for sub in kwargs['subscreens']]
+        kwargs['subscreens'] = []
+        for sub_class_name, subscreen in data['subscreens']:
+            if sub_class_name == 'SubScreen':
+                kwargs['subscreens'].append(SubScreen.deserialize(subscreen))
+            elif sub_class_name == 'TriSubScreen':
+                kwargs['subscreens'].append(TriSubScreen.deserialize(subscreen))
+            else:
+                raise ValueError(f'Unknown subscreen class name: {sub_class_name}')
 
         return Screen(**kwargs)
 
