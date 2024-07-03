@@ -216,7 +216,7 @@ class NWBData():
                     value_is_list_tuple_or_array = isinstance(value, (tuple, list, np.ndarray))
                     if not value_is_list_tuple_or_array:
                         vector_column = VectorData(name=column, description=column, data=H5DataIO(data=[value], maxshape=(None,)))
-                        # columns_to_add.append(vector_column)
+                        columns_to_add.append(vector_column)
                     else:
                         value_has_list_tuple_or_array_as_elements = isinstance(value[0], (tuple, list, np.ndarray))
                         if not value_has_list_tuple_or_array_as_elements:
