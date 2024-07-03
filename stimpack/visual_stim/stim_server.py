@@ -1,4 +1,4 @@
-import platform
+import platform, os
 from time import time
 
 import stimpack.visual_stim.framework
@@ -21,15 +21,31 @@ def launch_screen(screen, **kwargs):
 
     # set the arguments as necessary
     new_env_vars = {}
-    if platform.system() in ['Linux', 'Darwin']:
-        if screen.server_number == -1 and screen.id == -1:
-            print('Initializing screen with default X display server.')
-        elif screen.server_number == -1:
-            new_env_vars['DISPLAY'] = ':{}'.format(screen.id)
-        elif screen.id == -1:
-            new_env_vars['DISPLAY'] = ':{}.0'.format(screen.server_number)
+
+    session_type = os.environ.get('XDG_SESSION_TYPE', "unknown")
+    qt_platform_type = os.environ.get('QT_QPA_PLATFORM', "unknown")
+    print(f"Display session type: {session_type}")
+    print(f"QT platform type: {qt_platform_type}")
+
+    if platform.system() == 'Linux':
+        if screen.x_display is not None:
+            if session_type != 'x11':
+                print("Host session type is not X11 but attempting to use X11.")
+            screen.name += f" (X11 {screen.x_display})"
+            new_env_vars['DISPLAY'] = screen.x_display
+            new_env_vars['QT_QPA_PLATFORM'] = 'xcb'
         else:
-            new_env_vars['DISPLAY'] = ':{}.{}'.format(screen.server_number, screen.id)
+            if session_type == 'x11' or qt_platform_type == 'xcb':
+                print("No X display specified, using default X11 settings.")
+                screen.name += f" (X11 {os.environ.get('DISPLAY', '')})"
+                new_env_vars['QT_QPA_PLATFORM'] = 'xcb'
+            elif session_type == 'wayland' or 'wayland' in qt_platform_type:
+                screen.name += " (Wayland)"
+                new_env_vars['QT_QPA_PLATFORM'] = 'wayland'
+                screen.use_egl = True
+            else:
+                print(f"Unknown session type: {session_type}")
+
     # launch the server and return the resulting client
     return launch_server(stimpack.visual_stim.framework, screen=screen.serialize(), new_env_vars=new_env_vars, **kwargs)
 
@@ -57,7 +73,7 @@ class VisualStimServer(MySocketServer):
 
         # If no screens are specified, create a default screen
         if screens is None or len(screens) == 0:
-            screens = [Screen(server_number=-1, id=-1, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
+            screens = [Screen(x_display=None, display_index=0, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
         
         # launch screens
         self.screen_clients = [launch_screen(screen=screen, other_stim_module_paths=other_stim_module_paths, **kwargs) for screen in screens]
@@ -124,6 +140,15 @@ class VisualStimServer(MySocketServer):
 
     def close(self):
         self.shutdown_flag.set()
+
+    def on_connection_close(self):
+        '''
+        Clean up the loaded "other stim modules".
+        '''
+        # Unload all the stim modules from the screen clients
+        for screen_client in self.screen_clients:
+            screen_client.unload_stim_module(barcodes=None)
+        return
 
     ### Shared memory pixmap stim functions ###
     def load_shared_pixmap_stim(self, **kwargs):

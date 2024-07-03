@@ -4,8 +4,10 @@
 import os, sys
 from time import sleep
 import posixpath
+import warnings
 from PyQt6.QtWidgets import QApplication
 
+from stimpack.rpc.launch import launch_server
 from stimpack.rpc.transceiver import MySocketClient
 from stimpack.visual_stim.screen import Screen
 from stimpack.visual_stim.util import get_rgba
@@ -19,6 +21,7 @@ class BaseClient():
     def __init__(self, cfg):
         self.stop = False
         self.pause = False
+        self.manager = None
         self.cfg = cfg
         
         # # # Load server options from config file and selections # # #
@@ -26,36 +29,50 @@ class BaseClient():
         self.trigger_device = config_tools.load_trigger_device(self.cfg)
 
         # # # Start the stim manager and set the frame tracker square to black # # #
-        if self.server_options['use_server']:
+        # use a remote server
+        if self.server_options.get('use_server', False) or self.server_options.get('use_remote_server', False): 
+            # Assume the remote server is already running and listening on the specified host and port
             self.manager = MySocketClient(host=self.server_options['host'], port=self.server_options['port'])
+        
+        else: # use a local server, either the default or a specified one
+            # local server path is specified; start it in a separate process
+            if 'local_server_path' in self.server_options:
+                server_path = self.server_options['local_server_path']
+                port = self.server_options.get('port', 60629)
+                if not os.path.isabs(server_path):
+                    server_path = os.path.join(config_tools.get_labpack_directory(), server_path)
+                if os.path.exists(server_path):
+                    # start the server in a separate process
+                    self.manager, self.local_server_process = launch_server(server_path, host='', port=port, return_process_handle=True)
+                else:
+                    warnings.warn(f"Server path {server_path} does not exist. Using default local server.")
             
-        else:
-            if 'disp_server_id' in self.server_options:
-                disp_server, disp_id = self.server_options['disp_server_id']
-            else:
-                disp_server, disp_id = -1, -1
-            
-            visual_stim_kwargs = {
-                'screens': [Screen(server_number=disp_server, id=disp_id, fullscreen=False, vsync=True, square_size=(0.1, 0.1),
-                                   pa=(-0.15, 0.15, -0.15), pb=(+0.15, 0.15, -0.15), pc=(-0.15, 0.15, +0.15))] # -45 to 45 deg in both theta and phi
-            }
-            
-            loco_class = KeytracClosedLoopManager
-            loco_kwargs = {
-                'host':          '127.0.0.1',
-                'port':           33335,
-                'python_bin':    sys.executable,
-                'kt_py_fn':      os.path.join(ROOT_DIR, "device/locomotion/keytrac/keytrac.py"),
-                'relative_control': 'True',
-            }
-            
-            server = BaseServer(host='127.0.0.1',
-                                port=None, 
-                                start_loop=True, 
-                                visual_stim_kwargs=visual_stim_kwargs, 
-                                loco_class=loco_class, 
-                                loco_kwargs=loco_kwargs)
-            self.manager = MySocketClient(host=server.host, port=server.port)
+            # no local server path specified; start the default local server
+            if self.manager is None:
+                x_display = self.server_options.get('x_display', None)
+                display_index = self.server_options.get('display_index', 0)
+
+                visual_stim_kwargs = {
+                    'screens': [Screen(x_display=x_display, display_index=display_index, fullscreen=False, vsync=True, square_size=(0.1, 0.1),
+                                       pa=(-0.15, 0.15, -0.15), pb=(+0.15, 0.15, -0.15), pc=(-0.15, 0.15, +0.15))] # -45 to 45 deg in both theta and phi
+                }
+
+                loco_class = KeytracClosedLoopManager
+                loco_kwargs = {
+                    'host':          '127.0.0.1',
+                    'port':           33335,
+                    'python_bin':    sys.executable,
+                    'kt_py_fn':      os.path.join(ROOT_DIR, "device/locomotion/keytrac/keytrac.py"),
+                    'relative_control': 'True',
+                }
+
+                server = BaseServer(host='127.0.0.1',
+                                    port=None, 
+                                    start_loop=True, 
+                                    visual_stim_kwargs=visual_stim_kwargs, 
+                                    loco_class=loco_class, 
+                                    loco_kwargs=loco_kwargs)
+                self.manager = MySocketClient(host=server.host, port=server.port)
 
         # if the trigger device is on the server, set the manager for the trigger device
         if isinstance(self.trigger_device, daq.DAQonServer):
@@ -66,8 +83,14 @@ class BaseClient():
         self.manager.target('visual').set_idle_background(0)
 
         # # # Import user-defined stimpack.visual_stim stimuli modules on server screens # # #
-        visual_stim_module_paths = self.server_options.get('visual_stim_module_paths', [])
-        [self.manager.target('visual').import_stim_module(dir) for dir in visual_stim_module_paths]
+        visual_stim_modules_exist = config_tools.user_module_exists(self.cfg, 'visual_stim', single_item_in_list=True)
+        if visual_stim_modules_exist is not False: # 'visual_stim' is specified under module_paths in the cfg file
+            visual_stim_module_paths = config_tools.get_full_paths_to_module(self.cfg, 'visual_stim', single_item_in_list=True)
+            for exists, path in zip(visual_stim_modules_exist, visual_stim_module_paths):
+                if not exists:
+                    warnings.warn(f"Visual stim module {path} does not exist.")
+                else:
+                    self.manager.target('visual').import_stim_module(path)
 
     def stop_run(self):
         self.stop = True
@@ -93,7 +116,7 @@ class BaseClient():
 
         # Check run parameters, compute persistent parameters, and precompute epoch parameters
         # Do not recompute epoch parameters if they have been computed already
-        protocol_object.prepare_run(recompute_epoch_parameters=False)
+        protocol_object.prepare_run(manager=self.manager, recompute_epoch_parameters=False)
 
         # Set background to idle_color
         self.manager.target('visual').set_idle_background(get_rgba(protocol_object.run_parameters.get('idle_color', 0)))
@@ -119,12 +142,12 @@ class BaseClient():
 
         # # # Epoch run loop # # #
         self.manager.print_on_server("Starting run.")
-        protocol_object.num_epochs_completed = 0
+        protocol_object.on_run_start(self.manager)
         while protocol_object.num_epochs_completed < protocol_object.run_parameters['num_epochs']:
             QApplication.processEvents()
             if self.stop is True:
                 self.stop = False
-                protocol_object.finish_run(self.manager)
+                protocol_object.on_run_finish(self.manager)
                 break # break out of epoch run loop
 
             if self.pause is True:
@@ -132,7 +155,7 @@ class BaseClient():
             else: # start epoch and advance counter
                 self.start_epoch(protocol_object, data, save_metadata_flag=save_metadata_flag)
 
-        protocol_object.finish_run(self.manager)
+        protocol_object.on_run_finish(self.manager)
 
         # Set frame tracker to dark
         self.manager.target('visual').corner_square_toggle_stop()
@@ -211,3 +234,8 @@ class BaseClient():
         self.manager.target('locomotion').close()
         self.manager.target('locomotion').set_save_directory(None)
     
+    def close(self):
+        # We had started a local server in a separate process; terminate it.
+        if 'local_server_process' in self.__dict__:
+            print("Closing local server.")
+            self.local_server_process.terminate()

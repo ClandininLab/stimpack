@@ -6,6 +6,7 @@ from importlib.util import spec_from_file_location, module_from_spec
 import random
 import string
 import warnings
+import gc
 
 def load_stim_module_from_path(path, module_name='loaded_module', submodules=['stimuli', 'trajectory', 'distribution']):
     '''
@@ -21,6 +22,17 @@ def load_stim_module_from_path(path, module_name='loaded_module', submodules=['s
         loaded_mod = module_from_spec(spec)
         sys.modules[submodule_name_full] = loaded_mod
         spec.loader.exec_module(loaded_mod)
+    return
+
+def unload_module(module_name):
+    '''
+    Unload a module from sys.modules.
+    '''
+    if module_name in sys.modules:
+        del sys.modules[module_name]
+        gc.collect() # force garbage collection; behavior isn't guaranteed, but it appears to work
+    else:
+        warnings.warn(f'Module {module_name} not found in sys.modules.')
     return
 
 def generate_lowercase_barcode(length=5, existing_barcodes=[]):
@@ -101,8 +113,8 @@ def spherical_to_cartesian(r, theta, phi):
 
 def cartesian_to_spherical(x, y, z):
     r = np.sqrt(x**2 + y**2 + z**2)
-    theta = np.arctan2(y, z)
-    phi = np.arccos(z/r) # np.arctan2(np.sqrt(x**2 + y**2), z)
+    theta = np.arctan2(y, x)
+    phi = np.arccos(z/r)
     return r, theta, phi
 
 def cylindrical_to_cartesian(r, theta, z):

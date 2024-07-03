@@ -29,11 +29,13 @@ class SquareProgram:
         self.prog = self.create_prog()
 
         # create VBO to represent vertex positions
-        pts = np.array([-1, -1, 1, -1, -1, 1, 1, 1]) # fill the viewport
-        vbo = self.ctx.buffer(pts.astype('f4').tobytes())
+        self.pts = np.array([-1, -1, 1, -1, -1, 1, 1, 1]).astype('f4').tobytes() # fill the viewport
+        self.vbo = self.ctx.buffer(self.pts)
 
         # create vertex array object
-        self.vao = self.ctx.simple_vertex_array(self.prog, vbo, 'pos')
+        self.vao = self.ctx.vertex_array(program = self.prog, 
+                                         content = [(self.vbo, '2f', 'pos')], 
+                                         mode = moderngl.TRIANGLE_STRIP)
 
     def create_prog(self):
         return self.ctx.program(
@@ -98,13 +100,23 @@ class SquareProgram:
     def paint(self):
 
         if self.draw:
+            # Set viewport
+            self.ctx.viewport = self.viewport
+
+            # When using EGL, the context state needs to be reset. Temporary fix.
+            if self.screen.use_egl:
+                self.prog = self.create_prog()
+                self.vbo = self.ctx.buffer(self.pts)
+                self.vao = self.ctx.vertex_array(program = self.prog, 
+                                        content = [(self.vbo, '2f', 'pos')], 
+                                        mode = moderngl.TRIANGLE_STRIP)
+
             # write color
             self.prog['color'].value = self.color
-
-            # Set viewport and render to screen
-            self.ctx.viewport = self.viewport
+                
+            # render to screen
             self.vao.render(mode=moderngl.TRIANGLE_STRIP)
-
+            
         if self.toggle:
             self.on = not self.on
             self.color = self.on_color if self.on else self.off_color

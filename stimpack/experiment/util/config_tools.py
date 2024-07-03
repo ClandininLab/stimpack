@@ -89,46 +89,98 @@ def get_parameter_preset_directory(cfg):
 
 # %% Functions for finding and loading user-defined modules
 
-def get_path_to_module(cfg, module_name):
-    """Returns full path to user defined module as specified in cfg file"""
+def get_paths_to_module(cfg, module_name, single_item_in_list=False):
+    """
+    Returns path to user defined module as specified in cfg file (not necessarily full path)
+    If module_name is in the cfg, 
+        returns file paths for the specified module.
+        If there are multiple paths specified for the module, returns a list.
+        If there is only one path specified, single_item_in_list determines whether the return is in a list or not.
+    """
 
     module_paths_entry = cfg.get('module_paths', None)
     if module_paths_entry is None:
         return None
     else:
-        module_path = module_paths_entry.get(module_name, None)
+        module_paths = module_paths_entry.get(module_name, None)
 
-    if module_path is None:
+    if module_paths is None:
         return None
+    
+    if not isinstance(module_paths, list) and single_item_in_list:
+        module_paths = [module_paths]
+    return module_paths
+
+def convert_labpack_relative_path_to_full_path(module_path):
+    """Converts a path relative to the labpack directory to a full path"""
+    if os.path.isabs(module_path):
+        full_module_path = module_path
     else:
         full_module_path = os.path.join(get_labpack_directory(), module_path)
 
     return full_module_path
 
-def user_module_exists(cfg, module_name):
-    """Checks whether specified user module is defined and exists on this machine. Returns True/False."""
+def get_full_paths_to_module(cfg, module_name, single_item_in_list=False):
+    """
+    Returns full paths to user defined module as specified in cfg file
+    If module_name is in the cfg, 
+        returns file paths for the specified module.
+        If there are multiple paths specified for the module, returns a list.
+        If there is only one path specified, single_item_in_list determines whether the return is in a list or not.
+    """
+    module_paths = get_paths_to_module(cfg, module_name, single_item_in_list=True)
+    if module_paths is None:
+        return None
+    else:
+        full_paths = [convert_labpack_relative_path_to_full_path(mp) for mp in module_paths]
+        if len(full_paths) == 1 and not single_item_in_list:
+            return full_paths[0]
+        return full_paths
 
-    full_module_path = get_path_to_module(cfg, module_name)
-    if full_module_path is None:
+def user_module_exists(cfg, module_name, single_item_in_list=False):
+    """
+    Checks whether specified user module is defined and exists on this machine. 
+    Returns False if module_name is not in the cfg.
+    If module_name is in the cfg, 
+        returns True/False based on whether the specified module path exists.
+        If there are multiple paths specified for the module, returns a list of booleans.
+        If there is only one path specified, single_item_in_list determines whether the return is in a list or not.
+    """
+
+    full_module_paths = get_full_paths_to_module(cfg, module_name, single_item_in_list=True)
+    if full_module_paths is None:
         return False
     else:
-        return os.path.exists(full_module_path)
+        exists = [os.path.exists(p) for p in full_module_paths]
+        if len(exists) == 1 and not single_item_in_list:
+            return exists[0]
+        return exists
 
 
 def load_user_module(cfg, module_name):
     """Imports user defined module and returns the loaded package."""
     if user_module_exists(cfg, module_name):
-        path_to_module = get_path_to_module(cfg, module_name)
-        spec = spec_from_file_location(module_name, path_to_module)
+        path_to_module = get_full_paths_to_module(cfg, module_name)
+        if isinstance(path_to_module, list):
+            print("This function only supports single module import but there are multiple module files specified. Using the first one.")
+            path_to_module = path_to_module[0]
+        return load_user_module_from_path(path_to_module, module_name)
+    else:
+        return None
+
+def load_user_module_from_path(full_module_path, module_name):
+    """Imports user defined module and returns the loaded package."""
+    if os.path.exists(full_module_path):
+        spec = spec_from_file_location(module_name, full_module_path)
         loaded_mod = module_from_spec(spec)
         sys.modules[module_name] = loaded_mod
         spec.loader.exec_module(loaded_mod)
 
-        print('Loaded {} module from {}'.format(module_name, path_to_module))
+        print('Loaded {} module from {}'.format(module_name, full_module_path))
         return loaded_mod
     else:
+        print(f'Error: {full_module_path} does not exist. Could not load module {module_name}.')
         return None
-
 
 def load_trigger_device(cfg):
     """Loads trigger device specified in rig config from the user daq module """
@@ -141,7 +193,7 @@ def load_trigger_device(cfg):
         return None
     else:
         trigger_device = eval('daq.{}'.format(trigger_device_definition))
-        print('Loaded trigger device from {}.{}'.format(get_path_to_module(cfg, 'daq'), trigger_device_definition))
+        print('Loaded trigger device from {}.{}'.format(get_full_paths_to_module(cfg, 'daq'), trigger_device_definition))
         return trigger_device
 
 # %%
@@ -156,14 +208,13 @@ def get_screen_center(cfg):
     return screen_center
 
 def get_server_options(cfg):
+    default_server_options = {'use_remote_server': False,
+                              'data_directory': None}
     if 'current_rig_name' in cfg:
-        server_options = cfg.get('rig_config').get(cfg.get('current_rig_name')).get('server_options', {'host': '0.0.0.0', 'port': 60629, 'use_server': False})
+        server_options = cfg.get('rig_config').get(cfg.get('current_rig_name')).get('server_options', default_server_options)
     else:
         print('No rig selected, using default server settings')
-        server_options = {'host': '0.0.0.0',
-                          'port': 60629,
-                          'use_server': False,
-                          'data_directory': None}
+        server_options = default_server_options
     return server_options
 
 def get_data_directory(cfg):

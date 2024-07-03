@@ -216,6 +216,14 @@ class MySocketServer(MyTransceiver):
                 pass
 
             print(f'{self.name} dropped connection from {address}.')
+            self.on_connection_close()
 
             if self.auto_stop:
                 self.shutdown_flag.set()
+
+    def on_connection_close(self):
+        '''
+        This function is called when the connection is closed / dropped.
+        Can serve as a hook for subclasses to implement custom behavior.
+        '''
+        pass
