@@ -1,10 +1,12 @@
 import os
+import platform
 import sys
 
 import time
 import signal
 from math import radians
 import moderngl
+
 import numpy as np
 import pandas as pd
 from skimage.transform import downscale_local_mean
@@ -30,7 +32,7 @@ class StimDisplay(QOpenGLWidget):
     and also controls rendering of the stimulus, toggling corner square, and/or debug information.
     """
 
-    def __init__(self, screen, server, app):
+    def __init__(self, screen, server, app, debug=False):
         """
         Initialize the StimDisplay obect.
 
@@ -41,23 +43,40 @@ class StimDisplay(QOpenGLWidget):
         super().__init__()
         self.setFormat(make_qt_format(vsync=screen.vsync))
 
-        self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}')
+        self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}' + " (EGL)" if screen.use_egl else "")
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
 
-        rect_display = app.primaryScreen().geometry() # Get hardware display size
-        if screen.fullscreen:
-            # Set window size and position for fullscreen
-            self.move(rect_display.left(), rect_display.top())
-            self.resize(rect_display.width(), rect_display.height())
+        self.debug = debug
+        if self.debug:
+            print('Debug mode enabled')
+
+        # Get the correct QScreen object for the display hardware
+        qscreens = app.screens()
+        if len(qscreens) == 0:
+            raise ValueError('ERROR: No screens detected.')
+        elif len(qscreens) == 1: 
+            # If only one screen is detected, use that screen
+            qscreen = qscreens[0]
         else:
+            # If multiple screens are detected, index the screen with screen.display_index
+            assert len(qscreens) > screen.display_index, f'ERROR: Display index ({screen.display_index}) must be less than # of screens ({len(qscreens)} detected).'
+            qscreen = qscreens[screen.display_index]
+
+        if screen.fullscreen:
+            screen_geometry = qscreen.geometry() # Get hardware display size
+            self.move(screen_geometry.left(), screen_geometry.top())
+        else:
+            screen_geometry = qscreen.availableGeometry() # Get available display size
+            self.move(screen_geometry.left(), screen_geometry.top())
+
             # Set window size such that neither heignt nor width exceeds half that of the display, 
             #   while maintaining aspect ratio
             window_aspect_ratio = screen.width / screen.height
-            display_aspect_ratio = rect_display.width() / rect_display.height()
+            display_aspect_ratio = screen_geometry.width() / screen_geometry.height()
 
             # Maximum allowed size (half of the display's size)
-            max_window_width = rect_display.width() // 2
-            max_window_height = rect_display.height() // 2
+            max_window_width = screen_geometry.width() // 2
+            max_window_height = screen_geometry.height() // 2
 
             # Determine the scaling factor based on aspect ratios and maximum allowed dimensions
             if window_aspect_ratio > display_aspect_ratio:
@@ -117,8 +136,77 @@ class StimDisplay(QOpenGLWidget):
         self.imported_stim_module_names = []
 
     def initializeGL(self):
-        # get OpenGL context
-        self.ctx = moderngl.create_context() # TODO: can we make this run headless in render_movie_mode?
+         # get OpenGL context
+        if self.screen.use_egl:
+            # Get EGL context with PyOpenGL then hand it over to moderngl
+            from OpenGL import EGL, GL
+
+            def create_egl_context():
+                # Get an EGL display connection
+                display = EGL.eglGetDisplay(EGL.EGL_DEFAULT_DISPLAY)
+                if display == EGL.EGL_NO_DISPLAY:
+                    raise RuntimeError("Failed to get EGL display")
+
+                # Initialize the EGL display connection
+                major, minor = EGL.EGLint(), EGL.EGLint()
+                if not EGL.eglInitialize(display, major, minor):
+                    raise RuntimeError("Unable to initialize EGL")
+                
+                # Specify the minimum configuration attributes
+                config_attribs = [
+                    EGL.EGL_SURFACE_TYPE, EGL.EGL_PBUFFER_BIT,
+                    EGL.EGL_BLUE_SIZE, 8,
+                    EGL.EGL_GREEN_SIZE, 8,
+                    EGL.EGL_RED_SIZE, 8,
+                    EGL.EGL_ALPHA_SIZE, 24,
+                    EGL.EGL_DEPTH_SIZE, 24,
+                    EGL.EGL_RENDERABLE_TYPE, EGL.EGL_OPENGL_BIT,
+                    EGL.EGL_NONE
+                ]
+                config_attribs = (EGL.EGLint * len(config_attribs))(*config_attribs)
+
+                # Choose a configuration
+                num_configs = EGL.EGLint()
+                config = EGL.EGLConfig()
+                if not EGL.eglChooseConfig(display, config_attribs, config, 1, num_configs):
+                    raise RuntimeError("Failed to choose config")
+
+                # Context attributes for specifying OpenGL version
+                context_attribs = [
+                    EGL.EGL_CONTEXT_MAJOR_VERSION, 3,
+                    EGL.EGL_CONTEXT_MINOR_VERSION, 3,
+                    EGL.EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL.EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+                    EGL.EGL_NONE
+                ]
+                context_attribs = (EGL.EGLint * len(context_attribs))(*context_attribs)
+
+                # Create an EGL context
+                ctx = EGL.eglCreateContext(display, config, EGL.EGL_NO_CONTEXT, context_attribs)
+                if ctx == EGL.EGL_NO_CONTEXT:
+                    raise RuntimeError("Failed to create EGL context")
+                
+                GL.glEnable(GL.GL_DEPTH_TEST)         # Enable depth testing
+                GL.glDepthFunc(GL.GL_LESS)            # Specify depth comparison function
+
+                return display, ctx, config
+
+            display, ctx, config = create_egl_context()
+
+            # Make the context current
+            if not EGL.eglMakeCurrent(display, EGL.EGL_NO_SURFACE, EGL.EGL_NO_SURFACE, ctx):
+                raise RuntimeError("Failed to make the EGL context current")
+
+            # Grab the EGL context with moderngl
+            self.ctx = moderngl.get_context()
+        
+        else: 
+            # Use moderngl context creation
+            self.ctx = moderngl.create_context(require=330) # TODO: can we make this run headless in render_movie_mode?
+
+        print(f"OpenGL version: {self.ctx.info['GL_VERSION']}")
+        print(f"OpenGL vendor: {self.ctx.info['GL_VENDOR']}")
+        print(f"OpenGL renderer: {self.ctx.info['GL_RENDERER']}")
+
         self.ctx.enable(moderngl.BLEND) # enable alpha blending
         self.ctx.enable(moderngl.DEPTH_TEST) # enable depth test
 
@@ -132,6 +220,8 @@ class StimDisplay(QOpenGLWidget):
 
         # initialize square program
         self.square_program.initialize(self.ctx)
+
+        self.frame_count = 0
 
     def get_stim_time(self, t):
         stim_time = 0
@@ -154,6 +244,7 @@ class StimDisplay(QOpenGLWidget):
         
     def paintGL(self):
         # t0 = time.time() # benchmarking
+        self.frame_count += 1
 
         # quit if desired
         if self.server.shutdown_flag.is_set():
@@ -210,15 +301,14 @@ class StimDisplay(QOpenGLWidget):
         # draw the corner square
         self.square_program.paint()
 
+        if self.debug:
+            error = self.ctx.error
+            if error != 'GL_NO_ERROR' and self.frame_count < 5:
+                print(f'{self.frame_count} OpenGL Error: {error}')
+
         # update the window
         self.ctx.finish()
         self.update()
-
-        # clear the buffer objects
-        for stim in self.stim_list:
-            if self.stim_started:
-                stim.vbo.release()
-                stim.vao.release()
 
         if self.stim_started:
             # print('paintGL {:.2f} ms'.format((time.time()-t0)*1000)) #benchmarking
@@ -302,6 +392,11 @@ class StimDisplay(QOpenGLWidget):
         self.ctx.extra['n_textures_loaded'] = 0
 
         for stim in self.stim_list:
+            stim.vbo_vert.release()
+            stim.vbo_color.release()
+            if stim.use_texture:
+                stim.vbo_texture.release()
+            stim.vao.release()
             stim.prog.release()
             stim.destroy()
 
@@ -525,7 +620,6 @@ def make_qt_format(vsync):
 
     return format
 
-
 def main():
     # get the configuration parameters
     kwargs = get_kwargs()
@@ -545,11 +639,12 @@ def main():
     # launch application
     app = QtWidgets.QApplication([])
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))
-    app.setApplicationName('Stimpack visual_stim screen: {screen.name}')
+    app.setApplicationName(f'Stimpack visual_stim screen: {screen.name}')
 
     # create the StimDisplay object
     screen = Screen.deserialize(kwargs.get('screen', {}))
-    stim_display = StimDisplay(screen=screen, server=server, app=app)
+    debug = kwargs.get('debug', False)
+    stim_display = StimDisplay(screen=screen, server=server, app=app, debug=debug)
 
     # register functions
     server.register_function(stim_display.set_subject_trajectory)
