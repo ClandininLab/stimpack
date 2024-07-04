@@ -22,7 +22,7 @@ from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, QUrl
 import PyQt6.QtGui as QtGui
 
 from stimpack.experiment.util import config_tools
-from stimpack.experiment import protocol, data, client
+from stimpack.experiment import protocol, data_nwb, client
 
 from stimpack.util import get_all_subclasses, ICON_PATH, ROOT_DIR
 from stimpack.util import open_message_window
@@ -85,7 +85,7 @@ class ExperimentGUI(QWidget):
             self.data = user_data_module.Data(self.cfg)
         else:  # use the built-in
             print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('data'))
-            self.data = data.BaseData(self.cfg)
+            self.data = data_nwb.NWBData(self.cfg)
 
          # start a client
         if config_tools.user_module_exists(self.cfg, 'client'):
