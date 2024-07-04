@@ -127,7 +127,7 @@ class KeyTrac(QMainWindow):
             self.pos["theta"] -= self.step["theta"]
         else:
             if self.verbose:
-                print(f"Key {key} not recognized.")
+                print(f"KeyTrac: Key {key} not recognized.")
             return
 
         self.key_count += 1
@@ -198,7 +198,7 @@ class KeyTrac(QMainWindow):
             self.pos["theta"] -= self.step["theta"]
         else:
             if self.verbose:
-                print(f"Key {key} not recognized.")
+                print(f"KeyTrac: Key {key} not recognized.")
             return
 
         self.key_count += 1
@@ -220,7 +220,7 @@ class KeyTrac(QMainWindow):
         try:
             self.sock.sendto(message.encode(), (self.host, self.port)) # UDP
         except:
-            print("Failed to send message.")
+            print("KeyTrac: Failed to send message.")
             return
         # self.sock.sendall(message.encode()) # TCP
 
@@ -267,9 +267,9 @@ class KeyTrac(QMainWindow):
         self.sock.close()
     
     def sigint_handler(self, signal, frame):
-        print("SIGINT received.")
+        print("KeyTrac: SIGINT received.")
         self.closeEvent(None)
-        print("Exiting...")
+        print("KeyTrac: Exiting...")
         sys.exit(0)
 
 def main():
