@@ -332,7 +332,12 @@ class BaseProtocol():
             multicall.target('locomotion').set_pos_0(loco_pos = {'x': None, 'y': None, 'z': None, 'theta': None, 'phi': None, 'roll': None}, 
                                                                   use_data_prev=True, write_log=self.save_metadata_flag)
         if do_loco_closed_loop:
-            multicall.target('locomotion').loop_update_closed_loop_vars(update_theta=True, update_x=True, update_y=True)
+            multicall.target('locomotion').loop_update_closed_loop_vars(update_x=True, 
+                                                                        update_y=True, 
+                                                                        update_z=True, 
+                                                                        update_theta=True, 
+                                                                        update_phi=True, 
+                                                                        update_roll=True)
             multicall.target('locomotion').loop_start_closed_loop()
         
         multicall.target('all').set_save_pos_history_flag(save_pos_history)

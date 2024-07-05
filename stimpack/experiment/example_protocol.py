@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
-from time import sleep
 import stimpack.rpc.multicall
 from stimpack.experiment.protocol import BaseProtocol
 
@@ -186,53 +185,6 @@ class LinearTrackWithTowers(BaseProtocol):
     def process_input_parameters(self):
         super().process_input_parameters()
 
-    def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
-        
-        # locomotion setting variables
-        do_loco = self.run_parameters.get('do_loco', False)
-        do_loco_closed_loop = do_loco and self.epoch_protocol_parameters.get('loco_pos_closed_loop', False)
-        save_pos_history = do_loco_closed_loop and self.save_metadata_flag
-        
-        manager.set_subject_state(state_update={'y_pos_modulo': self.epoch_protocol_parameters['y_pos_modulo'], 
-                                                'y_pos_offset': self.epoch_protocol_parameters['y_pos_offset']})
-
-        ### pre time
-        sleep(self.epoch_protocol_parameters['pre_time'])
-        
-        if multicall is None:
-            multicall = stimpack.rpc.multicall.MyMultiCall(manager)
-
-        ### stim time
-        # locomotion / closed loop
-        if do_loco:
-            multicall.target('locomotion').set_pos_0(loco_pos = {'x': None, 'y': None, 'z': None, 'theta': None, 'phi': None, 'roll': None}, 
-                                                                  use_data_prev=True, write_log=self.save_metadata_flag)
-        if do_loco_closed_loop:
-            multicall.target('locomotion').loop_update_closed_loop_vars(update_x=True, update_y=True, update_z=True, update_theta=True, update_phi=True, update_roll=True)
-            multicall.target('locomotion').loop_start_closed_loop()
-        
-        multicall.target('all').set_save_pos_history_flag(save_pos_history)
-        multicall.target('all').start_stim(append_stim_frames=append_stim_frames)
-        multicall.target('visual').corner_square_toggle_start()
-        multicall()
-        sleep(self.epoch_protocol_parameters['stim_time'])
-
-        ### tail time
-        multicall = stimpack.rpc.multicall.MyMultiCall(manager)
-        multicall.target('all').stop_stim(print_profile=print_profile)
-        multicall.target('visual').corner_square_toggle_stop()
-        multicall.target('visual').corner_square_off()
-
-        # locomotion / closed loop
-        if do_loco_closed_loop:
-            multicall.target('locomotion').loop_stop_closed_loop()
-        if save_pos_history:
-            multicall.target('all').save_pos_history_to_file(epoch_id=f'{self.num_epochs_completed:03d}')
-
-        multicall()
-
-        sleep(self.epoch_protocol_parameters['tail_time'])
-
     def get_epoch_parameters(self):
         super().get_epoch_parameters()
 
@@ -303,15 +255,6 @@ class LinearTrackWithTowers(BaseProtocol):
                     tower['rate'] = tower_period[i]
                 self.epoch_stim_parameters.append(tower)
 
-    def server_side_state_dependent_control(manager, previous_state:dict, state_update:dict) -> dict:
-        y = state_update.get('y', previous_state.get('y', 0))
-        y_pos_modulo = state_update.get('y_pos_modulo', previous_state.get('y_pos_modulo', 400)) / 100  # cm -> meters
-        y_pos_offset = state_update.get('y_pos_offset', previous_state.get('y_pos_offset', 400)) / 100  # cm -> meters
-        
-        state_update['y'] = (y % y_pos_modulo) + y_pos_offset
-
-        return state_update
-
     def load_stimuli(self, client, multicall=None):
         if multicall is None:
             multicall = stimpack.rpc.multicall.MyMultiCall(client)
@@ -320,6 +263,22 @@ class LinearTrackWithTowers(BaseProtocol):
         multicall.print_on_server(f'{params_to_print}')
 
         super().load_stimuli(client, multicall)
+
+    def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
+        # Set the server-side subject state variables that will be used in the state-dependent control function
+        manager.set_subject_state(state_update={'y_pos_modulo': self.epoch_protocol_parameters['y_pos_modulo'], 
+                                                'y_pos_offset': self.epoch_protocol_parameters['y_pos_offset']})
+
+        super().start_stimuli(manager, append_stim_frames, print_profile, multicall)
+
+    def server_side_state_dependent_control(manager, previous_state:dict, state_update:dict) -> dict:
+        y = state_update.get('y', previous_state.get('y', 0))
+        y_pos_modulo = state_update.get('y_pos_modulo', previous_state.get('y_pos_modulo', 400)) / 100  # cm -> meters
+        y_pos_offset = state_update.get('y_pos_offset', previous_state.get('y_pos_offset', 400)) / 100  # cm -> meters
+        
+        state_update['y'] = (y % y_pos_modulo) + y_pos_offset
+
+        return state_update
 
     def get_protocol_parameter_defaults(self):
         return {'pre_time': 1.0,
@@ -352,7 +311,7 @@ class LinearTrackWithTowers(BaseProtocol):
                 }
 
     def get_run_parameter_defaults(self):
-        return {'num_epochs': 40,
+        return {'num_epochs': 2,
                 'idle_color': 0.5,
                 'all_combinations': True,
                 'randomize_order': True}
