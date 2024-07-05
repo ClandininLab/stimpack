@@ -74,6 +74,9 @@ class BaseClient():
                                     loco_kwargs=loco_kwargs)
                 self.manager = MySocketClient(host=server.host, port=server.port)
 
+        # Register functions to be executed by the client per requests from the stimulus server
+        self.manager.register_function(print, 'print_on_client')
+
         # if the trigger device is on the server, set the manager for the trigger device
         if isinstance(self.trigger_device, daq.DAQonServer):
             self.trigger_device.set_manager(self.manager)

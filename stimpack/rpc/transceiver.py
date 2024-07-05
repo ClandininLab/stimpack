@@ -51,6 +51,14 @@ class MyTransceiver:
                 break
 
             self.handle_request_list(request_list)
+    
+    def clear_queue(self):
+        self.queue.queue.clear()
+        while True:
+            try:
+                self.queue.get_nowait()
+            except Empty:
+                break
 
     def register_function(self, function, name=None):
         if name is None:

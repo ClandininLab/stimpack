@@ -1,7 +1,4 @@
 import signal, sys, os
-from math import radians
-
-import numpy as np
 
 from stimpack.visual_stim.screen import Screen
 from stimpack.visual_stim.stim_server import VisualStimServer
@@ -153,6 +150,11 @@ class BaseServer(MySocketServer):
         # Pull out and process requests for root node of the stim server
         root_request_list = [request for request in request_list if request['target']=='root']
         self.handle_request_list_to_root(root_request_list)
+
+        # Pull out and process requests to the client
+        client_request_list = [request for request in request_list if request['target'] == 'client']
+        if len(client_request_list) > 0:
+            self.write_request_list(client_request_list)
 
         # Pull out and process requests for each module
         for module_name, module in self.modules.items():
