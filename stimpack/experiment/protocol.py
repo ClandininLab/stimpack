@@ -28,8 +28,8 @@ see the simple example protocol classes at the bottom of this module.
                      *saved as attributes at the individual epoch level
 """
 import sys
+import time
 import numpy as np
-from time import sleep
 import os.path
 import os
 import math
@@ -42,7 +42,7 @@ from stimpack.experiment.util import config_tools
 from stimpack.util import ROOT_DIR
 
 
-class BaseProtocol():
+class BaseProtocol():    
     def __init__(self, cfg):
         self.cfg = cfg
 
@@ -54,6 +54,9 @@ class BaseProtocol():
 
         self.use_server_side_state_dependent_control = False  # Bool, whether or not to use custom closed-loop control
         
+        self.manager = None
+        self.stop_sleep_flag = False
+
         self.num_epochs_completed = 0
         self.persistent_parameters = {}
         self.precomputed_epoch_parameters = {}
@@ -247,6 +250,9 @@ class BaseProtocol():
             If True, precompute epoch parameters even if they have been computed already
             If False, do not recompute epoch parameters if they have been computed already
         """
+
+        self.manager = manager
+
         self.num_epochs_completed = 0
         self.persistent_parameters = {}
         self.epoch_protocol_parameters = {}
@@ -315,8 +321,8 @@ class BaseProtocol():
         save_pos_history = do_loco_closed_loop and self.save_metadata_flag
         
         ### pre time
-        sleep(self.epoch_protocol_parameters['pre_time'])
-        
+        self.sleep(self.epoch_protocol_parameters['pre_time'], process_server_requests=False)
+
         if multicall is None:
             multicall = stimpack.rpc.multicall.MyMultiCall(manager)
 
@@ -333,7 +339,8 @@ class BaseProtocol():
         multicall.target('all').start_stim(append_stim_frames=append_stim_frames)
         multicall.target('visual').corner_square_toggle_start()
         multicall()
-        sleep(self.epoch_protocol_parameters['stim_time'])
+
+        self.sleep(self.epoch_protocol_parameters['stim_time'], process_server_requests=True)
 
         ### tail time
         multicall = stimpack.rpc.multicall.MyMultiCall(manager)
@@ -349,8 +356,8 @@ class BaseProtocol():
 
         multicall()
 
-        sleep(self.epoch_protocol_parameters['tail_time'])
-        
+        self.sleep(self.epoch_protocol_parameters['tail_time'], process_server_requests=False)
+                
     def on_run_finish(self, manager, multicall=None):
         """
         Method that is called at the end of each run, either when the run is completed or when the run is stopped.
@@ -360,6 +367,36 @@ class BaseProtocol():
         # If self.use_server_side_state_dependent_control is True, signal to the server that custom closed-loop control is no longer being used
         if self.use_server_side_state_dependent_control:
             manager.target('root').unload_server_side_state_dependent_control()
+        
+        self.manager = None
+    
+    def sleep(self, duration, process_server_requests=True):
+        """
+        Sleep for a duration in seconds, processing server requests to the client (self.manager) 
+            if process_server_requests is True
+        """
+        if process_server_requests:
+            if self.manager is not None:
+                start_time = time.time()
+                self.manager.clear_queue()
+                self.stop_sleep_flag = False
+                while time.time() - start_time < duration:
+                    # process server requests
+                    self.manager.process_queue()
+                    if self.stop_sleep_flag:
+                        self.stop_sleep_flag = False
+                        break
+            else:
+                warnings.warn('Protocol: No manager provided to process queue during sleep.', RuntimeWarning)
+                time.sleep(duration)
+        else:
+            time.sleep(duration)
+
+    def stop_epoch(self):
+        """
+        Stops the current epoch by interrupting the sleep loop
+        """
+        self.stop_sleep_flag = True
         
     def get_parameter_sequence(self, parameter_list, all_combinations=True, randomize_order=False):
         """
@@ -520,7 +557,7 @@ class SharedPixMapProtocol(BaseProtocol):
         save_pos_history = do_loco_closed_loop and self.save_metadata_flag
         
         ### pre time
-        sleep(self.epoch_protocol_parameters['pre_time'])
+        self.sleep(self.epoch_protocol_parameters['pre_time'], process_server_requests=False)
         
         if multicall is None:
             multicall = stimpack.rpc.multicall.MyMultiCall(manager)
@@ -541,7 +578,7 @@ class SharedPixMapProtocol(BaseProtocol):
         multicall.target('all').start_stim()
         multicall.target('visual').corner_square_toggle_start()
         multicall()
-        sleep(self.epoch_protocol_parameters['stim_time'])
+        self.sleep(self.epoch_protocol_parameters['stim_time'], process_server_requests=True)
 
         ### tail time
         multicall = stimpack.rpc.multicall.MyMultiCall(manager)
@@ -561,12 +598,4 @@ class SharedPixMapProtocol(BaseProtocol):
 
         multicall()
 
-        sleep(self.epoch_protocol_parameters['tail_time'])
-
-    def on_run_finish(self, manager, multicall=None):
-        """
-        Method that is called at the end of each run, either when the run is completed or when the run is stopped.
-        Fill in if you want to do something at the end of each run.
-        Overwrite me in the child subclass.
-        """
-        pass
+        self.sleep(self.epoch_protocol_parameters['tail_time'], process_server_requests=False)

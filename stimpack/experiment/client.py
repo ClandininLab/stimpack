@@ -22,6 +22,7 @@ class BaseClient():
         self.stop = False
         self.pause = False
         self.manager = None
+        self.protocol_object = None
         self.cfg = cfg
         
         # # # Load server options from config file and selections # # #
@@ -76,6 +77,8 @@ class BaseClient():
 
         # Register functions to be executed by the client per requests from the stimulus server
         self.manager.register_function(print, 'print_on_client')
+        self.manager.register_function(self.stop_epoch, 'stop_epoch')
+        self.manager.register_function(self.stop_run, 'stop_run')
 
         # if the trigger device is on the server, set the manager for the trigger device
         if isinstance(self.trigger_device, daq.DAQonServer):
@@ -95,7 +98,13 @@ class BaseClient():
                 else:
                     self.manager.target('visual').import_stim_module(path)
 
+    def stop_epoch(self):
+        if self.protocol_object is not None:
+            self.protocol_object.stop_epoch()
+
     def stop_run(self):
+        # Interrupt the current epoch, then stop the run
+        self.stop_epoch()
         self.stop = True
         QApplication.processEvents()
 
@@ -115,6 +124,7 @@ class BaseClient():
         """
         self.stop = False
         self.pause = False
+        self.protocol_object = protocol_object
         protocol_object.save_metadata_flag = save_metadata_flag
 
         # Check run parameters, compute persistent parameters, and precompute epoch parameters
@@ -168,6 +178,7 @@ class BaseClient():
         if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
             self.stop_loco()
 
+        self.protocol_object = None
         self.manager.print_on_server('Run ended.')
 
     def start_epoch(self, protocol_object, data, save_metadata_flag=True):
