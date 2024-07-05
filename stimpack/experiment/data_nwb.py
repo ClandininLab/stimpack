@@ -40,7 +40,7 @@ class NWBData():
 
         # default parent_directory, experimenter from cfg
         # may be overwritten by GUI or other before initialize_experiment() is called
-        self.parent_directory = Path(config_tools.get_data_directory(self.cfg))
+        self.parent_directory = config_tools.get_data_directory(self.cfg)
         self.experimenter = config_tools.get_experimenter(self.cfg)
         
     
