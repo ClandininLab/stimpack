@@ -43,7 +43,7 @@ class BaseClient():
                     server_path = os.path.join(config_tools.get_labpack_directory(), server_path)
                 if os.path.exists(server_path):
                     # start the server in a separate process
-                    self.manager, self.local_server_process = launch_server(server_path, host='', port=port, return_process_handle=True)
+                    self.manager, self.local_server_process = launch_server(server_path, host='0.0.0.0', port=port, return_process_handle=True)
                 else:
                     warnings.warn(f"Server path {server_path} does not exist. Using default local server.")
             
