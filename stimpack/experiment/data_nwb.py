@@ -297,9 +297,9 @@ class NWBData():
                 for key, value in protocol_object.epoch_stim_parameters.items():
                     self.trial_parameters[key] = hdf5ify_parameter(value)
             
-            # Extract and store protocol parameters
-            for key, value in protocol_object.epoch_protocol_parameters.items():
-                self.trial_parameters[key] = hdf5ify_parameter(value)
+        # Extract and store protocol parameters
+        for key, value in protocol_object.epoch_protocol_parameters.items():
+            self.trial_parameters[key] = hdf5ify_parameter(value)
 
         # In NWB the name is reserved so I am adding a prefix
         self.trial_parameters["protocol"] = self.trial_parameters.pop("name", "")
