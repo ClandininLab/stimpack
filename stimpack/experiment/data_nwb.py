@@ -320,30 +320,31 @@ class NWBData():
             stop_time = datetime.now(self.timezone).timestamp() - session_start_time.timestamp()
             
             # Create the table if it doesn't exist
+            maxshape = 1000
             if subject_nwbfile.trials is None:
                 ids = ElementIdentifiers(
                     name='id',
-                    data=H5DataIO(data=[0], maxshape=(None,)),
+                    data=H5DataIO(data=[0], maxshape=(maxshape,)),
                 )
                 
                 columns_to_add = []
                 start_time = VectorData(name='start_time', description="the time the trial started",
-                                              data=H5DataIO(data=[start_time], maxshape=(None,)))
+                                              data=H5DataIO(data=[start_time], maxshape=(maxshape,)))
                 columns_to_add.append(start_time)
                 stop_time = VectorData(name='stop_time', description="the time the trial ended",
-                                             data=H5DataIO(data=[stop_time], maxshape=(None,)))
+                                             data=H5DataIO(data=[stop_time], maxshape=(maxshape,)))
                 columns_to_add.append(stop_time)
                 for column in self.trial_parameters:
                     value = self.trial_parameters[column]
                     value_is_list_tuple_or_array = isinstance(value, (tuple, list, np.ndarray))
                     if not value_is_list_tuple_or_array:
-                        vector_column = VectorData(name=column, description=column, data=H5DataIO(data=[value], maxshape=(None,)))
+                        vector_column = VectorData(name=column, description=column, data=H5DataIO(data=[value], maxshape=(maxshape,)))
                         columns_to_add.append(vector_column)
                     else:
                         data = list(value)
-                        vector_column = VectorData(name=column, description=column, data=H5DataIO(data=data, maxshape=(None, )))
+                        vector_column = VectorData(name=column, description=column, data=H5DataIO(data=data, maxshape=(maxshape, )))
                         end_index_first_element = len(value)
-                        vector_index = VectorIndex(name=column + "_index", target=vector_column, data=H5DataIO(data=[end_index_first_element], maxshape=(None,)))
+                        vector_index = VectorIndex(name=column + "_index", target=vector_column, data=H5DataIO(data=[end_index_first_element], maxshape=(maxshape,)))
                         columns_to_add.append(vector_column)
                         columns_to_add.append(vector_index)
                           
