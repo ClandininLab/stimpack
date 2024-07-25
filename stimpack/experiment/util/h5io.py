@@ -1,6 +1,10 @@
 import h5py
 import numpy as np
 
+# NWBHDF5IO for using nwb stuff
+# could make another get hierarchy fxn and make it with nwb
+# This just messes with the fact it is not just a normal dir 
+
 # H5io fxns
 def get_hierarchy(file_path, additional_exclusions=None):
     with h5py.File(file_path, 'r') as experiment_file:
