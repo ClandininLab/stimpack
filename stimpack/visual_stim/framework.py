@@ -65,6 +65,9 @@ class StimDisplay(QOpenGLWidget):
         if screen.fullscreen:
             screen_geometry = qscreen.geometry() # Get hardware display size
             self.move(screen_geometry.left(), screen_geometry.top())
+            
+            self.resize(screen_geometry.width(), screen_geometry.height())
+
         else:
             screen_geometry = qscreen.availableGeometry() # Get available display size
             self.move(screen_geometry.left(), screen_geometry.top())
