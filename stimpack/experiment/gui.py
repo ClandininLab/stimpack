@@ -536,12 +536,12 @@ class ExperimentGUI(QWidget):
                 self.send_run(save_metadata_flag=True)
             else:
                 msg = QMessageBox()
-                msg.setIcon(QMessageBox.Warning)
+                msg.setIcon(QMessageBox.Icon.Warning)
                 msg.setText("You have not initialized a data file and/or subject yet")
                 msg.setInformativeText("You can show stimuli by clicking the View button, but no metadata will be saved")
                 msg.setWindowTitle("No experiment file and/or subject")
                 msg.setDetailedText("Initialize or load both an experiment file and a subject if you'd like to save your metadata")
-                msg.setStandardButtons(QMessageBox.Ok)
+                msg.setStandardButtons(QMessageBox.StandardButton.Ok)
                 msg.exec()
 
         elif sender.text() == 'View':
