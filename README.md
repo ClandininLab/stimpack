@@ -14,6 +14,13 @@ git checkout beyond_xorg
 python3 -m venv ~/.stimpack_env # or desired environment directory
 source ~/.stimpack_env/bin/activate
 ```
+
+On Windows
+```
+python -m venv .stimpack_env # or desired directory
+
+.stimpack_env\Scripts\activate
+```
 3. Install the stimpack branch with `pip install -e .`
 
 ### Key Concepts 
