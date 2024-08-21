@@ -392,6 +392,11 @@ class ExperimentGUI(QWidget):
         create_subject_button.clicked.connect(self.on_created_subject)
         self.data_form.addRow(create_subject_button)
 
+        # Update subject button
+        update_subject_button = QPushButton("Update subject", self)
+        update_subject_button.clicked.connect(self.on_update_subject)
+        self.data_form.addRow(update_subject_button)
+
         # # # TAB 4: FILE tab - init, load, close etc. h5 file # # #
 
         # File tab layout
@@ -763,6 +768,23 @@ class ExperimentGUI(QWidget):
 
         self.data.create_subject(subject_metadata)  # creates new subject and selects it as the current subject
         self.update_existing_subject_input()
+
+    def on_update_subject(self):
+        # Populate subject metadata from subject data fields
+        subject_metadata = {}
+        # Built-ins
+        # This takes the value entered in the 'SubjectID' text field
+        subject_metadata['subject_id'] = self.subject_id_input.text()
+        subject_metadata['age'] = self.subject_age_input.value()
+        subject_metadata['notes'] = self.subject_notes_input.toPlainText()
+
+        # user-defined:
+        for key in self.subject_metadata_inputs:
+            subject_metadata[key] = self.subject_metadata_inputs[key].currentText()
+
+        self.data.update_subject(subject_metadata)
+        self.update_existing_subject_input()
+
 
     def reset_layout(self):
         for ii in range(self.parameters_grid.rowCount()):
