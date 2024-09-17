@@ -397,7 +397,8 @@ class NWBData():
         return self.nwb_directory_path.is_dir()
 
     def get_nwb_file_path(self):
-        return Path(os.path.join(self.nwb_directory_path, f"{self.current_subject_id}_{str(self.series_count).zfill(3)}.nwb"))
+        date_code = datetime.today().strftime('%Y%m%d')  # YYYYMMDD
+        return Path(os.path.join(self.nwb_directory_path, f"{date_code}_{self.current_subject_id}_{str(self.series_count).zfill(3)}.nwb"))
             
     def current_subject_exists(self):
         if self.current_subject_id is None:
