@@ -336,18 +336,9 @@ class NWBData():
                 columns_to_add.append(stop_time)
                 for column in self.trial_parameters:
                     value = self.trial_parameters[column]
-                    value_is_list_tuple_or_array = isinstance(value, (tuple, list, np.ndarray))
-                    if not value_is_list_tuple_or_array:
-                        vector_column = VectorData(name=column, description=column, data=H5DataIO(data=[value], maxshape=(maxshape,)))
-                        columns_to_add.append(vector_column)
-                    else:
-                        data = list(value)
-                        vector_column = VectorData(name=column, description=column, data=H5DataIO(data=data, maxshape=(maxshape, )))
-                        end_index_first_element = len(value)
-                        vector_index = VectorIndex(name=column + "_index", target=vector_column, data=H5DataIO(data=[end_index_first_element], maxshape=(maxshape,)))
-                        columns_to_add.append(vector_column)
-                        columns_to_add.append(vector_index)
-                          
+                    vector_column = VectorData(name=column, description=column, data=H5DataIO(data=[value], maxshape=(maxshape,)))
+                    columns_to_add.append(vector_column)
+
                 trials_table = TimeIntervals(
                     name='trials',
                     description="experimental trials",
@@ -489,10 +480,8 @@ def hdf5ify_parameter(value):
                 value = np.array(new_value)
             except ValueError:
                 value = str(value)
-    # if tuple, every element must be the same length. If not, convert to string
+    # if tuple, convert to string
     if type(value) is tuple:
-        element_lengths = [len(x) if type(x) in [list, tuple, np.ndarray] else 1 for x in value]
-        if not all([x == element_lengths[0] for x in element_lengths]):
-            value = str(value) 
+        value = str(value)
 
     return value
