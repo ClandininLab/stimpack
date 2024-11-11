@@ -8,13 +8,16 @@ import string
 import warnings
 import gc
 
+from stimpack.experiment.util.config_tools import convert_labpack_relative_path_to_full_path
+
 def load_stim_module_from_path(path, module_name='loaded_module', submodules=['stimuli', 'trajectory', 'distribution']):
     '''
     Load a module from specified path. Module must contained specified submodules.
     '''
+    full_module_path = convert_labpack_relative_path_to_full_path(path)
     for submodule_name in submodules:
         submodule_name_full = module_name+'.'+submodule_name
-        submodule_path = os.path.join(path, submodule_name+'.py')
+        submodule_path = os.path.join(full_module_path, submodule_name+'.py')
         if not os.path.exists(submodule_path):
             warnings.warn(f'Could not find {submodule_name} at {submodule_path}')
             continue

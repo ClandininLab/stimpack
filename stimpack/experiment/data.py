@@ -90,6 +90,27 @@ class BaseData():
         else:
             print('Initialize a data file before defining a subject')
 
+    def update_subject(self, subject_metadata):
+        """
+        """
+        # check if subject already exists
+        if subject_metadata.get('subject_id') in [x.get('subject_id') for x in self.get_existing_subject_data()]:
+            if self.experiment_file_exists():
+                with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'),'r+') as experiment_file:
+                    subjects_group = experiment_file['/Subjects']
+                    current_subject = subjects_group[subject_metadata.get('subject_id')]
+                    for key in subject_metadata:
+                        print(key)
+                        # Ignore subject id as it's already defined
+                        if key != 'subject_id':
+                            current_subject.attrs[key] = subject_metadata.get(key)
+
+        else:
+            print('No subject with this ID exists!')
+            return
+
+
+
     def create_epoch_run(self, protocol_object):
         """"
         """

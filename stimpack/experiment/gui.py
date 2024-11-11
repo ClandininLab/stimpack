@@ -71,11 +71,11 @@ class ExperimentGUI(QWidget):
         user_protocol_exists = config_tools.user_module_exists(self.cfg, 'protocol', single_item_in_list=True)
         if isinstance(user_protocol_exists, list) and (True in user_protocol_exists): # at least one user protocol exists
             protocol_module_full_paths = config_tools.get_full_paths_to_module(self.cfg, 'protocol', single_item_in_list=True)
-            protocol_modules = [config_tools.load_user_module_from_path(fp, f'protocol_{i:02d}') for i,fp in enumerate(protocol_module_full_paths)]
+            self.protocol_modules = [config_tools.load_user_module_from_path(fp, f'protocol_{os.path.basename(fp)[:-3]}') for fp in protocol_module_full_paths]
         else:   # use the built-in
             print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('protocol'))
             example_protocol_path = os.path.join(ROOT_DIR, 'experiment', 'example_protocol.py')
-            protocol_module = config_tools.load_user_module_from_path(example_protocol_path, 'protocol')
+            self.protocol_modules = [config_tools.load_user_module_from_path(example_protocol_path, 'protocol_examples')]
         
         # start a protocol object
         self.protocol_object =  protocol.BaseProtocol(self.cfg)
@@ -144,9 +144,13 @@ class ExperimentGUI(QWidget):
         self.protocol_selection_combo_box = QComboBox(self)
         self.protocol_selection_combo_box.addItem("(select a protocol to run)")
         for sub_class in self.available_protocols:
-            self.protocol_selection_combo_box.addItem(sub_class.__name__)
+            if len(self.protocol_modules) > 1:
+                protocol_module_label = os.path.basename(sys.modules[sub_class.__module__].__file__)[:-3]
+                self.protocol_selection_combo_box.addItem(sub_class.__name__ + ' (' + protocol_module_label + ')' )
+            else:
+                self.protocol_selection_combo_box.addItem(sub_class.__name__)
         protocol_label = QLabel('Protocol:')
-        self.protocol_selection_combo_box.textActivated.connect(self.on_selected_protocol_ID)
+        self.protocol_selection_combo_box.activated.connect(self.on_selected_protocol_ID)
         self.protocol_selector_grid.addWidget(protocol_label, 1, 0)
         self.protocol_selector_grid.addWidget(self.protocol_selection_combo_box, 1, 1, 1, 1)
 
@@ -388,6 +392,11 @@ class ExperimentGUI(QWidget):
         create_subject_button.clicked.connect(self.on_created_subject)
         self.data_form.addRow(create_subject_button)
 
+        # Update subject button
+        update_subject_button = QPushButton("Update subject", self)
+        update_subject_button.clicked.connect(self.on_update_subject)
+        self.data_form.addRow(update_subject_button)
+
         # # # TAB 4: FILE tab - init, load, close etc. h5 file # # #
 
         # File tab layout
@@ -479,15 +488,14 @@ class ExperimentGUI(QWidget):
         if not self.ensemble_file_label.text().endswith('(changes unsaved)'):
             self.ensemble_file_label.setText(f'{self.ensemble_file_label.text()} (changes unsaved)')
 
-    def on_selected_protocol_ID(self, text, preset_name='Default'):
-        if text == "(select a protocol to run)":
+    def on_selected_protocol_ID(self, protocol_dropdown_idx, preset_name='Default'):
+        if protocol_dropdown_idx == 0:
             return
         # Clear old params list from grid
         self.reset_layout()
 
         # initialize the selected protocol object
-        prot_names = [x.__name__ for x in self.available_protocols]
-        self.protocol_object = self.available_protocols[prot_names.index(text)](self.cfg)
+        self.protocol_object = self.available_protocols[protocol_dropdown_idx-1](self.cfg)
 
         # update display lists of run & protocol parameters
         self.protocol_object.load_parameter_presets()
@@ -503,10 +511,9 @@ class ExperimentGUI(QWidget):
         self.status_label.setText('Ready')
 
     def on_selected_ensemble_protocol_ID(self, text):
-        selected_protocol_idx = self.ensemble_protocol_selection_combo_box.currentIndex() # - 1 # first item is "select a protocol"
-        if selected_protocol_idx == 0:
+        protocol_dropdown_idx = self.ensemble_protocol_selection_combo_box.currentIndex() # - 1 # first item is "select a protocol"
+        if protocol_dropdown_idx == 0:
             return
-        selected_protocol_name = self.ensemble_protocol_selection_combo_box.currentText()
 
         # Clear old presets list and add new presets to list
         if self.ensemble_parameter_preset_comboBox is not None:
@@ -514,8 +521,7 @@ class ExperimentGUI(QWidget):
         self.ensemble_parameter_preset_comboBox = QComboBox(self)
         self.ensemble_parameter_preset_comboBox.addItem("Default")
 
-        prot_names = [x.__name__ for x in self.available_protocols]
-        temp_protocol_object = self.available_protocols[prot_names.index(selected_protocol_name)](self.cfg)
+        temp_protocol_object = self.available_protocols[protocol_dropdown_idx - 1](self.cfg)
         temp_protocol_object.load_parameter_presets()
 
         for name in temp_protocol_object.parameter_presets.keys():
@@ -530,12 +536,12 @@ class ExperimentGUI(QWidget):
                 self.send_run(save_metadata_flag=True)
             else:
                 msg = QMessageBox()
-                msg.setIcon(QMessageBox.Warning)
+                msg.setIcon(QMessageBox.Icon.Warning)
                 msg.setText("You have not initialized a data file and/or subject yet")
                 msg.setInformativeText("You can show stimuli by clicking the View button, but no metadata will be saved")
                 msg.setWindowTitle("No experiment file and/or subject")
                 msg.setDetailedText("Initialize or load both an experiment file and a subject if you'd like to save your metadata")
-                msg.setStandardButtons(QMessageBox.Ok)
+                msg.setStandardButtons(QMessageBox.StandardButton.Ok)
                 msg.exec()
 
         elif sender.text() == 'View':
@@ -731,11 +737,19 @@ class ExperimentGUI(QWidget):
 
         print(f'Running ensemble item {self.ensemble_list.get_current_ensemble_idx()+1} / {len(self.ensemble_list)}')
 
-        current_protocol, current_preset = self.ensemble_list.get_current_protocol_preset()
+        current_protocol_name, current_preset = self.ensemble_list.get_current_protocol_preset()
 
-        self.on_selected_protocol_ID(current_protocol, preset_name=current_preset)
-        self.protocol_selection_combo_box.setCurrentIndex(self.protocol_selection_combo_box.findText(current_protocol))
+        matching_protocols = [x for x in self.available_protocols if current_protocol_name in x.__name__]
+        if len(matching_protocols) == 0:
+            print(f'Ensemble: Protocol {current_protocol_name} not found in available protocols.')
+            return
+        elif len(matching_protocols) > 1:
+            print(f'Ensemble: Multiple protocols with name {current_protocol_name} found in available protocols. Ensemble does not support this.')
+            return
+        protocol_idx = self.protocol_selection_combo_box.findText(current_protocol_name, Qt.MatchFlag.MatchStartsWith)
+        self.protocol_selection_combo_box.setCurrentIndex(protocol_idx)
         self.parameter_preset_comboBox.setCurrentIndex(self.parameter_preset_comboBox.findText(current_preset))
+        self.on_selected_protocol_ID(protocol_idx, preset_name=current_preset)
         self.ensemble_list.update_UI(self.ensemble_running)
 
         self.send_run(save_metadata_flag=save_metadata_flag)
@@ -754,6 +768,23 @@ class ExperimentGUI(QWidget):
 
         self.data.create_subject(subject_metadata)  # creates new subject and selects it as the current subject
         self.update_existing_subject_input()
+
+    def on_update_subject(self):
+        # Populate subject metadata from subject data fields
+        subject_metadata = {}
+        # Built-ins
+        # This takes the value entered in the 'SubjectID' text field
+        subject_metadata['subject_id'] = self.subject_id_input.text()
+        subject_metadata['age'] = self.subject_age_input.value()
+        subject_metadata['notes'] = self.subject_notes_input.toPlainText()
+
+        # user-defined:
+        for key in self.subject_metadata_inputs:
+            subject_metadata[key] = self.subject_metadata_inputs[key].currentText()
+
+        self.data.update_subject(subject_metadata)
+        self.update_existing_subject_input()
+
 
     def reset_layout(self):
         for ii in range(self.parameters_grid.rowCount()):

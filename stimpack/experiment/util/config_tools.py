@@ -111,14 +111,14 @@ def get_paths_to_module(cfg, module_name, single_item_in_list=False):
         module_paths = [module_paths]
     return module_paths
 
-def convert_labpack_relative_path_to_full_path(module_path):
+def convert_labpack_relative_path_to_full_path(path):
     """Converts a path relative to the labpack directory to a full path"""
-    if os.path.isabs(module_path):
-        full_module_path = module_path
+    if os.path.isabs(path):
+        full_path = path
     else:
-        full_module_path = os.path.join(get_labpack_directory(), module_path)
+        full_path = os.path.join(get_labpack_directory(), path)
 
-    return full_module_path
+    return full_path
 
 def get_full_paths_to_module(cfg, module_name, single_item_in_list=False):
     """
