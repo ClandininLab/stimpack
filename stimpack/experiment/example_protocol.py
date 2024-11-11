@@ -266,8 +266,13 @@ class LinearTrackWithTowers(BaseProtocol):
 
     def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
         # Set the server-side subject state variables that will be used in the state-dependent control function
-        manager.set_subject_state(state_update={'y_pos_modulo': self.epoch_protocol_parameters['y_pos_modulo'], 
-                                                'y_pos_offset': self.epoch_protocol_parameters['y_pos_offset']})
+        manager.set_subject_state(
+            state_update = {
+                'y_pos_modulo': self.epoch_protocol_parameters['y_pos_modulo'], 
+                'y_pos_offset': self.epoch_protocol_parameters['y_pos_offset'],
+                'end_epoch_at_y_pos_modulo': self.epoch_protocol_parameters['end_epoch_at_y_pos_modulo'],
+            }
+        )
 
         super().start_stimuli(manager, append_stim_frames, print_profile, multicall)
 
@@ -275,7 +280,13 @@ class LinearTrackWithTowers(BaseProtocol):
         y = state_update.get('y', previous_state.get('y', 0))
         y_pos_modulo = state_update.get('y_pos_modulo', previous_state.get('y_pos_modulo', 400)) / 100  # cm -> meters
         y_pos_offset = state_update.get('y_pos_offset', previous_state.get('y_pos_offset', 400)) / 100  # cm -> meters
+        end_epoch_at_y_pos_modulo = state_update.get('end_epoch_at_y_pos_modulo', previous_state.get('end_epoch_at_y_pos_modulo', True))
         
+        # If desired and y_pos_modulo is reached, stop the epoch
+        if end_epoch_at_y_pos_modulo and y - y_pos_offset >= y_pos_modulo:
+            manager.target('client').stop_epoch()
+            print(f'Reached y_pos_modulo! Stopping epoch.')
+
         state_update['y'] = (y % y_pos_modulo) + y_pos_offset
 
         return state_update
@@ -307,7 +318,8 @@ class LinearTrackWithTowers(BaseProtocol):
 
                 'n_repeat_track': 3,
                 'y_pos_modulo': 400,
-                'y_pos_offset': 400
+                'y_pos_offset': 400,
+                'end_epoch_at_y_pos_modulo': True,
                 }
 
     def get_run_parameter_defaults(self):
