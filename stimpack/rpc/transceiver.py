@@ -7,6 +7,9 @@ from json.decoder import JSONDecodeError
 from stimpack.rpc.util import start_daemon_thread, stream_is_binary, JSONCoderWithTuple
 
 class MyTransceiver:
+    """
+    Base class for transceivers that can send and receive requests.
+    """
     def __init__(self):
         # initialize variables
         self.functions = {}
@@ -59,26 +62,27 @@ class MyTransceiver:
         assert name not in self.functions, 'Function "{}" already defined.'.format(name)
         self.functions[name] = function
 
-    def __getattr__(self, name):
-        if name == 'target':
-            def f(target_name):
-                class dummy_target:
-                    def __getattr__(target_self, target_attr_name):
-                        def g(*args, **kwargs):
-                            request = {'target': target_name, 
-                                    'name': target_attr_name, 
-                                    'args': args, 
-                                    'kwargs': kwargs}
-                            self.write_request_list([request])
-                        return g
-                return dummy_target()
-            return f
-        else:
-            def f(*args, **kwargs):
-                request = {'name': name, 'args': args, 'kwargs': kwargs}
-                self.write_request_list([request])
+    def target(self, target_name):
+        """
+        Directs all function calls to the remote module with target name.
+        """
+        class remote_module_target:
+            def __getattr__(target_self, target_attr_name) -> callable:
+                def g(*args, **kwargs) -> None:
+                    request = {'target': target_name, 
+                            'name': target_attr_name, 
+                            'args': args, 
+                            'kwargs': kwargs}
+                    self.write_request_list([request])
+                return g
+        return remote_module_target()
 
-            return f
+    def __getattr__(self, name) -> callable:
+        def f(*args, **kwargs) -> None:
+            request = {'name': name, 'args': args, 'kwargs': kwargs}
+            self.write_request_list([request])
+
+        return f
     
     def parse_line(self, line):
         if isinstance(line, bytes):

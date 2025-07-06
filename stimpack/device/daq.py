@@ -7,6 +7,7 @@ DAQ (data acquisition) device classes
 """
 
 from stimpack.rpc.multicall import MyMultiCall
+from stimpack.rpc.transceiver import MySocketClient
 
 class DAQ():
     def __init__(self, verbose=False):
@@ -35,15 +36,18 @@ class DAQonServer(DAQ):
     def __init__(self, verbose=False):
         super().__init__(verbose=verbose)  # call the parent class init method
         self.manager = None
-    def set_manager(self, manager):
+        
+    def set_manager(self, manager:MySocketClient):
         self.manager = manager
-    def send_trigger(self, multicall=None, **kwargs):
+
+    def send_trigger(self, multicall:MyMultiCall=None, **kwargs):
         if multicall is not None and isinstance(multicall, MyMultiCall):
             multicall.target('daq').send_trigger(**kwargs)
             return multicall
         if self.manager is not None:
             self.manager.target('daq').send_trigger(**kwargs)
-    def output_step(self, multicall=None, **kwargs):
+
+    def output_step(self, multicall:MyMultiCall=None, **kwargs):
         if multicall is not None and isinstance(multicall, MyMultiCall):
             multicall.target('daq').output_step(**kwargs)
             return multicall

@@ -12,17 +12,25 @@ from stimpack.rpc.transceiver import MySocketClient
 from stimpack.visual_stim.screen import Screen
 from stimpack.visual_stim.util import get_rgba
 from stimpack.experiment.server import BaseServer
+from stimpack.experiment.protocol import BaseProtocol
+from stimpack.experiment.data import BaseData
 from stimpack.experiment.util import config_tools
 from stimpack.device import daq
 from stimpack.device.locomotion.loco_managers.keytrac_managers import KeytracClosedLoopManager
 from stimpack.util import ROOT_DIR
 
 class BaseClient():
-    def __init__(self, cfg):
-        self.stop = False
-        self.pause = False
-        self.manager = None
-        self.cfg = cfg
+    def __init__(self, cfg:dict):
+        """
+        Parameters
+        ----------
+        cfg : dict
+            Configuration dictionary.
+        """
+        self.stop:bool = False
+        self.pause:bool = False
+        self.manager:MySocketClient = None
+        self.cfg:dict = cfg
         
         # # # Load server options from config file and selections # # #
         self.server_options = config_tools.get_server_options(self.cfg)
@@ -104,7 +112,7 @@ class BaseClient():
         self.pause = False
         QApplication.processEvents()
 
-    def start_run(self, protocol_object, data, save_metadata_flag=True):
+    def start_run(self, protocol_object:BaseProtocol, data:BaseData, save_metadata_flag:bool=True):
         """
         Required inputs: protocol_object, data
             protocol_object defines the protocol and associated parameters to be used
@@ -167,7 +175,7 @@ class BaseClient():
 
         self.manager.print_on_server('Run ended.')
 
-    def start_epoch(self, protocol_object, data, save_metadata_flag=True):
+    def start_epoch(self, protocol_object:BaseProtocol, data:BaseData, save_metadata_flag:bool=True):
         #  get stimulus parameters for this epoch
         if protocol_object.use_precomputed_epoch_parameters:
             protocol_object.load_precomputed_epoch_parameters()
@@ -201,7 +209,7 @@ class BaseClient():
         protocol_object.advance_epoch_counter()
 
     #%% Locomotion methods
-    def start_loco(self, data, save_metadata_flag=True):
+    def start_loco(self, data:BaseData, save_metadata_flag:bool=True):
         '''
         Set up locomotion data saving on the server and start locomotion device / software
         '''
