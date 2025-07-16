@@ -1,0 +1,27 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: stimpack
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Minseung
+    family-names: Choi
+    affiliation: Stanford University
+    email: minseung@stanford.edu
+    orcid: 'https://orcid.org/0000-0001-5398-219X'
+  - given-names: Joshua
+    family-names: Melander
+    email: melander@stanford.edu
+    affiliation: Stanford University
+  - given-names: Maxwell
+    family-names: Turner
+    email: mhturner@albany.edu
+    affiliation: 'University at Albany, SUNY'
+    orcid: 'https://orcid.org/0000-0002-4164-9995'
+identifiers:
+  - type: url
+    value: 'https://github.com/ClandininLab/stimpack'
