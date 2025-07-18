@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='stimpack',
-    version='0.1.1',
+    version='0.2.0',
     description='Precise and flexible generation of stimuli for neuroscience experiments.',
     url='https://github.com/ClandininLab/stimpack',
     author='Minseung Choi',
@@ -13,19 +13,20 @@ setup(
         'scipy',
         'pandas',
         'matplotlib',
-        
+        'pynwb',
         'platformdirs',
         'PyQT6',
         'h5py',
         'pyYaml',
-        
         'moderngl',
         'PyOpenGL; platform_system=="Linux"',
         'scikit-image',
+        'pynwb'
     ],
     entry_points={
         'console_scripts': [
-            'stimpack=stimpack.experiment.gui:main'
+            'stimpack=stimpack.experiment.gui:main',
+            'stimpack_nwb=stimpack.experiment.gui_nwb:main'
         ]
     },
     include_package_data=True,
