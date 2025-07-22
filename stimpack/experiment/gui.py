@@ -10,6 +10,7 @@ import os
 import sys
 import time
 from enum import Enum
+import warnings
 import yaml
 
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
@@ -739,12 +740,12 @@ class ExperimentGUI(QWidget):
 
         current_protocol_name, current_preset = self.ensemble_list.get_current_protocol_preset()
 
-        matching_protocols = [x for x in self.available_protocols if current_protocol_name in x.__name__]
+        matching_protocols = [x for x in self.available_protocols if current_protocol_name == x.__name__]
         if len(matching_protocols) == 0:
-            print(f'Ensemble: Protocol {current_protocol_name} not found in available protocols.')
+            warnings.warn(f'Ensemble: Protocol {current_protocol_name} not found in available protocols.')
             return
         elif len(matching_protocols) > 1:
-            print(f'Ensemble: Multiple protocols with name {current_protocol_name} found in available protocols. Ensemble does not support this.')
+            warnings.warn(f'Ensemble: Multiple protocols with name {current_protocol_name} found in available protocols. Ensemble does not support this.')
             return
         protocol_idx = self.protocol_selection_combo_box.findText(current_protocol_name, Qt.MatchFlag.MatchStartsWith)
         self.protocol_selection_combo_box.setCurrentIndex(protocol_idx)
