@@ -54,6 +54,8 @@ class DriftingSquareGrating(BaseProtocol):
     def get_run_parameter_defaults(self):
         return {'num_epochs': 40,
                 'idle_color': 0.5,
+                'pre_run_time': 0,  # seconds to wait before starting the run
+                'post_run_time': 0,  # seconds to wait after the run
                 'all_combinations': True,
                 'randomize_order': True}
 
@@ -166,6 +168,8 @@ class MovingPatch(BaseProtocol):
     def get_run_parameter_defaults(self):
         return {'num_epochs': 40,
                 'idle_color': 0.5,
+                'pre_run_time': 0,  # seconds to wait before starting the run
+                'post_run_time': 0,  # seconds to wait after the run
                 'all_combinations': True,
                 'randomize_order': True}
 
@@ -354,6 +358,8 @@ class LinearTrackWithTowers(BaseProtocol):
     def get_run_parameter_defaults(self):
         return {'num_epochs': 40,
                 'idle_color': 0.5,
+                'pre_run_time': 0,  # seconds to wait before starting the run
+                'post_run_time': 0,  # seconds to wait after the run
                 'all_combinations': True,
                 'randomize_order': True}
 

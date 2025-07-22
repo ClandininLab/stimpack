@@ -287,6 +287,17 @@ class BaseProtocol():
                 protocol_module_path = protocol_path,
                 protocol_name = self.__class__.__name__
             )
+        
+        # If run_parameters['pre_run_time'] exists, sleep for that time
+        if 'pre_run_time' in self.run_parameters:
+            pre_run_time = self.run_parameters['pre_run_time']
+            if isinstance(pre_run_time, (int, float)):
+                if pre_run_time > 0:
+                    sleep(pre_run_time)
+            else:
+                raise ValueError(f'Run parameter pre_run_time must be an int or float, not {type(pre_run_time)}.')
+
+        # Reset the number of epochs completed
         self.num_epochs_completed = 0
 
     def load_stimuli(self, manager, multicall=None):
@@ -357,6 +368,16 @@ class BaseProtocol():
         Fill in if you want to do something at the end of each run.
         Overwrite me in the child subclass.
         """
+
+        # If run_parameters['post_run_time'] exists, sleep for that time
+        if 'post_run_time' in self.run_parameters:
+            post_run_time = self.run_parameters['post_run_time']
+            if isinstance(post_run_time, (int, float)):
+                if post_run_time > 0:
+                    sleep(post_run_time)
+            else:
+                raise ValueError(f'Run parameter post_run_time must be an int or float, not {type(post_run_time)}.')
+
         # If self.use_server_side_state_dependent_control is True, signal to the server that custom closed-loop control is no longer being used
         if self.use_server_side_state_dependent_control:
             manager.target('root').unload_server_side_state_dependent_control()
