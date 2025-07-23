@@ -187,7 +187,8 @@ class BaseProtocol():
         If pre_time, stim_time, and tail_time are specified in the protocol parameters, this method will estimate the total run time.
         '''
         epoch_protocol_params = self.precomputed_epoch_parameters['protocol']
-        self.est_run_time = np.sum([p.get('pre_time', 0) + p.get('stim_time', 0) + p.get('tail_time', 0) for p in epoch_protocol_params])
+        self.est_run_time = np.sum([p.get('pre_time', 0) + p.get('stim_time', 0) + p.get('tail_time', 0) for p in epoch_protocol_params]) + \
+                            self.run_parameters.get('pre_run_time', 0) + self.run_parameters.get('post_run_time', 0)
 
     def process_input_parameters(self):
         """
@@ -267,11 +268,14 @@ class BaseProtocol():
         if manager is not None:
             manager.target('visual').set_idle_background(get_rgba(self.run_parameters.get('idle_color', 0)))
 
-    def on_run_start(self, manager):
+    def on_run_start(self, manager, multicall=None):
         """
         Method that is called at the beginning of each run. Does not itself start the run.
         Can be overwritten in the child subclass with super().on_run_start(manager) to add additional functionality.
         """
+        if multicall is None:
+            multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+
         # If self.use_server_side_state_dependent_control is True, signal to the server that custom closed-loop control is being used
         # We currently assume that the protocol module is in the labpack and that its path is specified in the config file as relative to the labpack
         if self.use_server_side_state_dependent_control:
@@ -283,11 +287,13 @@ class BaseProtocol():
             else:
                 raise ValueError(f'Protocol path {protocol_path} is not in the labpack directory or the stimpack directory.')
             
-            manager.target('root').load_server_side_state_dependent_control(
+            multicall.target('root').load_server_side_state_dependent_control(
                 protocol_module_path = protocol_path,
                 protocol_name = self.__class__.__name__
             )
         
+        multicall()
+
         # If run_parameters['pre_run_time'] exists, sleep for that time
         if 'pre_run_time' in self.run_parameters:
             pre_run_time = self.run_parameters['pre_run_time']
@@ -378,9 +384,14 @@ class BaseProtocol():
             else:
                 raise ValueError(f'Run parameter post_run_time must be an int or float, not {type(post_run_time)}.')
 
+        if multicall is None:
+            multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+
         # If self.use_server_side_state_dependent_control is True, signal to the server that custom closed-loop control is no longer being used
         if self.use_server_side_state_dependent_control:
-            manager.target('root').unload_server_side_state_dependent_control()
+            multicall.target('root').unload_server_side_state_dependent_control()
+        
+        multicall()
         
     def get_parameter_sequence(self, parameter_list, all_combinations=True, randomize_order=False):
         """
