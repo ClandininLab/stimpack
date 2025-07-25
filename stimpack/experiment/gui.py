@@ -506,6 +506,7 @@ class ExperimentGUI(QWidget):
         self.protocol_object.select_protocol_preset(name=preset_name)
         self.protocol_object.prepare_run(manager=self.client.manager)
         self.update_parameter_preset_selector()
+        self.parameter_preset_comboBox.setCurrentIndex(self.parameter_preset_comboBox.findText(preset_name))
         self.update_parameters_input()
         self.update_window_width()
         self.show()
