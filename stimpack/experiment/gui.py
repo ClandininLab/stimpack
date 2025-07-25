@@ -971,6 +971,7 @@ class ExperimentGUI(QWidget):
         self.ensemble_record_button.setEnabled(False)
         if self.ensemble_running:
             self.ensemble_stop_button.setEnabled(True)
+            self.protocol_tab.setEnabled(False)
         else:
             self.ensemble_stop_button.setEnabled(False)
 
@@ -1007,6 +1008,8 @@ class ExperimentGUI(QWidget):
             self.ensemble_view_button.setEnabled(True)
             self.ensemble_record_button.setEnabled(True)
             self.ensemble_stop_button.setEnabled(False)
+
+            self.protocol_tab.setEnabled(True)
 
             # Prepare for next run
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
