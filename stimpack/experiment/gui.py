@@ -74,10 +74,13 @@ class ExperimentGUI(QWidget):
             protocol_module_full_paths = config_tools.get_full_paths_to_module(self.cfg, 'protocol', single_item_in_list=True)
             self.protocol_modules = [config_tools.load_user_module_from_path(fp, f'protocol_{os.path.basename(fp)[:-3]}') for fp in protocol_module_full_paths]
         else:   # use the built-in
-            print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('protocol'))
+            print('!!! Using builtin protocol module. To use user defined module, you must point to that module in your config file !!!')
             example_protocol_path = os.path.join(ROOT_DIR, 'experiment', 'example_protocol.py')
             self.protocol_modules = [config_tools.load_user_module_from_path(example_protocol_path, 'protocol_examples')]
-        
+
+        # Get parameter presets directory
+        self.parameter_preset_directory = config_tools.get_parameter_preset_directory(self.cfg)
+
         # start a protocol object
         self.protocol_object =  protocol.BaseProtocol(self.cfg)
         self.available_protocols =  [x for x in get_all_subclasses(protocol.BaseProtocol) if x.__name__ not in ['BaseProtocol', 'SharedPixMapProtocol']]
@@ -667,7 +670,7 @@ class ExperimentGUI(QWidget):
     def save_ensemble_preset(self):
         # Popup to get file path
         # save ensemble to file
-        file_path, _= QFileDialog.getSaveFileName(self, "Save ensemble preset", self.data.data_directory, "Stimpack ensemble files (*.spens)")
+        file_path, _= QFileDialog.getSaveFileName(self, "Save ensemble preset", self.parameter_preset_directory, "Stimpack ensemble files (*.spens)")
         if not file_path.endswith('.spens'):
             file_path += '.spens'
 
@@ -680,7 +683,7 @@ class ExperimentGUI(QWidget):
     def load_ensemble_preset(self):
         # Popup to get file path
         # load ensemble from file 
-        fname, _ = QFileDialog.getOpenFileName(self, "Open ensemble preset", self.data.data_directory, "Stimpack ensemble files (*.spens)")
+        fname, _ = QFileDialog.getOpenFileName(self, "Open ensemble preset", self.parameter_preset_directory, "Stimpack ensemble files (*.spens)")
         
         if os.path.isfile(fname):
             with open(fname, 'r') as ymlfile:
