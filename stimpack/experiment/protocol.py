@@ -36,7 +36,9 @@ import math
 import yaml
 import itertools
 import warnings
-import stimpack.rpc.multicall
+
+from stimpack.rpc.transceiver import MySocketClient
+from stimpack.rpc.multicall import MyMultiCall
 from stimpack.visual_stim.util import get_rgba
 from stimpack.experiment.util import config_tools
 from stimpack.util import ROOT_DIR
@@ -82,8 +84,8 @@ class BaseProtocol():
 
     def get_epoch_parameters(self):
         """ Inherit / overwrite me in the child subclass"""
-        self.epoch_protocol_parameters = None
-        self.epoch_stim_parameters = None
+        self.epoch_protocol_parameters = {}
+        self.epoch_stim_parameters = {}
 
         # Get protocol parameters for this epoch
         self.epoch_protocol_parameters = self.select_epoch_protocol_parameters(
@@ -242,7 +244,7 @@ class BaseProtocol():
                     except:
                         raise ValueError(f'Epoch protocol parameter {p} could not be cast to {dtype}')
 
-    def prepare_run(self, manager=None, recompute_epoch_parameters=True):
+    def prepare_run(self, manager:MySocketClient, recompute_epoch_parameters=True):
         """
         recompute_epoch_parameters: bool
             If True, precompute epoch parameters even if they have been computed already
@@ -268,18 +270,21 @@ class BaseProtocol():
         if manager is not None:
             manager.target('visual').set_idle_background(get_rgba(self.run_parameters.get('idle_color', 0)))
 
-    def on_run_start(self, manager, multicall=None):
+    def on_run_start(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         """
         Method that is called at the beginning of each run. Does not itself start the run.
         Can be overwritten in the child subclass with super().on_run_start(manager) to add additional functionality.
         """
         if multicall is None:
-            multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+            multicall = MyMultiCall(manager)
 
         # If self.use_server_side_state_dependent_control is True, signal to the server that custom closed-loop control is being used
         # We currently assume that the protocol module is in the labpack and that its path is specified in the config file as relative to the labpack
         if self.use_server_side_state_dependent_control:
-            protocol_path = os.path.abspath(sys.modules[self.__module__].__file__)
+            protocol_module_file = sys.modules[self.__module__].__file__
+            if protocol_module_file is None:
+                raise ValueError(f'Protocol module {self.__module__} has no __file__ attribute. Cannot determine protocol path.')
+            protocol_path = os.path.abspath(protocol_module_file)
             if protocol_path.startswith(config_tools.get_labpack_directory()):
                 protocol_path = os.path.relpath(protocol_path, config_tools.get_labpack_directory())
             elif protocol_path.startswith(ROOT_DIR):
@@ -306,9 +311,9 @@ class BaseProtocol():
         # Reset the number of epochs completed
         self.num_epochs_completed = 0
 
-    def load_stimuli(self, manager, multicall=None):
+    def load_stimuli(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         if multicall is None:
-            multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+            multicall = MyMultiCall(manager)
 
         bg = get_rgba(self.run_parameters.get('idle_color', 0))
         multicall.target('visual').set_idle_background(bg)
@@ -324,8 +329,7 @@ class BaseProtocol():
 
         multicall()
 
-    def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
-        
+    def start_stimuli(self, manager:MySocketClient, append_stim_frames=False, print_profile=True, multicall:MyMultiCall|None=None):
         # locomotion setting variables
         do_loco = self.run_parameters.get('do_loco', False)
         do_loco_closed_loop = do_loco and self.epoch_protocol_parameters.get('loco_pos_closed_loop', False)
@@ -335,7 +339,7 @@ class BaseProtocol():
         sleep(self.epoch_protocol_parameters['pre_time'])
         
         if multicall is None:
-            multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+            multicall = MyMultiCall(manager)
 
         ### stim time
         # locomotion / closed loop
@@ -353,7 +357,7 @@ class BaseProtocol():
         sleep(self.epoch_protocol_parameters['stim_time'])
 
         ### tail time
-        multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+        multicall = MyMultiCall(manager)
         multicall.target('all').stop_stim(print_profile=print_profile)
         multicall.target('visual').corner_square_toggle_stop()
         multicall.target('visual').corner_square_off()
@@ -367,8 +371,8 @@ class BaseProtocol():
         multicall()
 
         sleep(self.epoch_protocol_parameters['tail_time'])
-        
-    def on_run_finish(self, manager, multicall=None):
+
+    def on_run_finish(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         """
         Method that is called at the end of each run, either when the run is completed or when the run is stopped.
         Fill in if you want to do something at the end of each run.
@@ -385,7 +389,7 @@ class BaseProtocol():
                 raise ValueError(f'Run parameter post_run_time must be an int or float, not {type(post_run_time)}.')
 
         if multicall is None:
-            multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+            multicall = MyMultiCall(manager)
 
         # If self.use_server_side_state_dependent_control is True, signal to the server that custom closed-loop control is no longer being used
         if self.use_server_side_state_dependent_control:
@@ -440,7 +444,7 @@ class BaseProtocol():
                 
                 # keep params in lists associated with one another
                 # requires param lists of equal length
-                parameter_sequence = np.vstack(np.array(parameter_list_new, dtype=object)).T
+                parameter_sequence = np.array(parameter_list_new, dtype=object).T
 
         else: # user probably entered a single value (int or float), convert to list
             parameter_sequence = [parameter_list]
@@ -522,9 +526,9 @@ class SharedPixMapProtocol(BaseProtocol):
         self.epoch_shared_pixmap_stim_parameters = self.precomputed_epoch_parameters['pixmap'][self.num_epochs_completed]
         self.epoch_protocol_parameters = self.precomputed_epoch_parameters['protocol'][self.num_epochs_completed]
 
-    def load_stimuli(self, manager, multicall=None):
+    def load_stimuli(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         if multicall is None:
-            multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+            multicall = MyMultiCall(manager)
 
         # Load shared pixmap stimuli if defined # TODO This shouldn't really be a list
         if self.epoch_shared_pixmap_stim_parameters is not None:
@@ -544,8 +548,8 @@ class SharedPixMapProtocol(BaseProtocol):
 
         multicall()
 
-    def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
-        
+    def start_stimuli(self, manager:MySocketClient, append_stim_frames=False, print_profile=True, multicall:MyMultiCall|None=None):
+
         # locomotion setting variables
         do_loco = self.run_parameters.get('do_loco', False)
         do_loco_closed_loop = do_loco and self.epoch_protocol_parameters.get('loco_pos_closed_loop', False)
@@ -555,7 +559,7 @@ class SharedPixMapProtocol(BaseProtocol):
         sleep(self.epoch_protocol_parameters['pre_time'])
         
         if multicall is None:
-            multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+            multicall = MyMultiCall(manager)
 
         ### stim time
         # locomotion / closed loop
@@ -576,7 +580,7 @@ class SharedPixMapProtocol(BaseProtocol):
         sleep(self.epoch_protocol_parameters['stim_time'])
 
         ### tail time
-        multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+        multicall = MyMultiCall(manager)
         multicall.target('all').stop_stim(print_profile=print_profile)
         multicall.target('visual').corner_square_toggle_stop()
         multicall.target('visual').corner_square_off()
@@ -595,7 +599,7 @@ class SharedPixMapProtocol(BaseProtocol):
 
         sleep(self.epoch_protocol_parameters['tail_time'])
 
-    def on_run_finish(self, manager, multicall=None):
+    def on_run_finish(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         """
         Method that is called at the end of each run, either when the run is completed or when the run is stopped.
         Fill in if you want to do something at the end of each run.

@@ -5,6 +5,8 @@ import os, sys
 from time import sleep
 import posixpath
 import warnings
+from typing import Any, Optional
+
 from PyQt6.QtWidgets import QApplication
 
 from stimpack.rpc.launch import launch_server
@@ -29,7 +31,6 @@ class BaseClient():
         """
         self.stop:bool = False
         self.pause:bool = False
-        self.manager:MySocketClient = None
         self.cfg:dict = cfg
         
         # # # Load server options from config file and selections # # #
@@ -43,22 +44,25 @@ class BaseClient():
             self.manager = MySocketClient(host=self.server_options['host'], port=self.server_options['port'])
         
         else: # use a local server, either the default or a specified one
+            local_server_initialized = False
+
             # local server path is specified; start it in a separate process
             if 'local_server_path' in self.server_options:
-                server_path = self.server_options['local_server_path']
+                server_path: str = self.server_options['local_server_path']
                 port = self.server_options.get('port', 60629)
                 if not os.path.isabs(server_path):
                     server_path = os.path.join(config_tools.get_labpack_directory(), server_path)
                 if os.path.exists(server_path):
                     # start the server in a separate process
                     self.manager, self.local_server_process = launch_server(server_path, host='127.0.0.1', port=port, return_process_handle=True)
+                    local_server_initialized = True
                 else:
                     warnings.warn(f"Server path {server_path} does not exist. Using default local server.")
             
             # no local server path specified; start the default local server
-            if self.manager is None:
+            if not local_server_initialized:
                 x_display = self.server_options.get('x_display', None)
-                display_index = self.server_options.get('display_index', 0)
+                display_index: int = self.server_options.get('display_index', 0)
 
                 visual_stim_kwargs = {
                     'screens': [Screen(x_display=x_display, display_index=display_index, fullscreen=False, vsync=True, square_size=(0.1, 0.1),
@@ -76,10 +80,10 @@ class BaseClient():
 
                 server = BaseServer(host='127.0.0.1',
                                     port=None, 
-                                    start_loop=True, 
                                     visual_stim_kwargs=visual_stim_kwargs, 
                                     loco_class=loco_class, 
-                                    loco_kwargs=loco_kwargs)
+                                    loco_kwargs=loco_kwargs, 
+                                    start_loop=True)
                 self.manager = MySocketClient(host=server.host, port=server.port)
 
         # if the trigger device is on the server, set the manager for the trigger device
@@ -91,10 +95,11 @@ class BaseClient():
         self.manager.target('visual').set_idle_background(0)
 
         # # # Import user-defined stimpack.visual_stim stimuli modules on server screens # # #
-        visual_stim_modules_exist = config_tools.user_module_exists(self.cfg, 'visual_stim', single_item_in_list=True)
-        if visual_stim_modules_exist is not False: # 'visual_stim' is specified under module_paths in the cfg file
-            visual_stim_module_paths = config_tools.get_paths_to_module(self.cfg, 'visual_stim', single_item_in_list=True)
-            for exists, path in zip(visual_stim_modules_exist, visual_stim_module_paths):
+        visual_stim_modules_exist = config_tools.user_module_paths_exist(self.cfg, 'visual_stim')
+        if config_tools.user_module_specified(self.cfg, 'visual_stim'):
+            visual_stim_modules_exist = config_tools.user_module_paths_exist(self.cfg, 'visual_stim')
+            visual_stim_modules_paths = config_tools.get_module_paths(self.cfg, 'visual_stim')
+            for exists, path in zip(visual_stim_modules_exist, visual_stim_modules_paths):
                 if not exists:
                     warnings.warn(f"Visual stim module {path} does not exist.")
                 else:
@@ -214,7 +219,7 @@ class BaseClient():
         Set up locomotion data saving on the server and start locomotion device / software
         '''
         if save_metadata_flag:
-            server_data_directory = self.server_options.get('data_directory', None)
+            server_data_directory: Optional[str] = self.server_options.get('data_directory', None)
             if server_data_directory is not None:
                 # set server-side directory in which to save animal positions from each screen.
                 server_series_dir = posixpath.join(server_data_directory, data.experiment_file_name, str(data.series_count))

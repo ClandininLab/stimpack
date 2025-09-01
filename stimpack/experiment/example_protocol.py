@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 from time import sleep
-import stimpack.rpc.multicall
+
+from stimpack.rpc.transceiver import MySocketClient
+from stimpack.rpc.multicall import MyMultiCall
 from stimpack.experiment.protocol import BaseProtocol
 
 # %% Some simple visual stimulus protocol classes
@@ -204,7 +206,7 @@ class LinearTrackWithTowers(BaseProtocol):
         sleep(self.epoch_protocol_parameters['pre_time'])
         
         if multicall is None:
-            multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+            multicall = MyMultiCall(manager)
 
         ### stim time
         # locomotion / closed loop
@@ -222,7 +224,7 @@ class LinearTrackWithTowers(BaseProtocol):
         sleep(self.epoch_protocol_parameters['stim_time'])
 
         ### tail time
-        multicall = stimpack.rpc.multicall.MyMultiCall(manager)
+        multicall = MyMultiCall(manager)
         multicall.target('all').stop_stim(print_profile=print_profile)
         multicall.target('visual').corner_square_toggle_stop()
         multicall.target('visual').corner_square_off()
@@ -307,7 +309,8 @@ class LinearTrackWithTowers(BaseProtocol):
                     tower['rate'] = tower_period[i]
                 self.epoch_stim_parameters.append(tower)
 
-    def server_side_state_dependent_control(manager, previous_state:dict, state_update:dict) -> dict:
+    @staticmethod
+    def server_side_state_dependent_control(manager:MySocketClient, previous_state:dict, state_update:dict) -> dict:
         y = state_update.get('y', previous_state.get('y', 0))
         y_pos_modulo = state_update.get('y_pos_modulo', previous_state.get('y_pos_modulo', 400)) / 100  # cm -> meters
         y_pos_offset = state_update.get('y_pos_offset', previous_state.get('y_pos_offset', 400)) / 100  # cm -> meters
@@ -316,14 +319,14 @@ class LinearTrackWithTowers(BaseProtocol):
 
         return state_update
 
-    def load_stimuli(self, client, multicall=None):
+    def load_stimuli(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         if multicall is None:
-            multicall = stimpack.rpc.multicall.MyMultiCall(client)
+            multicall = MyMultiCall(manager)
         
         params_to_print = {k:self.epoch_protocol_parameters[k] for k in self.persistent_parameters['variable_protocol_parameter_names']}
         multicall.print_on_server(f'{params_to_print}')
 
-        super().load_stimuli(client, multicall)
+        super().load_stimuli(manager, multicall)
 
     def get_protocol_parameter_defaults(self):
         return {'pre_time': 1.0,

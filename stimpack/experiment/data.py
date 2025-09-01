@@ -29,8 +29,8 @@ class BaseData():
     def __init__(self, cfg):
         self.cfg = cfg
 
-        self.experiment_file_name = None
-        self.series_count = 1
+        self.experiment_file_name: str = ""
+        self.series_count: int = 1
         self.subject_metadata = {}  # populated in GUI or user protocol
         self.current_subject = None
 
@@ -192,7 +192,7 @@ class BaseData():
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
     def experiment_file_exists(self):
-        if self.experiment_file_name is None:
+        if self.experiment_file_name == "":
             tf = False
         else:
             tf = os.path.isfile(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'))

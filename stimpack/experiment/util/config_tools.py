@@ -3,6 +3,9 @@ import glob
 from platformdirs import user_config_dir
 import yaml
 import sys
+import types
+from typing import Any, Optional
+import warnings
 from importlib.util import spec_from_file_location, module_from_spec
 
 def get_stimpack_config_directory(ensure_exists=True):
@@ -59,7 +62,7 @@ def get_available_config_files(labpack_dir=None):
     return cfg_names
 
 
-def get_configuration_file(cfg_name, labpack_dir=None):
+def get_configuration_file(cfg_name: str, labpack_dir: Optional[str] = None) -> dict[str, Any]:
     """Returns config, as dictionary, from  labpack_directory/configs/ based on cfg_name.yaml"""
     if labpack_dir is None:
         labpack_dir = get_labpack_directory()
@@ -89,25 +92,23 @@ def get_parameter_preset_directory(cfg):
 
 # %% Functions for finding and loading user-defined modules
 
-def get_paths_to_module(cfg, module_name, single_item_in_list=False):
+def user_module_specified(cfg, module_name: str) -> bool:
     """
-    Returns path to user defined module as specified in cfg file (not necessarily full path)
-    If module_name is in the cfg, 
-        returns file paths for the specified module.
-        If there are multiple paths specified for the module, returns a list.
-        If there is only one path specified, single_item_in_list determines whether the return is in a list or not.
+    Checks whether specified user module is defined in the cfg.
+    Returns True if module_name is in the cfg, False otherwise.
     """
+    return module_name in cfg.get('module_paths', {})
 
-    module_paths_entry = cfg.get('module_paths', None)
-    if module_paths_entry is None:
-        return None
-    else:
-        module_paths = module_paths_entry.get(module_name, None)
-
-    if module_paths is None:
-        return None
+def get_module_paths(cfg, module_name: str) -> list[str]:
+    """
+    Returns list of module paths specified in cfg file for the given module_name
+    """
+    if not user_module_specified(cfg, module_name):
+        warnings.warn(f'No user module specified for {module_name} in the cfg file.')
+        return []
     
-    if not isinstance(module_paths, list) and single_item_in_list:
+    module_paths = cfg.get('module_paths', {}).get(module_name, [])
+    if not isinstance(module_paths, list):
         module_paths = [module_paths]
     return module_paths
 
@@ -120,67 +121,83 @@ def convert_labpack_relative_path_to_full_path(path):
 
     return full_path
 
-def get_full_paths_to_module(cfg, module_name, single_item_in_list=False):
+def get_module_full_paths(cfg, module_name: str) -> list[str]:
     """
     Returns full paths to user defined module as specified in cfg file
-    If module_name is in the cfg, 
-        returns file paths for the specified module.
-        If there are multiple paths specified for the module, returns a list.
-        If there is only one path specified, single_item_in_list determines whether the return is in a list or not.
     """
-    module_paths = get_paths_to_module(cfg, module_name, single_item_in_list=True)
-    if module_paths is None:
-        return None
-    else:
-        full_paths = [convert_labpack_relative_path_to_full_path(mp) for mp in module_paths]
-        if len(full_paths) == 1 and not single_item_in_list:
-            return full_paths[0]
-        return full_paths
+    module_paths = get_module_paths(cfg, module_name)
+    return [convert_labpack_relative_path_to_full_path(mp) for mp in module_paths]
 
-def user_module_exists(cfg, module_name, single_item_in_list=False):
+def user_module_paths_exist(cfg, module_name: str) -> list[bool]:
     """
-    Checks whether specified user module is defined and exists on this machine. 
-    Returns False if module_name is not in the cfg.
-    If module_name is in the cfg, 
-        returns True/False based on whether the specified module path exists.
-        If there are multiple paths specified for the module, returns a list of booleans.
-        If there is only one path specified, single_item_in_list determines whether the return is in a list or not.
+    Checks whether the specified paths for the user module of given module_name exist.
     """
+    if not user_module_specified(cfg, module_name):
+        warnings.warn(f'No user module specified for {module_name} in the cfg file.')
+        return []
+    module_paths = get_module_full_paths(cfg, module_name)
+    return [os.path.exists(p) for p in module_paths]
 
-    full_module_paths = get_full_paths_to_module(cfg, module_name, single_item_in_list=True)
-    if full_module_paths is None:
-        return False
-    else:
-        exists = [os.path.exists(p) for p in full_module_paths]
-        if len(exists) == 1 and not single_item_in_list:
-            return exists[0]
-        return exists
+def load_user_module(cfg, module_name: str, allow_multiple=False, distinct_module_names=True) -> list[types.ModuleType]:
+    """
+    Imports user defined module and returns the loaded package.
+    
+    Inputs:
+        cfg: configuration dictionary
+        module_name: name of the module to be loaded (e.g. 'protocol', 'data', 'client', 'daq', 'visual_stim', etc.)
+        allow_multiple: 
+            if True, loads all specified module paths.
+            if False, loads only the first specified module path.
+            Default: False.
+        distinct_module_names:
+            Options for handling multiple loaded modules with the same module name.
+            if True, appends an index to the module name for each loaded module to ensure distinct module names.
+            if False, uses the same module name for caching into sys.modules.
+    Returns:
+        list of loaded modules
+    """
+    if not user_module_specified(cfg, module_name):
+        warnings.warn(f'No user module specified for {module_name} in the cfg file.')
+        return []
+    
+    if module_name in sys.modules and not allow_multiple:
+        warnings.warn(f'User module {module_name} already loaded, using cached version.')
+        return [sys.modules[module_name]]
+    
+    paths_to_module = get_module_full_paths(cfg, module_name)
+    if len(paths_to_module) > 1 and not allow_multiple:
+        warnings.warn("Only one module import is allowed but there are multiple module files specified. Using only the first one.")
+        paths_to_module = paths_to_module[:1]
 
+    loaded_modules = []
 
-def load_user_module(cfg, module_name):
+    for module_path in paths_to_module:
+        if not os.path.exists(module_path):
+            warnings.warn(f'Path for user module {module_name} specified in the cfg file does not exist: {module_path}')
+        else:
+            if distinct_module_names and allow_multiple and len(loaded_modules)>0:
+                # append an index to the module name to ensure distinct module names
+                module_name_w_idx = f"{module_name}_{len(loaded_modules)}"
+            else:
+                module_name_w_idx = module_name
+            loaded_module = load_user_module_from_path(full_module_path=module_path, module_name=module_name_w_idx)
+            loaded_modules.append(loaded_module)
+    return loaded_modules
+
+def load_user_module_from_path(full_module_path: str, module_name: str) -> types.ModuleType:
     """Imports user defined module and returns the loaded package."""
-    if user_module_exists(cfg, module_name):
-        path_to_module = get_full_paths_to_module(cfg, module_name)
-        if isinstance(path_to_module, list):
-            print("This function only supports single module import but there are multiple module files specified. Using the first one.")
-            path_to_module = path_to_module[0]
-        return load_user_module_from_path(path_to_module, module_name)
-    else:
-        return None
+    if not os.path.exists(full_module_path):
+        raise FileNotFoundError(f'Could not find module {module_name} at {full_module_path}.')
 
-def load_user_module_from_path(full_module_path, module_name):
-    """Imports user defined module and returns the loaded package."""
-    if os.path.exists(full_module_path):
-        spec = spec_from_file_location(module_name, full_module_path)
-        loaded_mod = module_from_spec(spec)
-        sys.modules[module_name] = loaded_mod
-        spec.loader.exec_module(loaded_mod)
+    spec = spec_from_file_location(module_name, full_module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f'Could not load spec for module {module_name} from {full_module_path}.')
+    loaded_mod = module_from_spec(spec)
+    sys.modules[module_name] = loaded_mod
+    spec.loader.exec_module(loaded_mod)
 
-        print('Loaded {} module from {}'.format(module_name, full_module_path))
-        return loaded_mod
-    else:
-        print(f'Error: {full_module_path} does not exist. Could not load module {module_name}.')
-        return None
+    print('Loaded {} module from {}'.format(module_name, full_module_path))
+    return loaded_mod
 
 def load_trigger_device(cfg):
     """Loads trigger device specified in rig config from the user daq module """
@@ -193,7 +210,7 @@ def load_trigger_device(cfg):
         return None
     else:
         trigger_device = eval('daq.{}'.format(trigger_device_definition))
-        print('Loaded trigger device from {}.{}'.format(get_full_paths_to_module(cfg, 'daq'), trigger_device_definition))
+        print('Loaded trigger device from {}.{}'.format(get_module_full_paths(cfg, 'daq'), trigger_device_definition))
         return trigger_device
 
 # %%
@@ -207,7 +224,7 @@ def get_screen_center(cfg):
 
     return screen_center
 
-def get_server_options(cfg):
+def get_server_options(cfg) -> dict[str, int|str|bool|None]:
     default_server_options = {'use_remote_server': False,
                               'data_directory': None}
     if 'current_rig_name' in cfg:

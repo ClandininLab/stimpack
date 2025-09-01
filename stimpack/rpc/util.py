@@ -40,6 +40,7 @@ def get_from_dict(dictionary, keys, default=None, remove=False):
     return return_list[0] if len(return_list) == 1 else return_list
 
 class JSONCoderWithTuple():
+    @staticmethod
     def encode(obj):
         def hint_tuples(item):
             if isinstance(item, tuple):
@@ -53,6 +54,7 @@ class JSONCoderWithTuple():
 
         return json.JSONEncoder().encode(hint_tuples(obj))
     
+    @staticmethod
     def decode(obj):
         def hinted_tuple_hook(obj):
             if '__tuple__' in obj:

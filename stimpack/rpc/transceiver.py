@@ -1,5 +1,5 @@
 import socket, atexit
-
+from typing import Callable
 from queue import Queue, Empty
 from threading import Event
 from json.decoder import JSONDecodeError
@@ -26,7 +26,30 @@ class MyTransceiver:
         # register shutdown function
         self.register_function(shutdown)
 
-    def handle_request_list(self, request_list):
+    def register_function(self, function, name=None):
+        if name is None:
+            name = function.__name__
+
+        assert name not in self.functions, 'Function "{}" already defined.'.format(name)
+        self.functions[name] = function
+
+    def write_request_list(self, request_list: list) -> None:
+        if self.outfile is None:
+            return
+
+        line = JSONCoderWithTuple.encode(request_list) + '\n'
+
+        if stream_is_binary(self.outfile):
+            line = line.encode('utf-8')
+
+        try:
+            self.outfile.write(line)
+            self.outfile.flush()
+        except BrokenPipeError:
+            # will happen if the other side disconnected
+            pass
+
+    def handle_request_list(self, request_list: list) -> None:
         if not isinstance(request_list, list):
             print("Warning: request_list is not a list.")
             return
@@ -46,6 +69,22 @@ class MyTransceiver:
             else:
                 print(f"Warning: request '{request}' is not a valid request.")
 
+    def target(self, target_name: str):
+        """
+        Directs all function calls to the remote module with target name.
+        """
+        outer_self = self
+        class remote_module_target:
+            def __getattr__(self, target_attr_name: str) -> Callable[..., None]:
+                def g(*args, **kwargs) -> None:
+                    request = {'target': target_name, 
+                            'name': target_attr_name, 
+                            'args': args, 
+                            'kwargs': kwargs}
+                    outer_self.write_request_list([request])
+                return g
+        return remote_module_target()
+
     def process_queue(self):
         while True:
             try:
@@ -55,56 +94,11 @@ class MyTransceiver:
 
             self.handle_request_list(request_list)
 
-    def register_function(self, function, name=None):
-        if name is None:
-            name = function.__name__
-
-        assert name not in self.functions, 'Function "{}" already defined.'.format(name)
-        self.functions[name] = function
-
-    def target(self, target_name):
-        """
-        Directs all function calls to the remote module with target name.
-        """
-        class remote_module_target:
-            def __getattr__(target_self, target_attr_name) -> callable:
-                def g(*args, **kwargs) -> None:
-                    request = {'target': target_name, 
-                            'name': target_attr_name, 
-                            'args': args, 
-                            'kwargs': kwargs}
-                    self.write_request_list([request])
-                return g
-        return remote_module_target()
-
-    def __getattr__(self, name) -> callable:
-        def f(*args, **kwargs) -> None:
-            request = {'name': name, 'args': args, 'kwargs': kwargs}
-            self.write_request_list([request])
-
-        return f
-    
-    def parse_line(self, line):
+    def parse_line(self, line: str | bytes) -> list:
         if isinstance(line, bytes):
             line = line.decode('utf-8')
 
         return JSONCoderWithTuple.decode(line)
-
-    def write_request_list(self, request_list):
-        if self.outfile is None:
-            return
-
-        line = JSONCoderWithTuple.encode(request_list) + '\n'
-
-        if stream_is_binary(self.outfile):
-            line = line.encode('utf-8')
-
-        try:
-            self.outfile.write(line)
-            self.outfile.flush()
-        except BrokenPipeError:
-            # will happen if the other side disconnected
-            pass
 
 
 class MySocketClient(MyTransceiver):
@@ -133,6 +127,13 @@ class MySocketClient(MyTransceiver):
         self.outfile = conn.makefile('wb')
 
         start_daemon_thread(self.loop)
+
+    def __getattr__(self, name: str) -> Callable[..., None]:
+        def f(*args: list, **kwargs: dict) -> None:
+            request = {'name': name, 'args': args, 'kwargs': kwargs}
+            self.write_request_list([request])
+
+        return f
 
     def loop(self):
         try:
@@ -190,6 +191,17 @@ class MySocketServer(MyTransceiver):
         # launch the read thread
         if self.threaded:
             start_daemon_thread(self.loop)
+
+    def __getattr__(self, name):
+        '''
+        Allow the server to execute function calls as client, assuming server isn't busy looping. 
+        If loop is on a separate thread, it can execute calls.
+        '''
+        # If not a method of the server class, handle it as a request.
+        def f(*args, **kwargs):
+            request = {'name': name, 'args': args, 'kwargs': kwargs}
+            self.handle_request_list([request])
+        return f
 
     def loop(self):
         while not self.shutdown_flag.is_set():

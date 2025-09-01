@@ -12,7 +12,7 @@ def get_all_subclasses(cls):
     
     return ordered_unique_list(cls.__subclasses__() + [s for c in cls.__subclasses__() for s in get_all_subclasses(c)])
 
-def make_as(parameter, parent_class):
+def make_as(parameter, parent_class: type):
     """Return parameter as parent class object if it is a dictionary."""
     if type(parameter) is dict: # trajectory-specifying dict
         subclasses = get_all_subclasses(parent_class)

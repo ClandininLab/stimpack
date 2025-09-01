@@ -1,7 +1,4 @@
 import signal, sys, os
-from math import radians
-
-import numpy as np
 
 from stimpack.visual_stim.screen import Screen
 from stimpack.visual_stim.stim_server import VisualStimServer
@@ -17,11 +14,15 @@ from stimpack.experiment.util import config_tools
 from stimpack.util import ROOT_DIR
 
 class BaseServer(MySocketServer):
-    def __init__(self, host='', port=60629, 
-                    visual_stim_kwargs={},
-                    loco_class=None, loco_kwargs={}, 
-                    daq_class=None,  daq_kwargs={}, 
-                    start_loop=False):
+    def __init__(self, 
+                 host: str = '', 
+                 port: int|None = 60629, 
+                 visual_stim_kwargs: dict = {},
+                 loco_class: type|None = None, 
+                 loco_kwargs: dict = {},
+                 daq_class: type|None = None,  
+                 daq_kwargs: dict = {},
+                 start_loop: bool = False):
 
         self.host = host
         if port is None:
@@ -77,42 +78,20 @@ class BaseServer(MySocketServer):
         if start_loop:
             start_daemon_thread(self.loop)
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str):
         '''
-        Allow the server to execute function calls as client, assuming server isn't busy looping. 
-        If loop is on a separate thread, it can execute calls.
+        Allow the server to execute function calls as a client. Any attribute access
+        that is not a standard attribute of the server will be forwarded as an
+        RPC request to the 'root' target.
         '''
-        
-        # If call is for an attribute / method of the server class, return it.
-        if name in dir(self):
-            return self.name
-
-        # If call is target('module_name'), return a dummy module object that will handle the request.
-        elif name == 'target':
-            def f(module_name):
-                class dummy_module:
-                    def __getattr__(module_self, module_attr_name):
-                        def g(*args, **kwargs):
-                            request = {'target': module_name, 
-                                       'name': module_attr_name, 
-                                       'args': args, 
-                                       'kwargs': kwargs}
-                            self.handle_request_list([request])
-                        return g
-                return dummy_module()
-            return f
-        
-        # If not a method of the server class and target not specified, 
-        #   handle it as a request to the root nodoe.
-        else:
-            # print(f"Server does not have attribute {name}; call must be for either module or an attribute or method of BaseServer.")            
-            def f(*args, **kwargs):
-                request = {'target': 'root',
-                           'name': name, 
-                           'args': args, 
-                           'kwargs': kwargs}
-                self.handle_request_list([request])
-            return f
+        # print(f"Server does not have attribute {name}; call must be for either module or an attribute or method of BaseServer.")            
+        def f(*args, **kwargs):
+            request = {'target': 'root',
+                        'name': name, 
+                        'args': args, 
+                        'kwargs': kwargs}
+            self.handle_request_list([request])
+        return f
     
     # def loop(self):
     #     self.run_function_in_all_modules('loop')

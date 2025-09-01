@@ -11,6 +11,7 @@ import sys
 import time
 from enum import Enum
 import warnings
+from typing import Optional, Any
 import yaml
 
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
@@ -50,30 +51,29 @@ class ExperimentGUI(QWidget):
 
         # user input to select configuration file and rig name
         # sets self.cfg
-        self.cfg = None
+        self.cfg_initialized = False
+        self.cfg: dict[str, Any] = {}
         init_gui_size = None
         dialog = QDialog()
         dialog.setWindowIcon(QtGui.QIcon(ICON_PATH))
         dialog.setWindowTitle('Stimpack Config Selection')
-        dialog.ui = InitializeRigGUI(parent=dialog)
-        dialog.ui.setupUI(self, dialog, window_size=init_gui_size)
-        if init_gui_size is not None:
-            dialog.setFixedSize(*init_gui_size)
+        dialog_ui = InitializeRigGUI(parent=dialog)
+        dialog_ui.setupUI(self, dialog, window_size=init_gui_size)
         dialog.exec()
 
         # No config file selected, exit
-        if self.cfg is None:
-            print('!!! No configuration file selected. Exiting !!!')
+        if not self.cfg_initialized:
+            print('!!! No configuration selected. Exiting !!!')
             sys.exit()
 
         print('# # # Loading protocol, data and client modules # # #')
 
         # Load protocol module(s). Multiple user-specific protocol modules can be loaded.
-        user_protocol_exists = config_tools.user_module_exists(self.cfg, 'protocol', single_item_in_list=True)
-        if isinstance(user_protocol_exists, list) and (True in user_protocol_exists): # at least one user protocol exists
-            protocol_module_full_paths = config_tools.get_full_paths_to_module(self.cfg, 'protocol', single_item_in_list=True)
-            self.protocol_modules = [config_tools.load_user_module_from_path(fp, f'protocol_{os.path.basename(fp)[:-3]}') for fp in protocol_module_full_paths]
-        else:   # use the built-in
+        self.protocol_modules = config_tools.load_user_module(self.cfg, 
+                                                              module_name='protocol', 
+                                                              allow_multiple=True, 
+                                                              distinct_module_names=True)
+        if len(self.protocol_modules) == 0:  # use the built-in
             print('!!! Using builtin protocol module. To use user defined module, you must point to that module in your config file !!!')
             example_protocol_path = os.path.join(ROOT_DIR, 'experiment', 'example_protocol.py')
             self.protocol_modules = [config_tools.load_user_module_from_path(example_protocol_path, 'protocol_examples')]
@@ -86,17 +86,17 @@ class ExperimentGUI(QWidget):
         self.available_protocols =  [x for x in get_all_subclasses(protocol.BaseProtocol) if x.__name__ not in ['BaseProtocol', 'SharedPixMapProtocol']]
 
         # start a data object
-        if config_tools.user_module_exists(self.cfg, 'data'):
-            user_data_module = config_tools.load_user_module(self.cfg, 'data')
-            self.data = user_data_module.Data(self.cfg)
+        user_data_module_list = config_tools.load_user_module(self.cfg, 'data')
+        if user_data_module_list:
+            self.data = user_data_module_list[0].Data(self.cfg)
         else:  # use the built-in
             print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('data'))
             self.data = data.BaseData(self.cfg)
 
          # start a client
-        if config_tools.user_module_exists(self.cfg, 'client'):
-            user_client_module = config_tools.load_user_module(self.cfg, 'client')
-            self.client = user_client_module.Client(self.cfg)
+        user_client_module_list = config_tools.load_user_module(self.cfg, 'client')
+        if user_client_module_list:
+            self.client = user_client_module_list[0].Client(self.cfg)
         else:  # use the built-in
             print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('client'))
             self.client = client.BaseClient(self.cfg)
@@ -592,14 +592,14 @@ class ExperimentGUI(QWidget):
         elif sender.text() == 'Initialize experiment':
             dialog = QDialog()
 
-            dialog.ui = InitializeExperimentGUI(parent=dialog)
-            dialog.ui.setupUI(self, dialog)
+            dialog_ui = InitializeExperimentGUI(parent=dialog)
+            dialog_ui.setupUI(self, dialog)
             dialog.setFixedSize(300, 200)
             dialog.exec()
 
-            self.data.experiment_file_name = dialog.ui.le_filename.text()
-            self.data.data_directory = dialog.ui.le_data_directory.text()
-            self.data.experimenter = dialog.ui.le_experimenter.text()
+            self.data.experiment_file_name = dialog_ui.le_filename.text()
+            self.data.data_directory = dialog_ui.le_data_directory.text()
+            self.data.experimenter = dialog_ui.le_experimenter.text()
 
             self.update_existing_subject_input()
             self.populate_groups()
@@ -1228,6 +1228,9 @@ class ExperimentGUI(QWidget):
 
 # # # Other accessory classes. For data file initialization and threading # # # #
 class InitializeExperimentGUI(QWidget):
+    """
+    GUI to initialize experiment file to store data
+    """
     def setupUI(self, experiment_gui_object, parent=None):
         super(InitializeExperimentGUI, self).__init__(parent)
         self.parent = parent
@@ -1290,7 +1293,7 @@ class InitializeRigGUI(QWidget):
         self.experiment_gui_object = experiment_gui_object
 
         self.cfg_name = None
-        self.cfg = None
+        self.cfg : dict[str, Any] = {}
         self.available_rig_configs = []
     
         # self.layout = QFormLayout()
@@ -1384,9 +1387,11 @@ class InitializeRigGUI(QWidget):
 
         # Pass cfg up to experiment GUI object
         self.experiment_gui_object.cfg = self.cfg
+        self.experiment_gui_object.cfg_initialized = True
 
         self.close()
-        self.parent.close()
+        if self.parent is not None:
+            self.parent.close()
 
 
 class runSeriesThread(QThread):
