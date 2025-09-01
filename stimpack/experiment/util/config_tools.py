@@ -201,16 +201,18 @@ def load_user_module_from_path(full_module_path: str, module_name: str) -> types
 
 def load_trigger_device(cfg):
     """Loads trigger device specified in rig config from the user daq module """
-    daq = load_user_module(cfg, 'daq')
+    daq_module_list = load_user_module(cfg, 'daq')
+
     # fetch the trigger device definition from the config
     trigger_device_definition = cfg.get('rig_config')[cfg.get('current_rig_name')].get('trigger', None)
 
-    if daq is None or trigger_device_definition is None:
+    if not daq_module_list or trigger_device_definition is None:
         print('No trigger device defined')
         return None
     else:
-        trigger_device = eval('daq.{}'.format(trigger_device_definition))
-        print('Loaded trigger device from {}.{}'.format(get_module_full_paths(cfg, 'daq'), trigger_device_definition))
+        daq = daq_module_list[0]
+        trigger_device = eval(f'daq.{trigger_device_definition}')
+        print(f'Loaded trigger device from {get_module_full_paths(cfg, "daq")[0]}.{trigger_device_definition}')
         return trigger_device
 
 # %%
