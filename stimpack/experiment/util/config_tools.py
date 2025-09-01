@@ -224,7 +224,8 @@ def get_screen_center(cfg):
 
     return screen_center
 
-def get_server_options(cfg) -> dict[str, int|str|bool|None]:
+def get_server_options(cfg) -> dict[str, int|str|bool|None]: 
+    # potential TODO: add type hints for the dictionary values by defining a TypedDict
     default_server_options = {'use_remote_server': False,
                               'data_directory': None}
     if 'current_rig_name' in cfg:
