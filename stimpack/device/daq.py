@@ -5,6 +5,7 @@ DAQ (data acquisition) device classes
 
 @author: minseung
 """
+from typing import Optional
 
 from stimpack.rpc.multicall import MyMultiCall
 from stimpack.rpc.transceiver import MySocketClient
@@ -25,7 +26,7 @@ class DAQ():
             else:
                 if self.verbose:  print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
     
-    def send_trigger(self):
+    def send_trigger(self, *args, **kwargs):
         print('Warning, send_trigger method has not been overwritten by a child class!')
         pass
 
@@ -40,16 +41,14 @@ class DAQonServer(DAQ):
     def set_manager(self, manager:MySocketClient):
         self.manager = manager
 
-    def send_trigger(self, multicall:MyMultiCall=None, **kwargs):
+    def send_trigger(self, multicall:Optional[MyMultiCall]=None, **kwargs):
         if multicall is not None and isinstance(multicall, MyMultiCall):
             multicall.target('daq').send_trigger(**kwargs)
-            return multicall
         if self.manager is not None:
             self.manager.target('daq').send_trigger(**kwargs)
 
-    def output_step(self, multicall:MyMultiCall=None, **kwargs):
+    def output_step(self, multicall:Optional[MyMultiCall]=None, **kwargs):
         if multicall is not None and isinstance(multicall, MyMultiCall):
             multicall.target('daq').output_step(**kwargs)
-            return multicall
         if self.manager is not None:
             self.manager.target('daq').output_step(**kwargs)
