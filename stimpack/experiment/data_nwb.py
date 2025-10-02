@@ -114,7 +114,13 @@ class NWBData():
         
         # In NWB the age is a string
         if 'age' in subject_kwargs:
-            subject_kwargs['age'] = str(subject_kwargs['age'])
+            age_days = subject_kwargs['age']
+            subject_kwargs['age'] = f'P{age_days}D' # string format to ISO 8601 duration
+
+        for key in subject_kwargs: # convert empty strings to None
+            if subject_kwargs[key] == '':
+                subject_kwargs[key] = None
+
         
         # Save the rest as subject description
         rest_of_the_subject_metadata = {key: subject_metadata[key] for key in subject_metadata if key not in keywords_in_the_nwb_subject_class}
