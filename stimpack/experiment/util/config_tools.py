@@ -255,3 +255,9 @@ def get_loco_available(cfg):
 
 def get_experimenter(cfg):
     return cfg.get('experimenter', '')
+
+def get_lab(cfg):
+    return cfg.get('lab', '')
+
+def get_institution(cfg):
+    return cfg.get('institution', '')

@@ -19,9 +19,8 @@ yyyy-mm-dd
 """
 import h5py
 import os
-from datetime import datetime
 import numpy as np
-
+from datetime import datetime
 from stimpack.experiment.util import config_tools
 
 
@@ -176,6 +175,13 @@ class BaseData():
             epoch_group = epoch_run_group['epoch_{}'.format(str(protocol_object.num_epochs_completed+1).zfill(3))]
             epoch_group.attrs['epoch_end_unix_time'] = epoch_end_unix_time
 
+    
+    def end_epoch_run(self, protocol_object):
+        """
+        Empty for the hdf5 data file
+        """
+        pass
+
     def create_note(self, note_text):
         ""
         ""
@@ -261,6 +267,9 @@ class BaseData():
             self.series_count = 0 + 1
         else:
             self.series_count = np.max(series) + 1
+
+    def get_server_subdir(self):
+        return self.experiment_file_name
 
 
 def hdf5ify_parameter(value):

@@ -430,7 +430,6 @@ class UniformWhiteNoise(BaseProgram):
         np.random.seed(seed)
 
         color = self.noise_distribution.get_random_values(1)
-        color = [color, color, color, 1]
         # TODO: is there a way to make this object once in configure then update with width/height in eval_at?
         self.stim_object = shapes.GlSphericalRect(width=self.width,
                                                 height=self.height,
