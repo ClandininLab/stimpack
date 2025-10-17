@@ -70,22 +70,6 @@ class MyTransceiver:
             else:
                 warnings.warn(f"Request '{request}' is not a valid request.")
 
-    def target(self, target_name: str):
-        """
-        Directs all function calls to the remote module with target name.
-        """
-        outer_self = self
-        class remote_module_target:
-            def __getattr__(self, target_attr_name: str) -> Callable[..., None]:
-                def g(*args, **kwargs) -> None:
-                    request = {'target': target_name, 
-                            'name': target_attr_name, 
-                            'args': args, 
-                            'kwargs': kwargs}
-                    outer_self.write_request_list([request])
-                return g
-        return remote_module_target()
-
     def process_queue(self):
         while True:
             try:
@@ -135,6 +119,22 @@ class MySocketClient(MyTransceiver):
             self.write_request_list([request])
 
         return f
+
+    def target(self, target_name: str):
+        """
+        Directs all function calls to the remote module with target name.
+        """
+        outer_self = self
+        class remote_module_target:
+            def __getattr__(self, target_attr_name: str) -> Callable[..., None]:
+                def g(*args, **kwargs) -> None:
+                    request = {'target': target_name, 
+                            'name': target_attr_name, 
+                            'args': args, 
+                            'kwargs': kwargs}
+                    outer_self.write_request_list([request])
+                return g
+        return remote_module_target()
 
     def loop(self):
         try:
@@ -203,6 +203,22 @@ class MySocketServer(MyTransceiver):
             request = {'name': name, 'args': args, 'kwargs': kwargs}
             self.handle_request_list([request])
         return f
+
+    def target(self, target_name: str):
+        """
+        Directs all function calls to the local module with target name.
+        """
+        outer_self = self
+        class remote_module_target:
+            def __getattr__(self, target_attr_name: str) -> Callable[..., None]:
+                def g(*args, **kwargs) -> None:
+                    request = {'target': target_name, 
+                            'name': target_attr_name, 
+                            'args': args, 
+                            'kwargs': kwargs}
+                    outer_self.handle_request_list([request])
+                return g
+        return remote_module_target()
 
     def loop(self):
         while not self.shutdown_flag.is_set():
