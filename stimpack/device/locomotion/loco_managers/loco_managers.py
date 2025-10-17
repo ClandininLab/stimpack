@@ -4,13 +4,16 @@ import threading
 import json
 from math import degrees
 from time import time
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from stimpack.experiment.server import BaseServer
 
 class LocoManager():
     def __init__(self, verbose=False) -> None:
         self.verbose = verbose
         pass
     
-    def set_save_directory(self, save_dir):
+    def set_save_directory(self, save_directory):
         pass
     
     def start(self):
@@ -41,7 +44,7 @@ class LocoSocketManager():
 
         self.sock = None
         self.sock_buffer = "\n"
-        self.data_prev = []
+        self.data_prev:dict[str, float] = {}
 
     def handle_request_list(self, request_list):
         for request in request_list:
@@ -60,7 +63,7 @@ class LocoSocketManager():
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 self.sock.bind((self.host, self.port))
                 print(f'LocoSocketManager: Bound socket to {self.host}:{self.port}')
-                self.sock.setblocking(0)
+                self.sock.setblocking(False)
             except :
                 print("LocoSocketManager: Failed to bind socket.")
                 self.close()
@@ -189,7 +192,7 @@ class LocoSocketManager():
         return line
 
 class LocoClosedLoopManager(LocoManager):
-    def __init__(self, stim_server, host, port, save_directory=None, start_at_init=False, udp=True, verbose=False) -> None:
+    def __init__(self, stim_server: 'BaseServer', host: str, port: int, save_directory: str|None = None, start_at_init: bool = False, udp: bool = True, verbose: bool = False) -> None:
         super().__init__(verbose=verbose)
         self.stim_server = stim_server
         self.socket_manager = LocoSocketManager(host=host, port=port, udp=udp, verbose=verbose)
@@ -197,9 +200,9 @@ class LocoClosedLoopManager(LocoManager):
         self.save_directory = save_directory
         self.log_file = None
 
-        self.data_prev = []
-        self.pos_0 = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0} # meters and degrees
-        self.pos   = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0} # meters and degrees
+        self.data_prev:dict[str, float] = {}
+        self.pos_0:dict[str, float] = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0} # meters and degrees
+        self.pos:dict[str, float] = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0} # meters and degrees
 
         self.loop_attrs = {
             'thread': None,
@@ -255,14 +258,15 @@ class LocoClosedLoopManager(LocoManager):
     def get_data(self, wait_for=None, get_most_recent=True):
         line = self.socket_manager.get_line(wait_for=wait_for, get_most_recent=get_most_recent)
         if line is None:
-            return None
+            empty_dict:dict[str, float] = {}
+            return empty_dict
 
         data = self._parse_line(line)
         self.data_prev = data
 
         return data
     
-    def _parse_line(self, line):
+    def _parse_line(self, line)->dict[str, float]:
         # TODO: Check line and parse line
 
         toks = line.split(", ")
@@ -280,8 +284,20 @@ class LocoClosedLoopManager(LocoManager):
         
         return {'x': x, 'y': y, 'z': z, 'theta': theta, 'phi': phi, 'roll': roll, 'frame_num': frame_num, 'ts': ts}
   
-    def set_pos_0(self, loco_pos = {'x': None, 'y': None, 'z': None, 'theta': None, 'phi': None, 'roll': None}, 
-                  use_data_prev=True, get_most_recent=True, write_log=False):
+    def set_pos_0(
+            self, 
+            loco_pos = {
+                'x': None, 
+                'y': None, 
+                'z': None, 
+                'theta': None, 
+                'phi': None, 
+                'roll': None
+            }, 
+            use_data_prev=True, 
+            get_most_recent=True, 
+            write_log=False
+        ):
         '''
         Maps the specified locomotion device's output to the stimpack.experiment.server's position 0.
         
@@ -299,14 +315,27 @@ class LocoClosedLoopManager(LocoManager):
         
         loco_state_pos_pairs = {k: (loco_pos[k], 0) for k in loco_pos.keys()}
         
-        self.map_loco_to_server_pos(loco_state_pos_pairs=loco_state_pos_pairs, 
-                                    use_data_prev=use_data_prev, 
-                                    get_most_recent=get_most_recent, 
-                                    write_log=write_log)
+        self.map_loco_to_server_pos(
+            loco_state_pos_pairs=loco_state_pos_pairs, 
+            use_data_prev=use_data_prev, 
+            get_most_recent=get_most_recent, 
+            write_log=write_log
+        )
 
-    def map_loco_to_server_pos(self, 
-                loco_state_pos_pairs = {'x': (None, 0), 'y': (None, 0), 'z': (None, 0), 'theta': (None, 0), 'phi': (None, 0), 'roll': (None, 0)}, 
-                use_data_prev=True, get_most_recent=True, write_log=False):
+    def map_loco_to_server_pos(
+            self, 
+            loco_state_pos_pairs = {
+                'x': (None, 0), 
+                'y': (None, 0), 
+                'z': (None, 0), 
+                'theta': (None, 0), 
+                'phi': (None, 0), 
+                'roll': (None, 0)
+            }, 
+            use_data_prev=True, 
+            get_most_recent=True, 
+            write_log=False
+        ):
         '''
         Sets mapping between locomotion device's output and stimpack.experiment.server's position.
         
@@ -360,7 +389,16 @@ class LocoClosedLoopManager(LocoManager):
         if self.log_file is not None:
             self.log_file.write(str(string) + "\n")
 
-    def update_pos(self, update_x=True, update_y=True, update_z=True, update_theta=True, update_phi=False, update_roll=False, return_pos=False):
+    def update_pos(
+            self, 
+            update_x=True, 
+            update_y=True, 
+            update_z=True, 
+            update_theta=True, 
+            update_phi=False, 
+            update_roll=False, 
+            return_pos=False
+        ):
         data = self.get_data()
         
         self.pos['x']     = float(data.get('x',     0)) - self.pos_0['x']
@@ -429,7 +467,15 @@ class LocoClosedLoopManager(LocoManager):
     def loop_stop_closed_loop(self):
         self.loop_attrs['closed_loop'] = False
 
-    def loop_update_closed_loop_vars(self, update_x=False, update_y=False, update_z=False, update_theta=True, update_phi=False, update_roll=False):
+    def loop_update_closed_loop_vars(
+            self, 
+            update_x=False, 
+            update_y=False, 
+            update_z=False, 
+            update_theta=True, 
+            update_phi=False, 
+            update_roll=False
+        ):
         self.loop_attrs['update_x']     = update_x
         self.loop_attrs['update_y']     = update_y
         self.loop_attrs['update_z']     = update_z

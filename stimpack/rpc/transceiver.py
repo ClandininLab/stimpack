@@ -2,6 +2,7 @@ import socket, atexit
 from typing import Callable
 from queue import Queue, Empty
 from threading import Event
+import warnings
 from json.decoder import JSONDecodeError
 
 from stimpack.rpc.util import start_daemon_thread, stream_is_binary, JSONCoderWithTuple
@@ -51,7 +52,7 @@ class MyTransceiver:
 
     def handle_request_list(self, request_list: list) -> None:
         if not isinstance(request_list, list):
-            print("Warning: request_list is not a list.")
+            warnings.warn("Request list is not a list.")
             return
 
         for request in request_list:
@@ -65,9 +66,9 @@ class MyTransceiver:
                     # call function
                     function(*args, **kwargs)
                 else:
-                    print(f"Warning: function '{request['name']}' not defined.")
+                    warnings.warn(f"Function '{request['name']}' not defined.")
             else:
-                print(f"Warning: request '{request}' is not a valid request.")
+                warnings.warn(f"Request '{request}' is not a valid request.")
 
     def target(self, target_name: str):
         """

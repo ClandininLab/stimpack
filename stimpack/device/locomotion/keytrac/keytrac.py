@@ -5,10 +5,11 @@ import signal
 import numpy as np
 import os
 from threading import Thread
+import warnings
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QPixmap, QKeyEvent
 
 from stimpack.util import ROOT_DIR
 
@@ -31,7 +32,7 @@ class KeyTrac(QMainWindow):
         # self.sock.connect((self.host, self.port))
 
         self.key_count = 0
-        self.pos = {"x": 0, "y": 0, "z":0, "theta": 0, "phi": 0, "roll": 0}
+        self.subject_pos:dict[str, float] = {"x": 0, "y": 0, "z":0, "theta": 0, "phi": 0, "roll": 0}
         if self.relative_control:
             self.step = {"forward": 0.01, "right": 0.01, "up":0.01, "theta": np.pi/16, "phi": np.pi/16, "roll": np.pi/16} # in m and radians
         else:
@@ -91,40 +92,40 @@ class KeyTrac(QMainWindow):
             self.step["z"] /= 2
         elif key == Qt.Key.Key_Y:
             key_description = "Y: z+"
-            self.pos["z"] += self.step["z"]
+            self.subject_pos["z"] += self.step["z"]
         elif key == Qt.Key.Key_H:
             key_description = "H: z-"
-            self.pos["z"] -= self.step["z"]
+            self.subject_pos["z"] -= self.step["z"]
         elif key == Qt.Key.Key_U:
             key_description = "U: phi+"
-            self.pos["phi"] += self.step["phi"]
+            self.subject_pos["phi"] += self.step["phi"]
         elif key == Qt.Key.Key_J:
             key_description = "J: phi-"
-            self.pos["phi"] -= self.step["phi"]
+            self.subject_pos["phi"] -= self.step["phi"]
         elif key == Qt.Key.Key_I:
             key_description = "I: roll+"
-            self.pos["roll"] += self.step["roll"]
+            self.subject_pos["roll"] += self.step["roll"]
         elif key == Qt.Key.Key_K:
             key_description = "K: roll-"
-            self.pos["roll"] -= self.step["roll"]
+            self.subject_pos["roll"] -= self.step["roll"]
         elif key == Qt.Key.Key_W:
             key_description = "W: y+"
-            self.pos["y"] += self.step["y"]
+            self.subject_pos["y"] += self.step["y"]
         elif key == Qt.Key.Key_S:
             key_description = "S: y-"
-            self.pos["y"] -= self.step["y"]
+            self.subject_pos["y"] -= self.step["y"]
         elif key == Qt.Key.Key_A:
             key_description = "A: x-"
-            self.pos["x"] -= self.step["x"]
+            self.subject_pos["x"] -= self.step["x"]
         elif key == Qt.Key.Key_D:
             key_description = "D: x+"
-            self.pos["x"] += self.step["x"]
+            self.subject_pos["x"] += self.step["x"]
         elif key == Qt.Key.Key_Q:
             key_description = "Q: theta+"
-            self.pos["theta"] += self.step["theta"]
+            self.subject_pos["theta"] += self.step["theta"]
         elif key == Qt.Key.Key_E:
             key_description = "E: theta-"
-            self.pos["theta"] -= self.step["theta"]
+            self.subject_pos["theta"] -= self.step["theta"]
         else:
             if self.verbose:
                 print(f"KeyTrac: Key {key} not recognized.")
@@ -158,44 +159,44 @@ class KeyTrac(QMainWindow):
             self.step["up"] /= 2
         elif key == Qt.Key.Key_Y:
             key_description = "Y: up"
-            self.pos["z"] += self.step["up"]
+            self.subject_pos["z"] += self.step["up"]
         elif key == Qt.Key.Key_H:
             key_description = "H: down"
-            self.pos["z"] -= self.step["up"]
+            self.subject_pos["z"] -= self.step["up"]
         elif key == Qt.Key.Key_U:
             key_description = "U: turn up"
-            self.pos["phi"] += self.step["phi"]
+            self.subject_pos["phi"] += self.step["phi"]
         elif key == Qt.Key.Key_J:
             key_description = "J: turn down"
-            self.pos["phi"] -= self.step["phi"]
+            self.subject_pos["phi"] -= self.step["phi"]
         elif key == Qt.Key.Key_I:
             key_description = "I: roll right"
-            self.pos["roll"] += self.step["roll"]
+            self.subject_pos["roll"] += self.step["roll"]
         elif key == Qt.Key.Key_K:
             key_description = "K: roll left"
-            self.pos["roll"] -= self.step["roll"]
+            self.subject_pos["roll"] -= self.step["roll"]
         elif key == Qt.Key.Key_W:
             key_description = "W: forward"
-            self.pos["x"] -= self.step["forward"] * np.sin(self.pos["theta"])
-            self.pos["y"] += self.step["forward"] * np.cos(self.pos["theta"])
+            self.subject_pos["x"] -= self.step["forward"] * np.sin(self.subject_pos["theta"])
+            self.subject_pos["y"] += self.step["forward"] * np.cos(self.subject_pos["theta"])
         elif key == Qt.Key.Key_S:
             key_description = "S: backward"
-            self.pos["x"] += self.step["forward"] * np.sin(self.pos["theta"])
-            self.pos["y"] -= self.step["forward"] * np.cos(self.pos["theta"])
+            self.subject_pos["x"] += self.step["forward"] * np.sin(self.subject_pos["theta"])
+            self.subject_pos["y"] -= self.step["forward"] * np.cos(self.subject_pos["theta"])
         elif key == Qt.Key.Key_A:
             key_description = "A: left"
-            self.pos["x"] -= self.step["right"] * np.cos(self.pos["theta"])
-            self.pos["y"] -= self.step["right"] * np.sin(self.pos["theta"])
+            self.subject_pos["x"] -= self.step["right"] * np.cos(self.subject_pos["theta"])
+            self.subject_pos["y"] -= self.step["right"] * np.sin(self.subject_pos["theta"])
         elif key == Qt.Key.Key_D:
             key_description = "D: right"
-            self.pos["x"] += self.step["right"] * np.cos(self.pos["theta"])
-            self.pos["y"] += self.step["right"] * np.sin(self.pos["theta"])
+            self.subject_pos["x"] += self.step["right"] * np.cos(self.subject_pos["theta"])
+            self.subject_pos["y"] += self.step["right"] * np.sin(self.subject_pos["theta"])
         elif key == Qt.Key.Key_Q:
             key_description = "Q: turn left"
-            self.pos["theta"] += self.step["theta"]
+            self.subject_pos["theta"] += self.step["theta"]
         elif key == Qt.Key.Key_E:
             key_description = "E: turn right"
-            self.pos["theta"] -= self.step["theta"]
+            self.subject_pos["theta"] -= self.step["theta"]
         else:
             if self.verbose:
                 print(f"KeyTrac: Key {key} not recognized.")
@@ -210,7 +211,7 @@ class KeyTrac(QMainWindow):
             key_description = "No key pressed"
         timestamp = time.time()
         message = f"KT, {self.key_count}, {key_description}, " + \
-                    f"{self.pos['x']}, {self.pos['y']}, {self.pos['z']}, {self.pos['theta']}, {self.pos['phi']}, {self.pos['roll']}, " + \
+                    f"{self.subject_pos['x']}, {self.subject_pos['y']}, {self.subject_pos['z']}, {self.subject_pos['theta']}, {self.subject_pos['phi']}, {self.subject_pos['roll']}, " + \
                     f"{timestamp}\n"
         return message
 
@@ -244,23 +245,27 @@ class KeyTrac(QMainWindow):
             self.receive_message()
 
     def reset_position(self):
-        self.pos = {"x": 0, "y": 0, "z":0, "theta": 0, "phi": 0, "roll": 0}
+        self.subject_pos = {"x": 0, "y": 0, "z":0, "theta": 0, "phi": 0, "roll": 0}
 
-    def keyPressEvent(self, event):
-        if self.relative_control:
-            key_description = self.handle_key_relative_control(event.key())
-        else:
-            key_description = self.handle_key_absolute_control(event.key())
+    def keyPressEvent(self, a0):
+        if not isinstance(a0, QKeyEvent):
+            warnings.warn("KeyTrac: keyPressEvent received a non-QKeyEvent object.")
+            return
         
+        if self.relative_control:
+            key_description = self.handle_key_relative_control(a0.key())
+        else:
+            key_description = self.handle_key_absolute_control(a0.key())
+
         # Send the key press description and the current position
         self.send_state_message(key_description)
 
         if self.verbose:
             print(f"Pressed {key_description}")
-            print(f"Current position: {self.pos}")
+            print(f"Current position: {self.subject_pos}")
             print(f"Current step size: {self.step}")
 
-    def closeEvent(self, event):
+    def closeEvent(self, a0):
         # Close the socket
         print("Closing socket...")
         self.receiving = False

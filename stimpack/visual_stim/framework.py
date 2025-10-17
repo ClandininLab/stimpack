@@ -1,5 +1,4 @@
 import os
-import platform
 import sys
 
 import time
@@ -536,6 +535,9 @@ class StimDisplay(QOpenGLWidget):
         for k,v in state_update.items():
             if k in ['x', 'y', 'z', 'theta', 'phi', 'roll']:
                 self.subject_position[k] = float(v)
+            else:
+                if self.debug:
+                    print(f'WARNING: Invalid key {k} in subject state update. Valid keys are x, y, z, theta, phi, roll.')
         
     def import_stim_module(self, path):
         # Load other stim modules from paths containing subclasses of stimpack.visual_stim.stimuli.BaseProgram

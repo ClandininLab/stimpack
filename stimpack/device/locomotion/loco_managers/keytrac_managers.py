@@ -20,7 +20,6 @@ class KeytracManager(LocoManager):
         self.keytrac_port = KEYTRAC_PORT
 
         self.started = False
-        self.p = None
 
         if start_at_init:
             self.start()
@@ -29,7 +28,7 @@ class KeytracManager(LocoManager):
         if self.started:
             if self.verbose: print("KeytracManager: Keytrac is already running.")
         else:
-            self.p = subprocess.Popen([self.python_bin, self.kt_py_fn, self.keytrac_host, str(self.keytrac_port), self.relative_control], start_new_session=True)
+            self.p = subprocess.Popen([self.python_bin, self.kt_py_fn, self.keytrac_host, str(self.keytrac_port), str(self.relative_control)], start_new_session=True)
             self.started = True
 
     def close(self, timeout=5):
@@ -43,7 +42,7 @@ class KeytracManager(LocoManager):
                 self.p.kill()
                 self.p.terminate()
 
-            self.p = None
+            del self.p
             self.started = False
         else:
             if self.verbose: print("KeytracManager: Keytrac hasn't been started yet. Cannot be closed.")
@@ -72,7 +71,8 @@ class KeytracClosedLoopManager(LocoClosedLoopManager):
         if toks.pop(0) != "KT":
             print(line)
             print('Bad read')
-            return None
+            empty_dict:dict[str, float] = {}
+            return empty_dict
         
         key_count = int(toks[0])
         key_pressed = toks[1]
@@ -88,7 +88,7 @@ class KeytracClosedLoopManager(LocoClosedLoopManager):
 
     def set_pos_0(self, loco_pos = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}, use_data_prev=True, get_most_recent=True, write_log=False):
         self.socket_manager.send_message("reset_pos")
-        super().set_pos_0(loco_pos = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}, 
+        super().set_pos_0(loco_pos = loco_pos, 
                           use_data_prev=use_data_prev, 
                           get_most_recent=get_most_recent, 
                           write_log=write_log)
