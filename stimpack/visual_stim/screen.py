@@ -16,7 +16,7 @@ class SubScreen:
 
     """
 
-    def __init__(self, pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15), viewport_ll=(-1,-1), viewport_width=2, viewport_height=2):
+    def __init__(self, pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15), viewport_ll=(-1.0,-1.0), viewport_width=2.0, viewport_height=2.0):
         """
         :param pa: meters (x,y,z)
         :param pb: meters (x,y,z)
@@ -146,7 +146,7 @@ class Screen:
         return Screen(**kwargs)
 
 def main():
-    screen = Screen(offset=(0.0, +0.3, 0.0), rotation=0)
+    screen = Screen()
 
 if __name__ == '__main__':
     main()
