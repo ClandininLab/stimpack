@@ -87,8 +87,9 @@ class KeytracClosedLoopManager(LocoClosedLoopManager):
         return {'x': x, 'y': y, 'z':z, 'theta': theta, 'phi': phi, 'roll': roll, 'frame_num': key_count, 'ts': ts}
 
     def set_pos_0(self, loco_pos = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}, use_data_prev=True, get_most_recent=True, write_log=False):
+        # For Keytrac, we can command Keytrac to reset its position, so we manually reset stimpack's position to 0 after sending the reset command to Keytrac
         self.socket_manager.send_message("reset_pos")
-        super().set_pos_0(loco_pos = loco_pos, 
+        super().set_pos_0(loco_pos = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}, 
                           use_data_prev=use_data_prev, 
                           get_most_recent=get_most_recent, 
                           write_log=write_log)
