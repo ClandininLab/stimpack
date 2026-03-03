@@ -53,7 +53,7 @@ class BaseClient():
                 display_index = self.server_options.get('display_index', 0)
 
                 visual_stim_kwargs = {
-                    'screens': [Screen(x_display=x_display, display_index=display_index, fullscreen=False, vsync=True, square_size=(0.1, 0.1),
+                    'screens': [Screen(x_display=x_display, display_index=display_index, fullscreen=False, vsync=True, square_size=(0.1, 0.1), orthographic=False,
                                        pa=(-0.15, 0.15, -0.15), pb=(+0.15, 0.15, -0.15), pc=(-0.15, 0.15, +0.15))] # -45 to 45 deg in both theta and phi
                 }
 
