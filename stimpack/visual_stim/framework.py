@@ -19,7 +19,7 @@ from stimpack.visual_stim import stimuli
 from stimpack.visual_stim import util
 from stimpack.visual_stim.trajectory import make_as_trajectory, return_for_time_t
 
-from stimpack.visual_stim.perspective import GenPerspective, GenOrthographic
+from stimpack.visual_stim.perspective import GenPerspective
 from stimpack.visual_stim.square import SquareProgram
 from stimpack.visual_stim.screen import Screen
 
@@ -283,7 +283,7 @@ class StimDisplay(QOpenGLWidget):
                                         })
 
             # For each subscreen associated with this screen: get the perspective matrix
-            perspectives = [get_perspective(self.subject_position, x.pa, x.pb, x.pc, self.screen.horizontal_flip, self.screen.orthographic) for x in self.screen.subscreens]
+            perspectives = [get_perspective(self.subject_position, x.pa, x.pb, x.pc, self.screen.horizontal_flip) for x in self.screen.subscreens]
 
             for stim in self.stim_list:
                 if self.stim_started:
@@ -562,7 +562,7 @@ class StimDisplay(QOpenGLWidget):
                 self.imported_stim_module_names.remove(barcode)
                 print(f'Unloaded stim module with key {barcode}')
         
-def get_perspective(subject_pos, pa, pb, pc, horizontal_flip, orthographic=False):
+def get_perspective(subject_pos, pa, pb, pc, horizontal_flip):
     """
     :param subject_pos: {'x', 'y', 'z', 'theta', 'phi', 'roll'}
         - x, y, z = position of subject, meters
@@ -572,32 +572,24 @@ def get_perspective(subject_pos, pa, pb, pc, horizontal_flip, orthographic=False
     :params (pa, pb, pc): xyz coordinates of screen corners, meters
     :param horizontal_flip: Boolean, apply horizontal flip to image, for rear-projection displays
     """
-    if orthographic:
-        ortho = GenOrthographic(pa=pa, pb=pb, pc=pc, 
-                                horizontal_flip=horizontal_flip)
-        theta, phi, roll = subject_pos['theta'], subject_pos['phi'], subject_pos.get('roll', 0)
-        matrix = ortho.rotz(radians(theta)).rotx(radians(phi)).roty(radians(roll)).matrix
+    x, y, z = subject_pos['x'], subject_pos['y'], subject_pos['z']
+    perspective = GenPerspective(pa=pa, pb=pb, pc=pc, 
+                                 subject_xyz=(x,y,z), 
+                                 horizontal_flip=horizontal_flip)
 
-    else:
-        x, y, z = subject_pos['x'], subject_pos['y'], subject_pos['z']
-        perspective = GenPerspective(pa=pa, pb=pb, pc=pc, 
-                                    subject_xyz=(x,y,z), 
-                                    horizontal_flip=horizontal_flip)
-        """
-        With (theta, phi, roll) = (0, 0, 0): subject looks down +y axis, +x is to the right, and +z is above the subject's head
-            +theta rotates view ccw around z axis / -theta is cw around z axis (looking down at xy plane)
-            +phi tilts subject view up towards the sky (+z) / -phi tilts down towards the ground (-z)
-            +roll rotates subject view cw around y axis / -roll rotates ccw around y axis
+    """
+    With (theta, phi, roll) = (0, 0, 0): subject looks down +y axis, +x is to the right, and +z is above the subject's head
+        +theta rotates view ccw around z axis / -theta is cw around z axis (looking down at xy plane)
+        +phi tilts subject view up towards the sky (+z) / -phi tilts down towards the ground (-z)
+        +roll rotates subject view cw around y axis / -roll rotates ccw around y axis
 
-        theta = yaw around z
-        phi = pitch around x
-        roll = roll around y
-        """
-        
-        theta, phi, roll = subject_pos['theta'], subject_pos['phi'], subject_pos.get('roll', 0)
-        matrix = perspective.rotz(radians(theta)).rotx(radians(phi)).roty(radians(roll)).matrix
-    
-    return matrix
+    theta = yaw around z
+    phi = pitch around x
+    roll = roll around y
+
+    """
+    theta, phi, roll = subject_pos['theta'], subject_pos['phi'], subject_pos.get('roll', 0)
+    return perspective.rotz(radians(theta)).rotx(radians(phi)).roty(radians(roll)).matrix
 
 
 def make_qt_format(vsync):

@@ -64,7 +64,7 @@ class Screen:
     """
 
     def __init__(self, subscreens=None, x_display=None, display_index=0, fullscreen=None, vsync=None,
-                 square_size=None, square_loc=None, square_on_color=None, square_off_color=None, name=None, horizontal_flip=False, orthographic=False,
+                 square_size=None, square_loc=None, square_on_color=None, square_off_color=None, name=None, horizontal_flip=False, 
                  pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15), use_egl=None):
         """
         :param subscreens: list of SubScreen objects (see above), if none are provided, one full-viewport subscreen will be produced using inputs pa, pb, pc
@@ -117,7 +117,6 @@ class Screen:
         self.square_off_color = square_off_color
         self.name = name
         self.horizontal_flip = horizontal_flip
-        self.orthographic = orthographic
         self.pa = pa
         self.pb = pb
         self.pc = pc
@@ -128,7 +127,7 @@ class Screen:
     def serialize(self):
         # get all variables needed to reconstruct the screen object
         vars = ['x_display', 'display_index', 'fullscreen', 'vsync', 'square_size', 'square_loc', 
-                'square_on_color', 'square_off_color', 'name', 'horizontal_flip', 'orthographic', 'pa', 'pb', 'pc', 'use_egl']
+                'square_on_color', 'square_off_color', 'name', 'horizontal_flip', 'pa', 'pb', 'pc', 'use_egl']
         data = {var: getattr(self, var) for var in vars}
 
         # special handling for tri_list since it could contain numpy values
