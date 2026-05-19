@@ -209,6 +209,9 @@ class StimDisplay(QOpenGLWidget):
         self.ctx.enable(moderngl.BLEND) # enable alpha blending
         self.ctx.enable(moderngl.DEPTH_TEST) # enable depth test
 
+        #jcsimon, 5/18/26, debugging
+        self.ctx.disable(0x8DB9) # prevent sRGB gamma encoding geometry vs glClear mismatch
+
         # Initialize attribute storage for the context
         self.ctx.extra = {}
         self.ctx.extra['n_textures_loaded'] = 0
