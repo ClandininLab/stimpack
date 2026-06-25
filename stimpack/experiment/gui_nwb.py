@@ -7,24 +7,22 @@ Created on Thu Jun 21 10:51:42 2018
 """
 from datetime import datetime
 import os
+import numpy as np
 import sys
 import time
 from enum import Enum
-import warnings
-from typing import Optional, Any
 import yaml
 
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
                              QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QFrame,
-                             QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
                              QScrollArea, QListWidget, QSizePolicy, QAbstractItemView)
 import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, QUrl
 import PyQt6.QtGui as QtGui
 
-from stimpack.experiment.util import config_tools, h5io
-from stimpack.experiment import protocol, data, client
+from stimpack.experiment.util import config_tools
+from stimpack.experiment import protocol, data_nwb, client
 
 from stimpack.util import get_all_subclasses, ICON_PATH, ROOT_DIR
 from stimpack.util import open_message_window
@@ -51,52 +49,48 @@ class ExperimentGUI(QWidget):
 
         # user input to select configuration file and rig name
         # sets self.cfg
-        self.cfg_initialized = False
-        self.cfg: dict[str, Any] = {}
+        self.cfg = None
         init_gui_size = None
         dialog = QDialog()
         dialog.setWindowIcon(QtGui.QIcon(ICON_PATH))
         dialog.setWindowTitle('Stimpack Config Selection')
-        dialog_ui = InitializeRigGUI(parent=dialog)
-        dialog_ui.setupUI(self, dialog, window_size=init_gui_size)
+        dialog.ui = InitializeRigGUI(parent=dialog)
+        dialog.ui.setupUI(self, dialog, window_size=init_gui_size)
+        if init_gui_size is not None:
+            dialog.setFixedSize(*init_gui_size)
         dialog.exec()
 
         # No config file selected, exit
-        if not self.cfg_initialized:
-            print('!!! No configuration selected. Exiting !!!')
+        if self.cfg is None:
+            print('!!! No configuration file selected. Exiting !!!')
             sys.exit()
 
-        print('# # # Loading protocol, data and client modules # # #')
-
         # Load protocol module(s). Multiple user-specific protocol modules can be loaded.
-        self.protocol_modules = config_tools.load_user_module(self.cfg, 
-                                                              module_name='protocol', 
-                                                              allow_multiple=True, 
-                                                              distinct_module_names=True)
-        if len(self.protocol_modules) == 0:  # use the built-in
-            print('!!! Using builtin protocol module. To use user defined module, you must point to that module in your config file !!!')
+        user_protocol_exists = config_tools.user_module_exists(self.cfg, 'protocol', single_item_in_list=True)
+        if isinstance(user_protocol_exists, list) and (True in user_protocol_exists): # at least one user protocol exists
+            protocol_module_full_paths = config_tools.get_full_paths_to_module(self.cfg, 'protocol', single_item_in_list=True)
+            protocol_modules = [config_tools.load_user_module_from_path(fp, f'protocol_{i:02d}') for i,fp in enumerate(protocol_module_full_paths)]
+        else:   # use the built-in
+            print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('protocol'))
             example_protocol_path = os.path.join(ROOT_DIR, 'experiment', 'example_protocol.py')
-            self.protocol_modules = [config_tools.load_user_module_from_path(example_protocol_path, 'protocol_examples')]
-
-        # Get parameter presets directory
-        self.parameter_preset_directory = config_tools.get_parameter_preset_directory(self.cfg)
-
+            protocol_module = config_tools.load_user_module_from_path(example_protocol_path, 'protocol')
+        
         # start a protocol object
         self.protocol_object =  protocol.BaseProtocol(self.cfg)
         self.available_protocols =  [x for x in get_all_subclasses(protocol.BaseProtocol) if x.__name__ not in ['BaseProtocol', 'SharedPixMapProtocol']]
 
         # start a data object
-        user_data_module_list = config_tools.load_user_module(self.cfg, 'data')
-        if user_data_module_list:
-            self.data = user_data_module_list[0].Data(self.cfg)
+        if config_tools.user_module_exists(self.cfg, 'data'):
+            user_data_module = config_tools.load_user_module(self.cfg, 'data')
+            self.data = user_data_module.Data(self.cfg)
         else:  # use the built-in
             print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('data'))
-            self.data = data.BaseData(self.cfg)
+            self.data = data_nwb.NWBData(self.cfg)
 
          # start a client
-        user_client_module_list = config_tools.load_user_module(self.cfg, 'client')
-        if user_client_module_list:
-            self.client = user_client_module_list[0].Client(self.cfg)
+        if config_tools.user_module_exists(self.cfg, 'client'):
+            user_client_module = config_tools.load_user_module(self.cfg, 'client')
+            self.client = user_client_module.Client(self.cfg)
         else:  # use the built-in
             print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('client'))
             self.client = client.BaseClient(self.cfg)
@@ -110,7 +104,7 @@ class ExperimentGUI(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle(f"Stimpack Experiment ({self.cfg['current_cfg_name'].split('.')[0]}: {self.cfg['current_rig_name']})")
+        self.setWindowTitle(f"Stimpack Experiment (NWB, {self.cfg['current_cfg_name'].split('.')[0]}: {self.cfg['current_rig_name']})")
 
         # # # TAB 1: MAIN controls, for selecting / playing stimuli
 
@@ -148,13 +142,9 @@ class ExperimentGUI(QWidget):
         self.protocol_selection_combo_box = QComboBox(self)
         self.protocol_selection_combo_box.addItem("(select a protocol to run)")
         for sub_class in self.available_protocols:
-            if len(self.protocol_modules) > 1:
-                protocol_module_label = os.path.basename(sys.modules[sub_class.__module__].__file__)[:-3]
-                self.protocol_selection_combo_box.addItem(sub_class.__name__ + ' (' + protocol_module_label + ')' )
-            else:
-                self.protocol_selection_combo_box.addItem(sub_class.__name__)
+            self.protocol_selection_combo_box.addItem(sub_class.__name__)
         protocol_label = QLabel('Protocol:')
-        self.protocol_selection_combo_box.activated.connect(self.on_selected_protocol_ID)
+        self.protocol_selection_combo_box.textActivated.connect(self.on_selected_protocol_ID)
         self.protocol_selector_grid.addWidget(protocol_label, 1, 0)
         self.protocol_selector_grid.addWidget(self.protocol_selection_combo_box, 1, 1, 1, 1)
 
@@ -356,9 +346,9 @@ class ExperimentGUI(QWidget):
         self.data_form.addRow(new_label, self.existing_subject_input)
         self.update_existing_subject_input()
 
-        new_label = QLabel('Current Subject info:')
-        new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.data_form.addRow(new_label)
+        new_label = QLabel('Current Subject:')
+        self.current_subject_display = QLabel('')
+        self.data_form.addRow(new_label, self.current_subject_display)
 
         # Only built-ins are "subject_id," "age" and "notes"
         # subject ID:
@@ -396,11 +386,6 @@ class ExperimentGUI(QWidget):
         create_subject_button.clicked.connect(self.on_created_subject)
         self.data_form.addRow(create_subject_button)
 
-        # Update subject button
-        update_subject_button = QPushButton("Update subject", self)
-        update_subject_button.clicked.connect(self.on_update_subject)
-        self.data_form.addRow(update_subject_button)
-
         # # # TAB 4: FILE tab - init, load, close etc. h5 file # # #
 
         # File tab layout
@@ -414,58 +399,13 @@ class ExperimentGUI(QWidget):
         # Initialize new experiment button
         initialize_button = QPushButton("Initialize experiment", self)
         initialize_button.clicked.connect(self.on_pressed_button)
-        new_label = QLabel('Current data file:')
-        self.file_form.addRow(initialize_button, new_label)
+        self.file_form.addRow(initialize_button, QLabel('Current nwb directory:'))
         # Load existing experiment button
         load_button = QPushButton("Load experiment", self)
         load_button.clicked.connect(self.on_pressed_button)
         # Label with current expt file
-        self.current_experiment_label = QLabel('')
-        self.file_form.addRow(load_button, self.current_experiment_label)
-
-        # # # # Data browser: # # # # # # # #
-        self.group_tree = QTreeWidget(self)
-        self.group_tree.setHeaderHidden(True)
-        self.group_tree.itemClicked.connect(self.on_tree_item_clicked)
-        self.file_form.addRow(self.group_tree)
-
-        # Attribute table
-        self.table_attributes = QTableWidget()
-        self.table_attributes.setStyleSheet("")
-        self.table_attributes.setColumnCount(2)
-        self.table_attributes.setObjectName("table_attributes")
-        self.table_attributes.setRowCount(0)
-        item = QTableWidgetItem()
-        font = QtGui.QFont()
-        font.setPointSize(10)
-        item.setFont(font)
-        item.setBackground(QtGui.QColor(121, 121, 121))
-        brush = QtGui.QBrush(QtGui.QColor(91, 91, 91))
-        brush.setStyle(Qt.BrushStyle.SolidPattern)
-        item.setForeground(brush)
-        self.table_attributes.setHorizontalHeaderItem(0, item)
-        item = QTableWidgetItem()
-        item.setBackground(QtGui.QColor(123, 123, 123))
-        brush = QtGui.QBrush(QtGui.QColor(91, 91, 91))
-        brush.setStyle(Qt.BrushStyle.SolidPattern)
-        item.setForeground(brush)
-        self.table_attributes.setHorizontalHeaderItem(1, item)
-        self.table_attributes.horizontalHeader().setCascadingSectionResizes(True)
-        self.table_attributes.horizontalHeader().setDefaultSectionSize(200)
-        self.table_attributes.horizontalHeader().setHighlightSections(False)
-        self.table_attributes.horizontalHeader().setSortIndicatorShown(True)
-        self.table_attributes.horizontalHeader().setStretchLastSection(True)
-        self.table_attributes.verticalHeader().setVisible(False)
-        self.table_attributes.verticalHeader().setHighlightSections(False)
-        self.table_attributes.setMinimumSize(QtCore.QSize(200, 400))
-        item = self.table_attributes.horizontalHeaderItem(0)
-        item.setText("Attribute")
-        item = self.table_attributes.horizontalHeaderItem(1)
-        item.setText("Value")
-
-        self.table_attributes.itemChanged.connect(self.update_attrs_to_file)
-
-        self.file_form.addRow(self.table_attributes)
+        self.current_nwb_directory_label = QLabel('')
+        self.file_form.addRow(load_button, self.current_nwb_directory_label)
 
         # # # Add each tab to the main layout # # #
         self.tabs = QTabWidget()
@@ -482,31 +422,26 @@ class ExperimentGUI(QWidget):
         self.update_window_width()
 
         self.show()
-    
-    def closeEvent(self, event):
-        print("Closing Experiment GUI")
-        self.client.close()
-        super().closeEvent(event)
 
     def on_reordered_ensemble_list(self):
         if not self.ensemble_file_label.text().endswith('(changes unsaved)'):
             self.ensemble_file_label.setText(f'{self.ensemble_file_label.text()} (changes unsaved)')
 
-    def on_selected_protocol_ID(self, protocol_dropdown_idx, preset_name='Default'):
-        if protocol_dropdown_idx == 0:
+    def on_selected_protocol_ID(self, text, preset_name='Default'):
+        if text == "(select a protocol to run)":
             return
         # Clear old params list from grid
         self.reset_layout()
 
         # initialize the selected protocol object
-        self.protocol_object = self.available_protocols[protocol_dropdown_idx-1](self.cfg)
+        prot_names = [x.__name__ for x in self.available_protocols]
+        self.protocol_object = self.available_protocols[prot_names.index(text)](self.cfg)
 
         # update display lists of run & protocol parameters
         self.protocol_object.load_parameter_presets()
         self.protocol_object.select_protocol_preset(name=preset_name)
         self.protocol_object.prepare_run(manager=self.client.manager)
         self.update_parameter_preset_selector()
-        self.parameter_preset_comboBox.setCurrentIndex(self.parameter_preset_comboBox.findText(preset_name))
         self.update_parameters_input()
         self.update_window_width()
         self.show()
@@ -516,9 +451,10 @@ class ExperimentGUI(QWidget):
         self.status_label.setText('Ready')
 
     def on_selected_ensemble_protocol_ID(self, text):
-        protocol_dropdown_idx = self.ensemble_protocol_selection_combo_box.currentIndex() # - 1 # first item is "select a protocol"
-        if protocol_dropdown_idx == 0:
+        selected_protocol_idx = self.ensemble_protocol_selection_combo_box.currentIndex() # - 1 # first item is "select a protocol"
+        if selected_protocol_idx == 0:
             return
+        selected_protocol_name = self.ensemble_protocol_selection_combo_box.currentText()
 
         # Clear old presets list and add new presets to list
         if self.ensemble_parameter_preset_comboBox is not None:
@@ -526,7 +462,8 @@ class ExperimentGUI(QWidget):
         self.ensemble_parameter_preset_comboBox = QComboBox(self)
         self.ensemble_parameter_preset_comboBox.addItem("Default")
 
-        temp_protocol_object = self.available_protocols[protocol_dropdown_idx - 1](self.cfg)
+        prot_names = [x.__name__ for x in self.available_protocols]
+        temp_protocol_object = self.available_protocols[prot_names.index(selected_protocol_name)](self.cfg)
         temp_protocol_object.load_parameter_presets()
 
         for name in temp_protocol_object.parameter_presets.keys():
@@ -537,15 +474,14 @@ class ExperimentGUI(QWidget):
     def on_pressed_button(self):
         sender = self.sender()
         if sender.text() == 'Record':
-            if (self.data.experiment_file_exists() and self.data.current_subject_exists()):
+            if (self.data.nwb_directory_exists() and self.data.current_subject_exists()):
                 self.send_run(save_metadata_flag=True)
             else:
                 msg = QMessageBox()
-                msg.setIcon(QMessageBox.Icon.Warning)
-                msg.setText("You have not initialized a data file and/or subject yet")
+                msg.setText("You have not initialized a nwb directory and/or subject yet")
                 msg.setInformativeText("You can show stimuli by clicking the View button, but no metadata will be saved")
                 msg.setWindowTitle("No experiment file and/or subject")
-                msg.setDetailedText("Initialize or load both an experiment file and a subject if you'd like to save your metadata")
+                msg.setDetailedText("Initialize or load both a nwb directory and a subject if you'd like to save your metadata")
                 msg.setStandardButtons(QMessageBox.StandardButton.Ok)
                 msg.exec()
 
@@ -571,7 +507,7 @@ class ExperimentGUI(QWidget):
 
         elif sender.text() == 'Enter note':
             self.note_text = self.notes_edit.toPlainText()
-            if self.data.experiment_file_exists() is True:
+            if self.data.nwb_directory_exists() is True:
                 self.data.create_note(self.note_text)  # save note to expt file
                 self.notes_edit.clear()  # clear notes box
             else:
@@ -592,33 +528,28 @@ class ExperimentGUI(QWidget):
         elif sender.text() == 'Initialize experiment':
             dialog = QDialog()
 
-            dialog_ui = InitializeExperimentGUI(parent=dialog)
-            dialog_ui.setupUI(self, dialog)
+            dialog.ui = InitializeExperimentGUI(parent=dialog)
+            dialog.ui.setupUI(self, dialog)
             dialog.setFixedSize(300, 200)
             dialog.exec()
 
-            self.data.experiment_file_name = dialog_ui.le_filename.text()
-            self.data.data_directory = dialog_ui.le_data_directory.text()
-            self.data.experimenter = dialog_ui.le_experimenter.text()
-
-            self.update_existing_subject_input()
-            self.populate_groups()
+            # Assigns three attributes to self.data:
+            # .nwb_directory
+            # .parent_directory
+            # .experimenter
 
         elif sender.text() == 'Load experiment':
-            if os.path.isdir(self.data.data_directory):
-                filePath, _ = QFileDialog.getOpenFileName(self, "Open file", self.data.data_directory)
+            if os.path.isdir(self.data.parent_directory):
+                nwb_directory_path = str(QFileDialog.getExistingDirectory(self, "Select Directory", str(self.data.parent_directory)))
             else:
-                filePath, _ = QFileDialog.getOpenFileName(self, "Open file")
-            self.data.experiment_file_name = os.path.split(filePath)[1].split('.')[0]
-            self.data.data_directory = os.path.split(filePath)[0]
+                nwb_directory_path = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
 
-            if self.data.experiment_file_name != '':
-                self.current_experiment_label.setText(self.data.experiment_file_name)
+            if nwb_directory_path is not None:
+                self.data.load_experiment(nwb_directory_path)
+                self.current_nwb_directory_label.setText(nwb_directory_path)
                 # update series count to reflect already-collected series
                 self.data.reload_series_count()
                 self.series_counter_input.setValue(self.data.get_highest_series_count() + 1)
-                self.update_existing_subject_input()
-                self.populate_groups()
 
         # # # Buttons for ensemble tab # # #
 
@@ -671,7 +602,7 @@ class ExperimentGUI(QWidget):
     def save_ensemble_preset(self):
         # Popup to get file path
         # save ensemble to file
-        file_path, _= QFileDialog.getSaveFileName(self, "Save ensemble preset", self.parameter_preset_directory, "Stimpack ensemble files (*.spens)")
+        file_path, _= QFileDialog.getSaveFileName(self, "Save ensemble preset", self.data.data_directory, "Stimpack ensemble files (*.spens)")
         if not file_path.endswith('.spens'):
             file_path += '.spens'
 
@@ -684,7 +615,7 @@ class ExperimentGUI(QWidget):
     def load_ensemble_preset(self):
         # Popup to get file path
         # load ensemble from file 
-        fname, _ = QFileDialog.getOpenFileName(self, "Open ensemble preset", self.parameter_preset_directory, "Stimpack ensemble files (*.spens)")
+        fname, _ = QFileDialog.getOpenFileName(self, "Open ensemble preset", self.data.data_directory, "Stimpack ensemble files (*.spens)")
         
         if os.path.isfile(fname):
             with open(fname, 'r') as ymlfile:
@@ -742,19 +673,11 @@ class ExperimentGUI(QWidget):
 
         print(f'Running ensemble item {self.ensemble_list.get_current_ensemble_idx()+1} / {len(self.ensemble_list)}')
 
-        current_protocol_name, current_preset = self.ensemble_list.get_current_protocol_preset()
+        current_protocol, current_preset = self.ensemble_list.get_current_protocol_preset()
 
-        matching_protocols = [x for x in self.available_protocols if current_protocol_name == x.__name__]
-        if len(matching_protocols) == 0:
-            warnings.warn(f'Ensemble: Protocol {current_protocol_name} not found in available protocols.')
-            return
-        elif len(matching_protocols) > 1:
-            warnings.warn(f'Ensemble: Multiple protocols with name {current_protocol_name} found in available protocols. Ensemble does not support this.')
-            return
-        protocol_idx = self.protocol_selection_combo_box.findText(current_protocol_name, Qt.MatchFlag.MatchStartsWith)
-        self.protocol_selection_combo_box.setCurrentIndex(protocol_idx)
+        self.on_selected_protocol_ID(current_protocol, preset_name=current_preset)
+        self.protocol_selection_combo_box.setCurrentIndex(self.protocol_selection_combo_box.findText(current_protocol))
         self.parameter_preset_comboBox.setCurrentIndex(self.parameter_preset_comboBox.findText(current_preset))
-        self.on_selected_protocol_ID(protocol_idx, preset_name=current_preset)
         self.ensemble_list.update_UI(self.ensemble_running)
 
         self.send_run(save_metadata_flag=save_metadata_flag)
@@ -771,25 +694,9 @@ class ExperimentGUI(QWidget):
         for key in self.subject_metadata_inputs:
             subject_metadata[key] = self.subject_metadata_inputs[key].currentText()
 
-        self.data.create_subject(subject_metadata)  # creates new subject and selects it as the current subject
+        self.data.define_subject(subject_metadata)  # creates new subject and selects it as the current subject
         self.update_existing_subject_input()
-
-    def on_update_subject(self):
-        # Populate subject metadata from subject data fields
-        subject_metadata = {}
-        # Built-ins
-        # This takes the value entered in the 'SubjectID' text field
-        subject_metadata['subject_id'] = self.subject_id_input.text()
-        subject_metadata['age'] = self.subject_age_input.value()
-        subject_metadata['notes'] = self.subject_notes_input.toPlainText()
-
-        # user-defined:
-        for key in self.subject_metadata_inputs:
-            subject_metadata[key] = self.subject_metadata_inputs[key].currentText()
-
-        self.data.update_subject(subject_metadata)
-        self.update_existing_subject_input()
-
+        self.current_subject_display.setText(subject_metadata['subject_id'])
 
     def reset_layout(self):
         for ii in range(self.parameters_grid.rowCount()):
@@ -893,22 +800,23 @@ class ExperimentGUI(QWidget):
 
     def update_existing_subject_input(self):
         self.existing_subject_input.clear()
-        for subject_data in self.data.get_existing_subject_data():
-            self.existing_subject_input.addItem(subject_data['subject_id'])
-        index = self.existing_subject_input.findText(self.data.current_subject)
+        existing_subjects = [x['subject_id'] for x in self.data.get_existing_subject_data()]
+        [self.existing_subject_input.addItem(x) for x in set(existing_subjects)]
+
+        index = self.existing_subject_input.findText(self.data.current_subject_id)
         if index >= 0:
             self.existing_subject_input.setCurrentIndex(index)
 
     def populate_subject_metadata_fields(self, subject_data_dict):
         self.subject_id_input.setText(subject_data_dict['subject_id'])
-        self.subject_age_input.setValue(subject_data_dict['age'])
+        self.subject_age_input.setValue(int(subject_data_dict['age']))
         self.subject_notes_input.setText(subject_data_dict['notes'])
         for key in self.subject_metadata_inputs:
             self.subject_metadata_inputs[key].setCurrentText(subject_data_dict[key])
 
     def on_entered_series_count(self):
         self.data.update_series_count(self.series_counter_input.value())
-        if self.data.experiment_file_exists() is True:
+        if self.data.nwb_directory_exists() is True:
             if self.data.get_series_count() <= self.data.get_highest_series_count():
                 self.series_counter_input.setStyleSheet("background-color: rgb(255, 0, 0);")
             else:
@@ -934,7 +842,9 @@ class ExperimentGUI(QWidget):
         if self.mid_parameter_edit:
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
 
-        # start the epoch run thread:
+        if save_metadata_flag:
+            self.data.create_data_file()
+
         self.run_series_thread = runSeriesThread(self.protocol_object,
                                                  self.data,
                                                  self.client,
@@ -971,7 +881,6 @@ class ExperimentGUI(QWidget):
         self.ensemble_record_button.setEnabled(False)
         if self.ensemble_running:
             self.ensemble_stop_button.setEnabled(True)
-            self.protocol_tab.setEnabled(False)
         else:
             self.ensemble_stop_button.setEnabled(False)
 
@@ -991,7 +900,7 @@ class ExperimentGUI(QWidget):
             # Advance the series_count:
             self.data.advance_series_count()
             self.series_counter_input.setValue(self.data.get_series_count())
-            self.populate_groups()
+            # self.populate_groups()
         
         if self.ensemble_running:
             self.run_ensemble_item(save_metadata_flag=save_metadata_flag)
@@ -1008,8 +917,6 @@ class ExperimentGUI(QWidget):
             self.ensemble_view_button.setEnabled(True)
             self.ensemble_record_button.setEnabled(True)
             self.ensemble_stop_button.setEnabled(False)
-
-            self.protocol_tab.setEnabled(True)
 
             # Prepare for next run
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
@@ -1140,87 +1047,6 @@ class ExperimentGUI(QWidget):
         self.elapsed_time_label.setText(f'{elapsed_time} / {self.protocol_object.est_run_time:.0f}')
         self.epoch_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_epochs", "?")}')
 
-    def populate_groups(self):
-        file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_dset_dict = h5io.get_hierarchy(file_path, additional_exclusions='rois')
-        self._populateTree(self.group_tree, group_dset_dict)
-
-    def _populateTree(self, widget, dict):
-        widget.clear()
-        self.fill_item(widget.invisibleRootItem(), dict)
-
-    def fill_item(self, item, value):
-        item.setExpanded(True)
-        if type(value) is dict:
-            for key, val in sorted(value.items()):
-                child = QTreeWidgetItem()
-                child.setText(0, key)
-                item.addChild(child)
-                self.fill_item(child, val)
-        elif type(value) is list:
-            for val in value:
-                child = QTreeWidgetItem()
-                item.addChild(child)
-                if type(val) is dict:
-                    child.setText(0, '[dict]')
-                    self.fill_item(child, val)
-                elif type(val) is list:
-                    child.setText(0, '[list]')
-                    self.fill_item(child, val)
-                else:
-                    child.setText(0, val)
-                child.setExpanded(True)
-        else:
-            child = QTreeWidgetItem()
-            child.setText(0, value)
-            item.addChild(child)
-
-    def on_tree_item_clicked(self, item, column):
-        file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
-
-        if group_path != '':
-            attr_dict = h5io.get_attributes_from_group(file_path, group_path)
-            if 'series' in group_path.split('/')[-1]:
-                editable_values = False  # don't let user edit epoch parameters
-            else:
-                editable_values = True
-            self.populate_attrs(attr_dict = attr_dict, editable_values = editable_values)
-
-    def populate_attrs(self, attr_dict=None, editable_values=False):
-        """ Populate attribute for currently selected group """
-        self.table_attributes.blockSignals(True)  # block udpate signals for auto-filled forms
-        self.table_attributes.setRowCount(0)
-        self.table_attributes.setColumnCount(2)
-        self.table_attributes.setSortingEnabled(False)
-
-        if attr_dict:
-            for num, key in enumerate(attr_dict):
-                self.table_attributes.insertRow(self.table_attributes.rowCount())
-                key_item = QTableWidgetItem(key)
-                key_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                self.table_attributes.setItem(num, 0, key_item)
-
-                val_item = QTableWidgetItem(str(attr_dict[key]))
-                if editable_values:
-                    val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEditable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                else:
-                    val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                self.table_attributes.setItem(num, 1, val_item)
-
-        self.table_attributes.blockSignals(False)
-
-    def update_attrs_to_file(self, item):
-        file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
-
-        attr_key = self.table_attributes.item(item.row(), 0).text()
-        attr_val = item.text()
-
-        # update attr in file
-        h5io.change_attribute(file_path, group_path, attr_key, attr_val)
-        print('Changed attr {} to = {}'.format(attr_key, attr_val))
-
     def update_window_width(self):
         self.resize(100, self.height())
         window_width = self.parameters_box.sizeHint().width() + self.parameters_scroll_area.verticalScrollBar().sizeHint().width() + 40
@@ -1228,29 +1054,24 @@ class ExperimentGUI(QWidget):
 
 # # # Other accessory classes. For data file initialization and threading # # # #
 class InitializeExperimentGUI(QWidget):
-    """
-    GUI to initialize experiment file to store data
-    """
     def setupUI(self, experiment_gui_object, parent=None):
         super(InitializeExperimentGUI, self).__init__(parent)
         self.parent = parent
         self.experiment_gui_object = experiment_gui_object
         layout = QFormLayout()
 
-        label_filename = QLabel('File Name:')
         init_now = datetime.now()
         defaultName = init_now.isoformat()[:-16]
-        self.le_filename = QLineEdit(defaultName)
-        layout.addRow(label_filename, self.le_filename)
+        self.le_nwb_directory = QLineEdit(defaultName)
+        layout.addRow(QLabel('YYYY-MM-DD:'), self.le_nwb_directory)
 
-        select_directory_button = QPushButton("Select Directory...", self)
+        select_directory_button = QPushButton("Parent Directory...", self)
         select_directory_button.clicked.connect(self.on_pressed_directory_button)
-        self.le_data_directory = QLineEdit(config_tools.get_data_directory(self.experiment_gui_object.cfg))
-        layout.addRow(select_directory_button, self.le_data_directory)
+        self.le_parent_directory = QLineEdit(config_tools.get_data_directory(self.experiment_gui_object.cfg))
+        layout.addRow(select_directory_button, self.le_parent_directory)
 
-        label_experimenter = QLabel('Experimenter:')
         self.le_experimenter = QLineEdit(config_tools.get_experimenter(self.experiment_gui_object.cfg))
-        layout.addRow(label_experimenter, self.le_experimenter)
+        layout.addRow(QLabel('Experimenter:'), self.le_experimenter)
 
         self.label_status = QLabel('Enter experiment info')
         layout.addRow(self.label_status)
@@ -1262,29 +1083,29 @@ class InitializeExperimentGUI(QWidget):
         self.setLayout(layout)
 
     def on_pressed_enter_button(self):
-        self.experiment_gui_object.data.experiment_file_name = self.le_filename.text()
-        self.experiment_gui_object.data.data_directory = self.le_data_directory.text()
+        self.experiment_gui_object.data.nwb_directory = self.le_nwb_directory.text()
+        self.experiment_gui_object.data.parent_directory = self.le_parent_directory.text()
         self.experiment_gui_object.data.experimenter = self.le_experimenter.text()
 
-        if os.path.isfile(os.path.join(self.experiment_gui_object.data.data_directory, self.experiment_gui_object.data.experiment_file_name) + '.hdf5'):
-           self.label_status.setText('Experiment file already exists!')
-        elif not os.path.isdir(self.experiment_gui_object.data.data_directory):
-            self.label_status.setText('Data directory does not exist!')
+        if os.path.isdir(os.path.join(self.experiment_gui_object.data.parent_directory, self.experiment_gui_object.data.nwb_directory)):
+           self.label_status.setText('NWB directory already exists!')
+        elif not os.path.isdir(self.experiment_gui_object.data.parent_directory):
+            self.label_status.setText('Parent directory does not exist!')
         else:
             self.label_status.setText('Data entered')
-            self.experiment_gui_object.current_experiment_label.setText(self.experiment_gui_object.data.experiment_file_name)
-            self.experiment_gui_object.data.initialize_experiment_file()
+            self.experiment_gui_object.current_nwb_directory_label.setText(self.experiment_gui_object.data.nwb_directory)
+            self.experiment_gui_object.data.initialize_experiment()
             self.experiment_gui_object.series_counter_input.setValue(1)
             self.close()
             self.parent.close()
 
     def on_pressed_directory_button(self):
-        if os.path.isdir(self.experiment_gui_object.data.data_directory):
-            filepath = str(QFileDialog.getExistingDirectory(self, "Select Directory", self.experiment_gui_object.data.data_directory))
+        if os.path.isdir(self.experiment_gui_object.data.parent_directory):
+            filepath = str(QFileDialog.getExistingDirectory(self, "Select parent directory", self.experiment_gui_object.data.parent_directory))
         else:
-            filepath = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
+            filepath = str(QFileDialog.getExistingDirectory(self, "Select parent directory"))
         
-        self.le_data_directory.setText(filepath)
+        self.le_parent_directory.setText(filepath)
 
 class InitializeRigGUI(QWidget):
     def setupUI(self, experiment_gui_object, parent=None, window_size=None):
@@ -1293,7 +1114,7 @@ class InitializeRigGUI(QWidget):
         self.experiment_gui_object = experiment_gui_object
 
         self.cfg_name = None
-        self.cfg : dict[str, Any] = {}
+        self.cfg = None
         self.available_rig_configs = []
     
         # self.layout = QFormLayout()
@@ -1387,11 +1208,9 @@ class InitializeRigGUI(QWidget):
 
         # Pass cfg up to experiment GUI object
         self.experiment_gui_object.cfg = self.cfg
-        self.experiment_gui_object.cfg_initialized = True
 
         self.close()
-        if self.parent is not None:
-            self.parent.close()
+        self.parent.close()
 
 
 class runSeriesThread(QThread):
@@ -1409,7 +1228,6 @@ class runSeriesThread(QThread):
 
     def _send_run(self):
         self.client.start_run(self.protocol_object, self.data, save_metadata_flag=self.save_metadata_flag)
-
     def run(self):
         self._send_run()
 
@@ -1479,7 +1297,7 @@ class EnsembleList(QListWidget):
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName('Stimpack Experiment')
+    app.setApplicationName('Stimpack Experiment (NWB)')
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))
     ex = ExperimentGUI()
     sys.exit(app.exec())

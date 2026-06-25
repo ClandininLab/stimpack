@@ -430,7 +430,6 @@ class UniformWhiteNoise(BaseProgram):
         np.random.seed(seed)
 
         color = self.noise_distribution.get_random_values(1)
-        color = [color, color, color, 1]
         # TODO: is there a way to make this object once in configure then update with width/height in eval_at?
         self.stim_object = shapes.GlSphericalRect(width=self.width,
                                                 height=self.height,
@@ -965,7 +964,7 @@ class RandomGrid(TexturedCylinder):
         # actual vert. extent is based on floor-nearest integer number of patch heights
         assert cylinder_vertical_extent < 180
         self.n_patches_height = int(np.floor(cylinder_vertical_extent/patch_height))
-        patch_height_m = cylinder_radius * np.tan(np.radians(patch_height))  # in meters
+        patch_height_m = 2 * cylinder_radius * np.tan(np.radians(patch_height/2))  # in meters
         cylinder_height = self.n_patches_height * patch_height_m
 
         super().configure(color=color, angle=angle, cylinder_radius=cylinder_radius, cylinder_height=cylinder_height, theta=theta, phi=phi)
