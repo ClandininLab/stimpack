@@ -5,6 +5,7 @@ DAQ (data acquisition) device classes
 
 @author: minseung
 """
+import warnings, traceback
 from typing import Optional
 
 from stimpack.rpc.multicall import MyMultiCall
@@ -21,8 +22,11 @@ class DAQ():
     def handle_request_list(self, request_list):
         for request in request_list:
             if request['name'] in dir(self):
-                # If the request is a method of this class, execute it.
-                getattr(self, request['name'])(*request['args'], **request['kwargs'])
+                # If the request is a method of this class, execute it, isolating handler errors.
+                try:
+                    getattr(self, request['name'])(*request.get('args', []), **request.get('kwargs', {}))
+                except Exception:
+                    warnings.warn(f"{self.__class__.__name__}: error handling '{request['name']}':\n{traceback.format_exc()}")
             else:
                 if self.verbose:  print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
     

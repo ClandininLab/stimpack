@@ -2,6 +2,7 @@ import os
 import socket, select
 import threading
 import json
+import warnings, traceback
 from math import degrees
 from time import time
 from typing import TYPE_CHECKING
@@ -28,8 +29,11 @@ class LocoManager():
     def handle_request_list(self, request_list):
         for request in request_list:
             if request['name'] in dir(self):
-                # If the request is a method of this class, execute it.
-                getattr(self, request['name'])(*request['args'], **request['kwargs'])
+                # If the request is a method of this class, execute it, isolating handler errors.
+                try:
+                    getattr(self, request['name'])(*request.get('args', []), **request.get('kwargs', {}))
+                except Exception:
+                    warnings.warn(f"{self.__class__.__name__}: error handling '{request['name']}':\n{traceback.format_exc()}")
             else:
                 if self.verbose: print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
     
@@ -49,8 +53,11 @@ class LocoSocketManager():
     def handle_request_list(self, request_list):
         for request in request_list:
             if request['name'] in dir(self):
-                # If the request is a method of this class, execute it.
-                getattr(self, request['name'])(*request['args'], **request['kwargs'])
+                # If the request is a method of this class, execute it, isolating handler errors.
+                try:
+                    getattr(self, request['name'])(*request.get('args', []), **request.get('kwargs', {}))
+                except Exception:
+                    warnings.warn(f"{self.__class__.__name__}: error handling '{request['name']}':\n{traceback.format_exc()}")
             else:
                 if self.verbose: print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
     
@@ -110,22 +117,26 @@ class LocoSocketManager():
         '''
         if self.sock is None:
             return
-        
-        ready = []
-        while not ready:
-            if self.sock == -1:
-                print('\nLocoSocketManager: Socket disconnected.')
-                return None
-            if wait_for is None:
-                ready = select.select([self.sock], [], [])[0]
-            else:
-                ready = select.select([self.sock], [], [], wait_for)[0]
 
-        # Check again in case we were stuck at select.select while socket was closed
+        # Honor the timeout: block indefinitely only when wait_for is None. For a finite wait_for
+        # (including 0), select returns an empty list on timeout and we must return None instead of
+        # re-looping forever (the previous `while not ready` defeated the timeout and busy-spun).
+        if wait_for is None:
+            ready = select.select([self.sock], [], [])[0]
+        else:
+            ready = select.select([self.sock], [], [], wait_for)[0]
+
+        if not ready:
+            return None
+
+        # Check again in case the socket was closed by another thread while we were in select().
         if self.sock is None:
             return None
-        
-        data, addr = self.sock.recvfrom(4096)
+
+        try:
+            data, addr = self.sock.recvfrom(4096)
+        except OSError:
+            return None
         self.client_addr = addr
         return data
 
@@ -155,7 +166,7 @@ class LocoSocketManager():
             ## Find the last frame of data
 
             endline = self.sock_buffer.rfind("\n")
-            assert endline != 1, "LocoSocketManager: There must always be at least one linebreak in the buffer."
+            assert endline != -1, "LocoSocketManager: There must always be at least one linebreak in the buffer."
             
             # Find the end of the second to last frame. (\n is always left behind)
             prev_endline = self.sock_buffer[:endline-1].rfind("\n")
@@ -224,8 +235,11 @@ class LocoClosedLoopManager(LocoManager):
     def handle_request_list(self, request_list):
         for request in request_list:
             if request['name'] in dir(self):
-                # If the request is a method of this class, execute it.
-                getattr(self, request['name'])(*request['args'], **request['kwargs'])
+                # If the request is a method of this class, execute it, isolating handler errors.
+                try:
+                    getattr(self, request['name'])(*request.get('args', []), **request.get('kwargs', {}))
+                except Exception:
+                    warnings.warn(f"{self.__class__.__name__}: error handling '{request['name']}':\n{traceback.format_exc()}")
             else:
                 if self.verbose: print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
         
@@ -428,29 +442,36 @@ class LocoClosedLoopManager(LocoManager):
 
     def loop_start(self):
         def loop_helper():
-            self.loop_attrs['looping'] = True
             while self.loop_attrs['looping']:
-                if self.loop_attrs['closed_loop']:
-                    self.update_pos(update_x     = self.loop_attrs['update_x'], 
-                                    update_y     = self.loop_attrs['update_y'],
-                                    update_z     = self.loop_attrs['update_z'],
-                                    update_theta = self.loop_attrs['update_theta'], 
-                                    update_phi   = self.loop_attrs['update_phi'],
-                                    update_roll  = self.loop_attrs['update_roll'])
-                else:
-                    self.update_pos(update_x     = False, 
-                                    update_y     = False,
-                                    update_z     = False,
-                                    update_theta = False,
-                                    update_phi   = False,
-                                    update_roll  = False)
-                    
-                if self.loop_custom_fxn is not None:
-                    self.loop_custom_fxn(self.pos)
+                # Isolate per-iteration errors so a single malformed datagram does not permanently
+                # and silently stop closed-loop updates for the rest of the run.
+                try:
+                    if self.loop_attrs['closed_loop']:
+                        self.update_pos(update_x     = self.loop_attrs['update_x'],
+                                        update_y     = self.loop_attrs['update_y'],
+                                        update_z     = self.loop_attrs['update_z'],
+                                        update_theta = self.loop_attrs['update_theta'],
+                                        update_phi   = self.loop_attrs['update_phi'],
+                                        update_roll  = self.loop_attrs['update_roll'])
+                    else:
+                        self.update_pos(update_x     = False,
+                                        update_y     = False,
+                                        update_z     = False,
+                                        update_theta = False,
+                                        update_phi   = False,
+                                        update_roll  = False)
+
+                    if self.loop_custom_fxn is not None:
+                        self.loop_custom_fxn(self.pos)
+                except Exception:
+                    warnings.warn(f"{self.__class__.__name__}: error in closed-loop iteration:\n{traceback.format_exc()}")
 
         if self.loop_attrs['looping']:
             if self.verbose: print(f"{self.__class__.__name__}: Already looping")
         else:
+            # Set the flag before spawning so a second loop_start() call can't race past the guard
+            # and start a second reader thread on the same socket.
+            self.loop_attrs['looping'] = True
             self.loop_attrs['thread'] = threading.Thread(target=loop_helper, daemon=True)
             self.loop_attrs['thread'].start()
 
