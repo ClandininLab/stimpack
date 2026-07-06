@@ -104,11 +104,18 @@ class SquareProgram:
             self.ctx.viewport = self.viewport
 
             # When using EGL, the context state needs to be reset. Temporary fix.
+            # Release the previous frame's objects before recreating them; otherwise this per-frame
+            # recreation leaks a GL program + buffer + VAO every frame (moderngl's default gc_mode
+            # does not free them). NOTE: the recreation itself (incl. a shader recompile per frame)
+            # is a heavy cost that should be replaced with a proper EGL state reset — verify on-rig.
             if self.screen.use_egl:
+                self.vao.release()
+                self.vbo.release()
+                self.prog.release()
                 self.prog = self.create_prog()
                 self.vbo = self.ctx.buffer(self.pts)
-                self.vao = self.ctx.vertex_array(program = self.prog, 
-                                        content = [(self.vbo, '2f', 'pos')], 
+                self.vao = self.ctx.vertex_array(program = self.prog,
+                                        content = [(self.vbo, '2f', 'pos')],
                                         mode = moderngl.TRIANGLE_STRIP)
 
             # write color

@@ -38,8 +38,10 @@ def unload_module(module_name):
         warnings.warn(f'Module {module_name} not found in sys.modules.')
     return
 
-def generate_lowercase_barcode(length=5, existing_barcodes=[]):
+def generate_lowercase_barcode(length=5, existing_barcodes=None):
     """Generates a random barcode that is not in existing_barcodes"""
+    if existing_barcodes is None:
+        existing_barcodes = []
     barcode = ''.join(random.choice(string.ascii_lowercase) for i in range(length))
     while barcode in existing_barcodes:
         barcode = ''.join(random.choice(string.ascii_lowercase) for i in range(length))

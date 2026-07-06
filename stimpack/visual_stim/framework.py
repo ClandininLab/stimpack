@@ -42,7 +42,7 @@ class StimDisplay(QOpenGLWidget):
         super().__init__()
         self.setFormat(make_qt_format(vsync=screen.vsync))
 
-        self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}' + " (EGL)" if screen.use_egl else "")
+        self.setWindowTitle(f'Stimpack visual_stim screen: {screen.name}' + (" (EGL)" if screen.use_egl else ""))
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
 
         self.debug = debug
@@ -209,8 +209,13 @@ class StimDisplay(QOpenGLWidget):
         self.ctx.enable(moderngl.BLEND) # enable alpha blending
         self.ctx.enable(moderngl.DEPTH_TEST) # enable depth test
 
-        #jcsimon, 5/18/26, debugging
-        self.ctx.disable(0x8DB9) # prevent sRGB gamma encoding geometry vs glClear mismatch
+        # Disable GL_FRAMEBUFFER_SRGB to prevent an sRGB gamma-encoding mismatch between rendered
+        # geometry and glClear.
+        # NOTE (verify on-rig): with some moderngl versions a raw GL enum passed to ctx.disable()
+        # may not take effect; ctx.disable_direct(GL_FRAMEBUFFER_SRGB) targets raw GL state. Confirm
+        # the gamma output is correct on your hardware before relying on this.
+        GL_FRAMEBUFFER_SRGB = 0x8DB9
+        self.ctx.disable(GL_FRAMEBUFFER_SRGB)
 
         # Initialize attribute storage for the context
         self.ctx.extra = {}
@@ -351,8 +356,11 @@ class StimDisplay(QOpenGLWidget):
         stim_classes = get_all_subclasses(stimuli.BaseProgram)
         stim_class_candidates = [x for x in stim_classes if x.__name__ == name]
         num_candidates = len(stim_class_candidates)
-        
-        assert num_candidates == 1, 'ERROR: {} stimulus candidates found with name {}. There should be exactly one'.format(num_candidates, name)
+
+        # Use an explicit exception rather than assert (asserts are stripped under `python -O`,
+        # which would let this silently pick the wrong stimulus class).
+        if num_candidates != 1:
+            raise ValueError('ERROR: {} stimulus candidates found with name {}. There should be exactly one'.format(num_candidates, name))
 
         chosen_stim_class = stim_class_candidates[0]
         stim = chosen_stim_class(screen=self.screen)
@@ -398,6 +406,11 @@ class StimDisplay(QOpenGLWidget):
             stim.vbo_color.release()
             if stim.use_texture:
                 stim.vbo_texture.release()
+                # Release the GL texture too; clear_samplers() only unbinds it, and moderngl's default
+                # gc_mode does not free the object on GC, so otherwise it leaks GPU memory every epoch.
+                if getattr(stim, 'texture', None) is not None:
+                    stim.texture.release()
+                    stim.texture = None
             stim.vao.release()
             stim.prog.release()
             stim.destroy()
@@ -553,8 +566,12 @@ class StimDisplay(QOpenGLWidget):
         '''
         barcodes: list of keys for the stim modules to be unloaded. If None, all loaded stim modules will be unloaded.
         '''
+        # Copy the list: the loop below removes from self.imported_stim_module_names, so iterating the
+        # same object (the None case aliases it, and a caller may pass it in) would skip every other item.
         if barcodes is None:
-            barcodes = self.imported_stim_module_names
+            barcodes = list(self.imported_stim_module_names)
+        else:
+            barcodes = list(barcodes)
 
         for barcode in barcodes:
             if barcode not in self.imported_stim_module_names:

@@ -1,4 +1,4 @@
-import platform, os
+import platform, os, warnings, traceback
 from time import time
 
 import stimpack.visual_stim.framework
@@ -57,7 +57,7 @@ class VisualStimServer(MySocketServer):
     '''
     time_stamp_commands = ['start_stim', 'pause_stim', 'update_stim']
 
-    def __init__(self, screens=[], host=None, port=None, auto_stop=None, other_stim_module_paths=None, **kwargs):
+    def __init__(self, screens=None, host=None, port=None, auto_stop=None, other_stim_module_paths=None, **kwargs):
         # call super constructor
         super().__init__(host=host, port=port, threaded=False, auto_stop=auto_stop)
 
@@ -123,9 +123,12 @@ class VisualStimServer(MySocketServer):
             args = request.get('args', [])
             kwargs = request.get('kwargs', {})
 
-            # call function
+            # call function, isolating handler errors so one bad root request cannot kill the server loop
             # print(f"Server root node executing: {str(request)}")
-            function(*args, **kwargs)
+            try:
+                function(*args, **kwargs)
+            except Exception:
+                warnings.warn(f"Error handling root request '{request['name']}':\n{traceback.format_exc()}")
 
         # pre-process the request list as necessary
         for request in screen_request_list:
