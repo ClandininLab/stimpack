@@ -19,6 +19,8 @@ class MyMultiCall:
 
     def __call__(self):
         self.transceiver.write_request_list(self.request_list)
+        # Clear after flushing so re-invoking the same MyMultiCall does not re-send every request.
+        self.request_list = []
 
     def __str__(self) -> str:
         return str(self.request_list)

@@ -1,4 +1,4 @@
-import socket, atexit
+import socket, atexit, traceback
 from typing import Callable
 from queue import Queue, Empty
 from threading import Event
@@ -16,6 +16,9 @@ class MyTransceiver:
         self.functions = {}
         self.outfile = None
         self.queue = Queue()
+
+        # set when an outbound write fails because the peer disconnected, so callers can detect a dead link
+        self.connection_broken = False
 
         # create shutdown flag
         self.shutdown_flag = Event()
@@ -46,9 +49,12 @@ class MyTransceiver:
         try:
             self.outfile.write(line)
             self.outfile.flush()
-        except BrokenPipeError:
-            # will happen if the other side disconnected
-            pass
+        except (BrokenPipeError, ConnectionResetError, OSError) as e:
+            # The other side disconnected. Mark the link as broken and warn loudly instead of
+            # silently turning every subsequent request into a no-op. Note ConnectionResetError
+            # is a sibling of BrokenPipeError under OSError, not a subclass, so it must be listed.
+            self.connection_broken = True
+            warnings.warn(f"RPC write failed ({type(e).__name__}: {e}); connection appears broken.")
 
     def handle_request_list(self, request_list: list) -> None:
         if not isinstance(request_list, list):
@@ -63,8 +69,13 @@ class MyTransceiver:
                     args = request.get('args', [])
                     kwargs = request.get('kwargs', {})
 
-                    # call function
-                    function(*args, **kwargs)
+                    # Call the function, isolating handler errors. Without this, an exception here
+                    # propagates out of the screen subprocess's paintGL (aborting it via qFatal) or
+                    # out of the server's inline loop() (silently killing the request loop thread).
+                    try:
+                        function(*args, **kwargs)
+                    except Exception:
+                        warnings.warn(f"Error handling request '{request['name']}':\n{traceback.format_exc()}")
                 else:
                     warnings.warn(f"Function '{request['name']}' not defined.")
             else:
