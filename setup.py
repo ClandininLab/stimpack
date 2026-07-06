@@ -8,17 +8,18 @@ setup(
     author='Minseung Choi',
     author_email='minseung@stanford.edu',
     packages=find_packages(),
+    python_requires='>=3.10',  # code uses PEP 604 (X | Y) unions evaluated at import time
     install_requires=[
         'numpy',
         'scipy',
         'pandas',
         'matplotlib',
-        
+
         'platformdirs',
-        'PyQT6',
+        'PyQt6',
         'h5py',
-        'pyYaml',
-        
+        'PyYAML',
+
         'moderngl',
         'PyOpenGL; platform_system=="Linux"',
         'scikit-image',

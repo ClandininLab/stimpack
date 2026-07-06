@@ -2,11 +2,12 @@
 Precise and flexible generation of stimuli for neuroscience experiments.
 
 ### Installation
-1. Clone this repository and ensure you are on the `beyond_xorg` branch via:
+Requires Python >= 3.10.
+
+1. Clone this repository (the default `main` branch is current):
 ```
 git clone https://github.com/clandininlab/stimpack
 cd stimpack
-git checkout beyond_xorg
 ```
 
 2. Make a new virtualenvironment and enable it with 
@@ -21,7 +22,7 @@ python -m venv .stimpack_env # or desired directory
 
 .stimpack_env\Scripts\activate
 ```
-3. Install the stimpack branch with `pip install -e .`
+3. Install with `pip install -e .`
 
 ### Key Concepts 
 1. Client-Server Framework: stimpack uses a client-server framework with the client asynchronously requesting stimuli from the server. The server is responsible for generating the stimuli and displaying them on the specified monitors / devices. 
