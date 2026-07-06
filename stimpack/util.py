@@ -1,6 +1,5 @@
 import inspect
 import os
-from PyQt6.QtWidgets import QMessageBox
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 ICON_PATH = os.path.join(ROOT_DIR, '_assets', 'icon.png')
@@ -51,6 +50,9 @@ def listify(x, type_):
     raise ValueError('Unknown input type: {}'.format(type(x)))
 
 def open_message_window(title="Alert", text=""):
+    # Imported lazily so that stimpack.util (ROOT_DIR, get_all_subclasses, make_as, listify) can be
+    # imported without pulling in PyQt6 — which keeps the non-GUI core unit-testable without a display.
+    from PyQt6.QtWidgets import QMessageBox
     msg = QMessageBox()
     msg.setWindowTitle(title)
     msg.setText(text)

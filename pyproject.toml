@@ -1,0 +1,11 @@
+# Packaging metadata lives in setup.py; this file holds tool configuration.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+markers = [
+    "unit: fast test with no hardware, GL context, or GUI",
+    "gl: requires an OpenGL context (run headless under xvfb / a standalone moderngl context)",
+    "hardware: requires physical rig hardware (DAQ, projector, tracker) — not run in CI",
+]

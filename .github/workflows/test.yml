@@ -1,0 +1,43 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # System libraries needed for headless OpenGL (Qt/moderngl) and a virtual display.
+      - name: Install system GL / xvfb dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libegl1 libgl1-mesa-dri libglib2.0-0 \
+                                  libgles2-mesa-dev libopengl0
+
+      - name: Install package with test extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[test]
+
+      # Fast, dependency-light logic tests — no GL/GUI needed.
+      - name: Unit tests
+        run: pytest -m unit
+
+      # GL smoke tests under a virtual framebuffer with a software GL driver.
+      - name: GL tests (headless)
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: xvfb-run -a pytest -m gl

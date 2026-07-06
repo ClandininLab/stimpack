@@ -24,6 +24,9 @@ setup(
         'PyOpenGL; platform_system=="Linux"',
         'scikit-image',
     ],
+    extras_require={
+        'test': ['pytest', 'pytest-cov'],
+    },
     entry_points={
         'console_scripts': [
             'stimpack=stimpack.experiment.gui:main'

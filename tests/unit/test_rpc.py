@@ -1,0 +1,128 @@
+"""Unit tests for stimpack.rpc — the JSON-over-socket RPC layer.
+
+Pure standard library: no numpy, PyQt, GL, sockets, or hardware. Several of these also serve as
+regression tests for recent fixes (exception isolation, disconnect detection, multicall clearing).
+"""
+import pytest
+
+from stimpack.rpc.util import JSONCoderWithTuple, get_from_dict
+from stimpack.rpc.transceiver import MyTransceiver
+from stimpack.rpc.multicall import MyMultiCall
+
+pytestmark = pytest.mark.unit
+
+
+class FakeOutfile:
+    """Minimal binary-mode stream that records writes (and can simulate a disconnect)."""
+    def __init__(self, mode="wb", raise_exc=None):
+        self.mode = mode
+        self.raise_exc = raise_exc
+        self.written = []
+
+    def write(self, data):
+        if self.raise_exc is not None:
+            raise self.raise_exc
+        self.written.append(data)
+
+    def flush(self):
+        pass
+
+
+class RecordingTransceiver:
+    """Captures the request lists passed to write_request_list."""
+    def __init__(self):
+        self.sent = []
+
+    def write_request_list(self, request_list):
+        self.sent.append(list(request_list))
+
+
+# --- wire codec ------------------------------------------------------------
+
+def test_codec_preserves_tuples_and_lists():
+    obj = {"a": (1, 2), "b": [(3, 4), 5], "c": [1, 2]}
+    out = JSONCoderWithTuple.decode(JSONCoderWithTuple.encode(obj))
+    assert out["a"] == (1, 2) and isinstance(out["a"], tuple)
+    assert out["b"][0] == (3, 4) and isinstance(out["b"][0], tuple)
+    assert out["c"] == [1, 2] and isinstance(out["c"], list)  # plain lists stay lists
+
+
+def test_get_from_dict_single_multi_and_remove():
+    d = {"a": 1, "b": 2}
+    assert get_from_dict(d, "a") == 1
+    assert get_from_dict(d, ["a", "b"]) == [1, 2]
+    assert get_from_dict(d, "missing", default=9) == 9
+    get_from_dict(d, "a", remove=True)
+    assert "a" not in d
+
+
+# --- MyTransceiver dispatch ------------------------------------------------
+
+def test_dispatch_calls_registered_function():
+    t = MyTransceiver()
+    calls = []
+    t.register_function(lambda *a, **k: calls.append((a, k)), name="rec")
+    t.handle_request_list([{"name": "rec", "args": [1], "kwargs": {"x": 2}}])
+    assert calls == [((1,), {"x": 2})]
+
+
+def test_dispatch_isolates_handler_exceptions():
+    # Regression (#1): a raising handler must not stop later requests in the same list.
+    t = MyTransceiver()
+    ran = []
+    t.register_function(lambda: (_ for _ in ()).throw(ValueError("boom")), name="boom")
+    t.register_function(lambda: ran.append(True), name="ok")
+    t.handle_request_list([{"name": "boom"}, {"name": "ok"}])  # must not raise
+    assert ran == [True]
+
+
+def test_unknown_function_warns_without_raising():
+    t = MyTransceiver()
+    with pytest.warns(UserWarning):
+        t.handle_request_list([{"name": "does_not_exist"}])
+
+
+# --- MyTransceiver outbound ------------------------------------------------
+
+def test_write_request_list_round_trips_on_the_wire():
+    t = MyTransceiver()
+    t.outfile = FakeOutfile()
+    req = [{"name": "foo", "args": [1], "kwargs": {}}]
+    t.write_request_list(req)
+    line = t.outfile.written[0].decode("utf-8")
+    assert JSONCoderWithTuple.decode(line) == req
+
+
+def test_write_sets_connection_broken_on_disconnect():
+    # Regression (#2): a peer reset must set the flag + warn, not raise or silently no-op.
+    t = MyTransceiver()
+    assert t.connection_broken is False
+    t.outfile = FakeOutfile(raise_exc=ConnectionResetError())
+    with pytest.warns(UserWarning):
+        t.write_request_list([{"name": "foo", "args": [], "kwargs": {}}])
+    assert t.connection_broken is True
+
+
+# --- MyMultiCall -----------------------------------------------------------
+
+def test_multicall_batches_and_targets():
+    rt = RecordingTransceiver()
+    mc = MyMultiCall(rt)
+    mc.foo(1, x=2)
+    mc.target("visual").bar()
+    mc()
+    assert rt.sent == [[
+        {"name": "foo", "args": (1,), "kwargs": {"x": 2}},
+        {"target": "visual", "name": "bar", "args": (), "kwargs": {}},
+    ]]
+
+
+def test_multicall_clears_after_flush():
+    # Regression (#28): re-invoking must not re-send the previous batch.
+    rt = RecordingTransceiver()
+    mc = MyMultiCall(rt)
+    mc.foo()
+    mc()
+    mc()
+    assert rt.sent[0] == [{"name": "foo", "args": (), "kwargs": {}}]
+    assert rt.sent[1] == []
