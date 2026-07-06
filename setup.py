@@ -25,7 +25,7 @@ setup(
         'scikit-image',
     ],
     extras_require={
-        'test': ['pytest', 'pytest-cov'],
+        'test': ['pytest', 'pytest-cov', 'pillow'],  # pillow: read/write GL reference images
     },
     entry_points={
         'console_scripts': [

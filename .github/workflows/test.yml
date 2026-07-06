@@ -36,8 +36,17 @@ jobs:
       - name: Unit tests
         run: pytest -m unit
 
-      # GL smoke tests under a virtual framebuffer with a software GL driver.
+      # GL smoke + golden-image tests under a virtual framebuffer with a software GL driver.
+      # Golden-image cases skip until reference PNGs are committed (see tests/gl/reference/README.md).
       - name: GL tests (headless)
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: xvfb-run -a pytest -m gl
+
+      - name: Upload GL failure diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gl-failures-py${{ matrix.python-version }}
+          path: tests/gl/_failures/
+          if-no-files-found: ignore

@@ -170,3 +170,5 @@ cython_debug/
 .Trashes
 ehthumbs.db
 Thumbs.db
+# GL golden-image test failure artifacts
+tests/gl/_failures/
