@@ -8,6 +8,29 @@ from typing import Any, Optional
 import warnings
 from importlib.util import spec_from_file_location, module_from_spec
 
+
+class TupleSafeLoader(yaml.SafeLoader):
+    """A yaml.SafeLoader that also reconstructs !!python/tuple.
+
+    Preset (`<Protocol>.yaml`) and ensemble (`.spens`) files are written with the default yaml
+    dumper, so tuple-valued parameters (e.g. ``center: (0, 0)`` or a ``width_height`` list of
+    ``(w, h)`` tuples) are serialized as ``!!python/tuple``. A plain SafeLoader refuses those tags;
+    the full yaml.Loader honors them but also honors dangerous constructors such as
+    ``!!python/object/apply:os.system`` (arbitrary code execution on load). This loader permits only
+    the tuple tag, preserving the on-disk format while refusing arbitrary object construction.
+    """
+
+
+TupleSafeLoader.add_constructor(
+    'tag:yaml.org,2002:python/tuple',
+    lambda loader, node: tuple(loader.construct_sequence(node, deep=True)))
+
+
+def safe_load_yaml_with_tuples(stream):
+    """yaml.safe_load extended to reconstruct !!python/tuple; safe against arbitrary-code YAML."""
+    return yaml.load(stream, Loader=TupleSafeLoader)
+
+
 def get_stimpack_config_directory(ensure_exists=True):
     return user_config_dir(appname="stimpack", ensure_exists=ensure_exists)
 
@@ -79,7 +102,7 @@ def get_configuration_file(cfg_name: str, labpack_dir: Optional[str] = None) -> 
 # %% Functions for pulling stuff out of the config dictionary
 
 def get_available_rig_configs(cfg):
-    return list(cfg.get('rig_config').keys())
+    return list((cfg.get('rig_config') or {}).keys())
 
 def get_parameter_preset_directory(cfg):
     presets_dir = cfg.get('parameter_presets_dir', None)
@@ -219,7 +242,7 @@ def load_trigger_device(cfg):
 
 def get_screen_center(cfg):
     if 'current_rig_name' in cfg:
-        screen_center = cfg.get('rig_config').get(cfg.get('current_rig_name')).get('screen_center', [0, 0])
+        screen_center = ((cfg.get('rig_config') or {}).get(cfg.get('current_rig_name')) or {}).get('screen_center', [0, 0])
     else:
         print('No rig selected, using default screen center')
         screen_center = [0, 0]
@@ -231,7 +254,7 @@ def get_server_options(cfg) -> dict[str, int|str|bool|None]:
     default_server_options = {'use_remote_server': False,
                               'data_directory': None}
     if 'current_rig_name' in cfg:
-        server_options = cfg.get('rig_config').get(cfg.get('current_rig_name')).get('server_options', default_server_options)
+        server_options = ((cfg.get('rig_config') or {}).get(cfg.get('current_rig_name')) or {}).get('server_options', default_server_options)
     else:
         print('No rig selected, using default server settings')
         server_options = default_server_options
@@ -239,7 +262,7 @@ def get_server_options(cfg) -> dict[str, int|str|bool|None]:
 
 def get_data_directory(cfg):
     if 'current_rig_name' in cfg:
-        data_directory = cfg.get('rig_config').get(cfg.get('current_rig_name')).get('data_directory', os.getcwd())
+        data_directory = ((cfg.get('rig_config') or {}).get(cfg.get('current_rig_name')) or {}).get('data_directory', os.getcwd())
     else:
         print('No rig selected, using default data directory')
         data_directory = os.getcwd()
@@ -247,7 +270,7 @@ def get_data_directory(cfg):
 
 def get_loco_available(cfg):
     if 'current_rig_name' in cfg:
-        loco_available = cfg.get('rig_config').get(cfg.get('current_rig_name')).get('loco_available', True)
+        loco_available = ((cfg.get('rig_config') or {}).get(cfg.get('current_rig_name')) or {}).get('loco_available', True)
     else:
         print('No rig selected, using locomotion')
         loco_available = True

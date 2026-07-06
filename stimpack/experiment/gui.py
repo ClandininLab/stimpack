@@ -688,7 +688,8 @@ class ExperimentGUI(QWidget):
         
         if os.path.isfile(fname):
             with open(fname, 'r') as ymlfile:
-                protocol_name_preset_pairs = yaml.load(ymlfile, Loader=yaml.Loader)
+                # Refuse arbitrary-code YAML while still reconstructing the !!python/tuple values .spens files use.
+                protocol_name_preset_pairs = config_tools.safe_load_yaml_with_tuples(ymlfile)
         else:
             return
 
@@ -1030,9 +1031,14 @@ class ExperimentGUI(QWidget):
             if len(s) == 0:
                 return ParseError('Empty parameter token')
 
-            # Base case 2: number
+            # Base case 2: number. Parse as int, then fall back to float (which handles inf/nan
+            # consistently with is_number). Do NOT eval() GUI text: eval('inf'/'nan') raises NameError,
+            # and an unhandled exception in a Qt slot aborts the whole application.
             elif is_number(s):
-                return eval(s)
+                try:
+                    return int(s)
+                except ValueError:
+                    return float(s)
 
             # Base case 3: None
             elif s == 'None':

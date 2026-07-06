@@ -1,4 +1,4 @@
-import signal, sys, os
+import signal, sys, os, warnings, traceback
 
 from stimpack.visual_stim.screen import Screen
 from stimpack.visual_stim.stim_server import VisualStimServer
@@ -116,9 +116,12 @@ class BaseServer(MySocketServer):
             args = request.get('args', [])
             kwargs = request.get('kwargs', {})
 
-            # call function
+            # call function, isolating handler errors so one bad root request cannot kill the server loop
             # print(f"Server root node executing: {str(request)}")
-            function(*args, **kwargs)
+            try:
+                function(*args, **kwargs)
+            except Exception:
+                warnings.warn(f"Error handling root request '{request['name']}':\n{traceback.format_exc()}")
 
     def handle_request_list(self, request_list):
         # pre-process the request list as necessary

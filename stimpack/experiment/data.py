@@ -59,7 +59,7 @@ class BaseData():
             experiment_file.attrs['data_directory'] = self.data_directory
             experiment_file.attrs['experimenter'] = self.experimenter
             experiment_file.attrs['rig_config'] = self.cfg.get('current_rig_name', '')
-            rig_config = self.cfg.get('rig_config').get(self.cfg.get('current_rig_name'))
+            rig_config = (self.cfg.get('rig_config') or {}).get(self.cfg.get('current_rig_name')) or {}
             for key in rig_config:
                 experiment_file.attrs[key] = str(rig_config.get(key))
 
@@ -148,7 +148,9 @@ class BaseData():
                 new_epoch.attrs['epoch_unix_time'] = epoch_unix_time
 
                 epoch_stim_parameters_group = new_epoch
-                if type(protocol_object.epoch_stim_parameters) is tuple:  # stimulus is tuple of multiple stims layered on top of one another
+                # Handle both tuple and list of stims (protocol.load_stimuli supports a list too);
+                # otherwise a list-valued epoch_stim_parameters is silently not saved.
+                if type(protocol_object.epoch_stim_parameters) in (tuple, list):  # multiple stims layered on top of one another
                     num_stims = len(protocol_object.epoch_stim_parameters)
                     for stim_ind in range(num_stims):
                         for key in protocol_object.epoch_stim_parameters[stim_ind]:
@@ -170,6 +172,11 @@ class BaseData():
         """
         Save the timestamp when the epoch ends
         """
+        # Match the guard used by the sibling create_* methods; without it, opening 'r+' on a missing
+        # file raises mid-run.
+        if not (self.current_subject_exists() and self.experiment_file_exists()):
+            print('Create a data file and/or define a subject first')
+            return
         with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
             epoch_end_unix_time = datetime.now().timestamp()
             epoch_run_group = experiment_file['/Subjects/{}/epoch_runs/series_{}/epochs'.format(self.current_subject, str(self.series_count).zfill(3))]

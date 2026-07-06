@@ -104,7 +104,8 @@ class BaseProtocol():
         fname = os.path.join(self.parameter_preset_directory, self.__class__.__name__) + '.yaml'
         if os.path.isfile(fname):
             with open(fname, 'r') as ymlfile:
-                self.parameter_presets = yaml.load(ymlfile, Loader=yaml.Loader)
+                # Refuse arbitrary-code YAML while still reconstructing the !!python/tuple values presets use.
+                self.parameter_presets = config_tools.safe_load_yaml_with_tuples(ymlfile)
         else:
             self.parameter_presets = {}
 
