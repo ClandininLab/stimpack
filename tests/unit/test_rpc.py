@@ -113,6 +113,23 @@ def test_error_reporter_default_none_does_not_crash():
         t.handle_request_list([{"name": "boom"}])  # must not raise with no reporter set
 
 
+def test_launch_server_detects_dead_child(tmp_path):
+    # Regression (#15): a server script that exits immediately must raise promptly with its exit code,
+    # not burn the full poll timeout and report a generic failure.
+    from stimpack.rpc.launch import launch_server
+
+    script = tmp_path / "dies_immediately.py"
+    script.write_text("import sys; sys.exit(3)\n")
+
+    t0 = time.monotonic()
+    with pytest.raises(RuntimeError) as exc:
+        launch_server(str(script), server_poll_timeout=10, server_poll_interval=0.05)
+    elapsed = time.monotonic() - t0
+
+    assert "code 3" in str(exc.value)
+    assert elapsed < 5  # detected promptly, well before the 10s timeout
+
+
 # --- MyTransceiver outbound ------------------------------------------------
 
 def test_write_request_list_round_trips_on_the_wire():

@@ -55,16 +55,36 @@ def launch_server(module_or_filename: str | ModuleType,
     # launch process
     proc = subprocess.Popen(args=cmd, env=env)
 
-    # wait for this process to terminate upon exit
-    atexit.register(proc.wait)
+    # Reap the child on exit, but with a bound (then force it) so a server that does not auto-stop
+    # can't hang interpreter exit forever.
+    def _reap():
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+    atexit.register(_reap)
 
-    # try to establish connecting to client
+    # try to establish a connection to the server
     server_poll_start = time()
     while (time() - server_poll_start) < server_poll_timeout:
+        # If the child died before accepting a connection (ImportError in a server script, missing
+        # display, bad kwargs, ...), surface its exit code immediately instead of burning the whole
+        # timeout and reporting a generic failure.
+        returncode = proc.poll()
+        if returncode is not None:
+            raise RuntimeError(
+                f'Server process exited with code {returncode} before accepting a connection.\n'
+                f'  command: {cmd}')
         try:
             client = MySocketClient(host=kwargs['host'], port=kwargs['port'])
             return client, proc
         except ConnectionRefusedError:
             sleep(server_poll_interval)
-    else:
-        raise Exception('Could not connect to server.')
+
+    raise TimeoutError(
+        f"Could not connect to server at {kwargs['host']}:{kwargs['port']} within {server_poll_timeout}s.\n"
+        f'  command: {cmd}')
