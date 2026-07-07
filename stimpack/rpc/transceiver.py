@@ -186,6 +186,10 @@ class MySocketClient(MyTransceiver):
                 self.queue.put(request_list)
         except (OSError, ConnectionResetError):
             pass
+        finally:
+            # The reader loop only ends when the connection drops (EOF or error), so flag the link
+            # broken here too. This detects a dead server even during a quiet stretch with no sends.
+            self.connection_broken = True
 
 
 class MySocketServer(MyTransceiver):

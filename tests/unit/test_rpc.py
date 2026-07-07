@@ -199,6 +199,25 @@ def test_disable_nagle_is_best_effort_on_bad_socket():
         s.close()
 
 
+def test_client_flags_connection_broken_when_reader_sees_disconnect():
+    # Regression (#2, read side): the reader thread must flag connection_broken when the server drops,
+    # even if the client isn't sending — so a dead server is detected during a quiet stretch.
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+
+    client = MySocketClient(host="127.0.0.1", port=port)  # kernel accepts into the backlog
+    assert client.connection_broken is False
+
+    conn, _ = srv.accept()
+    conn.close()  # drop the connection -> the client's reader hits EOF
+    srv.close()
+
+    assert _wait_until(lambda: client.connection_broken is True), "reader thread did not flag the disconnect"
+
+
 def test_server_can_push_message_to_client_over_socket():
     # A server pushes a request back to the connected client; the client's reader thread queues it and
     # process_queue() executes it. This is the channel BaseServer.report_to_client uses to surface
