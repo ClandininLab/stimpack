@@ -7,6 +7,29 @@ from stimpack.rpc.transceiver import MySocketClient
 from stimpack.rpc.multicall import MyMultiCall
 from stimpack.experiment.protocol import BaseProtocol
 
+# %% Diagnostics
+
+class ServerErrorDemo(BaseProtocol):
+    """
+    Deliberately triggers a server-side error, to demonstrate server -> client error reporting.
+
+    Each epoch asks the display server to load a stimulus class that does not exist, so load_stim
+    raises on the server. The error bubbles back to the client: it shows up in the GUI status label
+    (tagged [screen], since it originates in a screen subprocess), the run aborts instead of running
+    to completion, and — when recording — the series group is written with run_status='error' and
+    abort_reason set. Nothing renders; this is a diagnostics/demo protocol, not a real stimulus.
+    """
+    def get_run_parameter_defaults(self):
+        return {'num_epochs': 3, 'idle_color': 0.5}
+
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 0.5, 'stim_time': 1.0, 'tail_time': 0.5}
+
+    def get_epoch_parameters(self):
+        super().get_epoch_parameters()
+        # A stimulus class name that does not exist -> load_stim raises ValueError on the server.
+        self.epoch_stim_parameters = {'name': 'NoSuchStimulus_ServerErrorDemo'}
+
 # %% Some simple visual stimulus protocol classes
 
 class DriftingSquareGrating(BaseProtocol):

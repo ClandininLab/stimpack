@@ -46,3 +46,12 @@ def test_sequence_repeats_to_fill_num_epochs():
     p.get_parameter_sequence([0, 1], all_combinations=True, randomize_order=False)
     inds = p.persistent_parameters["protocol_parameter_sequence_epoch_inds"]
     assert list(inds) == [0, 1, 0, 1, 0]  # arange(5) % 2
+
+
+def test_server_error_demo_requests_a_nonexistent_stim():
+    # The demo protocol must ask for a stim class that does not exist, so load_stim raises on the
+    # server (demonstrating server -> client error reporting).
+    from stimpack.experiment.example_protocol import ServerErrorDemo
+    p = ServerErrorDemo(cfg={})
+    p.get_epoch_parameters()
+    assert p.epoch_stim_parameters == {"name": "NoSuchStimulus_ServerErrorDemo"}
