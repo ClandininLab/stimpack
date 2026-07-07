@@ -6,11 +6,15 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Pin 22.04: stable system-package names for headless Mesa software GL + Qt.
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
+
+    env:
+      QT_QPA_PLATFORM: offscreen   # the client/gui unit tests import PyQt6 but create no window
 
     steps:
       - uses: actions/checkout@v4
@@ -20,25 +24,28 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # System libraries needed for headless OpenGL (Qt/moderngl) and a virtual display.
-      - name: Install system GL / xvfb dependencies
+      # System libraries for a headless software OpenGL context (Mesa llvmpipe, via EGL/GLX) + Qt.
+      - name: Install system libraries (headless OpenGL + Qt)
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libegl1 libgl1-mesa-dri libglib2.0-0 \
-                                  libgles2-mesa-dev libopengl0
+          sudo apt-get install -y \
+            xvfb \
+            libgl1-mesa-dri libgl1 libglx-mesa0 \
+            libegl1 libegl-mesa0 libopengl0 \
+            libglib2.0-0 libxkbcommon0 libdbus-1-3
 
       - name: Install package with test extras
         run: |
           python -m pip install --upgrade pip
           pip install -e .[test]
 
-      # Fast, dependency-light logic tests — no GL/GUI needed.
+      # Fast, dependency-light logic tests — no GL/GUI context needed.
       - name: Unit tests
         run: pytest -m unit
 
-      # GL smoke + golden-image tests under a virtual framebuffer with a software GL driver.
-      # Golden-image cases skip until reference PNGs are committed (see tests/gl/reference/README.md).
-      - name: GL tests (headless)
+      # GL smoke + golden-image tests: standalone moderngl context under a software GL driver,
+      # wrapped in xvfb for any GLX fallback. If no GL context is available they skip rather than fail.
+      - name: GL tests (headless, software renderer)
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: xvfb-run -a pytest -m gl
