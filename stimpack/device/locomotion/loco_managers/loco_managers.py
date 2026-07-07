@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 class LocoManager():
     def __init__(self, verbose=False) -> None:
         self.verbose = verbose
+        self.error_reporter = None  # optional callback(level, text); set by BaseServer to reach the client
         pass
     
     def set_save_directory(self, save_directory):
@@ -32,8 +33,14 @@ class LocoManager():
                 # If the request is a method of this class, execute it, isolating handler errors.
                 try:
                     getattr(self, request['name'])(*request.get('args', []), **request.get('kwargs', {}))
-                except Exception:
+                except Exception as e:
                     warnings.warn(f"{self.__class__.__name__}: error handling '{request['name']}':\n{traceback.format_exc()}")
+                    reporter = getattr(self, 'error_reporter', None)
+                    if reporter is not None:
+                        try:
+                            reporter('error', f"locomotion: {request['name']}: {type(e).__name__}: {e}")
+                        except Exception:
+                            pass
             else:
                 if self.verbose: print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
     
@@ -45,6 +52,7 @@ class LocoSocketManager():
         self.client_addr = None
         
         self.verbose = verbose
+        self.error_reporter = None
 
         self.sock = None
         self.sock_buffer = "\n"
@@ -56,8 +64,14 @@ class LocoSocketManager():
                 # If the request is a method of this class, execute it, isolating handler errors.
                 try:
                     getattr(self, request['name'])(*request.get('args', []), **request.get('kwargs', {}))
-                except Exception:
+                except Exception as e:
                     warnings.warn(f"{self.__class__.__name__}: error handling '{request['name']}':\n{traceback.format_exc()}")
+                    reporter = getattr(self, 'error_reporter', None)
+                    if reporter is not None:
+                        try:
+                            reporter('error', f"locomotion: {request['name']}: {type(e).__name__}: {e}")
+                        except Exception:
+                            pass
             else:
                 if self.verbose: print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
     
@@ -238,8 +252,14 @@ class LocoClosedLoopManager(LocoManager):
                 # If the request is a method of this class, execute it, isolating handler errors.
                 try:
                     getattr(self, request['name'])(*request.get('args', []), **request.get('kwargs', {}))
-                except Exception:
+                except Exception as e:
                     warnings.warn(f"{self.__class__.__name__}: error handling '{request['name']}':\n{traceback.format_exc()}")
+                    reporter = getattr(self, 'error_reporter', None)
+                    if reporter is not None:
+                        try:
+                            reporter('error', f"locomotion: {request['name']}: {type(e).__name__}: {e}")
+                        except Exception:
+                            pass
             else:
                 if self.verbose: print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
         
@@ -465,12 +485,23 @@ class LocoClosedLoopManager(LocoManager):
                         self.loop_custom_fxn(self.pos)
                 except Exception:
                     warnings.warn(f"{self.__class__.__name__}: error in closed-loop iteration:\n{traceback.format_exc()}")
+                    # Report only the first error of a loop session, so a persistently-bad datagram
+                    # stream doesn't flood the client every iteration.
+                    if not self._reported_loop_error:
+                        self._reported_loop_error = True
+                        reporter = getattr(self, 'error_reporter', None)
+                        if reporter is not None:
+                            try:
+                                reporter('error', f"{self.__class__.__name__}: closed-loop iteration failed: {traceback.format_exc(limit=1).strip()}")
+                            except Exception:
+                                pass
 
         if self.loop_attrs['looping']:
             if self.verbose: print(f"{self.__class__.__name__}: Already looping")
         else:
             # Set the flag before spawning so a second loop_start() call can't race past the guard
             # and start a second reader thread on the same socket.
+            self._reported_loop_error = False
             self.loop_attrs['looping'] = True
             self.loop_attrs['thread'] = threading.Thread(target=loop_helper, daemon=True)
             self.loop_attrs['thread'].start()

@@ -652,6 +652,10 @@ def main():
     # launch the server
     server = MySocketServer(host=kwargs['host'], port=kwargs['port'], threaded=True, auto_stop=True, name=screen.name)
 
+    # Bubble this screen's handler errors up to the visual stim server (which forwards to the client).
+    server.error_reporter = lambda level, text: server.write_request_list(
+        [{'name': 'report_server_message', 'args': [level, str(text)], 'kwargs': {}}])
+
     # set default format with OpenGL context
     format = QtGui.QSurfaceFormat()
     format.setVersion(3, 3)

@@ -83,6 +83,11 @@ class VisualStimServer(MySocketServer):
         # launch screens
         self.screen_managers = [launch_screen(screen=screen, other_stim_module_paths=other_stim_module_paths, **kwargs) for screen in screens]
 
+        # Let each screen subprocess bubble its errors up to us (and thence to the client). The screen
+        # pushes a 'report_server_message' back on its socket; we drain it in handle_request_list.
+        for screen_manager in self.screen_managers:
+            screen_manager.register_function(self._forward_screen_message, name='report_server_message')
+
         self.corner_square_toggle_stop()
         self.corner_square_off()
         self.set_idle_background(0)
@@ -127,8 +132,9 @@ class VisualStimServer(MySocketServer):
             # print(f"Server root node executing: {str(request)}")
             try:
                 function(*args, **kwargs)
-            except Exception:
+            except Exception as e:
                 warnings.warn(f"Error handling root request '{request['name']}':\n{traceback.format_exc()}")
+                self._report_error(f"visual: {request['name']}: {type(e).__name__}: {e}")
 
         # pre-process the request list as necessary
         for request in screen_request_list:
@@ -140,6 +146,18 @@ class VisualStimServer(MySocketServer):
         # send modified request list to screens
         for screen_manager in self.screen_managers:
             screen_manager.write_request_list(screen_request_list)
+
+        # Drain any messages the screens pushed back (e.g. handler errors) and forward them upward.
+        for screen_manager in self.screen_managers:
+            screen_manager.process_queue()
+
+    def _forward_screen_message(self, level, text):
+        '''Forward a message a screen subprocess pushed back up toward the client.'''
+        if self.error_reporter is not None:
+            try:
+                self.error_reporter(level, f"[screen] {text}")
+            except Exception:
+                pass
 
     def close(self):
         self.shutdown_flag.set()

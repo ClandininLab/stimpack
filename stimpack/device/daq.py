@@ -14,6 +14,7 @@ from stimpack.rpc.transceiver import MySocketClient
 class DAQ():
     def __init__(self, verbose=False):
         self.verbose = verbose
+        self.error_reporter = None  # optional callback(level, text); set by BaseServer to reach the client
         pass
 
     def on_connection_close(self):
@@ -25,8 +26,13 @@ class DAQ():
                 # If the request is a method of this class, execute it, isolating handler errors.
                 try:
                     getattr(self, request['name'])(*request.get('args', []), **request.get('kwargs', {}))
-                except Exception:
+                except Exception as e:
                     warnings.warn(f"{self.__class__.__name__}: error handling '{request['name']}':\n{traceback.format_exc()}")
+                    if self.error_reporter is not None:
+                        try:
+                            self.error_reporter('error', f"daq: {request['name']}: {type(e).__name__}: {e}")
+                        except Exception:
+                            pass
             else:
                 if self.verbose:  print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
     

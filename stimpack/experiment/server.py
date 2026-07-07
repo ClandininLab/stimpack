@@ -55,6 +55,10 @@ class BaseServer(MySocketServer):
             self.modules['daq'] = daq_class(**daq_kwargs)
         ### DAQ manager ###
 
+        # Let each module bubble its handler errors back to the client (surfaced in the GUI; aborts the run).
+        for module in self.modules.values():
+            module.error_reporter = self.report_to_client
+
         # Register functions to be executed on the server's root node, and not in modules.
         self.functions_on_root = {}
         self.register_function_on_root(lambda x: print(x), "print_on_server")

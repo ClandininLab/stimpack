@@ -93,6 +93,26 @@ def test_unknown_function_warns_without_raising():
         t.handle_request_list([{"name": "does_not_exist"}])
 
 
+def test_error_reporter_called_on_handler_exception():
+    # Tier-2 bubbling: a handler error is forwarded via error_reporter (used to reach the client).
+    t = MyTransceiver()
+    reported = []
+    t.error_reporter = lambda level, text: reported.append((level, text))
+    t.register_function(lambda: (_ for _ in ()).throw(ValueError("kaboom")), name="boom")
+    with pytest.warns(UserWarning):
+        t.handle_request_list([{"name": "boom"}])
+    assert reported and reported[0][0] == "error"
+    assert "kaboom" in reported[0][1]
+
+
+def test_error_reporter_default_none_does_not_crash():
+    t = MyTransceiver()
+    assert t.error_reporter is None
+    t.register_function(lambda: (_ for _ in ()).throw(ValueError("x")), name="boom")
+    with pytest.warns(UserWarning):
+        t.handle_request_list([{"name": "boom"}])  # must not raise with no reporter set
+
+
 # --- MyTransceiver outbound ------------------------------------------------
 
 def test_write_request_list_round_trips_on_the_wire():

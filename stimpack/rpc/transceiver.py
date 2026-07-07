@@ -24,6 +24,9 @@ class MyTransceiver:
         # closed-loop thread), which could otherwise interleave with the main write on the same stream
         self._write_lock = Lock()
 
+        # optional callback(level, text) used to bubble handler errors toward the client (set by owners)
+        self.error_reporter = None
+
         # create shutdown flag
         self.shutdown_flag = Event()
 
@@ -79,12 +82,21 @@ class MyTransceiver:
                     # out of the server's inline loop() (silently killing the request loop thread).
                     try:
                         function(*args, **kwargs)
-                    except Exception:
+                    except Exception as e:
                         warnings.warn(f"Error handling request '{request['name']}':\n{traceback.format_exc()}")
+                        self._report_error(f"error handling '{request['name']}': {type(e).__name__}: {e}")
                 else:
                     warnings.warn(f"Function '{request['name']}' not defined.")
             else:
                 warnings.warn(f"Request '{request}' is not a valid request.")
+
+    def _report_error(self, text):
+        '''Bubble an error toward the client via error_reporter, if one is set. Best-effort.'''
+        if self.error_reporter is not None:
+            try:
+                self.error_reporter('error', text)
+            except Exception:
+                pass
 
     def process_queue(self):
         while True:
