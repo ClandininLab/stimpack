@@ -38,6 +38,10 @@ class ParseError(Exception):
 
 class ExperimentGUI(QWidget):
 
+    # Emitted when the server pushes a message. report_server_message runs on the run thread, so this
+    # signal (a queued cross-thread connection) marshals the update onto the GUI thread.
+    server_message_signal = pyqtSignal(str, str)
+
     def __init__(self):
         super().__init__()
         # set GUI icon
@@ -100,6 +104,10 @@ class ExperimentGUI(QWidget):
         else:  # use the built-in
             print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('client'))
             self.client = client.BaseClient(self.cfg)
+
+        # Route server-pushed messages to the GUI thread (see server_message_signal above).
+        self.server_message_signal.connect(self.on_server_message_received)
+        self.client.on_server_message = self.server_message_signal.emit
 
         self.current_ensemble_idx = 0
 
@@ -514,6 +522,13 @@ class ExperimentGUI(QWidget):
         self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
         self.status = Status.STANDBY
         self.status_label.setText('Ready')
+
+    def on_server_message_received(self, level, text):
+        '''Runs on the GUI thread (via server_message_signal): surface a message the server pushed back.
+
+        For an 'error' the client also aborts the run (see BaseClient.report_server_message).
+        '''
+        self.status_label.setText(f'[server {level}] {text}')
 
     def on_selected_ensemble_protocol_ID(self, text):
         protocol_dropdown_idx = self.ensemble_protocol_selection_combo_box.currentIndex() # - 1 # first item is "select a protocol"
