@@ -14,15 +14,21 @@ from stimpack.experiment.util import config_tools
 from stimpack.util import ROOT_DIR
 
 class BaseServer(MySocketServer):
-    def __init__(self, 
-                 host: str = '', 
-                 port: int|None = 60629, 
+    def __init__(self,
+                 host: str = '127.0.0.1',
+                 port: int|None = 60629,
                  visual_stim_kwargs: dict = {},
-                 loco_class: type|None = None, 
+                 loco_class: type|None = None,
                  loco_kwargs: dict = {},
-                 daq_class: type|None = None,  
+                 daq_class: type|None = None,
                  daq_kwargs: dict = {},
                  start_loop: bool = False):
+        '''
+        host: interface to bind the (unauthenticated) RPC server to. Defaults to loopback
+              ('127.0.0.1') so the control channel is not exposed to the network. To accept
+              connections from other machines, pass host='0.0.0.0' explicitly and firewall the
+              port to the trusted rig network.
+        '''
 
         self.host = host
         if port is None:
