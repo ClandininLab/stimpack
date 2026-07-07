@@ -5,6 +5,7 @@ import os, sys
 from time import sleep
 import posixpath
 import warnings
+import traceback
 from typing import Any, Optional
 
 from PyQt6.QtWidgets import QApplication
@@ -32,7 +33,12 @@ class BaseClient():
         self.stop:bool = False
         self.pause:bool = False
         self.cfg:dict = cfg
-        
+
+        # Messages pushed back from the server (drained in the run loop via manager.process_queue()).
+        self.server_messages:list = []
+        self.server_error:Optional[str] = None      # set when the server reports an error; aborts the run
+        self.on_server_message = None               # optional callback(level, text), e.g. a GUI status hook
+
         # # # Load server options from config file and selections # # #
         self.server_options = config_tools.get_server_options(self.cfg)
         self.trigger_device = config_tools.load_trigger_device(self.cfg)
@@ -90,6 +96,9 @@ class BaseClient():
         if isinstance(self.trigger_device, daq.DAQonServer):
             self.trigger_device.set_manager(self.manager)
 
+        # Let the server push warnings/errors back to us; delivered when we drain the queue (run loop).
+        self.manager.register_function(self.report_server_message, name='report_server_message')
+
         self.manager.target('visual').corner_square_toggle_stop()
         self.manager.target('visual').corner_square_off()
         self.manager.target('visual').set_idle_background(0)
@@ -117,6 +126,21 @@ class BaseClient():
         self.pause = False
         QApplication.processEvents()
 
+    def report_server_message(self, level, text):
+        """Handle a message pushed back from the server (run via manager.process_queue()).
+
+        level: 'info' | 'warning' | 'error'. An 'error' marks the current run to be aborted.
+        """
+        self.server_messages.append((level, text))
+        print(f"[server:{level}] {text}")
+        if level == 'error':
+            self.server_error = text
+        if self.on_server_message is not None:
+            try:
+                self.on_server_message(level, text)
+            except Exception:
+                warnings.warn(f"on_server_message callback failed:\n{traceback.format_exc()}")
+
     def start_run(self, protocol_object:BaseProtocol, data:BaseData, save_metadata_flag:bool=True):
         """
         Required inputs: protocol_object, data
@@ -125,6 +149,7 @@ class BaseClient():
         """
         self.stop = False
         self.pause = False
+        self.server_error = None
         protocol_object.save_metadata_flag = save_metadata_flag
 
         # Check run parameters, compute persistent parameters, and precompute epoch parameters
@@ -142,7 +167,7 @@ class BaseClient():
         # Set up locomotion data saving on the server and start locomotion device / software
         if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
             self.start_loco(data, save_metadata_flag=save_metadata_flag)
-            
+
         # Trigger acquisition of scope and cameras by send triggering TTL through the DAQ device (if device is set)
         if protocol_object.trigger_on_epoch_run is True:
             if self.trigger_device is not None:
@@ -154,31 +179,60 @@ class BaseClient():
             self.start_loco_loop()
 
         # # # Epoch run loop # # #
-        self.manager.print_on_server("Starting run.")
-        protocol_object.on_run_start(self.manager)
-        while protocol_object.num_epochs_completed < protocol_object.run_parameters['num_epochs']:
-            QApplication.processEvents()
-            if self.stop is True:
-                self.stop = False
-                protocol_object.on_run_finish(self.manager)
-                break # break out of epoch run loop
+        # run_status is recorded on the series group at the end (data.end_epoch_run). The try/finally
+        # guarantees a clean teardown + a recorded outcome even if the run aborts or raises.
+        run_status, run_status_reason = 'completed', None
+        try:
+            self.manager.print_on_server("Starting run.")
+            protocol_object.on_run_start(self.manager)
+            while protocol_object.num_epochs_completed < protocol_object.run_parameters['num_epochs']:
+                QApplication.processEvents()
 
-            if self.pause is True:
-                pass # do nothing until resumed or stopped
-            else: # start epoch and advance counter
-                self.start_epoch(protocol_object, data, save_metadata_flag=save_metadata_flag)
+                # Drain anything the server pushed back (e.g. an error) and act on it.
+                self.manager.process_queue()
+                if self.server_error is not None:
+                    run_status, run_status_reason = 'error', self.server_error
+                    warnings.warn(f"Aborting run: server reported an error: {self.server_error}")
+                    break
 
-        protocol_object.on_run_finish(self.manager)
+                # Detect a dead server link — otherwise every send is a silent no-op and the run
+                # would march to completion against a server that is not displaying/recording anything.
+                if getattr(self.manager, 'connection_broken', False):
+                    run_status, run_status_reason = 'aborted', 'server_connection_lost'
+                    warnings.warn("Aborting run: connection to the stimulus server appears broken.")
+                    break
 
-        # Set frame tracker to dark
-        self.manager.target('visual').corner_square_toggle_stop()
-        self.manager.target('visual').corner_square_off()
+                if self.stop is True:
+                    self.stop = False
+                    run_status = 'stopped'
+                    break
 
-        # Stop locomotion device / software
-        if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
-            self.stop_loco()
+                if self.pause is True:
+                    pass # do nothing until resumed or stopped
+                else: # start epoch and advance counter
+                    self.start_epoch(protocol_object, data, save_metadata_flag=save_metadata_flag)
+        except Exception as e:
+            run_status, run_status_reason = 'error', f'{type(e).__name__}: {e}'
+            warnings.warn(f"Run aborted by exception:\n{traceback.format_exc()}")
+        finally:
+            protocol_object.on_run_finish(self.manager)
 
-        self.manager.print_on_server('Run ended.')
+            broken = getattr(self.manager, 'connection_broken', False)
+            if not broken:
+                # Set frame tracker to dark
+                self.manager.target('visual').corner_square_toggle_stop()
+                self.manager.target('visual').corner_square_off()
+
+            # Stop locomotion device / software
+            if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
+                self.stop_loco()
+
+            # Record the outcome of this run in the data file.
+            if save_metadata_flag:
+                data.end_epoch_run(protocol_object, status=run_status, reason=run_status_reason)
+
+            if not broken:
+                self.manager.print_on_server('Run ended.')
 
     def start_epoch(self, protocol_object:BaseProtocol, data:BaseData, save_metadata_flag:bool=True):
         #  get stimulus parameters for this epoch

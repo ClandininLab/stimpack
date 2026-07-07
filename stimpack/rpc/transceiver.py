@@ -1,7 +1,7 @@
 import socket, atexit, traceback
 from typing import Callable
 from queue import Queue, Empty
-from threading import Event
+from threading import Event, Lock
 import warnings
 from json.decoder import JSONDecodeError
 
@@ -19,6 +19,10 @@ class MyTransceiver:
 
         # set when an outbound write fails because the peer disconnected, so callers can detect a dead link
         self.connection_broken = False
+
+        # serialize writes: the server can push messages back to the client from other threads (e.g. the
+        # closed-loop thread), which could otherwise interleave with the main write on the same stream
+        self._write_lock = Lock()
 
         # create shutdown flag
         self.shutdown_flag = Event()
@@ -47,8 +51,9 @@ class MyTransceiver:
             line = line.encode('utf-8')
 
         try:
-            self.outfile.write(line)
-            self.outfile.flush()
+            with self._write_lock:
+                self.outfile.write(line)
+                self.outfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError) as e:
             # The other side disconnected. Mark the link as broken and warn loudly instead of
             # silently turning every subsequent request into a no-op. Note ConnectionResetError

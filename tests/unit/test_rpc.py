@@ -3,11 +3,22 @@
 Pure standard library: no numpy, PyQt, GL, sockets, or hardware. Several of these also serve as
 regression tests for recent fixes (exception isolation, disconnect detection, multicall clearing).
 """
+import time
+
 import pytest
 
 from stimpack.rpc.util import JSONCoderWithTuple, get_from_dict
-from stimpack.rpc.transceiver import MyTransceiver
+from stimpack.rpc.transceiver import MyTransceiver, MySocketServer, MySocketClient
 from stimpack.rpc.multicall import MyMultiCall
+
+
+def _wait_until(predicate, timeout=5.0, interval=0.01):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return False
 
 pytestmark = pytest.mark.unit
 
@@ -126,3 +137,29 @@ def test_multicall_clears_after_flush():
     mc()
     assert rt.sent[0] == [{"name": "foo", "args": (), "kwargs": {}}]
     assert rt.sent[1] == []
+
+
+# --- reverse channel: server -> client push (server error reporting) -----------------------------
+
+def test_server_can_push_message_to_client_over_socket():
+    # A server pushes a request back to the connected client; the client's reader thread queues it and
+    # process_queue() executes it. This is the channel BaseServer.report_to_client uses to surface
+    # server-side errors in the client/GUI.
+    server = MySocketServer(host="127.0.0.1", port=0, threaded=True, auto_stop=False)
+    port = server.listener.getsockname()[1]
+    client = MySocketClient(host="127.0.0.1", port=port)
+
+    received = []
+    client.register_function(lambda level, text: received.append((level, text)),
+                             name="report_server_message")
+
+    # The server sets its outfile when it accepts the client connection.
+    assert _wait_until(lambda: server.outfile is not None), "server never accepted the client"
+
+    server.write_request_list([{"name": "report_server_message", "args": ["error", "boom"], "kwargs": {}}])
+
+    assert _wait_until(lambda: not client.queue.empty()), "client never received the pushed message"
+    client.process_queue()
+    assert received == [("error", "boom")]
+
+    server.shutdown_flag.set()

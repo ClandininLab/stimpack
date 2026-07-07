@@ -62,3 +62,37 @@ def test_end_epoch_guard_does_not_raise_without_file(tmp_path):
     data.data_directory = str(tmp_path)
     data.experiment_file_name = ""  # no file
     data.end_epoch(_Protocol(stim_params={}))  # must not raise
+
+
+def test_end_epoch_run_records_status_and_reason(tmp_path):
+    data = _make_data(tmp_path)
+    proto = _Protocol(stim_params={"name": "StimA"})
+    proto.num_epochs_completed = 3
+    data.create_epoch_run(proto)
+    data.end_epoch_run(proto, status="aborted", reason="server_connection_lost")
+
+    with h5py.File(tmp_path / "test_experiment.hdf5", "r") as f:
+        series = f["/Subjects/s1/epoch_runs/series_001"]
+        assert series.attrs["run_status"] == "aborted"
+        assert series.attrs["abort_reason"] == "server_connection_lost"
+        assert series.attrs["num_epochs_completed"] == 3
+        assert "run_end_unix_time" in series.attrs
+
+
+def test_end_epoch_run_completed_has_no_reason(tmp_path):
+    data = _make_data(tmp_path)
+    proto = _Protocol(stim_params={"name": "StimA"})
+    data.create_epoch_run(proto)
+    data.end_epoch_run(proto)  # default status='completed'
+
+    with h5py.File(tmp_path / "test_experiment.hdf5", "r") as f:
+        series = f["/Subjects/s1/epoch_runs/series_001"]
+        assert series.attrs["run_status"] == "completed"
+        assert "abort_reason" not in series.attrs
+
+
+def test_end_epoch_run_missing_series_group_is_safe(tmp_path):
+    # If the run never created its series group, annotating the outcome must not raise.
+    data = _make_data(tmp_path)
+    data.series_count = 999  # a series that was never created
+    data.end_epoch_run(_Protocol(stim_params={}), status="error", reason="x")  # must not raise

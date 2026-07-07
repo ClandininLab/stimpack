@@ -120,8 +120,16 @@ class BaseServer(MySocketServer):
             # print(f"Server root node executing: {str(request)}")
             try:
                 function(*args, **kwargs)
-            except Exception:
+            except Exception as e:
                 warnings.warn(f"Error handling root request '{request['name']}':\n{traceback.format_exc()}")
+                self.report_to_client('error', f"error handling '{request['name']}': {type(e).__name__}: {e}")
+
+    def report_to_client(self, level, text):
+        '''
+        Push a message (e.g. an error) back to the connected client, which surfaces it in the GUI and,
+        for level='error', aborts the run. Best-effort: no-ops if no client is connected (outfile is None).
+        '''
+        self.write_request_list([{'name': 'report_server_message', 'args': [level, str(text)], 'kwargs': {}}])
 
     def handle_request_list(self, request_list):
         # pre-process the request list as necessary

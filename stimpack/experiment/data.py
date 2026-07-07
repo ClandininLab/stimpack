@@ -183,6 +183,30 @@ class BaseData():
             epoch_group = epoch_run_group['epoch_{}'.format(str(protocol_object.num_epochs_completed+1).zfill(3))]
             epoch_group.attrs['epoch_end_unix_time'] = epoch_end_unix_time
 
+    def end_epoch_run(self, protocol_object, status='completed', reason=None):
+        """
+        Record the outcome of an epoch run as attributes on its series group.
+
+        There is otherwise no run-completion marker in the file (create_epoch_run only writes a start
+        time), so this also gives every run an end timestamp and a completion status.
+
+        :param status: 'completed' | 'stopped' | 'aborted' | 'error'
+        :param reason: optional short string, saved as 'abort_reason' when the run did not complete normally
+        """
+        if not (self.current_subject_exists() and self.experiment_file_exists()):
+            print('Create a data file and/or define a subject first')
+            return
+        with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
+            series_path = '/Subjects/{}/epoch_runs/series_{}'.format(self.current_subject, str(self.series_count).zfill(3))
+            series_group = experiment_file.get(series_path)
+            if series_group is None:  # run never created its series group (e.g. nothing recorded)
+                return
+            series_group.attrs['run_status'] = status
+            series_group.attrs['run_end_unix_time'] = datetime.now().timestamp()
+            series_group.attrs['num_epochs_completed'] = int(protocol_object.num_epochs_completed)
+            if reason is not None:
+                series_group.attrs['abort_reason'] = str(reason)
+
     def create_note(self, note_text):
         ""
         ""
