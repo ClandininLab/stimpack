@@ -108,6 +108,7 @@ class ExperimentGUI(QWidget):
         # Route server-pushed messages to the GUI thread (see server_message_signal above).
         self.server_message_signal.connect(self.on_server_message_received)
         self.client.on_server_message = self.server_message_signal.emit
+        self._server_error_dialog_open = False  # guards against stacking error dialogs
 
         self.current_ensemble_idx = 0
 
@@ -526,9 +527,17 @@ class ExperimentGUI(QWidget):
     def on_server_message_received(self, level, text):
         '''Runs on the GUI thread (via server_message_signal): surface a message the server pushed back.
 
-        For an 'error' the client also aborts the run (see BaseClient.report_server_message).
+        For an 'error' the client also aborts the run (see BaseClient.report_server_message), so pop a
+        modal alert -- the status label alone is immediately overwritten by run_finished ('Ready'). The
+        guard avoids stacking dialogs if several errors arrive (e.g. one per screen) before teardown.
         '''
         self.status_label.setText(f'[server {level}] {text}')
+        if level == 'error' and not self._server_error_dialog_open:
+            self._server_error_dialog_open = True
+            try:
+                open_message_window(title='Server error', text=text)
+            finally:
+                self._server_error_dialog_open = False
 
     def on_selected_ensemble_protocol_ID(self, text):
         protocol_dropdown_idx = self.ensemble_protocol_selection_combo_box.currentIndex() # - 1 # first item is "select a protocol"
