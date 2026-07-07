@@ -44,6 +44,46 @@ CASES = [
          kwargs=dict(period=30, mean=0.5, contrast=1.0, profile="square"), tol=4.0),
     dict(id="checkerboard", name="Checkerboard",
          kwargs=dict(patch_width=15, patch_height=15), tol=4.0),
+
+    # Perspective / positioning: a patch pushed off-center in azimuth+elevation, and one rotated
+    # in-plane — these catch regressions in the projection / heading math.
+    dict(id="moving_patch_offcenter", name="MovingPatch",
+         kwargs=dict(width=25, height=25, sphere_radius=1, color=[1, 1, 1, 1],
+                     theta=30, phi=20, angle=0), tol=3.0),
+    dict(id="moving_patch_rotated", name="MovingPatch",
+         kwargs=dict(width=45, height=12, sphere_radius=1, color=[1, 1, 1, 1],
+                     theta=0, phi=0, angle=45), tol=3.5),
+
+    # Alternate spherical shape builder.
+    dict(id="moving_ellipse_center", name="MovingEllipse",
+         kwargs=dict(width=45, height=22, sphere_radius=1, color=[1, 1, 1, 1],
+                     theta=0, phi=0, angle=0), tol=3.0),
+
+    # Grating variants: a sine profile (grayscale gradient, vs the square case above) and an angled
+    # grating (exercises the tilted-texture generation path).
+    dict(id="cylindrical_grating_sine", name="CylindricalGrating",
+         kwargs=dict(period=30, mean=0.5, contrast=1.0, profile="sine"), tol=4.0),
+    dict(id="cylindrical_grating_angled", name="CylindricalGrating",
+         kwargs=dict(period=30, mean=0.5, contrast=1.0, profile="square", grating_angle=30), tol=5.0),
+
+    # Time + trajectory evaluation: a looming spot whose radius is a Loom trajectory, rendered at
+    # t=0.7 s — confirms trajectory evaluation (return_for_time_t) feeds the geometry.
+    dict(id="looming_spot", name="MovingSpot",
+         kwargs=dict(radius={"name": "Loom", "rv_ratio": 0.1, "stim_time": 1.0,
+                             "start_size": 10, "end_size": 80},
+                     sphere_radius=1, color=[1, 1, 1, 1], theta=0, phi=0),
+         t=0.7, tol=3.0),
+
+    # Deterministic seeded noise: a fixed start_seed must produce a stable pattern.
+    dict(id="random_grid_seeded", name="RandomGrid",
+         kwargs=dict(patch_width=15, patch_height=15,
+                     distribution_data={"name": "Binary", "rand_min": 0, "rand_max": 1},
+                     start_seed=42, update_rate=1.0), tol=5.0),
+
+    # World-space VR geometry + a non-white color: a red tower in front of the subject.
+    dict(id="tower_world", name="Tower",
+         kwargs=dict(color=[1, 0, 0, 1], cylinder_radius=0.5, cylinder_height=1.0,
+                     cylinder_location=[0, 3, 0], n_faces=32), tol=3.5),
 ]
 
 SUBJECT_AT_ORIGIN = {"x": 0, "y": 0, "z": 0, "theta": 0, "phi": 0, "roll": 0}
