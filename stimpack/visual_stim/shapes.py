@@ -1,5 +1,4 @@
 import numpy as np
-from numpy import matlib
 from math import radians
 from . import util
 
@@ -342,7 +341,7 @@ class GlCylindricalPoints(GlVertices):
             cartesian_coords.append(util.cylindrical_w_phi_to_cartesian(cylinder_radius, radians(theta[pt]), radians(phi[pt])))
 
         vertices = np.vstack(cartesian_coords).T  # 3 x n_points
-        colors = matlib.repmat(color, len(theta), 1).T  # 4 x n_points
+        colors = np.tile(color, (len(theta), 1)).T  # 4 x n_points
 
         super().__init__(vertices=vertices, colors=colors)
 
@@ -360,7 +359,7 @@ class GlSphericalPoints(GlVertices):
             cartesian_coords.append(util.spherical_to_cartesian(sphere_radius, np.pi/2 + radians(theta[pt]), np.pi/2 + radians(phi[pt])))
 
         vertices = np.vstack(cartesian_coords).T  # 3 x n_points
-        colors = matlib.repmat(color, len(theta), 1).T  # 4 x n_points
+        colors = np.tile(color, (len(theta), 1)).T  # 4 x n_points
 
         super().__init__(vertices=vertices, colors=colors)
 
@@ -371,7 +370,7 @@ class GlPointCollection(GlVertices):
         color = util.get_rgba(color)
 
         vertices = np.vstack(locations)  # 3 x n_points
-        colors = matlib.repmat(color, vertices.shape[1], 1).T  # 4 x n_points
+        colors = np.tile(color, (vertices.shape[1], 1)).T  # 4 x n_points
 
         super().__init__(vertices=vertices, colors=colors)
 
