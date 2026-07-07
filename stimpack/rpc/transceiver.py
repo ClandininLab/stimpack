@@ -7,6 +7,16 @@ from json.decoder import JSONDecodeError
 
 from stimpack.rpc.util import start_daemon_thread, stream_is_binary, JSONCoderWithTuple
 
+
+def _disable_nagle(sock):
+    """Disable Nagle's algorithm (TCP_NODELAY) so small RPC messages are sent immediately instead of
+    being buffered for up to ~40 ms waiting for an ACK. Best-effort: ignore sockets that don't support it."""
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except OSError:
+        pass
+
+
 class MyTransceiver:
     """
     Base class for transceivers that can send and receive requests.
@@ -125,6 +135,7 @@ class MySocketClient(MyTransceiver):
         assert port is not None, 'The port must be specified when creating a client.'
 
         conn = socket.create_connection((host, port))
+        _disable_nagle(conn)
 
         # make sure that connection is closed on
         def cleanup():
@@ -258,6 +269,7 @@ class MySocketServer(MyTransceiver):
                 break
 
             print(f'{self.name} accepted connection from {address}.')
+            _disable_nagle(conn)
 
             infile = conn.makefile('r')
             self.outfile = conn.makefile('wb')

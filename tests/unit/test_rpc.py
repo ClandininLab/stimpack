@@ -7,8 +7,10 @@ import time
 
 import pytest
 
+import socket
+
 from stimpack.rpc.util import JSONCoderWithTuple, get_from_dict
-from stimpack.rpc.transceiver import MyTransceiver, MySocketServer, MySocketClient
+from stimpack.rpc.transceiver import MyTransceiver, MySocketServer, MySocketClient, _disable_nagle
 from stimpack.rpc.multicall import MyMultiCall
 
 
@@ -177,6 +179,25 @@ def test_multicall_clears_after_flush():
 
 
 # --- reverse channel: server -> client push (server error reporting) -----------------------------
+
+def test_disable_nagle_sets_tcp_nodelay():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        assert s.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) == 0  # default: Nagle on
+        _disable_nagle(s)
+        assert s.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) == 1  # now off
+    finally:
+        s.close()
+
+
+def test_disable_nagle_is_best_effort_on_bad_socket():
+    # A socket that doesn't support TCP_NODELAY (e.g. UDP) must not raise.
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        _disable_nagle(s)  # must not raise
+    finally:
+        s.close()
+
 
 def test_server_can_push_message_to_client_over_socket():
     # A server pushes a request back to the connected client; the client's reader thread queues it and
