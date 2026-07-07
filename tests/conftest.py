@@ -15,11 +15,22 @@ def pytest_addoption(parser):
         default=False,
         help="Render and (over)write GL reference images instead of comparing against them.",
     )
+    parser.addoption(
+        "--save-renders",
+        action="store_true",
+        default=False,
+        help="Write each GL test's rendered image to tests/gl/_output/ (without touching references).",
+    )
 
 
 @pytest.fixture
 def update_goldens(request):
     return request.config.getoption("--update-goldens")
+
+
+@pytest.fixture
+def save_renders(request):
+    return request.config.getoption("--save-renders")
 
 
 @pytest.fixture

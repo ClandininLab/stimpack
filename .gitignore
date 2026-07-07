@@ -172,3 +172,6 @@ ehthumbs.db
 Thumbs.db
 # GL golden-image test failure artifacts
 tests/gl/_failures/
+
+# GL on-demand render output (--save-renders) and contact sheets
+tests/gl/_output/

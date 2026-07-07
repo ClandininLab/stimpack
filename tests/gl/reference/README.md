@@ -26,6 +26,21 @@ one machine can spuriously fail on another. Generate references with the **softw
 are reproducible everywhere. The comparison uses a small mean-absolute-error tolerance (per case) to
 absorb any remaining minor differences; widen a case's `tol` in `test_stimuli_render.py` if needed.
 
+## Seeing what a run rendered
+
+A passing run compares in memory and writes nothing. To look at the actual renders:
+
+```bash
+# Dump every rendered image to tests/gl/_output/ (does not touch the references):
+pytest -m gl --save-renders
+
+# Assemble a single labeled contact sheet (defaults to the committed references):
+python tests/gl/make_contact_sheet.py                       # -> tests/gl/_output/contact_sheet.png
+python tests/gl/make_contact_sheet.py --from tests/gl/_output   # review a --save-renders run
+```
+
+`tests/gl/_output/` is git-ignored.
+
 ## On failure
 
 Mismatches write `tests/gl/_failures/<case>.actual.png` and `<case>.diff.png` for inspection (CI

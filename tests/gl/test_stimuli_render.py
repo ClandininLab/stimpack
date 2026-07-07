@@ -147,14 +147,21 @@ def _mean_abs_error(a, b):
     return float(np.mean(np.abs(a.astype(np.int16) - b.astype(np.int16))))
 
 
+OUTPUT_DIR = Path(__file__).parent / "_output"
+
+
 @pytest.mark.parametrize("case", CASES, ids=[c["id"] for c in CASES])
-def test_stimulus_matches_reference(case, headless_gl, update_goldens):
+def test_stimulus_matches_reference(case, headless_gl, update_goldens, save_renders):
     Image = pytest.importorskip("PIL.Image")
 
     actual = _render(headless_gl, case["name"], case["kwargs"], t=case.get("t", 0.0))
 
     # Sanity: a stimulus should draw *something* (not leave the frame all black).
     assert actual.max() > 0, f"{case['id']}: rendered frame is entirely black"
+
+    if save_renders:
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(actual).save(OUTPUT_DIR / f"{case['id']}.png")
 
     ref_path = REFERENCE_DIR / f"{case['id']}.png"
 
