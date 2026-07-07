@@ -233,7 +233,7 @@ def load_trigger_device(cfg):
         print('No trigger device defined')
         return None
     else:
-        daq = daq_module_list[0]
+        daq = daq_module_list[0]  # noqa: F841 - referenced by name inside the eval() below
         trigger_device = eval(f'daq.{trigger_device_definition}')
         print(f'Loaded trigger device from {get_module_full_paths(cfg, "daq")[0]}.{trigger_device_definition}')
         return trigger_device

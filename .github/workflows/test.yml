@@ -39,6 +39,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[test]
 
+      - name: Lint (ruff)
+        run: ruff check .
+
       # Fast, dependency-light logic tests — no GL/GUI context needed.
       - name: Unit tests
         run: pytest -m unit

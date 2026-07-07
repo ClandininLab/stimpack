@@ -3,7 +3,6 @@ import socket, select
 import threading
 import json
 import warnings, traceback
-from math import degrees
 from time import time
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -303,8 +302,6 @@ class LocoClosedLoopManager(LocoManager):
     def _parse_line(self, line)->dict[str, float]:
         # TODO: Check line and parse line
 
-        toks = line.split(", ")
-        
         print(f"{self.__class__.__name__}: Please implement __parse_line in the inheriting class!")
 
         x = 0

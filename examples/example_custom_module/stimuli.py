@@ -8,10 +8,7 @@ Each class is is derived from stimpack.visual_stim.base.BaseProgram, which handl
 from PIL import Image
 import numpy as np
 from stimpack.visual_stim.base import BaseProgram
-from stimpack.visual_stim.trajectory import make_as_trajectory, return_for_time_t
 from stimpack.visual_stim import shapes
-from stimpack.visual_stim import util
-import copy
 
 class ShowImage(BaseProgram):
     def __init__(self, screen):

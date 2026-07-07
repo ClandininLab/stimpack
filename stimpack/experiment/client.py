@@ -6,7 +6,7 @@ from time import sleep
 import posixpath
 import warnings
 import traceback
-from typing import Any, Optional
+from typing import Optional
 
 from PyQt6.QtWidgets import QApplication
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import numpy as np
 from stimpack.visual_stim.stim_server import launch_stim_server
 from stimpack.visual_stim.screen import Screen, SubScreen
 

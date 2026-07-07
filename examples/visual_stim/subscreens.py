@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from stimpack.visual_stim.stim_server import launch_stim_server
 from stimpack.visual_stim.screen import Screen, SubScreen
-from stimpack.visual_stim.draw import draw_screens
 from stimpack.rpc.multicall import MyMultiCall
 
 from time import sleep

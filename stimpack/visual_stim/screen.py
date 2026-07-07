@@ -146,7 +146,7 @@ class Screen:
         return Screen(**kwargs)
 
 def main():
-    screen = Screen()
+    Screen()
 
 if __name__ == '__main__':
     main()

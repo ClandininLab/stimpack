@@ -9,3 +9,14 @@ markers = [
     "gl: requires an OpenGL context (run headless under xvfb / a standalone moderngl context)",
     "hardware: requires physical rig hardware (DAQ, projector, tracker) — not run in CI",
 ]
+
+[tool.ruff]
+target-version = "py310"
+# Sphinx conf.py is an exec'd config with framework idioms (path hacks, theme imports) that trip linters.
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+# Conservative, high-signal ruleset to start: pyflakes (undefined names, unused imports/vars,
+# redefinitions, bad f-strings) + syntax errors. Style rules (E/W) can be added once the codebase
+# is cleaned up to them.
+select = ["F", "E9"]

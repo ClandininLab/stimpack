@@ -11,7 +11,7 @@ import sys
 import time
 from enum import Enum
 import warnings
-from typing import Optional, Any
+from typing import Any
 import yaml
 
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
@@ -1511,7 +1511,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName('Stimpack Experiment')
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))
-    ex = ExperimentGUI()
+    ex = ExperimentGUI()  # noqa: F841 - keep a reference so the top-level window isn't garbage-collected
     sys.exit(app.exec())
 
 if __name__ == '__main__':

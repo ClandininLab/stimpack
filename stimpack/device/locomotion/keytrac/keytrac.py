@@ -233,7 +233,7 @@ class KeyTrac(QMainWindow):
         except socket.timeout as e:
             print(e)
             return
-        except socket.error as e:
+        except socket.error:
             # print(e)
             return
 

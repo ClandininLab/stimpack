@@ -25,7 +25,7 @@ setup(
         'scikit-image',
     ],
     extras_require={
-        'test': ['pytest', 'pytest-cov', 'pillow'],  # pillow: read/write GL reference images
+        'test': ['pytest', 'pytest-cov', 'pillow', 'ruff'],  # pillow: GL reference images; ruff: lint
     },
     entry_points={
         'console_scripts': [

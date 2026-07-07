@@ -75,7 +75,6 @@ class KeytracClosedLoopManager(LocoClosedLoopManager):
             return empty_dict
         
         key_count = int(toks[0])
-        key_pressed = toks[1]
         x = float(toks[2])
         y = float(toks[3])
         z = float(toks[4])
