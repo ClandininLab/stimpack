@@ -325,7 +325,7 @@ class StimDisplay(QOpenGLWidget):
 
             if self.append_stim_frames:
                 # grab frame buffer, convert to array, grab blue channel, append to list of stim_frames
-                self.stim_frames.append(util.qimage2ndarray(self.grabFrameBuffer())[:, :, 2])
+                self.stim_frames.append(util.qimage2ndarray(self.grabFramebuffer())[:, :, 2])
                 self.current_time_index += 1
 
     ###########################################
@@ -467,9 +467,9 @@ class StimDisplay(QOpenGLWidget):
 
         :param file_path: full file path of saved array
         """
-        print('shape is {}'.format(len(self.stim_frames)))
-        pre_size = np.stack(self.stim_frames, axis=2).shape
-        mov = downscale_local_mean(np.stack(self.stim_frames, axis=2), factors=(downsample_xy, downsample_xy, 1)).astype('uint8')
+        stack = np.stack(self.stim_frames, axis=2)  # stack once (was built twice)
+        pre_size = stack.shape
+        mov = downscale_local_mean(stack, factors=(downsample_xy, downsample_xy, 1)).astype('uint8')
         np.save(file_path, mov)
         print('Downsampled from {} to {} and saved to {}'.format(pre_size, mov.shape, file_path), flush=True)
 

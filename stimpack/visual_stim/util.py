@@ -51,17 +51,22 @@ def normalize(vec):
     return vec / np.linalg.norm(vec)
 
 def qimage2ndarray(qimage):
-    '''  Converts a QImage into an opencv MAT format  '''
+    '''Convert a QImage to an (H, W, 4) uint8 ndarray in R, G, B, A channel order (an independent copy).'''
+    # Lazy import so this widely-used module stays importable without PyQt6; only the movie-recording
+    # path calls this. Uses the PyQt6 API (Qt5's convertToFormat(int)/byteCount() were removed).
+    from PyQt6.QtGui import QImage
 
-    qimage = qimage.convertToFormat(4)
+    qimage = qimage.convertToFormat(QImage.Format.Format_RGBA8888)  # unambiguous R,G,B,A byte order
 
     width = qimage.width()
     height = qimage.height()
 
     ptr = qimage.bits()
-    ptr.setsize(qimage.byteCount())
-    arr = np.array(ptr).reshape(height, width, 4)  #  Copies the data
-    return arr
+    ptr.setsize(qimage.sizeInBytes())
+    # bytesPerLine may include row padding; reshape to it then trim to width. copy() so the result
+    # does not alias the QImage buffer (freed when qimage goes out of scope).
+    arr = np.frombuffer(ptr, dtype=np.uint8).reshape(height, qimage.bytesPerLine() // 4, 4)
+    return arr[:, :width, :].copy()
 
 # rotation matrix reference:
 # https://en.wikipedia.org/wiki/Rotation_matrix
