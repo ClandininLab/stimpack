@@ -50,6 +50,7 @@ class ExperimentGUI(QWidget):
         # user input to select configuration file and rig name
         # sets self.cfg
         self.cfg = None
+        self.lab_cfg = None
         init_gui_size = None
         dialog = QDialog()
         dialog.setWindowIcon(QtGui.QIcon(ICON_PATH))
@@ -59,6 +60,9 @@ class ExperimentGUI(QWidget):
         if init_gui_size is not None:
             dialog.setFixedSize(*init_gui_size)
         dialog.exec()
+
+        if self.lab_cfg != None:
+            self.cfg = config_tools.merge_configs(self.lab_cfg, self.cfg)
 
         # No config file selected, exit
         if self.cfg is None:
@@ -1114,7 +1118,9 @@ class InitializeRigGUI(QWidget):
         self.experiment_gui_object = experiment_gui_object
 
         self.cfg_name = None
+        self.lab_cfg_name = 'lab_config.yaml'
         self.cfg = None
+        self.lab_cfg = None
         self.available_rig_configs = []
     
         # self.layout = QFormLayout()
@@ -1197,6 +1203,13 @@ class InitializeRigGUI(QWidget):
     def on_selected_config(self):
         self.cfg_name = self.config_combobox.currentText()
         self.cfg = config_tools.get_configuration_file(self.cfg_name, self.labpack_dir)
+
+        # select lab_cfg if available
+        if os.path.exists(os.path.join(self.labpack_dir, 'configs', self.lab_cfg_name)):
+            self.lab_cfg = config_tools.get_configuration_file(self.lab_cfg_name, self.labpack_dir)
+            # print(self.lab_cfg)
+        else:
+            self.lab_cfg = None
         self.available_rig_configs = config_tools.get_available_rig_configs(self.cfg)
         self.update_available_rigs()
         self.show()
@@ -1208,6 +1221,7 @@ class InitializeRigGUI(QWidget):
 
         # Pass cfg up to experiment GUI object
         self.experiment_gui_object.cfg = self.cfg
+        self.experiment_gui_object.lab_cfg = self.lab_cfg
 
         self.close()
         self.parent.close()

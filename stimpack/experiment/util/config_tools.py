@@ -3,6 +3,7 @@ import glob
 from platformdirs import user_config_dir
 import yaml
 import sys
+from deepmerge import Merger
 from importlib.util import spec_from_file_location, module_from_spec
 
 def get_stimpack_config_directory(ensure_exists=True):
@@ -28,6 +29,26 @@ def set_labpack_directory(path):
         text_file.write(path)
 
 # %% Functions for finding and loading user configuration files
+
+def merge_configs(cfg1, cfg2):
+    my_merger = Merger(
+    # pass in a list of tuple, with the
+    # strategies you are looking to apply
+    # to each type.
+    [
+        (list, ["append_unique"]), # For lists: append new items, but only if they are unique
+        (dict, ["merge"]), # For dictionaries: deep merge them
+    ],
+    # next, choose the fallback strategies,
+    # applied to all other types:
+    ["override"],
+    # finally, choose the strategies in
+    # the case where the types conflict:
+    ["override"]
+    )
+
+    merged = my_merger.merge(cfg1, cfg2)
+    return merged
 
 def get_default_config():
     return {'experimenter': 'JohnDoe',
@@ -55,6 +76,8 @@ def get_available_config_files(labpack_dir=None):
         cfg_names = [os.path.split(f)[1] for f in glob.glob(os.path.join(labpack_dir, 'configs', '*.yaml'))]
     else:
         cfg_names = []
+
+    cfg_names = [x for x in cfg_names if x != 'lab_config.yaml']
         
     return cfg_names
 
