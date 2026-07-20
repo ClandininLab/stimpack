@@ -12,6 +12,7 @@ setup(
         'numpy',
         'scipy',
         'pandas',
+        'deepmerge',
         'matplotlib',
         'pynwb',
         'platformdirs',
