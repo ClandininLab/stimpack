@@ -61,10 +61,6 @@ class MyTransceiver:
         # optional callback(level, text) used to bubble handler errors toward the client (set by owners)
         self.error_reporter = None
 
-        # Modules the peer server advertised on connect (a set), or None if it never told us -- e.g.
-        # an older server. Initialized here on purpose: without a real attribute, __getattr__ would
-        # turn `manager.available_modules` into an RPC stub instead of returning None.
-        self.available_modules = None
 
         # create shutdown flag
         self.shutdown_flag = Event()
@@ -76,9 +72,6 @@ class MyTransceiver:
         # register shutdown function
         self.register_function(shutdown)
 
-        # Accept a server's module advertisement out of the box, so any client -- not just
-        # BaseClient -- can receive it without the message looking like an unknown function.
-        self.register_function(self._set_available_modules, name='report_server_modules')
 
     def register_function(self, function, name=None):
         if name is None:
@@ -140,10 +133,6 @@ class MyTransceiver:
                 warnings.warn(f"Request '{request}' is not a valid request.")
                 self._report_error(f"malformed request: {request!r}")
 
-    def _set_available_modules(self, modules):
-        '''Record the modules the peer server advertised (see BaseServer.on_connection_open).'''
-        self.available_modules = set(modules)
-
     def _report_error(self, text):
         '''Bubble an error toward the client via error_reporter, if one is set. Best-effort.'''
         if self.error_reporter is not None:
@@ -178,6 +167,14 @@ class MySocketClient(MyTransceiver):
 
         assert port is not None, 'The port must be specified when creating a client.'
 
+        # Modules the server advertised on connect (a set), or None if it never told us -- e.g. an
+        # older server. A real attribute, so __getattr__ can't turn it into an RPC stub.
+        self.available_modules = None
+        # Only a client receives this, so handle it here rather than on every transceiver. Doing so
+        # means any client -- not just BaseClient -- accepts the advertisement instead of treating
+        # it as an unknown function.
+        self.register_function(self._set_available_modules, name='report_server_modules')
+
         conn = socket.create_connection((host, port))
         _disable_nagle(conn)
 
@@ -195,6 +192,10 @@ class MySocketClient(MyTransceiver):
         self.outfile = conn.makefile('wb')
 
         start_daemon_thread(self.loop)
+
+    def _set_available_modules(self, modules):
+        '''Record the modules the server advertised (see BaseServer.on_connection_open).'''
+        self.available_modules = set(modules)
 
     def __getattr__(self, name: str) -> Callable[..., None]:
         reject_private_attribute(name)

@@ -280,9 +280,11 @@ class BaseProtocol():
         self.epoch_protocol_parameters = {}
 
         # Pick up what the server said it can do, so has_module() is usable from here on -- including
-        # inside precompute_epoch_parameters below.
+        # inside precompute_epoch_parameters below. Read through __dict__: only a client tracks this,
+        # and a plain attribute access on another transceiver would return an RPC stub via
+        # __getattr__ rather than falling back.
         if manager is not None:
-            self.available_modules = manager.available_modules
+            self.available_modules = vars(manager).get('available_modules')
 
         # Process input parameters and set persistent parameters prior to epoch run loop
         self.process_input_parameters()

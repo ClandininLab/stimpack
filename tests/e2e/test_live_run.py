@@ -123,6 +123,9 @@ def test_live_run_aborts_when_the_protocol_asks_for_a_bad_stimulus(live_client, 
     """A protocol naming a nonexistent stimulus (the ServerErrorDemo scenario) aborts the run."""
     protocol = LiveProtocol(cfg={})
     protocol.stim_name = 'NoSuchStimulus_E2E_Run'
+    # More epochs = more between-epoch checkpoints at which the error can be noticed. The run aborts
+    # at the first one, so this doesn't slow the passing case; it only removes the race.
+    protocol.run_parameters['num_epochs'] = 4
     # The error has to cross three processes (screen -> VisualStimServer -> BaseServer -> client)
     # before the client's next between-epoch check. Give epoch 0 a comfortably longer duration than
     # that propagation takes, so the assertion isn't racing it.
