@@ -78,6 +78,11 @@ class BaseProtocol():
         # Rig-specific loco_available
         self.loco_available = config_tools.get_loco_available(self.cfg)
 
+        # Rig-specific daq_available. Lets one protocol run on rigs with and without opto/trigger
+        # hardware: guard the daq calls with `if self.daq_available and <opto requested>:` rather
+        # than maintaining a separate protocol per rig.
+        self.daq_available = config_tools.get_daq_available(self.cfg)
+
     def adjust_center(self, relative_center):
         absolute_center = [sum(x) for x in zip(relative_center, self.screen_center)]
         return absolute_center

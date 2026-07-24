@@ -318,5 +318,19 @@ def get_loco_available(cfg):
         loco_available = True
     return loco_available
 
+def get_daq_available(cfg):
+    """Whether the selected rig has DAQ hardware (for triggering / opto).
+
+    Mirrors get_loco_available, so one protocol can run on rigs with and without opto: guard the
+    opto calls with `if self.daq_available and <opto requested>:` and set `daq_available: False` in
+    the rig config for rigs that have none. Defaults to True, so existing configs are unaffected.
+    """
+    if 'current_rig_name' in cfg:
+        daq_available = ((cfg.get('rig_config') or {}).get(cfg.get('current_rig_name')) or {}).get('daq_available', True)
+    else:
+        print('No rig selected, assuming DAQ is available')
+        daq_available = True
+    return daq_available
+
 def get_experimenter(cfg):
     return cfg.get('experimenter', '')
