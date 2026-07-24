@@ -123,6 +123,11 @@ def test_live_run_aborts_when_the_protocol_asks_for_a_bad_stimulus(live_client, 
     """A protocol naming a nonexistent stimulus (the ServerErrorDemo scenario) aborts the run."""
     protocol = LiveProtocol(cfg={})
     protocol.stim_name = 'NoSuchStimulus_E2E_Run'
+    # The error has to cross three processes (screen -> VisualStimServer -> BaseServer -> client)
+    # before the client's next between-epoch check. Give epoch 0 a comfortably longer duration than
+    # that propagation takes, so the assertion isn't racing it.
+    protocol.protocol_parameters = {'pre_time': 0.4, 'stim_time': 0.4, 'tail_time': 0.1,
+                                    'radius': [10.0, 20.0]}
 
     with pytest.warns(UserWarning):
         live_client.start_run(protocol, live_data, save_metadata_flag=True)

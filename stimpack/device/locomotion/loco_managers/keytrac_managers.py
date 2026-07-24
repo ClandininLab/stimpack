@@ -10,14 +10,17 @@ PYTHON_BIN =   'python'
 KEYTRAC_PY =   'keytrac.py'
 
 class KeytracManager(LocoManager):
-    def __init__(self, python_bin=PYTHON_BIN, kt_py_fn=KEYTRAC_PY, relative_control=True, start_at_init=True, verbose=False):
+    def __init__(self, python_bin=PYTHON_BIN, kt_py_fn=KEYTRAC_PY, host=KEYTRAC_HOST, port=KEYTRAC_PORT,
+                 relative_control=True, start_at_init=True, verbose=False):
         super().__init__(verbose=verbose)
-        
+
         self.python_bin = python_bin
         self.kt_py_fn = kt_py_fn
         self.relative_control = relative_control
-        self.keytrac_host = KEYTRAC_HOST
-        self.keytrac_port = KEYTRAC_PORT
+        # Where the launched KeyTrac process sends its state to. Must match the socket the
+        # LocoClosedLoopManager binds, so this is passed in rather than hardcoded to the default.
+        self.keytrac_host = host
+        self.keytrac_port = port
 
         self.started = False
 
@@ -52,7 +55,9 @@ class KeytracClosedLoopManager(LocoClosedLoopManager):
                        python_bin=PYTHON_BIN, kt_py_fn=KEYTRAC_PY, 
                        relative_control=True, start_at_init=False, udp=True):
         super().__init__(stim_server=stim_server, host=host, port=port, save_directory=None, start_at_init=False, udp=udp)
-        self.kt_manager = KeytracManager(python_bin=python_bin, kt_py_fn=kt_py_fn, relative_control=relative_control, start_at_init=False)
+        self.kt_manager = KeytracManager(python_bin=python_bin, kt_py_fn=kt_py_fn,
+                                         host=host, port=port,
+                                         relative_control=relative_control, start_at_init=False)
 
         if start_at_init:    self.start()
 

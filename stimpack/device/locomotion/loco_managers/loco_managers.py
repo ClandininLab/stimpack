@@ -237,7 +237,8 @@ class LocoClosedLoopManager(LocoManager):
             'update_z': True,
             'update_theta': True,
             'update_phi': False,
-            'update_roll': False
+            'update_roll': False,
+            'wait_for': 0.1     # seconds; bounds how long the loop blocks on a read (see loop_start)
         }
 
         self.loop_custom_fxn = None
@@ -426,12 +427,23 @@ class LocoClosedLoopManager(LocoManager):
             update_y=True, 
             update_z=True, 
             update_theta=True, 
-            update_phi=False, 
-            update_roll=False, 
-            return_pos=False
+            update_phi=False,
+            update_roll=False,
+            return_pos=False,
+            wait_for=None
         ):
-        data = self.get_data()
-        
+        '''
+        wait_for: how long to wait for a new reading (None = block until one arrives). If no reading
+                  is available, the position is left unchanged and nothing is forwarded.
+        '''
+        data = self.get_data(wait_for=wait_for)
+
+        if not data:
+            # No new reading (timed out, or the socket was closed). Do NOT fall through: the
+            # data.get(..., 0) defaults below would fabricate a position of -pos_0 and push that to
+            # the renderer, teleporting the subject.
+            return self.pos.copy() if return_pos else None
+
         self.pos['x']     = float(data.get('x',     0)) - self.pos_0['x']
         self.pos['y']     = float(data.get('y',     0)) - self.pos_0['y']
         self.pos['z']     = float(data.get('z',     0)) - self.pos_0['z']
@@ -463,20 +475,25 @@ class LocoClosedLoopManager(LocoManager):
                 # Isolate per-iteration errors so a single malformed datagram does not permanently
                 # and silently stop closed-loop updates for the rest of the run.
                 try:
+                    # Use a finite wait so the thread notices loop_stop() promptly instead of sitting
+                    # in a blocking read until the next datagram (which stalled close/teardown).
+                    wait_for = self.loop_attrs['wait_for']
                     if self.loop_attrs['closed_loop']:
                         self.update_pos(update_x     = self.loop_attrs['update_x'],
                                         update_y     = self.loop_attrs['update_y'],
                                         update_z     = self.loop_attrs['update_z'],
                                         update_theta = self.loop_attrs['update_theta'],
                                         update_phi   = self.loop_attrs['update_phi'],
-                                        update_roll  = self.loop_attrs['update_roll'])
+                                        update_roll  = self.loop_attrs['update_roll'],
+                                        wait_for     = wait_for)
                     else:
                         self.update_pos(update_x     = False,
                                         update_y     = False,
                                         update_z     = False,
                                         update_theta = False,
                                         update_phi   = False,
-                                        update_roll  = False)
+                                        update_roll  = False,
+                                        wait_for     = wait_for)
 
                     if self.loop_custom_fxn is not None:
                         self.loop_custom_fxn(self.pos)
