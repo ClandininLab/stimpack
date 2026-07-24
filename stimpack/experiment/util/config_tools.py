@@ -97,7 +97,49 @@ def get_configuration_file(cfg_name: str, labpack_dir: Optional[str] = None) -> 
     else:
         cfg = get_default_config()
 
+    warn_about_legacy_config_keys(cfg, cfg_name)
+
     return cfg
+
+
+# Keys that stimpack used to honor but no longer reads. A config still carrying one of these looks
+# fine and loads fine, but the setting is silently ignored -- so warn loudly instead.
+LEGACY_CONFIG_KEYS = {
+    'visual_stim_module_paths': (
+        "custom stimulus modules are no longer read from server_options; move them to "
+        "module_paths.visual_stim (a list of directories), or the stimuli will never be loaded on "
+        "the server and referencing them fails with '0 stimulus candidates found'"),
+    'disp_server_id': (
+        "no longer read; select the display with the Screen's display_index / x_display in your "
+        "rig server script"),
+}
+
+
+def warn_about_legacy_config_keys(cfg, cfg_name: str = '') -> list[str]:
+    """Warn about config keys stimpack no longer reads. Returns the legacy keys found.
+
+    These are silent failures otherwise: the YAML parses, the run starts, and the setting simply has
+    no effect.
+    """
+    found = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in LEGACY_CONFIG_KEYS:
+                    found.append(key)
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(cfg)
+
+    where = f' in {cfg_name}' if cfg_name else ''
+    for key in dict.fromkeys(found):     # de-duplicated, order preserved
+        warnings.warn(f"Config key '{key}'{where} is no longer used by stimpack: "
+                      f"{LEGACY_CONFIG_KEYS[key]}.")
+    return found
 
 # %% Functions for pulling stuff out of the config dictionary
 

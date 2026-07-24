@@ -30,6 +30,25 @@ def test_rig_getters_tolerate_missing_rig_config():
     assert config_tools.get_available_rig_configs({}) == []
 
 
+def test_legacy_config_key_is_reported():
+    # A config still listing custom stimuli under server_options.visual_stim_module_paths parses and
+    # runs fine, but stimpack never reads that key — so the stimuli are silently never loaded.
+    cfg = {'rig_config': {'r1': {'server_options': {
+        'use_remote_server': True,
+        'visual_stim_module_paths': ['/some/path/visual_stim/mylab']}}}}
+
+    with pytest.warns(UserWarning, match='module_paths.visual_stim'):
+        found = config_tools.warn_about_legacy_config_keys(cfg, 'mylab_config.yaml')
+
+    assert found == ['visual_stim_module_paths']
+
+
+def test_current_config_produces_no_legacy_warning():
+    cfg = {'module_paths': {'visual_stim': ['labpack/visual_stim/example']},
+           'rig_config': {'r1': {'server_options': {'use_remote_server': False}}}}
+    assert config_tools.warn_about_legacy_config_keys(cfg) == []
+
+
 def test_rig_getters_read_present_values():
     cfg = {"current_rig_name": "rig1",
            "rig_config": {"rig1": {"screen_center": [5, -5], "loco_available": False}}}
