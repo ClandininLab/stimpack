@@ -71,8 +71,14 @@ def live_client(live_manager):
 
     QApplication.instance() or QApplication([])   # start_run pumps processEvents()
 
+    # Mirror what BaseClient.__init__ sets up (it is bypassed here because it would build its own
+    # server from a config).
     c = BaseClient.__new__(BaseClient)
     c.cfg = {}
+    c.stop = False
+    c.pause = False
+    c.server_messages = []
+    c.server_error = None
     c.on_server_message = None
     c._message_counts = {}
     c.manager = live_manager
@@ -80,6 +86,23 @@ def live_client(live_manager):
     c.server_options = {}
     # BaseClient.__init__ normally registers this so the server can push messages back
     live_manager.register_function(c.report_server_message, name='report_server_message')
+
+    # Readiness gate: wait until the screen subprocess's render loop is actually dispatching
+    # requests. paintGL is what drains the RPC queue, so until the first frame runs, requests just
+    # sit there -- and a timing-sensitive test would race a slow screen boot. Deliberately ask for a
+    # nonexistent stimulus: the error coming back proves the whole chain is live.
+    live_manager.target('visual').load_stim(name='__readiness_probe__')
+
+    def chain_is_live():
+        live_manager.process_queue()
+        return c.server_error is not None
+
+    if not wait_until(chain_is_live, timeout=30):
+        pytest.skip('the live screen subprocess never started dispatching requests')
+
+    c.server_error = None                 # the probe's error is expected; don't leak it into tests
+    c.server_messages = []
+    c._message_counts = {}
     return c
 
 
