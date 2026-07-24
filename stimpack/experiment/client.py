@@ -100,7 +100,6 @@ class BaseClient():
 
         # Let the server push warnings/errors back to us; delivered when we drain the queue (run loop).
         self.manager.register_function(self.report_server_message, name='report_server_message')
-        self.manager.register_function(self._receive_server_modules, name='report_server_modules')
 
         # The server advertises its modules as soon as it accepts the connection, but that message
         # only takes effect once we drain the queue. Wait briefly for it here so protocols can rely
@@ -145,9 +144,6 @@ class BaseClient():
         """Modules the server advertised ('visual', 'locomotion', 'voltage_out', ...), or None if it
         never told us (an older server). See BaseProtocol.has_module."""
         return self.manager.available_modules
-
-    def _receive_server_modules(self, modules):
-        self.manager.available_modules = set(modules)
 
     def report_server_message(self, level, text):
         """Handle a message pushed back from the server (run via manager.process_queue()).

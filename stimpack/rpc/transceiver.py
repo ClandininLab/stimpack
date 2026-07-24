@@ -76,6 +76,10 @@ class MyTransceiver:
         # register shutdown function
         self.register_function(shutdown)
 
+        # Accept a server's module advertisement out of the box, so any client -- not just
+        # BaseClient -- can receive it without the message looking like an unknown function.
+        self.register_function(self._set_available_modules, name='report_server_modules')
+
     def register_function(self, function, name=None):
         if name is None:
             name = function.__name__
@@ -135,6 +139,10 @@ class MyTransceiver:
             else:
                 warnings.warn(f"Request '{request}' is not a valid request.")
                 self._report_error(f"malformed request: {request!r}")
+
+    def _set_available_modules(self, modules):
+        '''Record the modules the peer server advertised (see BaseServer.on_connection_open).'''
+        self.available_modules = set(modules)
 
     def _report_error(self, text):
         '''Bubble an error toward the client via error_reporter, if one is set. Best-effort.'''
