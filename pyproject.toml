@@ -10,6 +10,7 @@ markers = [
     "gl: requires an OpenGL context (run headless under xvfb / a standalone moderngl context)",
     "integration: drives real stimpack objects (client/protocol/data) over a fake RPC link; no hardware",
     "gui: drives the PyQt6 GUI headlessly (QT_QPA_PLATFORM=offscreen)",
+    "e2e: end-to-end against a LIVE server with real screen subprocesses (needs headless GL)",
     "hardware: requires physical rig hardware (DAQ, projector, tracker) — not run in CI",
 ]
 

@@ -1,5 +1,5 @@
 import platform, os, warnings, traceback
-from time import time
+from time import time, sleep
 
 import stimpack.visual_stim.framework
 from stimpack.visual_stim.screen import Screen
@@ -7,7 +7,7 @@ from stimpack import util
 
 from stimpack.rpc.transceiver import MySocketServer
 from stimpack.rpc.launch import launch_server
-from stimpack.rpc.util import get_kwargs, get_from_dict
+from stimpack.rpc.util import get_kwargs, get_from_dict, start_daemon_thread
 
 from stimpack.visual_stim.shared_pixmap import SharedPixMapStimulus
 
@@ -84,9 +84,14 @@ class VisualStimServer(MySocketServer):
         self.screen_managers = [launch_screen(screen=screen, other_stim_module_paths=other_stim_module_paths, **kwargs) for screen in screens]
 
         # Let each screen subprocess bubble its errors up to us (and thence to the client). The screen
-        # pushes a 'report_server_message' back on its socket; we drain it in handle_request_list.
+        # pushes a 'report_server_message' back on its socket, which we drain below.
         for screen_manager in self.screen_managers:
             screen_manager.register_function(self._forward_screen_message, name='report_server_message')
+
+        # Screen replies arrive asynchronously, so draining only when a new request comes in would
+        # strand a message (forever, if no further requests follow). Pump the screen queues on a
+        # background thread so screen-side errors propagate promptly regardless of traffic.
+        start_daemon_thread(self._pump_screen_messages)
 
         self.corner_square_toggle_stop()
         self.corner_square_off()
@@ -150,6 +155,16 @@ class VisualStimServer(MySocketServer):
         # Drain any messages the screens pushed back (e.g. handler errors) and forward them upward.
         for screen_manager in self.screen_managers:
             screen_manager.process_queue()
+
+    def _pump_screen_messages(self, interval=0.05):
+        '''Continuously drain the screen subprocesses' inbound queues (see __init__).'''
+        while not self.shutdown_flag.is_set():
+            for screen_manager in self.screen_managers:
+                try:
+                    screen_manager.process_queue()
+                except Exception:
+                    pass
+            sleep(interval)
 
     def _forward_screen_message(self, level, text):
         '''Forward a message a screen subprocess pushed back up toward the client.'''
