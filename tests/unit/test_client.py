@@ -21,6 +21,7 @@ def _bare_client():
     c.server_messages = []
     c.server_error = None
     c.on_server_message = None
+    c._message_counts = {}
     return c
 
 

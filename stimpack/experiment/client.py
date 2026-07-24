@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os, sys
+import time
 from time import sleep
 import posixpath
 import warnings
@@ -38,6 +39,7 @@ class BaseClient():
         self.server_messages:list = []
         self.server_error:Optional[str] = None      # set when the server reports an error; aborts the run
         self.on_server_message = None               # optional callback(level, text), e.g. a GUI status hook
+        self._message_counts:dict = {}              # (level, text) -> times seen; used to deduplicate
 
         # # # Load server options from config file and selections # # #
         self.server_options = config_tools.get_server_options(self.cfg)
@@ -98,6 +100,18 @@ class BaseClient():
 
         # Let the server push warnings/errors back to us; delivered when we drain the queue (run loop).
         self.manager.register_function(self.report_server_message, name='report_server_message')
+        self.manager.register_function(self._receive_server_modules, name='report_server_modules')
+
+        # The server advertises its modules as soon as it accepts the connection, but that message
+        # only takes effect once we drain the queue. Wait briefly for it here so protocols can rely
+        # on has_module() everywhere -- including precompute, which runs before the run loop starts
+        # draining. Normally this returns on the first pass; the cap only matters against a server
+        # that never advertises (an older stimpack), where available_modules stays None and
+        # has_module() answers True, i.e. exactly the previous behavior.
+        deadline = time.time() + 1.0
+        while self.manager.available_modules is None and time.time() < deadline:
+            self.manager.process_queue()
+            sleep(0.01)
 
         self.manager.target('visual').corner_square_toggle_stop()
         self.manager.target('visual').corner_square_off()
@@ -126,15 +140,34 @@ class BaseClient():
         self.pause = False
         QApplication.processEvents()
 
+    @property
+    def available_modules(self):
+        """Modules the server advertised ('visual', 'locomotion', 'voltage_out', ...), or None if it
+        never told us (an older server). See BaseProtocol.has_module."""
+        return self.manager.available_modules
+
+    def _receive_server_modules(self, modules):
+        self.manager.available_modules = set(modules)
+
     def report_server_message(self, level, text):
         """Handle a message pushed back from the server (run via manager.process_queue()).
 
         level: 'info' | 'warning' | 'error'. An 'error' marks the current run to be aborted.
+
+        Repeats are counted but surfaced only once per run: a per-epoch condition would otherwise
+        emit the same line hundreds of times, burying anything that matters (and growing
+        server_messages without bound).
         """
+        if level == 'error':
+            self.server_error = text        # always, even on a repeat: this aborts the run
+
+        key = (level, text)
+        self._message_counts[key] = self._message_counts.get(key, 0) + 1
+        if self._message_counts[key] > 1:
+            return                          # already surfaced this exact message during this run
+
         self.server_messages.append((level, text))
         print(f"[server:{level}] {text}")
-        if level == 'error':
-            self.server_error = text
         if self.on_server_message is not None:
             try:
                 self.on_server_message(level, text)
@@ -150,6 +183,7 @@ class BaseClient():
         self.stop = False
         self.pause = False
         self.server_error = None
+        self._message_counts = {}       # dedupe is per run, so a recurring issue is reported again
         protocol_object.save_metadata_flag = save_metadata_flag
 
         # Check run parameters, compute persistent parameters, and precompute epoch parameters
@@ -226,6 +260,11 @@ class BaseClient():
             # Stop locomotion device / software
             if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
                 self.stop_loco()
+
+            # Note how often each deduplicated server message actually occurred.
+            for (level, text), count in self._message_counts.items():
+                if count > 1:
+                    print(f"[server:{level}] (occurred {count}x this run) {text}")
 
             # Record the outcome of this run in the data file.
             if save_metadata_flag:

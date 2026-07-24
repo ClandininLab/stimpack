@@ -38,6 +38,7 @@ def client(fake_manager, qapp):
     c.server_messages = []
     c.server_error = None
     c.on_server_message = None
+    c._message_counts = {}
     c.manager = fake_manager
     c.trigger_device = None
     c.server_options = {}

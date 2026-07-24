@@ -61,6 +61,11 @@ class MyTransceiver:
         # optional callback(level, text) used to bubble handler errors toward the client (set by owners)
         self.error_reporter = None
 
+        # Modules the peer server advertised on connect (a set), or None if it never told us -- e.g.
+        # an older server. Initialized here on purpose: without a real attribute, __getattr__ would
+        # turn `manager.available_modules` into an RPC stub instead of returning None.
+        self.available_modules = None
+
         # create shutdown flag
         self.shutdown_flag = Event()
 
@@ -313,6 +318,9 @@ class MySocketServer(MyTransceiver):
             infile = conn.makefile('r')
             self.outfile = conn.makefile('wb')
 
+            # outfile is now live, so the server can push to this client (e.g. advertise its modules)
+            self.on_connection_open()
+
             try:
                 for line in infile:
                     try:
@@ -332,6 +340,13 @@ class MySocketServer(MyTransceiver):
 
             if self.auto_stop:
                 self.shutdown_flag.set()
+
+    def on_connection_open(self):
+        '''
+        Called once a client has connected and self.outfile is live, so the server can push
+        something to it immediately. Hook for subclasses (BaseServer advertises its modules here).
+        '''
+        pass
 
     def on_connection_close(self):
         '''

@@ -74,6 +74,7 @@ def live_client(live_manager):
     c = BaseClient.__new__(BaseClient)
     c.cfg = {}
     c.on_server_message = None
+    c._message_counts = {}
     c.manager = live_manager
     c.trigger_device = None
     c.server_options = {}
@@ -95,6 +96,7 @@ def _reset_live_state(request):
         client.pause = False
         client.server_error = None
         client.server_messages = []
+        client._message_counts = {}
     if 'live_manager' in request.fixturenames:
         manager = request.getfixturevalue('live_manager')
         manager.connection_broken = False

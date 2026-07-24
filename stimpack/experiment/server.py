@@ -13,6 +13,13 @@ from stimpack.experiment.util import config_tools
 
 from stimpack.util import ROOT_DIR
 
+# Retired module target names -> the canonical name. 'daq' named the device category; 'voltage_out'
+# names the capability (optogenetics, odor, reward, shock, ... are all voltage out), which is how the
+# architecture is described. Requests using an old name are still routed, so existing labpack
+# protocols calling target('daq') keep working.
+MODULE_ALIASES = {'daq': 'voltage_out'}
+
+
 class BaseServer(MySocketServer):
     def __init__(self,
                  host: str = '127.0.0.1',
@@ -55,11 +62,13 @@ class BaseServer(MySocketServer):
             self.modules['locomotion'] = loco_class(stim_server=self, start_at_init=False, **loco_kwargs)
         ### Locomotion manager ###
 
-        ### DAQ manager ###
+        ### Voltage out manager (a DAQ device: opto, odor, reward, trigger, ...) ###
         if daq_class is not None:
             assert issubclass(daq_class, DAQ)
-            self.modules['daq'] = daq_class(**daq_kwargs)
-        ### DAQ manager ###
+            self.modules['voltage_out'] = daq_class(**daq_kwargs)
+        ### Voltage out manager ###
+
+        self._warned_module_aliases = set()   # so a retired target name warns once, not per call
 
         # Let each module bubble its handler errors back to the client (surfaced in the GUI; aborts the run).
         for module in self.modules.values():
@@ -140,6 +149,15 @@ class BaseServer(MySocketServer):
                 warnings.warn(f"Error handling root request '{request['name']}':\n{traceback.format_exc()}")
                 self.report_to_client('error', f"error handling '{request['name']}': {type(e).__name__}: {e}")
 
+    def on_connection_open(self):
+        '''
+        Tell the freshly-connected client which modules this server has, so protocols can adapt to
+        the rig instead of assuming its hardware (see BaseProtocol.has_module). Generic on purpose:
+        it reports whatever modules exist, rather than any particular capability flag.
+        '''
+        self.write_request_list([{'name': 'report_server_modules',
+                                  'args': [sorted(self.modules)], 'kwargs': {}}])
+
     def report_to_client(self, level, text):
         '''
         Push a message (e.g. an error) back to the connected client, which surfaces it in the GUI and,
@@ -172,6 +190,15 @@ class BaseServer(MySocketServer):
                     request['target'] = 'root'
                 if 'kwargs' not in request:
                     request['kwargs'] = {}
+
+                # Normalize retired target names (e.g. 'daq' -> 'voltage_out'), warning once each.
+                target = request['target']
+                if target in MODULE_ALIASES:
+                    request['target'] = MODULE_ALIASES[target]
+                    if target not in self._warned_module_aliases:
+                        self._warned_module_aliases.add(target)
+                        warnings.warn(f"target('{target}') is deprecated; use "
+                                      f"target('{MODULE_ALIASES[target]}').")
 
         # A request addressed to a module this server doesn't have (e.g. an opto call on a rig with
         # no daq_class, or a typo'd target) matches nothing in the loop below, and would otherwise be

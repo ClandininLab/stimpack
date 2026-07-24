@@ -63,12 +63,12 @@ class DAQonServer(DAQ):
 
     def send_trigger(self, multicall:Optional[MyMultiCall]=None, **kwargs):
         if multicall is not None and isinstance(multicall, MyMultiCall):
-            multicall.target('daq').send_trigger(**kwargs)
+            multicall.target('voltage_out').send_trigger(**kwargs)
         if self.manager is not None:
-            self.manager.target('daq').send_trigger(**kwargs)
+            self.manager.target('voltage_out').send_trigger(**kwargs)
 
     def output_step(self, multicall:Optional[MyMultiCall]=None, **kwargs):
         if multicall is not None and isinstance(multicall, MyMultiCall):
-            multicall.target('daq').output_step(**kwargs)
+            multicall.target('voltage_out').output_step(**kwargs)
         if self.manager is not None:
-            self.manager.target('daq').output_step(**kwargs)
+            self.manager.target('voltage_out').output_step(**kwargs)

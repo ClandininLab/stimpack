@@ -78,10 +78,29 @@ class BaseProtocol():
         # Rig-specific loco_available
         self.loco_available = config_tools.get_loco_available(self.cfg)
 
-        # Rig-specific daq_available. Lets one protocol run on rigs with and without opto/trigger
-        # hardware: guard the daq calls with `if self.daq_available and <opto requested>:` rather
-        # than maintaining a separate protocol per rig.
-        self.daq_available = config_tools.get_daq_available(self.cfg)
+        # Modules the server advertised, filled in by prepare_run. None until then / for a server
+        # that doesn't advertise. See has_module().
+        self.available_modules = None
+
+
+    def has_module(self, module_name):
+        """Whether the connected server has this module ('visual', 'locomotion', 'voltage_out', ...).
+
+        Lets one protocol run on rigs with different hardware instead of keeping a copy per rig:
+
+            if self.has_module('voltage_out') and self.epoch_protocol_parameters['opto_amp'] > 0:
+                multicall.target('voltage_out').setup_pulse_wave_stream_out(...)
+
+        Answers True when the server didn't advertise its modules (an older stimpack), so this is
+        safe to adopt: behavior is unchanged until the server actually reports.
+
+        Note this says the rig can output voltage -- not what is wired to it. Whether an LED, odor
+        valve or reward pump is attached, and on which channel, is lab-specific: put that in your
+        own rig_config keys and read it in your labpack protocol.
+        """
+        if self.available_modules is None:
+            return True
+        return module_name in self.available_modules
 
     def adjust_center(self, relative_center):
         absolute_center = [sum(x) for x in zip(relative_center, self.screen_center)]
@@ -259,6 +278,11 @@ class BaseProtocol():
         self.num_epochs_completed = 0
         self.persistent_parameters = {}
         self.epoch_protocol_parameters = {}
+
+        # Pick up what the server said it can do, so has_module() is usable from here on -- including
+        # inside precompute_epoch_parameters below.
+        if manager is not None:
+            self.available_modules = manager.available_modules
 
         # Process input parameters and set persistent parameters prior to epoch run loop
         self.process_input_parameters()
