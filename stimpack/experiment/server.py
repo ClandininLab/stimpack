@@ -7,7 +7,7 @@ from stimpack.device.locomotion.loco_managers import LocoManager
 from stimpack.device.daq import DAQ
 
 from stimpack.rpc.util import start_daemon_thread, find_free_port
-from stimpack.rpc.transceiver import MySocketServer
+from stimpack.rpc.transceiver import MySocketServer, reject_private_attribute
 
 from stimpack.experiment.util import config_tools
 
@@ -94,7 +94,8 @@ class BaseServer(MySocketServer):
         that is not a standard attribute of the server will be forwarded as an
         RPC request to the 'root' target.
         '''
-        # print(f"Server does not have attribute {name}; call must be for either module or an attribute or method of BaseServer.")            
+        # print(f"Server does not have attribute {name}; call must be for either module or an attribute or method of BaseServer.")
+        reject_private_attribute(name)
         def f(*args, **kwargs):
             request = {'target': 'root',
                         'name': name, 
@@ -120,7 +121,12 @@ class BaseServer(MySocketServer):
         for request in root_request_list:
             # get function call parameters
             if request['name'] not in self.functions_on_root:
-                print(f"Warning: function '{request['name']}' not registered on root node.")
+                # This is where an untargeted call with a wrong name lands (untargeted defaults to
+                # 'root'), so report it instead of only printing -- otherwise the call silently
+                # does nothing, which is exactly how mis-migrated daq_* calls stopped firing.
+                msg = f"no such function '{request['name']}' on the server root node"
+                warnings.warn(msg)
+                self.report_to_client('error', msg)
                 continue
             function = self.functions_on_root[request['name']]
             args = request.get('args', [])

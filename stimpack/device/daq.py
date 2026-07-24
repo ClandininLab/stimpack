@@ -9,7 +9,7 @@ import warnings, traceback
 from typing import Optional
 
 from stimpack.rpc.multicall import MyMultiCall
-from stimpack.rpc.transceiver import MySocketClient
+from stimpack.rpc.transceiver import MySocketClient, is_broadcast
 
 class DAQ():
     def __init__(self, verbose=False):
@@ -34,7 +34,17 @@ class DAQ():
                         except Exception:
                             pass
             else:
-                if self.verbose:  print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
+                # Silently skipping an unknown name is how a mis-named DAQ call (e.g. an old
+                # pre-target() name, or a camelCase typo) ends up never firing. Report it.
+                msg = f"{self.__class__.__name__}: no such method '{request['name']}'"
+                if is_broadcast(request):
+                    continue          # a target('all') broadcast this module simply doesn't handle
+                warnings.warn(msg)
+                if self.error_reporter is not None:
+                    try:
+                        self.error_reporter('error', f'daq: {msg}')
+                    except Exception:
+                        pass
     
     def send_trigger(self, *args, **kwargs):
         print('Warning, send_trigger method has not been overwritten by a child class!')

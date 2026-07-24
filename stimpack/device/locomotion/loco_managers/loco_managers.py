@@ -3,6 +3,8 @@ import socket, select
 import threading
 import json
 import warnings, traceback
+
+from stimpack.rpc.transceiver import is_broadcast
 from time import time
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -41,7 +43,18 @@ class LocoManager():
                         except Exception:
                             pass
             else:
-                if self.verbose: print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
+                # Report rather than silently skip: an unknown name here means the call simply
+                # never happens, which is invisible to the caller.
+                msg = f"{self.__class__.__name__}: no such method '{request['name']}'"
+                if is_broadcast(request):
+                    continue          # a target('all') broadcast this module simply doesn't handle
+                warnings.warn(msg)
+                reporter = getattr(self, 'error_reporter', None)
+                if reporter is not None:
+                    try:
+                        reporter('error', f'locomotion: {msg}')
+                    except Exception:
+                        pass
     
 class LocoSocketManager():
     def __init__(self, host, port, udp=True, verbose=False) -> None:
@@ -72,7 +85,18 @@ class LocoSocketManager():
                         except Exception:
                             pass
             else:
-                if self.verbose: print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
+                # Report rather than silently skip: an unknown name here means the call simply
+                # never happens, which is invisible to the caller.
+                msg = f"{self.__class__.__name__}: no such method '{request['name']}'"
+                if is_broadcast(request):
+                    continue          # a target('all') broadcast this module simply doesn't handle
+                warnings.warn(msg)
+                reporter = getattr(self, 'error_reporter', None)
+                if reporter is not None:
+                    try:
+                        reporter('error', f'locomotion: {msg}')
+                    except Exception:
+                        pass
     
     def connect(self):
         '''
@@ -261,7 +285,18 @@ class LocoClosedLoopManager(LocoManager):
                         except Exception:
                             pass
             else:
-                if self.verbose: print(f"{self.__class__.__name__}: Requested method {request['name']} not found.")
+                # Report rather than silently skip: an unknown name here means the call simply
+                # never happens, which is invisible to the caller.
+                msg = f"{self.__class__.__name__}: no such method '{request['name']}'"
+                if is_broadcast(request):
+                    continue          # a target('all') broadcast this module simply doesn't handle
+                warnings.warn(msg)
+                reporter = getattr(self, 'error_reporter', None)
+                if reporter is not None:
+                    try:
+                        reporter('error', f'locomotion: {msg}')
+                    except Exception:
+                        pass
         
     def set_save_directory(self, save_directory):
         self.save_directory = save_directory

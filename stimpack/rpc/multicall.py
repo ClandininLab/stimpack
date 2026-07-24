@@ -1,4 +1,4 @@
-from stimpack.rpc.transceiver import MyTransceiver
+from stimpack.rpc.transceiver import MyTransceiver, reject_private_attribute
 
 class MyMultiCall:
     """
@@ -11,6 +11,7 @@ class MyMultiCall:
         self.request_list = []
 
     def __getattr__(self, name) -> callable:
+        reject_private_attribute(name)
         def f(*args, **kwargs) -> None:
             request = {'name': name, 'args': args, 'kwargs': kwargs}
             self.request_list.append(request)
@@ -31,6 +32,7 @@ class MyMultiCall:
         """
         class remote_module_target:
             def __getattr__(target_self, target_attr_name:str) -> callable:
+                reject_private_attribute(target_attr_name)
                 def g(*args, **kwargs) -> None:
                     request = {'target': target_name, 
                                'name': target_attr_name, 

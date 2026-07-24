@@ -8,6 +8,30 @@ from json.decoder import JSONDecodeError
 from stimpack.rpc.util import start_daemon_thread, stream_is_binary, JSONCoderWithTuple
 
 
+def is_broadcast(request):
+    """True for a target='all' request.
+
+    Broadcasts are delivered to every module and each takes only the calls it knows -- e.g.
+    target('all').start_stim() is meant for the screens, and the daq/locomotion modules ignoring it
+    is normal. So an unknown name is only worth reporting when the caller addressed a specific
+    target; reporting broadcasts would fire on every run.
+    """
+    return isinstance(request, dict) and request.get('target') == 'all'
+
+
+def reject_private_attribute(name):
+    """Raise AttributeError for private/dunder names instead of turning them into an RPC call.
+
+    The __getattr__ proxies below make any unknown attribute a remote call. Without this guard,
+    routine introspection becomes network traffic and silently succeeds: copy/pickle probe
+    __deepcopy__/__getstate__, IPython probes _repr_html_, and -- most confusingly --
+    getattr(manager, 'foo', default) never falls back to the default, it returns an RPC stub.
+    Nothing legitimately calls a remote _private method.
+    """
+    if name.startswith('_'):
+        raise AttributeError(name)
+
+
 def _disable_nagle(sock):
     """Disable Nagle's algorithm (TCP_NODELAY) so small RPC messages are sent immediately instead of
     being buffered for up to ~40 ms waiting for an ACK. Best-effort: ignore sockets that don't support it."""
@@ -96,9 +120,16 @@ class MyTransceiver:
                         warnings.warn(f"Error handling request '{request['name']}':\n{traceback.format_exc()}")
                         self._report_error(f"error handling '{request['name']}': {type(e).__name__}: {e}")
                 else:
+                    # An unknown name is the classic silent failure of this RPC style: the attribute
+                    # access succeeded, the request was sent, and it lands nowhere. Report it back so
+                    # the caller finds out instead of the call simply having no effect.
                     warnings.warn(f"Function '{request['name']}' not defined.")
+                    if not is_broadcast(request):
+                        self._report_error(f"no such function '{request['name']}' "
+                                           f"(target={request.get('target', 'root')})")
             else:
                 warnings.warn(f"Request '{request}' is not a valid request.")
+                self._report_error(f"malformed request: {request!r}")
 
     def _report_error(self, text):
         '''Bubble an error toward the client via error_reporter, if one is set. Best-effort.'''
@@ -153,6 +184,7 @@ class MySocketClient(MyTransceiver):
         start_daemon_thread(self.loop)
 
     def __getattr__(self, name: str) -> Callable[..., None]:
+        reject_private_attribute(name)
         def f(*args: list, **kwargs: dict) -> None:
             request = {'name': name, 'args': args, 'kwargs': kwargs}
             self.write_request_list([request])
@@ -166,10 +198,11 @@ class MySocketClient(MyTransceiver):
         outer_self = self
         class remote_module_target:
             def __getattr__(self, target_attr_name: str) -> Callable[..., None]:
+                reject_private_attribute(target_attr_name)
                 def g(*args, **kwargs) -> None:
-                    request = {'target': target_name, 
-                            'name': target_attr_name, 
-                            'args': args, 
+                    request = {'target': target_name,
+                            'name': target_attr_name,
+                            'args': args,
                             'kwargs': kwargs}
                     outer_self.write_request_list([request])
                 return g
@@ -242,6 +275,7 @@ class MySocketServer(MyTransceiver):
         If loop is on a separate thread, it can execute calls.
         '''
         # If not a method of the server class, handle it as a request.
+        reject_private_attribute(name)
         def f(*args, **kwargs):
             request = {'name': name, 'args': args, 'kwargs': kwargs}
             self.handle_request_list([request])
@@ -254,6 +288,7 @@ class MySocketServer(MyTransceiver):
         outer_self = self
         class remote_module_target:
             def __getattr__(self, target_attr_name: str) -> Callable[..., None]:
+                reject_private_attribute(target_attr_name)
                 def g(*args, **kwargs) -> None:
                     request = {'target': target_name, 
                             'name': target_attr_name, 

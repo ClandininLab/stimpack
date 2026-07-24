@@ -107,6 +107,48 @@ def test_error_reporter_called_on_handler_exception():
     assert "kaboom" in reported[0][1]
 
 
+def test_unknown_function_is_reported_to_the_caller():
+    # The silent-no-op failure mode: the attribute access succeeds, the request is sent, and it lands
+    # nowhere. An explicitly-targeted unknown name must be reported back.
+    t = MyTransceiver()
+    reported = []
+    t.error_reporter = lambda level, text: reported.append((level, text))
+    with pytest.warns(UserWarning):
+        t.handle_request_list([{"name": "daq_setup_pulse_wave_stream_out", "target": "daq"}])
+    assert reported and "no such function" in reported[0][1]
+    assert "daq_setup_pulse_wave_stream_out" in reported[0][1]
+
+
+def test_broadcast_to_a_module_without_the_method_is_not_reported():
+    # target('all') is a broadcast: each module takes only the calls it knows (start_stim is for the
+    # screens; daq/locomotion ignoring it is normal). Reporting these would fire on every run.
+    t = MyTransceiver()
+    reported = []
+    t.error_reporter = lambda level, text: reported.append((level, text))
+    t.handle_request_list([{"name": "start_stim", "target": "all"}])
+    assert reported == []
+
+
+@pytest.mark.parametrize("name", ["_private", "__deepcopy__", "__getstate__", "_repr_html_"])
+def test_private_attributes_raise_instead_of_becoming_rpc_calls(name):
+    # Without this guard, copy/pickle/IPython introspection silently becomes network traffic, and
+    # getattr(manager, 'x', default) returns an RPC stub instead of falling back to the default.
+    from stimpack.rpc.transceiver import reject_private_attribute
+    with pytest.raises(AttributeError):
+        reject_private_attribute(name)
+
+
+def test_getattr_default_now_falls_back(monkeypatch):
+    # Regression for the trap that bit the e2e fixtures: getattr(obj, 'missing', default).
+    rt = RecordingTransceiver()
+    mc = MyMultiCall(rt)
+    assert getattr(mc, '_not_a_remote_call', 'fallback') == 'fallback'
+    # ...while ordinary remote calls still work
+    mc.load_stim(name='X')
+    mc()
+    assert rt.sent[0][0]['name'] == 'load_stim'
+
+
 def test_error_reporter_default_none_does_not_crash():
     t = MyTransceiver()
     assert t.error_reporter is None
