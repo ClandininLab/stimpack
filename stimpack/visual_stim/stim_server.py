@@ -1,4 +1,4 @@
-import platform, os, warnings, traceback
+import platform, os, subprocess, warnings, traceback
 from time import time, sleep
 
 import stimpack.visual_stim.framework
@@ -48,7 +48,11 @@ def launch_screen(screen, **kwargs):
 
     # launch the server and return the resulting client
     screen_client, proc = launch_server(stimpack.visual_stim.framework, screen=screen.serialize(), new_env_vars=new_env_vars, **kwargs)
-    return screen_client
+    # Return the process handle too: a screen only auto-stops when its client disconnects, which
+    # happens when the stim server PROCESS exits. When VisualStimServer is constructed in-process
+    # (BaseServer does this), the parent keeps running, so without this handle the screen
+    # subprocesses would outlive close() and pile up.
+    return screen_client, proc
 
 class VisualStimServer(MySocketServer):
     '''
@@ -81,7 +85,10 @@ class VisualStimServer(MySocketServer):
             screens = [Screen(x_display=None, display_index=0, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
         
         # launch screens
-        self.screen_managers = [launch_screen(screen=screen, other_stim_module_paths=other_stim_module_paths, **kwargs) for screen in screens]
+        launched = [launch_screen(screen=screen, other_stim_module_paths=other_stim_module_paths, **kwargs)
+                    for screen in screens]
+        self.screen_managers = [client for client, _ in launched]
+        self.screen_processes = [proc for _, proc in launched]
 
         # Let each screen subprocess bubble its errors up to us (and thence to the client). The screen
         # pushes a 'report_server_message' back on its socket, which we drain below.
@@ -176,6 +183,24 @@ class VisualStimServer(MySocketServer):
 
     def close(self):
         self.shutdown_flag.set()
+
+        # Shut the screen subprocesses down rather than leaving them running. Ask nicely first (the
+        # auto-registered 'shutdown' makes paintGL quit the Qt app), then insist.
+        for manager in self.screen_managers:
+            try:
+                manager.shutdown()
+            except Exception:
+                pass
+
+        for proc in getattr(self, 'screen_processes', []):
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
 
     def on_connection_close(self):
         '''

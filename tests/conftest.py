@@ -1,9 +1,23 @@
 """Shared fixtures/config for the stimpack test suite.
 
 Test tiers (see markers in pyproject.toml):
-  - unit     : pure logic, no hardware/GL/GUI. Runs everywhere, fast.
-  - gl       : needs an OpenGL context; uses a standalone headless moderngl context (xvfb in CI).
-  - hardware : needs a real rig (DAQ/projector/tracker). Not run in CI.
+  - unit        : pure logic, no hardware/GL/GUI. Runs everywhere, fast.
+  - integration : real client/protocol/data objects over a fake RPC link.
+  - gui         : drives the real PyQt6 GUI (offscreen).
+  - gl          : needs an OpenGL context; uses a standalone headless moderngl context.
+  - e2e         : a LIVE server with real screen (and KeyTrac) subprocesses.
+  - hardware    : needs a real rig (DAQ/projector/tracker). Not run in CI.
+
+RUN THE TIERS SEPARATELY, as CI does:
+
+    pytest -m unit && pytest -m "integration or gui" && pytest -m gl && pytest -m e2e
+
+A single `pytest` over everything puts a standalone moderngl context and Qt's own GL context in one
+process, which can segfault on software GL -- an interaction between the graphics stack and Qt, not
+a failure of the code under test. Each tier passes on its own.
+
+The e2e tier launches real screen subprocesses, so stimulus windows appear briefly unless you run
+under a virtual display (`xvfb-run -a pytest -m e2e`). They are torn down when the server closes.
 """
 import pytest
 
