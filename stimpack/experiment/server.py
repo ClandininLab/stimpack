@@ -173,6 +173,18 @@ class BaseServer(MySocketServer):
                 if 'kwargs' not in request:
                     request['kwargs'] = {}
 
+        # A request addressed to a module this server doesn't have (e.g. a protocol asking for opto
+        # on a rig with no daq_class, or a typo'd target) matches nothing in the loop below and would
+        # otherwise be dropped without a trace -- the same silent failure as an unknown function name.
+        known_targets = set(self.modules) | {'root', 'all'}
+        for request in request_list:
+            if isinstance(request, dict) and request.get('target') not in known_targets:
+                msg = (f"no '{request.get('target')}' module on this server "
+                       f"(configured: {sorted(self.modules)}); "
+                       f"request '{request.get('name')}' was dropped")
+                warnings.warn(msg)
+                self.report_to_client('error', msg)
+
         # Pull out and process requests for root node of the stim server
         root_request_list = [request for request in request_list if request['target']=='root']
         self.handle_request_list_to_root(root_request_list)
