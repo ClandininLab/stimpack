@@ -3,10 +3,13 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+pythonpath = ["tests"]   # so tests can `from fakes import FakeManager, FakeClient`
 addopts = "-ra"
 markers = [
     "unit: fast test with no hardware, GL context, or GUI",
     "gl: requires an OpenGL context (run headless under xvfb / a standalone moderngl context)",
+    "integration: drives real stimpack objects (client/protocol/data) over a fake RPC link; no hardware",
+    "gui: drives the PyQt6 GUI headlessly (QT_QPA_PLATFORM=offscreen)",
     "hardware: requires physical rig hardware (DAQ, projector, tracker) — not run in CI",
 ]
 

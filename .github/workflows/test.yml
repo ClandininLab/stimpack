@@ -46,6 +46,11 @@ jobs:
       - name: Unit tests
         run: pytest -m unit
 
+      # Full run lifecycle (client/protocol/data over a fake RPC link) and the PyQt6 GUI driven
+      # headlessly: real windows and button clicks, offscreen platform, no rig.
+      - name: Integration + GUI tests (offscreen)
+        run: pytest -m "integration or gui"
+
       # GL smoke + golden-image tests: standalone moderngl context under a software GL driver,
       # wrapped in xvfb for any GLX fallback. If no GL context is available they skip rather than fail.
       - name: GL tests (headless, software renderer)
