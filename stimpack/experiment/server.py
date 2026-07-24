@@ -148,6 +148,23 @@ class BaseServer(MySocketServer):
         self.write_request_list([{'name': 'report_server_message', 'args': [level, str(text)], 'kwargs': {}}])
 
     def handle_request_list(self, request_list):
+        '''
+        Route each request by its 'target':
+
+            (absent) / 'root'  -> the server's own functions_on_root registry ONLY. An untargeted
+                                  call does NOT reach the modules; if the name isn't registered on
+                                  root, nothing happens (and it is now reported back to the client).
+            '<module name>'    -> that module only ('visual', 'locomotion', 'daq').
+            'all'              -> broadcast to every module; each acts only on the names it defines
+                                  (e.g. target('all').start_stim() is handled by the screens, and
+                                  the daq/locomotion modules ignoring it is expected).
+
+        Use target('all') when you mean "whichever module handles this" -- writing the call
+        untargeted instead sends it to root, where it will not be found.
+
+        Note 'all' covers the modules but NOT root, deliberately: root's set_subject_state itself
+        fans out via target('all'), so including root would recurse forever.
+        '''
         # pre-process the request list as necessary
         for request in request_list:
             if isinstance(request, dict) and ('name' in request):
