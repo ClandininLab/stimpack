@@ -5,6 +5,7 @@ Created on Thu Jun 21 10:51:42 2018
 
 @author: mhturner
 """
+import argparse
 from datetime import datetime
 import os
 import sys
@@ -23,7 +24,7 @@ import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, QUrl
 import PyQt6.QtGui as QtGui
 
-from stimpack.experiment.util import config_tools, h5io
+from stimpack.experiment.util import config_tools, h5io, check_labpack
 from stimpack.experiment import protocol, data, client
 
 from stimpack.util import get_all_subclasses, ICON_PATH, ROOT_DIR
@@ -1441,6 +1442,8 @@ class InitializeRigGUI(QWidget):
         self.cfg['current_rig_name'] = self.rig_combobox.currentText()
         self.cfg['current_cfg_name'] = self.cfg_name
 
+        self.warn_about_labpack_problems()
+
         # Pass cfg up to experiment GUI object
         self.experiment_gui_object.cfg = self.cfg
         self.experiment_gui_object.cfg_initialized = True
@@ -1448,6 +1451,35 @@ class InitializeRigGUI(QWidget):
         self.close()
         if self.parent is not None:
             self.parent.close()
+
+    def warn_about_labpack_problems(self):
+        '''
+        Check the chosen config before the session starts, and show anything that would otherwise
+        fail silently -- a path that no longer resolves, a key stimpack stopped reading.
+
+        Deliberately does not block: the person at the rig decides whether a finding matters, and a
+        modal that refuses to open the GUI would be worse than the silent failure it replaces. Only
+        errors get a dialog; warnings go to the terminal. Run `stimpack --check-labpack` for the
+        full report across every config.
+        '''
+        try:
+            findings = check_labpack.check_config(self.cfg, self.cfg_name, self.labpack_dir)
+        except Exception as e:
+            # A broken check must never stop someone from starting an experiment.
+            warnings.warn(f'Could not check the labpack: {type(e).__name__}: {e}')
+            return
+
+        for finding in findings:
+            print(f'[labpack check] {finding}')
+
+        errors = [f for f in findings if f.level == 'error']
+        if errors:
+            open_message_window(
+                title='Labpack problems',
+                text=f'{self.cfg_name} names things stimpack cannot find. The GUI will still open, '
+                     f'but a run using it may silently do the wrong thing.\n\n'
+                     + '\n\n'.join(f'• {f.message}' for f in errors)
+                     + '\n\nRun `stimpack --check-labpack` for the full report.')
 
 
 class runSeriesThread(QThread):
@@ -1538,6 +1570,20 @@ class EnsembleList(QListWidget):
 
 
 def main():
+    parser = argparse.ArgumentParser(prog='stimpack', description='Stimpack experiment GUI.')
+    parser.add_argument('--check-labpack', action='store_true',
+                        help="check the configured labpack for problems and exit. Returns nonzero "
+                             "if any error was found, so it can be used in a script or CI.")
+    parser.add_argument('--labpack-dir', default=None,
+                        help="labpack to check (default: the one recorded in path_to_labpack.txt)")
+    args = parser.parse_args()
+
+    if args.check_labpack:
+        from stimpack.experiment.util import check_labpack
+        findings, configs = check_labpack.check_labpack(args.labpack_dir)
+        print(check_labpack.format_report(findings, configs, args.labpack_dir))
+        sys.exit(1 if any(f.level == 'error' for f in findings) else 0)
+
     app = QApplication(sys.argv)
     app.setApplicationName('Stimpack Experiment')
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))

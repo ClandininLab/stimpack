@@ -10,7 +10,12 @@ import gc
 
 from stimpack.experiment.util.config_tools import convert_labpack_relative_path_to_full_path
 
-def load_stim_module_from_path(path, module_name='loaded_module', submodules=['stimuli', 'trajectory', 'distribution']):
+# The submodules a visual_stim module directory is expected to provide. Named here so that the
+# labpack checker can look for the same files this loader will look for.
+STIM_SUBMODULES = ('stimuli', 'trajectory', 'distribution')
+
+
+def load_stim_module_from_path(path, module_name='loaded_module', submodules=STIM_SUBMODULES):
     '''
     Load a module from specified path. Module must contained specified submodules.
     '''

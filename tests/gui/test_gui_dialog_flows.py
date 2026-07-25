@@ -164,3 +164,58 @@ def test_record_runs_once_file_and_subject_exist(experiment_gui, tmp_path, monke
     qapp.processEvents()
 
     assert gui.client.runs == [('DriftingSquareGrating', True)]   # started WITH metadata saving
+
+
+# --- labpack preflight at startup ----------------------------------------------------------------
+
+def test_startup_alerts_on_a_labpack_error(qapp, monkeypatch, tmp_path):
+    """An error found in the chosen config must reach the person at the rig, not just the log."""
+    import stimpack.experiment.gui as gui_mod
+    from stimpack.experiment.util.check_labpack import Finding
+
+    alerts = []
+    monkeypatch.setattr(gui_mod, 'open_message_window',
+                        lambda title="", text="": alerts.append((title, text)))
+    monkeypatch.setattr(gui_mod.check_labpack, 'check_config',
+                        lambda cfg, name, d: [Finding('error', 'missing-module-path', name,
+                                                      'module_paths.protocol -> gone.py')])
+
+    dialog = gui_mod.InitializeRigGUI.__new__(gui_mod.InitializeRigGUI)
+    dialog.cfg, dialog.cfg_name, dialog.labpack_dir = {}, 'x_config.yaml', str(tmp_path)
+    dialog.warn_about_labpack_problems()
+
+    assert alerts, "an error finding produced no dialog"
+    assert 'gone.py' in alerts[0][1]
+    assert 'check-labpack' in alerts[0][1]          # points at the full report
+
+
+def test_startup_does_not_alert_on_warnings_alone(qapp, monkeypatch, tmp_path):
+    """Warnings are common and often deliberate; a modal for each would train people to dismiss."""
+    import stimpack.experiment.gui as gui_mod
+    from stimpack.experiment.util.check_labpack import Finding
+
+    alerts = []
+    monkeypatch.setattr(gui_mod, 'open_message_window',
+                        lambda title="", text="": alerts.append((title, text)))
+    monkeypatch.setattr(gui_mod.check_labpack, 'check_config',
+                        lambda cfg, name, d: [Finding('warning', 'missing-presets-dir', name, 'no presets')])
+
+    dialog = gui_mod.InitializeRigGUI.__new__(gui_mod.InitializeRigGUI)
+    dialog.cfg, dialog.cfg_name, dialog.labpack_dir = {}, 'x_config.yaml', str(tmp_path)
+    dialog.warn_about_labpack_problems()
+
+    assert alerts == []
+
+
+def test_a_failing_check_never_blocks_startup(qapp, monkeypatch, tmp_path):
+    import stimpack.experiment.gui as gui_mod
+
+    def boom(cfg, name, d):
+        raise RuntimeError('checker is broken')
+
+    monkeypatch.setattr(gui_mod.check_labpack, 'check_config', boom)
+
+    dialog = gui_mod.InitializeRigGUI.__new__(gui_mod.InitializeRigGUI)
+    dialog.cfg, dialog.cfg_name, dialog.labpack_dir = {}, 'x_config.yaml', str(tmp_path)
+    with pytest.warns(UserWarning):
+        dialog.warn_about_labpack_problems()        # must not raise

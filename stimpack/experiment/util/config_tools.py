@@ -93,7 +93,10 @@ def get_configuration_file(cfg_name: str, labpack_dir: Optional[str] = None) -> 
     cfg_path = os.path.join(labpack_dir, 'configs', cfg_name)
     if os.path.exists(cfg_path):
         with open(cfg_path, 'r') as ymlfile:
-            cfg = yaml.safe_load(ymlfile)
+            # Same loader as presets. Plain safe_load raises on !!python/tuple, so a config could
+            # not express a tuple even though a preset right next to it could -- an inconsistency
+            # with no reason behind it. This loader accepts tuples and nothing else dangerous.
+            cfg = safe_load_yaml_with_tuples(ymlfile)
     else:
         cfg = get_default_config()
 
@@ -104,12 +107,19 @@ def get_configuration_file(cfg_name: str, labpack_dir: Optional[str] = None) -> 
 
 # Keys that stimpack used to honor but no longer reads. A config still carrying one of these looks
 # fine and loads fine, but the setting is silently ignored -- so warn loudly instead.
+#
+# Each maps to (severity, explanation). Severity is about what the experiment does next, not about
+# how old the key is:
+#   'error'   the run will silently do the wrong thing, and nothing on screen says so
+#   'warning' the setting is ignored, but the consequence is visible or benign
 LEGACY_CONFIG_KEYS = {
     'visual_stim_module_paths': (
+        'error',
         "custom stimulus modules are no longer read from server_options; move them to "
         "module_paths.visual_stim (a list of directories), or the stimuli will never be loaded on "
         "the server and referencing them fails with '0 stimulus candidates found'"),
     'disp_server_id': (
+        'warning',
         "no longer read; select the display with the Screen's display_index / x_display in your "
         "rig server script"),
 }
@@ -137,8 +147,8 @@ def warn_about_legacy_config_keys(cfg, cfg_name: str = '') -> list[str]:
 
     where = f' in {cfg_name}' if cfg_name else ''
     for key in dict.fromkeys(found):     # de-duplicated, order preserved
-        warnings.warn(f"Config key '{key}'{where} is no longer used by stimpack: "
-                      f"{LEGACY_CONFIG_KEYS[key]}.")
+        _, explanation = LEGACY_CONFIG_KEYS[key]
+        warnings.warn(f"Config key '{key}'{where} is no longer used by stimpack: {explanation}.")
     return found
 
 # %% Functions for pulling stuff out of the config dictionary
