@@ -377,3 +377,84 @@ def test_the_deep_check_does_not_sleep_through_the_stimulus(tmp_path):
     started = time.monotonic()
     deep_findings(tmp_path)
     assert time.monotonic() - started < 10, "sleep() was not neutralized"
+
+
+# --- tier 4: do the stimulus names a protocol asks for resolve? ----------------------------------
+
+CUSTOM_STIMULUS = '''
+from stimpack.visual_stim.base import BaseProgram
+
+class LabSpecialStimulus(BaseProgram):
+    pass
+'''
+
+
+def test_an_unknown_stimulus_name_is_an_error(tmp_path):
+    """This is the '0 stimulus candidates found' failure, caught before the animal is on the rig."""
+    labpack_with_protocol(tmp_path, "        pass")
+    path = tmp_path / 'pack' / 'protocol' / 'my_protocol.py'
+    path.write_text(path.read_text().replace("'name': 'MovingSpot'", "'name': 'NoSuchStimulus'"))
+
+    findings = deep_findings(tmp_path)
+
+    assert codes(findings, level='error') == ['unknown-stimulus']
+    assert 'NoSuchStimulus' in findings[0].message
+
+
+def test_a_builtin_stimulus_name_resolves(tmp_path):
+    labpack_with_protocol(tmp_path, "        pass")          # names MovingSpot, a stimpack stimulus
+    assert deep_findings(tmp_path) == []
+
+
+def test_a_stimulus_from_the_configs_own_visual_stim_directory_resolves(tmp_path):
+    labpack_with_protocol(tmp_path, "        pass")
+    (tmp_path / 'pack' / 'visual_stim' / 'lab' / 'stimuli.py').write_text(CUSTOM_STIMULUS)
+    path = tmp_path / 'pack' / 'protocol' / 'my_protocol.py'
+    path.write_text(path.read_text().replace("'name': 'MovingSpot'", "'name': 'LabSpecialStimulus'"))
+
+    assert deep_findings(tmp_path) == []
+
+
+def test_a_stimulus_is_not_vouched_for_by_another_configs_modules(tmp_path):
+    """The BaseProgram subclass registry is global and never shrinks.
+
+    Without per-config scoping, checking a labpack where one config loads a stimulus would let that
+    stimulus satisfy every other config too -- so the missing-stimulus case, the one that actually
+    happens, would quietly pass.
+    """
+    lender = tmp_path / 'lender'
+    lender.mkdir()
+    labpack_with_protocol(lender, "        pass")
+    (lender / 'pack' / 'visual_stim' / 'lab' / 'stimuli.py').write_text(CUSTOM_STIMULUS)
+    deep_findings(lender)                                # loads LabSpecialStimulus into this process
+
+    borrower = tmp_path / 'borrower'
+    borrower.mkdir()
+    cfg = labpack_with_protocol(borrower, "        pass")
+    del cfg['module_paths']['visual_stim']               # this config loads no custom stimuli
+    (borrower / 'configs' / 'test_config.yaml').write_text(yaml.safe_dump(cfg))
+    path = borrower / 'pack' / 'protocol' / 'my_protocol.py'
+    path.write_text(path.read_text().replace("'name': 'MovingSpot'", "'name': 'LabSpecialStimulus'"))
+
+    assert codes(deep_findings(borrower), level='error') == ['unknown-stimulus']
+
+
+def test_a_visual_stim_module_that_will_not_load_is_an_error(tmp_path):
+    labpack_with_protocol(tmp_path, "        pass")
+    (tmp_path / 'pack' / 'visual_stim' / 'lab' / 'stimuli.py').write_text('raise ValueError("boom")\n')
+
+    findings = deep_findings(tmp_path)
+    assert 'visual-stim-will-not-load' in codes(findings, level='error')
+
+
+def test_every_stimulus_in_a_multi_stimulus_epoch_is_checked(tmp_path):
+    """epoch_stim_parameters may be a list; a bad name later in it must not be missed."""
+    labpack_with_protocol(tmp_path, "        pass")
+    path = tmp_path / 'pack' / 'protocol' / 'my_protocol.py'
+    path.write_text(path.read_text().replace(
+        "self.epoch_stim_parameters = {'name': 'MovingSpot'}",
+        "self.epoch_stim_parameters = [{'name': 'MovingSpot'}, {'name': 'AlsoNotReal'}]"))
+
+    findings = deep_findings(tmp_path)
+    assert codes(findings, level='error') == ['unknown-stimulus']
+    assert 'AlsoNotReal' in findings[0].message

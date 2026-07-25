@@ -6,14 +6,25 @@ simply wrong -- custom stimuli never loaded, or an opto call routed nowhere. Eve
 so far reduces to *a name that no longer resolves*, and nothing checks names until the moment they
 are used, which is when an animal is already on the rig.
 
-These checks are deliberately cheap and import nothing:
+Two groups of checks, split by what they cost.
+
+The cheap ones import nothing, which is what lets them run on every GUI launch:
 
   tier 1  config keys stimpack no longer reads
   tier 2  every module_paths entry resolves on disk, and visual_stim directories look loadable
 
-That restraint is what lets them run on every GUI launch. Checks that must import user code (do the
-protocols import? do the stimulus names they reference exist?) are a separate, opt-in tier -- running
-arbitrary lab code on the launch path is not something a startup check should do.
+The rest import lab code and run each protocol, so they are opt-in (--deep) and never part of
+startup -- executing arbitrary lab code on the launch path is not something a startup check should
+do:
+
+  tier 3  each protocol module imports, and each protocol constructs and produces an epoch
+  tier 4  every stimulus name an epoch asks for resolves, as load_stim would resolve it
+  tier 5  every call a protocol makes is addressed somewhere that exists
+
+Tiers 4 and 5 run the protocol rather than reading it. Stimulus names and call sites are often
+computed (`'Grating' if rotating else 'RotatingGrating'`), spread across load_stimuli, start_stimuli
+and helpers, and the 'name' key is overloaded -- stimuli, trajectories, distributions and DAQ
+channels all use it. Parsing gets that wrong; running it does not.
 
 Two severities, and the distinction is about what happens next:
 
@@ -22,6 +33,7 @@ Two severities, and the distinction is about what happens next:
 """
 import contextlib
 import os
+import sys
 import tempfile
 import warnings
 from dataclasses import dataclass
@@ -349,6 +361,8 @@ def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
         return findings
 
     check_cfg = _cfg_for_checking(cfg, labpack_dir)
+    stimulus_names, stim_findings = _available_stimulus_names(cfg, labpack_dir, cfg_name)
+    findings.extend(stim_findings)
 
     skipped = []
     for rig, label in _rigs_worth_checking(check_cfg):
@@ -356,7 +370,7 @@ def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
         for protocol_class in sorted(protocols, key=lambda p: p.__name__):
             protocol_findings, why_skipped = _check_one_protocol(
                 protocol_class, rig_cfg, cfg_name, label, max_epochs,
-                KNOWN_TARGETS, ROOT_FUNCTION_NAMES)
+                KNOWN_TARGETS, ROOT_FUNCTION_NAMES, stimulus_names)
             findings.extend(protocol_findings)
             if why_skipped is not None:
                 skipped.append(why_skipped)
@@ -378,7 +392,7 @@ def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
 
 
 def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
-                        known_targets, root_function_names):
+                        known_targets, root_function_names, stimulus_names):
     name = protocol_class.__name__
     findings = []
 
@@ -437,6 +451,15 @@ def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
                 add('error', 'get-epoch-parameters-failed', f'{type(e).__name__}: {e}')
                 return findings, skipped
 
+            # --- tier 4: would load_stim resolve the names this epoch asks for? -----------------
+            for stimulus in _stimulus_names_in(protocol.epoch_stim_parameters):
+                if stimulus not in stimulus_names:
+                    add('error', 'unknown-stimulus',
+                        f"loads a stimulus named '{stimulus}', which is not among the stimuli this "
+                        f"config makes available. load_stim raises '0 stimulus candidates found' "
+                        f"when it reaches this epoch. Check the spelling, or add the module that "
+                        f"defines it to module_paths.visual_stim")
+
             # --- tier 5: where would this epoch's calls actually go? ----------------------------
             for method in ('load_stimuli', 'start_stimuli'):
                 try:
@@ -467,6 +490,56 @@ def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
 
 
 # --- internals for the deep tiers ----------------------------------------------------------------
+
+def _available_stimulus_names(cfg, labpack_dir, cfg_name):
+    """The stimulus class names a server running this config would resolve, and any load failures.
+
+    load_stim resolves a name against every BaseProgram subclass loaded in the server process, so
+    the set is stimpack's own stimuli plus whatever this config's module_paths.visual_stim
+    directories define.
+
+    Scoped per config on purpose. The subclass registry is global and never shrinks, so checking
+    several configs in one process would let one user's stimuli vouch for another user's protocol --
+    a missing stimulus would quietly pass. Core names are taken by module prefix and labpack names
+    from the module objects just loaded, so neither depends on what a previous config loaded.
+    """
+    from stimpack.util import get_all_subclasses
+    from stimpack.visual_stim.base import BaseProgram
+    from stimpack.visual_stim.util import load_stim_module_from_path
+
+    names = {klass.__name__ for klass in get_all_subclasses(BaseProgram)
+             if getattr(klass, '__module__', '').startswith('stimpack.')}
+    findings = []
+
+    for index, path in enumerate(config_tools.get_module_paths(cfg, 'visual_stim')
+                                 if 'visual_stim' in (cfg.get('module_paths') or {}) else []):
+        # A name unique to this config, so loading does not overwrite another config's modules.
+        module_name = f'_check_{abs(hash((cfg_name, index))):x}'
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                load_stim_module_from_path(_resolve(path, labpack_dir), module_name=module_name)
+        except Exception as e:
+            findings.append(Finding(
+                'error', 'visual-stim-will-not-load', cfg_name,
+                f"module_paths.visual_stim -> {path} failed to load ({type(e).__name__}: {e}), so "
+                f"none of its stimuli are available"))
+            continue
+
+        for loaded in [m for key, m in sys.modules.items() if key.startswith(f'{module_name}.')]:
+            names.update(obj.__name__ for obj in vars(loaded).values()
+                         if isinstance(obj, type) and issubclass(obj, BaseProgram))
+
+    return names, findings
+
+
+def _stimulus_names_in(epoch_stim_parameters):
+    """The stimulus names one epoch would load. May be a single dict, a list of them, or None."""
+    entries = (epoch_stim_parameters if isinstance(epoch_stim_parameters, list)
+               else [epoch_stim_parameters])
+    return [entry['name'] for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get('name'), str)]
+
 
 def _likely_target(call):
     """Best guess at the module an untargeted call meant, for the suggestion in the message.
