@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os, sys
+import subprocess
 import time
 from time import sleep
 import posixpath
@@ -86,13 +87,17 @@ class BaseClient():
                     'relative_control': 'True',
                 }
 
-                server = BaseServer(host='127.0.0.1',
-                                    port=None, 
-                                    visual_stim_kwargs=visual_stim_kwargs, 
-                                    loco_class=loco_class, 
-                                    loco_kwargs=loco_kwargs, 
+                # Keep a handle on the server: it lives in THIS process, so nothing else will ever
+                # shut it down. Without this it was a local variable, and closing the GUI left its
+                # screen subprocesses -- and KeyTrac, which is spawned detached (start_new_session)
+                # and so survives even our process group -- running.
+                self.local_server = BaseServer(host='127.0.0.1',
+                                    port=None,
+                                    visual_stim_kwargs=visual_stim_kwargs,
+                                    loco_class=loco_class,
+                                    loco_kwargs=loco_kwargs,
                                     start_loop=True)
-                self.manager = MySocketClient(host=server.host, port=server.port)
+                self.manager = MySocketClient(host=self.local_server.host, port=self.local_server.port)
 
         # if the trigger device is on the server, set the manager for the trigger device
         if isinstance(self.trigger_device, daq.DAQonServer):
@@ -335,7 +340,28 @@ class BaseClient():
         self.manager.target('locomotion').set_save_directory(None)
     
     def close(self):
+        '''
+        Shut down whatever server this client started. Called from the GUI's closeEvent.
+
+        Both local-server paths spawn OS subprocesses of their own (one per screen, plus KeyTrac),
+        and those do not reliably die with us: KeyTrac is started with start_new_session=True, so it
+        is detached from our process group. Closing here is what actually reaps them.
+        '''
         # We had started a local server in a separate process; terminate it.
         if 'local_server_process' in self.__dict__:
-            print("Closing local server.")
+            print("Closing local server process.")
             self.local_server_process.terminate()
+            try:
+                self.local_server_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                warnings.warn("Local server process did not exit; killing it.")
+                self.local_server_process.kill()
+
+        # We had started a local server in THIS process; close it so its modules shut down their own
+        # subprocesses. Best-effort: a failure here must not stop the GUI from closing.
+        if 'local_server' in self.__dict__:
+            print("Closing local server.")
+            try:
+                self.local_server.close()
+            except Exception as e:
+                warnings.warn(f"Error closing local server: {type(e).__name__}: {e}")
