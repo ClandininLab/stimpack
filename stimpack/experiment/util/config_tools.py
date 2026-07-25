@@ -1,3 +1,4 @@
+import contextlib
 import os
 import glob
 from platformdirs import user_config_dir
@@ -34,7 +35,33 @@ def safe_load_yaml_with_tuples(stream):
 def get_stimpack_config_directory(ensure_exists=True):
     return user_config_dir(appname="stimpack", ensure_exists=ensure_exists)
 
+# Set by using_labpack_directory() below, and consulted by get_labpack_directory() ahead of the
+# recorded path. Module paths in a config are resolved through get_labpack_directory(), so without
+# an override there is no way to work with a labpack other than the configured one: you would find
+# one labpack's configs and then load another labpack's modules.
+_labpack_directory_override = None
+
+
+@contextlib.contextmanager
+def using_labpack_directory(path):
+    """Temporarily treat `path` as the labpack directory, without touching path_to_labpack.txt.
+
+    Pass None to mean "use the configured one", so callers can wrap unconditionally.
+    """
+    global _labpack_directory_override
+    previous = _labpack_directory_override
+    if path is not None:
+        _labpack_directory_override = path
+    try:
+        yield
+    finally:
+        _labpack_directory_override = previous
+
+
 def get_labpack_directory():
+    if _labpack_directory_override is not None:
+        return _labpack_directory_override
+
     stimpack_config_dir = get_stimpack_config_directory(ensure_exists=False)
     path_to_labpack = os.path.join(stimpack_config_dir, 'path_to_labpack.txt')
     if os.path.exists(path_to_labpack):

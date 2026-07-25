@@ -143,3 +143,13 @@ def test_live_run_aborts_when_the_protocol_asks_for_a_bad_stimulus(live_client, 
         assert series.attrs['run_status'] == 'error'
         assert 'abort_reason' in series.attrs
     assert protocol.num_epochs_completed < 2         # did not run the whole series
+
+
+def test_root_function_names_match_a_live_server(live_server):
+    """ROOT_FUNCTION_NAMES is what the labpack checker uses to tell a real untargeted call from one
+    that lands nowhere. If it drifts from what the server actually registers, the check either
+    misses a genuine bug or invents one. Assert against a real server rather than trusting a list.
+    """
+    from stimpack.experiment.server import ROOT_FUNCTION_NAMES
+
+    assert set(live_server.functions_on_root) == set(ROOT_FUNCTION_NAMES)

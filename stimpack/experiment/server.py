@@ -19,6 +19,24 @@ from stimpack.util import ROOT_DIR
 # protocols calling target('daq') keep working.
 MODULE_ALIASES = {'daq': 'voltage_out'}
 
+# Names BaseServer executes on its root node instead of forwarding to a module.
+#
+# Untargeted requests default to 'root', so this set is what separates a legitimate untargeted call
+# from one that lands nowhere -- which is how mis-migrated daq_* calls silently stopped firing. The
+# labpack checker uses it for exactly that. An e2e test asserts it matches a live server, so it
+# cannot drift from the registrations in __init__.
+ROOT_FUNCTION_NAMES = frozenset({
+    'print_on_server',
+    'set_subject_state',
+    'load_server_side_state_dependent_control',
+    'unload_server_side_state_dependent_control',
+})
+
+# Targets a request may name. Modules present depend on the rig (a rig with no voltage-out hardware
+# has no such module), so this is the set of *spellings* stimpack understands, not a claim about
+# what any given server has.
+KNOWN_TARGETS = frozenset(MODULE_ALIASES) | {'visual', 'locomotion', 'voltage_out', 'all', 'root'}
+
 
 class BaseServer(MySocketServer):
     def __init__(self,
@@ -75,6 +93,7 @@ class BaseServer(MySocketServer):
             module.error_reporter = self.report_to_client
 
         # Register functions to be executed on the server's root node, and not in modules.
+        # Keep this in step with ROOT_FUNCTION_NAMES above; an e2e test asserts they match.
         self.functions_on_root = {}
         self.register_function_on_root(lambda x: print(x), "print_on_server")
         self.register_function_on_root(self.set_subject_state, "set_subject_state")

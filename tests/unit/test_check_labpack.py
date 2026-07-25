@@ -243,3 +243,137 @@ def test_report_says_so_when_nothing_is_wrong(tmp_path):
     make_labpack(tmp_path, good_cfg())
     findings, configs = check_labpack.check_labpack(str(tmp_path))
     assert 'No problems found.' in check_labpack.format_report(findings, configs, str(tmp_path))
+
+
+# --- tiers 3 and 5: import the protocols, then see where their calls go --------------------------
+
+PROTOCOL_TEMPLATE = '''
+from stimpack.experiment.protocol import BaseProtocol
+from stimpack.rpc.multicall import MyMultiCall
+
+class {name}(BaseProtocol):
+    def get_run_parameter_defaults(self):
+        return {{'num_epochs': 2, 'idle_color': 0.5, 'do_loco': False}}
+
+    def get_protocol_parameter_defaults(self):
+        return {{'pre_time': 0.0, 'stim_time': 0.0, 'tail_time': 0.0}}
+
+    def get_epoch_parameters(self):
+        super().get_epoch_parameters()
+        self.epoch_stim_parameters = {{'name': 'MovingSpot'}}
+
+    def load_stimuli(self, manager, multicall=None):
+        multicall = multicall or MyMultiCall(manager)
+{body}
+        multicall()
+'''
+
+
+def labpack_with_protocol(root, body, name='Demo'):
+    cfg = good_cfg()
+    make_labpack(root, cfg)
+    (root / 'pack' / 'protocol' / 'my_protocol.py').write_text(
+        PROTOCOL_TEMPLATE.format(name=name, body=body))
+    return cfg
+
+
+def deep_findings(root):
+    from stimpack.experiment.util import config_tools
+    cfg = check_labpack.config_tools.get_configuration_file('test_config.yaml', str(root))
+    with config_tools.using_labpack_directory(str(root)):
+        return check_labpack.check_protocols(cfg, 'test_config.yaml', str(root))
+
+
+def test_an_untargeted_call_is_reported(tmp_path):
+    """The opto bug: an untargeted call goes to root, is not defined there, and is dropped.
+
+    Nothing at run time says so -- the call is accepted and silently discarded -- which is why this
+    has to be caught before the experiment rather than during it.
+    """
+    labpack_with_protocol(tmp_path, "        multicall.daq_setup_pulse_wave_stream_out(freq=1)")
+
+    findings = deep_findings(tmp_path)
+
+    assert codes(findings, level='error') == ['call-lands-nowhere']
+    assert 'daq_setup_pulse_wave_stream_out' in findings[0].message
+    assert "target('voltage_out')" in findings[0].message      # suggests the right module
+
+
+def test_an_untargeted_screen_call_suggests_the_visual_module(tmp_path):
+    labpack_with_protocol(tmp_path, "        multicall.load_stim(name='MovingSpot')")
+
+    findings = deep_findings(tmp_path)
+    assert codes(findings, level='error') == ['call-lands-nowhere']
+    assert "target('visual')" in findings[0].message
+
+
+def test_untargeted_calls_through_the_manager_are_reported_too(tmp_path):
+    """Not every call goes through a multicall."""
+    labpack_with_protocol(tmp_path, "        manager.daq_output_step(value=1)")
+
+    findings = deep_findings(tmp_path)
+    assert codes(findings, level='error') == ['call-lands-nowhere']
+
+
+def test_a_properly_targeted_call_is_not_reported(tmp_path):
+    labpack_with_protocol(tmp_path, "        multicall.target('voltage_out').output_step(value=1)")
+    assert deep_findings(tmp_path) == []
+
+
+def test_a_real_root_function_is_not_reported(tmp_path):
+    """print_on_server IS defined on root, so calling it untargeted is correct."""
+    labpack_with_protocol(tmp_path, "        multicall.print_on_server('hello')")
+    assert deep_findings(tmp_path) == []
+
+
+def test_an_unknown_target_is_a_warning_not_an_error(tmp_path):
+    """A rig server may define modules stimpack does not know about."""
+    labpack_with_protocol(tmp_path, "        multicall.target('olfactometer').puff()")
+
+    findings = deep_findings(tmp_path)
+    assert codes(findings, level='error') == []
+    assert codes(findings, level='warning') == ['unknown-target']
+
+
+def test_a_protocol_that_will_not_import_is_an_error(tmp_path):
+    make_labpack(tmp_path, good_cfg())
+    (tmp_path / 'pack' / 'protocol' / 'my_protocol.py').write_text('import definitely_not_a_module\n')
+
+    findings = deep_findings(tmp_path)
+    assert codes(findings) == ['missing-third-party-module']       # not the labpack's fault
+    assert findings[0].level == 'warning'
+
+
+def test_a_protocol_broken_in_its_own_code_is_an_error(tmp_path):
+    make_labpack(tmp_path, good_cfg())
+    (tmp_path / 'pack' / 'protocol' / 'my_protocol.py').write_text('raise ValueError("typo")\n')
+
+    findings = deep_findings(tmp_path)
+    assert codes(findings) == ['protocol-will-not-import']
+    assert findings[0].level == 'error'
+
+
+def test_protocols_that_cannot_be_exercised_are_counted_not_hidden(tmp_path):
+    """Silently skipping would read as 'all clear' -- the very silence this module exists to remove."""
+    make_labpack(tmp_path, good_cfg())
+    # idle_color is a required run parameter; unlike do_loco the checker does not supply it, so
+    # prepare_run raises and the protocol cannot be exercised.
+    (tmp_path / 'pack' / 'protocol' / 'my_protocol.py').write_text(
+        PROTOCOL_TEMPLATE.format(name='Demo', body="        pass").replace(
+            "'idle_color': 0.5, ", ""))
+
+    findings = deep_findings(tmp_path)
+    assert codes(findings) == ['protocols-not-exercised']
+    assert '1 of 1 protocols' in findings[0].message
+
+
+def test_the_deep_check_does_not_sleep_through_the_stimulus(tmp_path):
+    """start_stimuli sleeps for the real stimulus duration; checking must not take that long."""
+    import time
+    cfg = labpack_with_protocol(tmp_path, "        pass")
+    path = tmp_path / 'pack' / 'protocol' / 'my_protocol.py'
+    path.write_text(path.read_text().replace("'pre_time': 0.0", "'pre_time': 30.0"))
+
+    started = time.monotonic()
+    deep_findings(tmp_path)
+    assert time.monotonic() - started < 10, "sleep() was not neutralized"

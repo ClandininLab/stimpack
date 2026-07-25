@@ -1576,11 +1576,14 @@ def main():
                              "if any error was found, so it can be used in a script or CI.")
     parser.add_argument('--labpack-dir', default=None,
                         help="labpack to check (default: the one recorded in path_to_labpack.txt)")
+    parser.add_argument('--deep', action='store_true',
+                        help="with --check-labpack, also import each protocol and check where its "
+                             "calls would be routed. Runs lab code, so it is not done at startup.")
     args = parser.parse_args()
 
     if args.check_labpack:
         from stimpack.experiment.util import check_labpack
-        findings, configs = check_labpack.check_labpack(args.labpack_dir)
+        findings, configs = check_labpack.check_labpack(args.labpack_dir, deep=args.deep)
         print(check_labpack.format_report(findings, configs, args.labpack_dir))
         sys.exit(1 if any(f.level == 'error' for f in findings) else 0)
 
