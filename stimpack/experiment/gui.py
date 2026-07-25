@@ -1370,7 +1370,7 @@ class InitializeRigGUI(QWidget):
         self.init_grid.addWidget(self.le_labpack_dir, 0, 1)
         
         self.pb_labpack_repo = QPushButton('?')
-        self.pb_labpack_repo.clicked.connect(lambda: QtGui.QDesktopServices.openUrl(QUrl("https://www.github.com/ClandininLab/labpack")))
+        self.pb_labpack_repo.clicked.connect(lambda: QtGui.QDesktopServices.openUrl(QUrl("https://www.github.com/ClandininLab/labpack-template")))
         self.pb_labpack_repo.setToolTip("You can customize your Stimpack by importing your own Labpack. Click here for a template Labpack repository.")
         self.init_grid.addWidget(self.pb_labpack_repo, 0, 2)
 
