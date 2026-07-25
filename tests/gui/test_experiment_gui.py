@@ -5,6 +5,7 @@ resulting state, so GUI regressions (broken wiring, a button that no longer star
 error that isn't surfaced) are caught automatically.
 """
 import pytest
+from PyQt6.QtCore import QThread
 
 pytestmark = pytest.mark.gui
 
@@ -134,3 +135,32 @@ def test_server_error_surfaces_in_the_gui(experiment_gui, monkeypatch, qapp):
 
     assert gui.status_label.text() == '[server error] [screen] load_stim blew up'
     assert alerts == [('Server error', '[screen] load_stim blew up')]
+
+
+# --- shutdown -----------------------------------------------------------------------------------
+
+def test_closing_the_gui_stops_a_running_series(experiment_gui, qapp):
+    """A run thread that outlives the window delivers signals into a destroyed receiver.
+
+    That is a real crash, not a tidiness issue: it is what made the whole suite segfault in one
+    process, and it is reachable in production by closing the GUI mid-series.
+    """
+    gui = experiment_gui
+    gui.protocol_object = None
+
+    class _SlowThread(QThread):
+        def run(self):
+            self.msleep(200)
+
+    gui.run_series_thread = _SlowThread()
+    gui.run_series_thread.finished.connect(lambda: gui.run_finished(False))
+    gui.run_series_thread.start()
+
+    gui.close()                                   # must not hang, must not crash
+
+    assert gui.run_series_thread is None
+    assert gui.client.stop is True                # the run loop was asked to stop
+
+
+def test_closing_the_gui_is_fine_with_no_run_thread(experiment_gui):
+    experiment_gui.close()                        # must not raise

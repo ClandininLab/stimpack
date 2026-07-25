@@ -167,6 +167,11 @@ class MySocketClient(MyTransceiver):
 
         assert port is not None, 'The port must be specified when creating a client.'
 
+        # Set before connecting so close() is well-defined even if create_connection below raises.
+        # Real attributes, so __getattr__ can't turn them into RPC stubs.
+        self.conn = None
+        self._reader_thread = None
+
         # Modules the server advertised on connect (a set), or None if it never told us -- e.g. an
         # older server. A real attribute, so __getattr__ can't turn it into an RPC stub.
         self.available_modules = None
@@ -175,23 +180,50 @@ class MySocketClient(MyTransceiver):
         # it as an unknown function.
         self.register_function(self._set_available_modules, name='report_server_modules')
 
-        conn = socket.create_connection((host, port))
-        _disable_nagle(conn)
+        # Keep the socket and the reader thread: close() needs both, and without them the reader is
+        # unstoppable -- it parks in `for line in self.infile` and only ever exits when the peer
+        # happens to drop the connection.
+        self.conn = socket.create_connection((host, port))
+        _disable_nagle(self.conn)
 
-        # make sure that connection is closed on
-        def cleanup():
+        atexit.register(self.close)
+
+        self.infile = self.conn.makefile('r')
+        self.outfile = self.conn.makefile('wb')
+
+        self._reader_thread = start_daemon_thread(self.loop)
+
+    def close(self, timeout=2.0):
+        '''
+        Close the connection and stop the reader thread. Idempotent.
+
+        socket.shutdown() -- not close() -- is what unblocks the reader. It is parked in a blocking
+        read inside `for line in self.infile`; shutdown makes that read return EOF, so the loop ends
+        on its own and the thread can be joined. Closing the file object out from under a blocked
+        reader does NOT reliably wake it and can hang instead.
+        '''
+        self.shutdown_flag.set()
+
+        if self.conn is not None:
             try:
-                conn.shutdown(socket.SHUT_RDWR)
-                conn.close()
-            except (OSError, ConnectionResetError):
-                pass
+                self.conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass                              # already shut down, or never fully connected
 
-        atexit.register(cleanup)
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=timeout)
+            self._reader_thread = None
 
-        self.infile = conn.makefile('r')
-        self.outfile = conn.makefile('wb')
-
-        start_daemon_thread(self.loop)
+        # Drop outfile before closing it: write_request_list() treats None as "no link" and returns
+        # quietly, whereas writing to a *closed* file raises ValueError, which it does not catch.
+        infile, outfile, conn = self.infile, self.outfile, self.conn
+        self.infile = self.outfile = self.conn = None
+        for closeable in (infile, outfile, conn):
+            if closeable is not None:
+                try:
+                    closeable.close()
+                except OSError:
+                    pass
 
     def _set_available_modules(self, modules):
         '''Record the modules the server advertised (see BaseServer.on_connection_open).'''
@@ -231,7 +263,9 @@ class MySocketClient(MyTransceiver):
                     continue
 
                 self.queue.put(request_list)
-        except (OSError, ConnectionResetError):
+        except (OSError, ConnectionResetError, ValueError):
+            # ValueError: close() got the file out from under us (iterating a closed file). That is
+            # a normal shutdown race, not an error.
             pass
         finally:
             # The reader loop only ends when the connection drops (EOF or error), so flag the link

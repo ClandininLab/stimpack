@@ -202,6 +202,14 @@ class VisualStimServer(MySocketServer):
                 except subprocess.TimeoutExpired:
                     proc.kill()
 
+        # Close our end of each screen socket too. The subprocess is gone, but our reader thread is
+        # still parked on the connection; only close() unblocks and joins it.
+        for manager in self.screen_managers:
+            try:
+                manager.close()
+            except Exception:
+                pass
+
     def on_connection_close(self):
         '''
         Clean up the loaded "other stim modules".

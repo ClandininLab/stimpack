@@ -7,9 +7,9 @@ socket and stimuli are really rendered.
 
 Requires a working headless GL stack (software Mesa is fine); tests skip if one isn't available.
 """
-import time
-
 import pytest
+
+from helpers import wait_until
 
 pytest.importorskip("numpy")
 pytest.importorskip("h5py")
@@ -18,14 +18,6 @@ pytest.importorskip("PyQt6")
 
 SERVER_BOOT_TIMEOUT = 60
 
-
-def wait_until(predicate, timeout=10.0, interval=0.05):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        time.sleep(interval)
-    return False
 
 
 @pytest.fixture(scope="module")
@@ -60,7 +52,13 @@ def live_manager(live_server):
     """
     from stimpack.rpc.transceiver import MySocketClient
 
-    return MySocketClient(host=live_server.host, port=live_server.port)
+    manager = MySocketClient(host=live_server.host, port=live_server.port)
+    yield manager
+
+    # Close it, rather than leaving a live reader thread bound to this process's QApplication. A
+    # later tier that pumps the Qt event loop would otherwise dispatch this manager's queued events
+    # into torn-down receivers and segfault (see tests/conftest.py).
+    manager.close()
 
 
 @pytest.fixture(scope="module")

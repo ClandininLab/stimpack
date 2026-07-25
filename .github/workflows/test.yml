@@ -65,6 +65,15 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: xvfb-run -a pytest -m e2e
 
+      # The tiers above give clean failure attribution, but each starts a fresh interpreter, so none
+      # of them can catch a tier leaving state behind that breaks the next one. This step does: it is
+      # what would have caught the QThread teardown bugs (a __del__ calling wait(), and a run thread
+      # outliving the window) that used to segfault a whole-suite run.
+      - name: Whole suite in one process (cross-tier interaction)
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: xvfb-run -a pytest
+
       - name: Upload GL failure diffs
         if: failure()
         uses: actions/upload-artifact@v4

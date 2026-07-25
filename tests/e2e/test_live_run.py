@@ -9,7 +9,7 @@ import time
 import h5py
 import pytest
 
-from conftest import wait_until          # tests/e2e/conftest.py (pytest pythonpath)
+from helpers import wait_until          # tests/helpers.py (tests/ is on pytest's pythonpath)
 from stimpack.experiment.protocol import BaseProtocol
 
 pytestmark = pytest.mark.e2e

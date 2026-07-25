@@ -494,8 +494,34 @@ class ExperimentGUI(QWidget):
     
     def closeEvent(self, event):
         print("Closing Experiment GUI")
+        self.stop_run_thread()
         self.client.close()
         super().closeEvent(event)
+
+    def stop_run_thread(self, timeout_ms=5000):
+        '''
+        End the run thread before this window is torn down.
+
+        Its started/finished signals are connected to lambdas that call back into this window. A
+        thread that outlives the window delivers those into a destroyed receiver, which segfaults --
+        so disconnect first, then ask the run loop to stop and wait for it.
+        '''
+        thread = self.__dict__.get('run_series_thread')
+        if thread is None:
+            return
+
+        for signal in (thread.started, thread.finished):
+            try:
+                signal.disconnect()
+            except TypeError:
+                pass                              # that one had no connections; keep going
+
+        if thread.isRunning():
+            self.client.stop_run()                # BaseClient.start_run checks this between epochs
+            if not thread.wait(timeout_ms):
+                warnings.warn("The run thread did not finish; closing anyway.")
+
+        self.run_series_thread = None
 
     def on_reordered_ensemble_list(self):
         if not self.ensemble_file_label.text().endswith('(changes unsaved)'):
@@ -1434,8 +1460,12 @@ class runSeriesThread(QThread):
         self.client = client
         self.save_metadata_flag = save_metadata_flag
 
-    def __del__(self):
-        self.wait()
+    # NOTE: deliberately no __del__ that calls self.wait().
+    #
+    # __del__ runs at whatever moment the garbage collector happens to fire, which for a QThread
+    # means calling into a C++ object that Qt may already have destroyed -- a segfault with a
+    # traceback pointing at whatever innocent line was executing when GC ran. ExperimentGUI.closeEvent
+    # waits for this thread explicitly instead, which is deterministic.
 
     def _send_run(self):
         self.client.start_run(self.protocol_object, self.data, save_metadata_flag=self.save_metadata_flag)

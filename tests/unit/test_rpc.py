@@ -282,3 +282,55 @@ def test_server_can_push_message_to_client_over_socket():
     assert received == [("error", "boom")]
 
     server.shutdown_flag.set()
+
+
+# --- MySocketClient.close() ---------------------------------------------------------------------
+#
+# Without a real close(), the reader thread is unstoppable: it parks in `for line in self.infile`
+# and only exits if the peer happens to drop the connection. That left live threads bound to the
+# process's QApplication across test tiers, and left the GUI unable to shut a client down.
+
+def _client_server_pair():
+    """A MySocketClient connected to a throwaway listening socket."""
+    import socket as _socket
+    from stimpack.rpc.transceiver import MySocketClient
+
+    listener = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    listener.bind(('127.0.0.1', 0))
+    listener.listen()
+    port = listener.getsockname()[1]
+
+    client = MySocketClient(host='127.0.0.1', port=port)
+    conn, _ = listener.accept()
+    return client, conn, listener
+
+
+def test_close_stops_the_reader_thread():
+    client, conn, listener = _client_server_pair()
+    thread = client._reader_thread
+    assert thread.is_alive()
+
+    client.close()
+
+    assert not thread.is_alive(), "close() must unblock and join the reader thread"
+    conn.close()
+    listener.close()
+
+
+def test_close_is_idempotent():
+    client, conn, listener = _client_server_pair()
+    client.close()
+    client.close()                     # must not raise
+    conn.close()
+    listener.close()
+
+
+def test_sending_after_close_is_a_silent_no_op():
+    """write_request_list treats a dropped link as None; a closed file would raise ValueError."""
+    client, conn, listener = _client_server_pair()
+    client.close()
+
+    client.some_remote_call(1, 2)      # must not raise
+
+    conn.close()
+    listener.close()

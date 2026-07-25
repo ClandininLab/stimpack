@@ -8,16 +8,15 @@ Test tiers (see markers in pyproject.toml):
   - e2e         : a LIVE server with real screen (and KeyTrac) subprocesses.
   - hardware    : needs a real rig (DAQ/projector/tracker). Not run in CI.
 
-RUN THE TIERS SEPARATELY, as CI does:
+A bare `pytest` runs everything in one process and passes. Tiers can also be run individually:
 
     pytest -m unit && pytest -m "integration or gui" && pytest -m gl && pytest -m e2e
 
-A single `pytest` over everything segfaults. Bisected to the `e2e` + `gui` pair specifically:
-`-m "e2e or gui"` crashes, while `-m "e2e or gl"` and `-m "gl or gui or integration"` both pass. The
-e2e tier leaves live daemon threads (the manager's socket reader, the screen-message pump) attached
-to the shared QApplication; the first gui test to call processEvents() -- currently
-test_server_error_surfaces_in_the_gui -- dispatches their queued events into torn-down receivers.
-It is an interaction between the tiers, not a failure of the code under test: each tier passes alone.
+(This used to segfault. Two real bugs caused it, both since fixed: runSeriesThread defined a
+__del__ that called self.wait(), so a QThread was touched at arbitrary GC time; and
+ExperimentGUI.closeEvent never disconnected or waited for that thread, so its finished signal could
+fire into a destroyed window. MySocketClient also had no way to stop its reader thread. Keep the
+whole-suite run in CI -- it is what catches this class of bug.)
 
 The e2e tier launches real screen subprocesses, so stimulus windows appear briefly unless you run
 under a virtual display (`xvfb-run -a pytest -m e2e`). They are torn down when the server closes.
