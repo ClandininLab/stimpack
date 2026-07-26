@@ -19,8 +19,9 @@ from stimpack.visual_stim.cubemap import (  # noqa: E402
     CUBE_FACES, CubeMapRenderer, face_matrices, face_view_projections,
 )
 from stimpack.visual_stim.curved_screen import (  # noqa: E402
-    PinholeProjector, ScreenMesh, SphericalSurface, build_screen_mesh,
+    CylindricalSurface, PinholeProjector, ScreenMesh, SphericalSurface, build_screen_mesh,
 )
+from stimpack.visual_stim.screen import Screen  # noqa: E402
 
 pytestmark = pytest.mark.gl
 
@@ -228,3 +229,109 @@ def test_a_second_renderer_can_be_built_after_releasing_the_first(headless_gl):
         renderer.release()
         renderer.release()                                  # idempotent
     assert ctx.error == 'GL_NO_ERROR' 
+
+
+def test_the_corner_square_survives_the_warp(headless_gl):
+    """The photodiode square must land in projector space, unresampled, after the warp.
+
+    It is the frame-timing signal, so its position has to be exact on the physical display and its
+    intensity has to be the value asked for. Drawing it before the warp -- or letting the warp cover
+    it -- would put it somewhere else on the screen, or soften its edges, and the photodiode trace
+    would drift from the frames it is supposed to mark.
+    """
+    from stimpack.visual_stim.square import SquareProgram
+
+    ctx = headless_gl
+    size = 64
+    screen = Screen(fullscreen=False, vsync=False,
+                    square_size=(0.25, 0.25), square_loc=(-1.0, -1.0))
+
+    renderer = CubeMapRenderer(ctx, flat_mesh([(1, 0, 0)]), resolution=32)
+    square = SquareProgram(screen=screen)
+    square.initialize(ctx)
+    square.set_viewport(size, size)
+    square.turn_on()
+    try:
+        fill_faces(renderer, colors=[(0.0, 0.0, 1.0, 1.0)] * 6)      # warp paints everything blue
+
+        target = ctx.simple_framebuffer((size, size))
+        target.use()
+        target.clear(0.0, 0.0, 0.0, 1.0)
+        renderer.render_warp(viewport=(0, 0, size, size))
+        square.paint()                                                # as paintGL does, afterwards
+        ctx.finish()
+
+        image = np.frombuffer(target.read(components=3, alignment=1),
+                              dtype=np.uint8).reshape(size, size, 3)
+    finally:
+        renderer.release()
+
+    # square_loc is the lower-left corner in NDC, square_size a fraction of the display
+    corner = image[:size // 8, :size // 8]
+    elsewhere = image[size // 2:, size // 2:]
+
+    assert (corner[..., 0] > 200).all() and (corner[..., 2] > 200).all(), \
+        f'the corner square is not white where it should be: {corner.reshape(-1, 3)[0]}'
+    assert (elsewhere[..., 2] > 200).all() and (elsewhere[..., 0] < 60).all(), \
+        'the rest of the display should still show the warped scene'
+
+
+def test_the_corner_square_is_not_softened_by_the_warp(headless_gl):
+    """Resampling would blur its edges; a photodiode wants a hard step."""
+    from stimpack.visual_stim.square import SquareProgram
+
+    ctx = headless_gl
+    size = 64
+    screen = Screen(fullscreen=False, vsync=False,
+                    square_size=(0.25, 0.25), square_loc=(-1.0, -1.0))
+    square = SquareProgram(screen=screen)
+    square.initialize(ctx)
+    square.set_viewport(size, size)
+    square.turn_on()
+
+    target = ctx.simple_framebuffer((size, size))
+    target.use()
+    target.clear(0.0, 0.0, 0.0, 1.0)
+    square.paint()
+    ctx.finish()
+    image = np.frombuffer(target.read(components=1, alignment=1), dtype=np.uint8).reshape(size, size)
+
+    # every pixel is either fully on or fully off -- no intermediate values along the edge
+    intermediate = ((image > 20) & (image < 235)).sum()
+    assert intermediate == 0, f'{intermediate} pixels sit between on and off; the square is soft'
+
+
+@pytest.mark.parametrize('surface, radius, label', [
+    (SphericalSurface(radius=0.06, elevation_range=(-90, 0), n_azimuth=48, n_elevation=12),
+     0.06, 'bowl'),
+    (CylindricalSurface(radius=0.06, height_range=(-0.04, 0.04), n_azimuth=48, n_height=6),
+     0.06, 'cylinder'),
+])
+def test_a_real_screen_shape_renders_through_the_whole_path(headless_gl, surface, radius, label):
+    """Both supported shapes, end to end: build the mesh, fill the cube, warp it out.
+
+    The geometry has unit tests and the cube map has its own; this is the join between them, where a
+    mesh that is right on paper can still produce a vertex buffer the warp cannot draw.
+    """
+    ctx = headless_gl
+    projector = PinholeProjector.wintech_pro4500(position=(0, -0.25, -0.15), look_at=(0, 0, -0.03))
+    mesh = build_screen_mesh(surface, projector)
+    assert mesh.n_triangles > 0
+
+    renderer = CubeMapRenderer(ctx, mesh, resolution=128)
+    try:
+        fill_faces(renderer)
+        target = ctx.simple_framebuffer((96, 96))
+        target.use()
+        target.clear(0.0, 0.0, 0.0, 1.0)
+        renderer.render_warp(viewport=(0, 0, 96, 96))
+        ctx.finish()
+
+        assert ctx.error == 'GL_NO_ERROR', f'{label}: {ctx.error}'
+        image = np.frombuffer(target.read(components=3, alignment=1), dtype=np.uint8)
+        drawn = (image.reshape(-1, 3).max(axis=1) > 30).mean()
+        assert drawn > 0.05, f'{label}: the warp covered only {drawn:.1%} of the display'
+        coverage = mesh.coverage(radius=radius)
+        assert 0 < coverage['fraction'] <= 1
+    finally:
+        renderer.release()

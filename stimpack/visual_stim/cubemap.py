@@ -169,16 +169,18 @@ class CubeMapRenderer:
         GL.glEnable(GL.GL_TEXTURE_CUBE_MAP_SEAMLESS)
 
         self._depth = ctx.depth_renderbuffer((self.resolution, self.resolution))
-        # One framebuffer, re-pointed at a different cube face each time. Its placeholder colour
-        # attachment is a renderbuffer rather than a 2D texture on purpose: a GL texture name keeps
-        # the target it was first bound to, so after this object is released and its names are
-        # reused, a name that had been a 2D texture cannot become a cube face -- which made a second
-        # CubeMapRenderer in the same context fail with GL_INVALID_OPERATION. A renderbuffer lives
-        # in a different namespace, so the question cannot arise.
+        # A placeholder colour attachment so moderngl will build complete framebuffers; the raw call
+        # below re-points each at a cube face. A renderbuffer rather than a 2D texture on purpose: a
+        # GL texture name keeps the target it was first bound to, so a reused name that had been 2D
+        # cannot become a cube face, which made a second CubeMapRenderer in one context fail.
         self._color_placeholder = ctx.renderbuffer((self.resolution, self.resolution), 4)
-        self._fbo = ctx.framebuffer(color_attachments=[self._color_placeholder],
-                                    depth_attachment=self._depth)
-        self._attached_face = None
+
+        # One framebuffer per face, each attached once, here. Re-pointing a single framebuffer per
+        # frame instead put a raw GL call on the render path, and inside the screen subprocess that
+        # failed with GL_INVALID_OPERATION: whichever context PyOpenGL is talking to at paint time
+        # is not reliably the one the cube belongs to, whereas at construction it is. Keeping raw GL
+        # out of paintGL removes the question, and use_face becomes pure moderngl.
+        self._face_fbos = [self._attach_face(index) for index in range(self.faces)]
 
         self.program = ctx.program(vertex_shader=WARP_VERTEX_SHADER,
                                    fragment_shader=WARP_FRAGMENT_SHADER)
@@ -187,34 +189,31 @@ class CubeMapRenderer:
             self.program, [(self._vbo, '2f 3f', 'in_ndc', 'in_direction')])
         self.n_vertices = mesh.n_triangles * 3
 
-    def use_face(self, index, clear_color=(0.0, 0.0, 0.0, 1.0)):
-        """Make one cube face the render target. Draw the scene, then move to the next face.
-
-        The framebuffer is moderngl's; only the attachment is raw GL. Creating framebuffers with
-        glGenFramebuffers instead raised GL_INVALID_VALUE on bind inside the screen subprocess while
-        passing under a standalone context -- the name belongs to whichever context PyOpenGL was
-        talking to, which is not reliably the one moderngl holds inside a Qt widget.
-        """
-        if not 0 <= index < self.faces:
-            raise IndexError(f'face {index} is out of range for {self.faces} faces')
-
+    def _attach_face(self, index):
+        """Point a framebuffer at one cube face. Construction time only -- never per frame."""
         GL = self._gl
-        self._fbo.use()
+        fbo = self.ctx.framebuffer(color_attachments=[self._color_placeholder],
+                                   depth_attachment=self._depth)
+        fbo.use()
 
         drain_gl_errors(GL)
         GL.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0,
                                   GL.GL_TEXTURE_CUBE_MAP_POSITIVE_X + index, self.cube.glo, 0)
 
-        if self._attached_face is None:
-            # Checked once: GL reports an incomplete framebuffer by flag rather than exception, so
-            # otherwise the failure is a black screen with no explanation anywhere.
-            status = GL.glCheckFramebufferStatus(GL.GL_FRAMEBUFFER)
-            if status != GL.GL_FRAMEBUFFER_COMPLETE:
-                raise RuntimeError(f'cube-map framebuffer is incomplete (status 0x{status:x})')
-        self._attached_face = index
+        # GL reports an incomplete framebuffer by flag rather than exception, so without this the
+        # failure would be a black screen with no explanation anywhere.
+        status = GL.glCheckFramebufferStatus(GL.GL_FRAMEBUFFER)
+        if status != GL.GL_FRAMEBUFFER_COMPLETE:
+            raise RuntimeError(f'cube-map framebuffer for face {index} is incomplete '
+                               f'(status 0x{status:x})')
+        return fbo
 
+    def use_face(self, index, clear_color=(0.0, 0.0, 0.0, 1.0)):
+        """Make one cube face the render target. Draw the scene, then move to the next face."""
+        fbo = self._face_fbos[index]
+        fbo.use()
         self.ctx.viewport = (0, 0, self.resolution, self.resolution)
-        self._fbo.clear(*clear_color)
+        fbo.clear(*clear_color)
 
     def render_warp(self, viewport=None):
         """Draw the screen mesh into whatever framebuffer is currently bound.
@@ -229,7 +228,8 @@ class CubeMapRenderer:
 
     def release(self):
         """Free the GL objects. moderngl's default gc_mode does not do this for us."""
-        for owned in (self.vao, self._vbo, self.program, self._fbo,
+        self._face_fbos = list(getattr(self, '_face_fbos', []))
+        for owned in (*self._face_fbos, self.vao, self._vbo, self.program,
                       self._color_placeholder, self._depth, self.cube):
             try:
                 owned.release()
