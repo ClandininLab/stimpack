@@ -193,8 +193,13 @@ def get_rgba(val, def_alpha=1):
             raise ValueError(f'Unknown color: {val}')
 
     # convert single value to float
+    #
+    # .item() rather than float(): a size-1 value here is usually an ARRAY, not a scalar --
+    # distribution.get_random_values(1) returns shape (1,) -- and float() on an ndim>0 array is
+    # deprecated since NumPy 1.25 and slated to raise. That would break every monochrome stimulus
+    # driven by a distribution, which is how UniformWhiteNoise broke once already.
     if np.asarray(val).size == 1:
-        val = float(np.asarray(val))
+        val = np.asarray(val).item()
 
     # if a single number is given treat as monochrome
     if isinstance(val, Number):
