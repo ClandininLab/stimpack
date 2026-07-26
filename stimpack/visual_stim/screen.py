@@ -65,7 +65,8 @@ class Screen:
 
     def __init__(self, subscreens=None, x_display=None, display_index=0, fullscreen=None, vsync=None,
                  square_size=None, square_loc=None, square_on_color=None, square_off_color=None, name=None, horizontal_flip=False, 
-                 pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15), use_egl=None):
+                 pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15), use_egl=None,
+                 subframes=1, subframe_channel_order=(0, 1, 2), refresh_rate=None):
         """
         :param subscreens: list of SubScreen objects (see above), if none are provided, one full-viewport subscreen will be produced using inputs pa, pb, pc
         :param x_display: $DISPLAY environment variable relevant if using Xorg as display server. If None, the default display is used.
@@ -105,6 +106,28 @@ class Screen:
         if name is None:
             name = 'Screen ' + str(display_index)
 
+        # Temporal multiplexing: a DLPC350 in video-pattern mode can read the three 8-bit colour
+        # channels of one frame as three successive patterns, turning a 120 Hz video link into a
+        # 360 Hz monochrome display. subframes=3 makes the renderer draw three timepoints per frame
+        # and write each to one channel; subframes=1 is ordinary rendering and changes nothing.
+        #
+        # Colour is what pays for it. Each channel becomes a slice of time rather than a colour, so
+        # stimuli have to be greyscale.
+        if subframes not in (1, 3):
+            raise ValueError(f'subframes must be 1 or 3 (the three 8-bit channels of a frame), '
+                             f'not {subframes}')
+        if subframes > 1 and refresh_rate is None:
+            raise ValueError('subframes > 1 needs refresh_rate (the video link rate, e.g. 120), '
+                             'to know how far apart in time the subframes are')
+        if sorted(subframe_channel_order) != [0, 1, 2]:
+            raise ValueError(f'subframe_channel_order must be a permutation of (0, 1, 2) -- which '
+                             f'colour channel carries each successive subframe -- not '
+                             f'{subframe_channel_order}')
+
+        self.subframes = int(subframes)
+        self.subframe_channel_order = tuple(int(c) for c in subframe_channel_order)
+        self.refresh_rate = refresh_rate
+
         # Save settings
         self.subscreens=subscreens
         self.x_display = x_display
@@ -124,10 +147,31 @@ class Screen:
         self.width = sqrt((pa[0]-pb[0])**2 + (pa[1]-pb[1])**2 + (pa[2]-pb[2])**2)
         self.height = sqrt((pa[0]-pc[0])**2 + (pa[1]-pc[1])**2 + (pa[2]-pc[2])**2)
 
+    @property
+    def subframe_interval(self):
+        """Seconds between successive subframes, or 0 when not multiplexing."""
+        if self.subframes <= 1:
+            return 0.0
+        return 1.0 / (self.refresh_rate * self.subframes)
+
+    def subframe_color_masks(self):
+        """One (r, g, b, a) write mask per subframe, in the order they are displayed.
+
+        Which channel the projector shows first is set by its pattern LUT, not by us, so the order
+        is configuration rather than a constant. Getting it wrong reorders three frames in time --
+        motion still looks like motion, just wrong -- so it wants checking with a photodiode rather
+        than by eye.
+        """
+        if self.subframes <= 1:
+            return [(True, True, True, True)]
+        return [tuple(i == channel for i in range(3)) + (True,)
+                for channel in self.subframe_channel_order[:self.subframes]]
+
     def serialize(self):
         # get all variables needed to reconstruct the screen object
         vars = ['x_display', 'display_index', 'fullscreen', 'vsync', 'square_size', 'square_loc', 
-                'square_on_color', 'square_off_color', 'name', 'horizontal_flip', 'pa', 'pb', 'pc', 'use_egl']
+                'square_on_color', 'square_off_color', 'name', 'horizontal_flip', 'pa', 'pb', 'pc', 'use_egl',
+                'subframes', 'subframe_channel_order', 'refresh_rate']
         data = {var: getattr(self, var) for var in vars}
 
         # special handling for tri_list since it could contain numpy values

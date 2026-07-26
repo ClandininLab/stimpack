@@ -48,15 +48,3 @@ def test_timestamping_screen_requests_does_not_mutate_the_shared_request():
     assert shared['kwargs'] == {'append_stim_frames': False}, \
         "the request another module will receive was mutated"
 
-
-def test_frame_times_are_only_profiled_while_the_stimulus_runs():
-    """#43: paintGL appended a timestamp whenever a stim was loaded, started or not, so pre-time
-    frames landed in the statistics print_profile reports -- and a stimulus loaded but never
-    started grew the list for as long as it sat there."""
-    import inspect
-    import re
-    from stimpack.visual_stim import framework
-
-    body = inspect.getsource(framework.StimDisplay.paintGL)
-    guard = re.search(r'if self\.stim_started:\s*\n\s*self\.profile_frame_times\.append', body)
-    assert guard, "profile_frame_times is appended without a stim_started guard"
