@@ -123,6 +123,20 @@ def face_matrices(subject_position=None, near=1e-4, far=1000.0):
             for m in face_view_projections(subject_position, near, far)]
 
 
+def drain_gl_errors(GL):
+    """Empty the GL error queue before calling into raw GL.
+
+    PyOpenGL checks glGetError after every call and raises whatever it finds; moderngl never clears
+    that queue. So an error produced anywhere earlier surfaces at the next raw call and is reported
+    against it, with entirely plausible arguments -- glFramebufferTexture2D blamed for something
+    that happened several operations before, which cost an hour of looking for a bug in the
+    attachment that was not there. Our own errors are still caught: the completeness check runs
+    after the calls it guards.
+    """
+    while GL.glGetError() != GL.GL_NO_ERROR:
+        pass
+
+
 class CubeMapRenderer:
     """Owns the cube map, its framebuffers, and the warp pass.
 
@@ -151,13 +165,20 @@ class CubeMapRenderer:
         self.cube.filter = (ctx.LINEAR, ctx.LINEAR)
         # Without this, sampling near a face boundary blends towards that face's border instead of
         # across into its neighbour, and the seams show up as lines on the screen.
+        drain_gl_errors(GL)
         GL.glEnable(GL.GL_TEXTURE_CUBE_MAP_SEAMLESS)
 
         self._depth = ctx.depth_renderbuffer((self.resolution, self.resolution))
-        # A throwaway colour attachment, only so moderngl will build a complete framebuffer object
-        # for us; the raw call below re-points it at a cube face.
-        self._scratch = ctx.texture((self.resolution, self.resolution), 4)
-        self._face_fbos = [self._attach_face(i) for i in range(self.faces)]
+        # One framebuffer, re-pointed at a different cube face each time. Its placeholder colour
+        # attachment is a renderbuffer rather than a 2D texture on purpose: a GL texture name keeps
+        # the target it was first bound to, so after this object is released and its names are
+        # reused, a name that had been a 2D texture cannot become a cube face -- which made a second
+        # CubeMapRenderer in the same context fail with GL_INVALID_OPERATION. A renderbuffer lives
+        # in a different namespace, so the question cannot arise.
+        self._color_placeholder = ctx.renderbuffer((self.resolution, self.resolution), 4)
+        self._fbo = ctx.framebuffer(color_attachments=[self._color_placeholder],
+                                    depth_attachment=self._depth)
+        self._attached_face = None
 
         self.program = ctx.program(vertex_shader=WARP_VERTEX_SHADER,
                                    fragment_shader=WARP_FRAGMENT_SHADER)
@@ -166,37 +187,34 @@ class CubeMapRenderer:
             self.program, [(self._vbo, '2f 3f', 'in_ndc', 'in_direction')])
         self.n_vertices = mesh.n_triangles * 3
 
-    def _attach_face(self, index):
-        """Point one moderngl framebuffer at one cube face.
+    def use_face(self, index, clear_color=(0.0, 0.0, 0.0, 1.0)):
+        """Make one cube face the render target. Draw the scene, then move to the next face.
 
-        The framebuffer object itself is created by moderngl rather than glGenFramebuffers, and
-        only the attachment is raw GL. That matters beyond tidiness: a name from glGenFramebuffers
-        belongs to whichever context PyOpenGL was talking to, which is not reliably the one moderngl
-        holds inside a Qt widget -- doing it that way raised GL_INVALID_VALUE on bind in the screen
-        subprocess while passing under a standalone context. Letting moderngl create and bind the
-        object removes the question, and it also gets cleaned up with everything else.
+        The framebuffer is moderngl's; only the attachment is raw GL. Creating framebuffers with
+        glGenFramebuffers instead raised GL_INVALID_VALUE on bind inside the screen subprocess while
+        passing under a standalone context -- the name belongs to whichever context PyOpenGL was
+        talking to, which is not reliably the one moderngl holds inside a Qt widget.
         """
-        GL = self._gl
-        fbo = self.ctx.framebuffer(color_attachments=[self._scratch], depth_attachment=self._depth)
+        if not 0 <= index < self.faces:
+            raise IndexError(f'face {index} is out of range for {self.faces} faces')
 
-        fbo.use()
+        GL = self._gl
+        self._fbo.use()
+
+        drain_gl_errors(GL)
         GL.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0,
                                   GL.GL_TEXTURE_CUBE_MAP_POSITIVE_X + index, self.cube.glo, 0)
 
-        # Checked explicitly: an incomplete framebuffer raises no exception and renders nothing, so
-        # the failure would be a black screen with no explanation anywhere.
-        status = GL.glCheckFramebufferStatus(GL.GL_FRAMEBUFFER)
-        if status != GL.GL_FRAMEBUFFER_COMPLETE:
-            raise RuntimeError(f'cube-map framebuffer for face {index} is incomplete '
-                               f'(status 0x{status:x})')
-        return fbo
+        if self._attached_face is None:
+            # Checked once: GL reports an incomplete framebuffer by flag rather than exception, so
+            # otherwise the failure is a black screen with no explanation anywhere.
+            status = GL.glCheckFramebufferStatus(GL.GL_FRAMEBUFFER)
+            if status != GL.GL_FRAMEBUFFER_COMPLETE:
+                raise RuntimeError(f'cube-map framebuffer is incomplete (status 0x{status:x})')
+        self._attached_face = index
 
-    def use_face(self, index, clear_color=(0.0, 0.0, 0.0, 1.0)):
-        """Make one cube face the render target. Draw the scene, then move to the next face."""
-        fbo = self._face_fbos[index]
-        fbo.use()
         self.ctx.viewport = (0, 0, self.resolution, self.resolution)
-        fbo.clear(*clear_color)
+        self._fbo.clear(*clear_color)
 
     def render_warp(self, viewport=None):
         """Draw the screen mesh into whatever framebuffer is currently bound.
@@ -211,13 +229,8 @@ class CubeMapRenderer:
 
     def release(self):
         """Free the GL objects. moderngl's default gc_mode does not do this for us."""
-        for fbo in self._face_fbos:
-            try:
-                fbo.release()
-            except Exception:
-                pass
-        self._face_fbos = []
-        for owned in (self.vao, self._vbo, self.program, self._scratch, self._depth, self.cube):
+        for owned in (self.vao, self._vbo, self.program, self._fbo,
+                      self._color_placeholder, self._depth, self.cube):
             try:
                 owned.release()
             except Exception:

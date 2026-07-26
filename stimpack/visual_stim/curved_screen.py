@@ -409,6 +409,16 @@ class CurvedScreen(Screen):
         self.cube_resolution = int(cube_resolution)
 
     def build_mesh(self, subject_position=(0, 0, 0)):
+        """The screen mesh. subject_position is where the subject physically sits, not where it is
+        in the virtual world.
+
+        For a tethered animal those differ, and only the first belongs here: the mesh describes
+        fixed geometry -- which direction each part of the screen lies in, as seen from the animal.
+        Virtual movement is handled entirely by rendering the cube map from the virtual position,
+        exactly as the planar path handles it (GenPerspective keeps its eye at the rig origin and
+        translates the world instead). Passing the virtual position here as well applies the
+        translation twice; a test comparing the two paths caught that at 14 px on a 192 px screen.
+        """
         return build_screen_mesh(self.surface, self.projector, subject_position=subject_position)
 
     def serialize(self):

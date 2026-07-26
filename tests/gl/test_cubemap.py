@@ -218,9 +218,13 @@ def test_the_whole_screen_is_one_draw_call_regardless_of_tessellation(headless_g
             renderer.release()
 
 
-def test_release_frees_the_raw_framebuffers(headless_gl):
-    """They are outside moderngl's bookkeeping, so nothing else will."""
-    renderer = CubeMapRenderer(headless_gl, flat_mesh([(1, 0, 0)]), resolution=32)
-    renderer.release()
-    assert renderer._face_fbos == []
-    renderer.release()                                      # idempotent
+def test_a_second_renderer_can_be_built_after_releasing_the_first(headless_gl):
+    """moderngl's default gc_mode frees nothing on its own, and GL reuses names aggressively, so
+    this is where lifetime mistakes show up."""
+    ctx = headless_gl
+    for _ in range(3):
+        renderer = CubeMapRenderer(ctx, flat_mesh([(1, 0, 0)]), resolution=32)
+        fill_faces(renderer)
+        renderer.release()
+        renderer.release()                                  # idempotent
+    assert ctx.error == 'GL_NO_ERROR' 
