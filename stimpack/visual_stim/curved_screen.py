@@ -140,6 +140,15 @@ class CurvedSurface:
         """Return (vertices (N, 3) in meters, triangles (M, 3) of indices into vertices)."""
         raise NotImplementedError
 
+    def outward_normals(self, vertices):
+        """Unit normals pointing away from the surface's axis or centre, one per vertex.
+
+        Needed to work out which part of the screen a projector can actually light. Being inside the
+        projector's frustum is not enough -- on a bowl, the far side is squarely within the frustum
+        and squarely behind the near side.
+        """
+        raise NotImplementedError
+
     def serialize(self):
         raise NotImplementedError
 
@@ -178,6 +187,9 @@ class SphericalSurface(CurvedSurface):
                             axis=-1).reshape(-1, 3)
         return vertices, _grid_triangles(self.n_azimuth + 1, self.n_elevation + 1)
 
+    def outward_normals(self, vertices):
+        return np.asarray(vertices, dtype=float) / self.radius
+
     def serialize(self):
         return {'kind': 'spherical', 'radius': self.radius, 'azimuth_range': self.azimuth_range,
                 'elevation_range': self.elevation_range, 'n_azimuth': self.n_azimuth,
@@ -210,6 +222,11 @@ class CylindricalSurface(CurvedSurface):
                              z], axis=-1).reshape(-1, 3)
         return vertices, _grid_triangles(self.n_azimuth + 1, self.n_height + 1)
 
+    def outward_normals(self, vertices):
+        normals = np.asarray(vertices, dtype=float).copy()
+        normals[:, 2] = 0.0                      # the axis direction has no curvature
+        return normals / self.radius
+
     def serialize(self):
         return {'kind': 'cylindrical', 'radius': self.radius, 'height_range': self.height_range,
                 'azimuth_range': self.azimuth_range, 'n_azimuth': self.n_azimuth,
@@ -236,11 +253,15 @@ class ScreenMesh:
     :param positions: (N, 3) the points themselves, in meters -- kept for visualisation and checking
     """
 
-    def __init__(self, ndc, directions, triangles, positions):
+    def __init__(self, ndc, directions, triangles, positions, lit=None):
         self.ndc = np.asarray(ndc, dtype=np.float32)
         self.directions = np.asarray(directions, dtype=np.float32)
         self.triangles = np.asarray(triangles, dtype=np.int32)
         self.positions = np.asarray(positions, dtype=np.float32)
+        # Per vertex: does the projector actually light this point? Needs both that it falls inside
+        # the image and that the surface faces the projector at all.
+        self.lit = (np.ones(len(self.ndc), dtype=bool) if lit is None
+                    else np.asarray(lit, dtype=bool))
 
     @property
     def n_triangles(self):
@@ -254,25 +275,48 @@ class ScreenMesh:
         flat = self.triangles.reshape(-1)
         return np.hstack([self.ndc[flat], self.directions[flat]]).astype(np.float32)
 
-    def off_projector_fraction(self):
-        """Fraction of vertices that miss the projector image, as a sanity check on the geometry.
+    def coverage(self, radius=None):
+        """What part of the screen this projector actually lights, as a dict.
 
-        Zero is not necessarily right -- a projector that overfills the screen is normal -- but a
-        large value usually means the projector pose or throw ratio is wrong.
+        Not an error metric. A rig may well cover only part of its screen on purpose -- a projector
+        mounted to one side of a bowl lights the part it faces and nothing else -- so this reports a
+        fact about the setup rather than scoring it. What it is good for is checking the covered
+        patch is where you meant it to be, and knowing which part of the subject's visual field is
+        actually being stimulated.
         """
-        finite = np.isfinite(self.ndc).all(axis=1)
-        inside = finite & (np.abs(self.ndc) <= 1).all(axis=1)
-        return 1.0 - inside.mean()
+        lit = self.lit
+        result = {'fraction': float(lit.mean())}
+        if not lit.any():
+            return result | {'azimuth': None, 'elevation': None}
 
+        positions = self.positions[lit]
+        azimuth = np.degrees(np.arctan2(positions[:, 0], positions[:, 1]))
+        if radius is None:
+            radius = float(np.linalg.norm(self.positions, axis=1).max())
+        elevation = np.degrees(np.arcsin(np.clip(positions[:, 2] / radius, -1, 1)))
+        return result | {'azimuth': _circular_range(azimuth),
+                         'elevation': (float(elevation.min()), float(elevation.max()))}
 
 def build_screen_mesh(surface, projector, subject_position=(0, 0, 0)):
     """Tessellate `surface` and work out, for each vertex, where it projects and where it lies.
 
-    Triangles with any vertex the projector cannot see are dropped: they have no image, and keeping
-    them would put NaNs in the vertex buffer.
+    Two different things are worked out here and it is worth not conflating them.
+
+    Triangles the projector cannot *see* are dropped -- either because they fall behind it, which
+    would put NaNs in the vertex buffer, or because the surface turns away from it. On a bowl lit
+    from one side, the far wall sits squarely inside the frustum and squarely behind the near wall;
+    without the facing test it would be drawn as though lit, and the reported coverage would claim
+    the whole 360 degrees of azimuth.
+
+    Triangles that merely fall outside the image are *kept*. Partial coverage is normal, and a
+    triangle straddling the edge of the image should be drawn and clipped by the rasterizer, not
+    dropped whole -- dropping it would eat a triangle's worth of real screen at every edge.
     """
     positions, triangles = surface.vertices_and_triangles()
     ndc = projector.to_ndc(positions)
+
+    towards_projector = np.asarray(projector.position, dtype=float) - positions
+    faces_projector = np.einsum('ij,ij->i', surface.outward_normals(positions), towards_projector) > 0
 
     directions = positions - np.asarray(subject_position, dtype=float)
     lengths = np.linalg.norm(directions, axis=1, keepdims=True)
@@ -280,10 +324,33 @@ def build_screen_mesh(surface, projector, subject_position=(0, 0, 0)):
         raise ValueError('a screen vertex coincides with the subject; direction is undefined there')
     directions = directions / lengths
 
-    visible = np.isfinite(ndc).all(axis=1)
+    visible = np.isfinite(ndc).all(axis=1) & faces_projector
     triangles = triangles[visible[triangles].all(axis=1)]
 
-    return ScreenMesh(ndc=ndc, directions=directions, triangles=triangles, positions=positions)
+    lit = visible & (np.abs(np.nan_to_num(ndc, nan=np.inf)) <= 1).all(axis=1)
+    return ScreenMesh(ndc=ndc, directions=directions, triangles=triangles, positions=positions,
+                      lit=lit)
+
+
+def _circular_range(angles_deg):
+    """The arc a set of azimuths occupies, as (start, end) degrees, going anticlockwise.
+
+    Plain min/max is wrong for an angle: a patch centred behind the subject spans, say, 170 to -170,
+    and min/max calls that the entire circle. Find the widest gap between neighbouring angles
+    instead; the covered arc is everything else. The returned start may exceed the end, which is how
+    a wrapped arc reads (170 to -170 is the 20-degree patch behind, not the 340 degrees in front).
+    """
+    angles = np.sort(np.mod(np.asarray(angles_deg, dtype=float), 360.0))
+    if len(angles) < 2:
+        return (float(angles[0]), float(angles[0]))
+
+    gaps = np.diff(np.concatenate([angles, angles[:1] + 360.0]))
+    widest = int(np.argmax(gaps))
+
+    start = angles[(widest + 1) % len(angles)]
+    end = angles[widest]
+    wrap = lambda a: float((a + 180.0) % 360.0 - 180.0)      # noqa: E731 - back to (-180, +180]
+    return (wrap(start), wrap(end))
 
 
 def _grid_triangles(n_u, n_v):

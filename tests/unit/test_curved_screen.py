@@ -176,14 +176,49 @@ def test_interleaved_buffer_layout():
     assert np.allclose(data[0, 2:], mesh.directions[first])
 
 
-def test_off_projector_fraction_flags_a_projector_that_misses_the_screen():
+def test_coverage_reports_how_much_of_the_screen_is_lit():
     surface = SphericalSurface(radius=1.0)
-    covering = build_screen_mesh(surface, flystim_projector(throw=0.5))
-    missing = build_screen_mesh(surface, flystim_projector(throw=1.75))
+    wide = build_screen_mesh(surface, flystim_projector(throw=0.5)).coverage()
+    narrow = build_screen_mesh(surface, flystim_projector(throw=1.75)).coverage()
 
-    assert covering.off_projector_fraction() < 0.1
-    assert missing.off_projector_fraction() > 0.5, \
-        'flystim1.0 example throw ratio should not cover a full hemisphere'
+    assert wide['fraction'] > narrow['fraction'], 'a longer throw should light less of the screen'
+
+
+def test_coverage_is_a_fact_not_a_failure():
+    """Partial coverage is normal -- a projector to one side of a bowl lights the side it faces.
+
+    coverage() must therefore describe the lit patch rather than score it, or it would report a
+    correctly configured rig as broken.
+    """
+    bowl = SphericalSurface(radius=0.15, elevation_range=(-90, 0), n_azimuth=72, n_elevation=18)
+    projector = PinholeProjector.wintech_pro4500(position=(0, -0.6, 0), forward=(0, 1, 0),
+                                                 up=(0, 0, 1))
+    coverage = build_screen_mesh(bowl, projector).coverage(radius=0.15)
+
+    assert 0 < coverage['fraction'] < 1
+    assert coverage['elevation'][0] < 0 and coverage['elevation'][1] <= 0, 'a bowl is below'
+
+
+def test_the_far_side_of_a_bowl_is_not_reported_as_lit():
+    """It sits inside the frustum and behind the near wall; only a facing test excludes it."""
+    bowl = SphericalSurface(radius=0.15, elevation_range=(-90, 0), n_azimuth=72, n_elevation=18)
+    projector = PinholeProjector.wintech_pro4500(position=(0, -0.6, 0), forward=(0, 1, 0),
+                                                 up=(0, 0, 1))
+    mesh = build_screen_mesh(bowl, projector)
+
+    # the projector sits on -y, so it lights the far hemisphere in azimuth, around 180 degrees
+    lit_positions = mesh.positions[mesh.lit]
+    assert (lit_positions[:, 1] < 0.15).all()
+    start, end = mesh.coverage(radius=0.15)['azimuth']
+    assert start > 0 and end < 0, f'expected an arc wrapping through 180, got {start} to {end}'
+
+
+def test_azimuth_range_handles_the_wraparound():
+    """min/max on an angle calls a patch spanning 170..190 the whole circle."""
+    from stimpack.visual_stim.curved_screen import _circular_range
+
+    assert _circular_range([170, 175, 180, -175, -170]) == (170.0, -170.0)
+    assert _circular_range([-20, -10, 0, 10, 20]) == (-20.0, 20.0)
 
 
 def test_a_vertex_at_the_subject_is_an_error_not_a_nan():

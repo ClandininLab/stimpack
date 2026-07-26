@@ -72,16 +72,17 @@ def draw_curved_screen(mesh, surface=None, projector=None, show=True, save_to=No
     fig = plt.figure(figsize=(13, 6))
 
     ax = fig.add_subplot(1, 2, 1, projection='3d')
-    azimuth = np.degrees(np.arctan2(mesh.positions[:, 0], mesh.positions[:, 1]))
-    tri_azimuth = azimuth[mesh.triangles].mean(axis=1)
+    # Colour by whether the projector lights it. On a rig that covers its screen only partly -- a
+    # projector to one side of a bowl -- this is the thing worth looking at.
+    tri_lit = mesh.lit[mesh.triangles].all(axis=1).astype(float)
     ax.plot_trisurf(mesh.positions[:, 0], mesh.positions[:, 1], mesh.positions[:, 2],
-                    triangles=mesh.triangles, cmap='twilight', array=tri_azimuth,
-                    edgecolor='none', alpha=0.9)
+                    triangles=mesh.triangles, cmap='RdYlGn', array=tri_lit,
+                    vmin=0, vmax=1, edgecolor='none', alpha=0.9)
     ax.scatter(0, 0, 0, c='g', s=40, label='subject')
     if projector is not None:
         ax.scatter(*projector.position, c='r', s=40, marker='^', label='projector')
     ax.set_xlabel('X (m)'); ax.set_ylabel('Y (m)'); ax.set_zlabel('Z (m)')
-    ax.set_title(f'screen in the rig  ({mesh.n_triangles} triangles)')
+    ax.set_title(f'screen in the rig  ({mesh.n_triangles} triangles; green = lit)')
     ax.legend(loc='upper left')
 
     ax2 = fig.add_subplot(1, 2, 2)
@@ -91,7 +92,14 @@ def draw_curved_screen(mesh, surface=None, projector=None, show=True, save_to=No
     ax2.add_patch(plt.Rectangle((-1, -1), 2, 2, fill=False, ls='--', lw=1.5, color='r'))
     ax2.set_aspect('equal')
     ax2.set_xlabel('projector NDC x'); ax2.set_ylabel('projector NDC y')
-    ax2.set_title(f'projector view  ({mesh.off_projector_fraction():.0%} of vertices outside)')
+    coverage = mesh.coverage()
+    subtitle = f"projector view  ({coverage['fraction']:.0%} of the screen lit"
+    if coverage['azimuth'] is not None:
+        subtitle += (f"; az {coverage['azimuth'][0]:+.0f} to {coverage['azimuth'][1]:+.0f}"
+                     f", el {coverage['elevation'][0]:+.0f} to {coverage['elevation'][1]:+.0f})")
+    else:
+        subtitle += ')'
+    ax2.set_title(subtitle)
 
     if surface is not None:
         fig.suptitle(type(surface).__name__)
