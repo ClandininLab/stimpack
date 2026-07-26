@@ -1,0 +1,371 @@
+<title>Stimpack — Architecture & Review</title>
+<style>
+  :root{
+    --ground:#f6f8fa; --panel:#ffffff; --panel-2:#eef2f5;
+    --ink:#0d1620; --ink-soft:#41525f; --ink-faint:#6b7a86;
+    --line:#d7dee4; --line-soft:#e6ebef;
+    --accent:#0f8f9e; --accent-ink:#0a6a75; --accent-wash:#e2f2f4;
+    --hi:#d6483f; --hi-wash:#fbe7e5;
+    --med:#c07d17; --med-wash:#fbefdb;
+    --lo:#3f74b8; --lo-wash:#e7eef8;
+    --nit:#6b7a86; --nit-wash:#eceff2;
+    --mono:ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:1080px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#0b1014; --panel:#111820; --panel-2:#0e141b;
+      --ink:#d7e2ea; --ink-soft:#93a4b1; --ink-faint:#6b7d8a;
+      --line:#1e2a34; --line-soft:#182029;
+      --accent:#3dd6e3; --accent-ink:#7fe6ef; --accent-wash:#0f2b30;
+      --hi:#f0665c; --hi-wash:#2c1614;
+      --med:#e0a747; --med-wash:#2a2011;
+      --lo:#69a0e6; --lo-wash:#111f30;
+      --nit:#8497a4; --nit-wash:#161d24;
+    }
+  }
+  :root[data-theme="light"]{
+    --ground:#f6f8fa; --panel:#ffffff; --panel-2:#eef2f5;
+    --ink:#0d1620; --ink-soft:#41525f; --ink-faint:#6b7a86;
+    --line:#d7dee4; --line-soft:#e6ebef;
+    --accent:#0f8f9e; --accent-ink:#0a6a75; --accent-wash:#e2f2f4;
+    --hi:#d6483f; --hi-wash:#fbe7e5; --med:#c07d17; --med-wash:#fbefdb;
+    --lo:#3f74b8; --lo-wash:#e7eef8; --nit:#6b7a86; --nit-wash:#eceff2;
+  }
+  :root[data-theme="dark"]{
+    --ground:#0b1014; --panel:#111820; --panel-2:#0e141b;
+    --ink:#d7e2ea; --ink-soft:#93a4b1; --ink-faint:#6b7d8a;
+    --line:#1e2a34; --line-soft:#182029;
+    --accent:#3dd6e3; --accent-ink:#7fe6ef; --accent-wash:#0f2b30;
+    --hi:#f0665c; --hi-wash:#2c1614; --med:#e0a747; --med-wash:#2a2011;
+    --lo:#69a0e6; --lo-wash:#111f30; --nit:#8497a4; --nit-wash:#161d24;
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);
+    line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}
+  a{color:var(--accent-ink);text-decoration:none}
+  a:hover{text-decoration:underline}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--ink-faint)}
+  h2{font-family:var(--mono);font-size:14px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--ink-soft);margin:0 0 2px;font-weight:600}
+  h3{margin:0;font-size:15px;font-weight:650;letter-spacing:-.01em}
+  p{margin:0}
+
+  /* header */
+  header{border-bottom:1px solid var(--line);background:
+    linear-gradient(180deg,var(--panel-2),transparent);}
+  .hd{padding:38px 0 30px}
+  .badge{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);
+    font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink);
+    border:1px solid var(--line);background:var(--panel);padding:5px 10px;border-radius:20px}
+  .pulse{width:7px;height:7px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 0 0 var(--accent);animation:pulse 2.4s ease-out infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 55%,transparent)}
+    70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  h1{font-size:clamp(30px,5.2vw,46px);line-height:1.05;letter-spacing:-.025em;
+    margin:16px 0 10px;font-weight:720;text-wrap:balance}
+  h1 .g{color:var(--accent-ink)}
+  .thesis{max-width:60ch;color:var(--ink-soft);font-size:17px}
+
+  /* metric strip */
+  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);
+    border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:26px 0 0}
+  .metric{background:var(--panel);padding:16px 16px 14px}
+  .metric .n{font-family:var(--mono);font-size:26px;font-weight:600;letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;line-height:1;display:flex;align-items:baseline;gap:6px}
+  .metric .lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-faint);margin-top:8px}
+  .metric .sub{font-size:12px;color:var(--ink-faint);margin-top:2px}
+  .swatch{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .metric.hi .n{color:var(--hi)} .metric.med .n{color:var(--med)}
+
+  section{padding:40px 0;border-bottom:1px solid var(--line-soft)}
+  .sec-head{margin-bottom:22px}
+  .sec-head p{color:var(--ink-soft);max-width:64ch;margin-top:4px}
+
+  /* topology */
+  .topo{display:flex;flex-direction:column;gap:0;align-items:center}
+  .node{width:100%;max-width:680px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:14px 18px;position:relative}
+  .node .role{font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--accent-ink)}
+  .node .title{font-weight:640;font-size:15px;margin-top:3px}
+  .node .desc{color:var(--ink-soft);font-size:13.5px;margin-top:3px}
+  .node code{font-family:var(--mono);font-size:12.5px;color:var(--ink);background:var(--panel-2);
+    padding:1px 5px;border-radius:4px}
+  .connector{width:2px;height:26px;background:var(--line);position:relative}
+  .connector::after{content:attr(data-label);position:absolute;left:12px;top:50%;
+    transform:translateY(-50%);white-space:nowrap;font-family:var(--mono);font-size:10px;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint)}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
+  .chip{font-family:var(--mono);font-size:11.5px;border:1px solid var(--line);border-radius:7px;
+    padding:5px 9px;background:var(--panel-2);color:var(--ink-soft)}
+  .chip b{color:var(--accent-ink);font-weight:600}
+  .screens{display:flex;gap:12px;width:100%;max-width:680px;justify-content:center}
+  .screen-node{flex:1;background:var(--panel);border:1px dashed var(--line);border-radius:10px;
+    padding:11px 13px;text-align:center}
+  .screen-node .role{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint)}
+  .screen-node .title{font-size:12.5px;font-weight:600;margin-top:2px}
+  .side{width:100%;max-width:680px;display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+  .side .sn{flex:1;min-width:180px;font-size:12.5px;color:var(--ink-soft);border-left:2px solid var(--accent);
+    padding:2px 0 2px 11px}
+  .side .sn b{color:var(--ink);font-weight:600}
+
+  /* subsystem grid */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 17px;
+    display:flex;flex-direction:column;gap:6px}
+  .card .k{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--accent-ink)}
+  .card p{color:var(--ink-soft);font-size:13.5px}
+  .card .meta{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-top:auto;
+    padding-top:8px;border-top:1px solid var(--line-soft);font-variant-numeric:tabular-nums}
+
+  /* findings */
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:18px;font-family:var(--mono);
+    font-size:11.5px;color:var(--ink-soft)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .find{display:flex;flex-direction:column;gap:10px}
+  .f{display:grid;grid-template-columns:auto 1fr;gap:14px;background:var(--panel);
+    border:1px solid var(--line);border-left-width:3px;border-radius:10px;padding:13px 16px;align-items:start}
+  .f.hi{border-left-color:var(--hi)} .f.med{border-left-color:var(--med)}
+  .f .id{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink-faint);
+    font-variant-numeric:tabular-nums;padding-top:2px}
+  .f .sev{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+    text-transform:uppercase;padding:2px 7px;border-radius:5px;margin-bottom:5px}
+  .f.hi .sev{background:var(--hi-wash);color:var(--hi)}
+  .f.med .sev{background:var(--med-wash);color:var(--med)}
+  .f h3{margin-bottom:3px}
+  .f .loc{font-family:var(--mono);font-size:11.5px;color:var(--accent-ink);margin-bottom:5px;
+    word-break:break-all}
+  .f .body{color:var(--ink-soft);font-size:13.5px}
+  .f .body b{color:var(--ink);font-weight:600}
+
+  /* doc index */
+  .docs{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+  .doc{display:flex;gap:12px;align-items:baseline;background:var(--panel);border:1px solid var(--line);
+    border-radius:9px;padding:12px 14px}
+  .doc .fn{font-family:var(--mono);font-size:12.5px;color:var(--accent-ink);white-space:nowrap}
+  .doc .dd{font-size:13px;color:var(--ink-soft)}
+
+  footer{padding:26px 0 44px;color:var(--ink-faint);font-size:12.5px}
+  footer .mono{font-family:var(--mono)}
+  .note{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-top:10px}
+
+  @media (max-width:680px){
+    .metrics{grid-template-columns:repeat(2,1fr)}
+    .f{grid-template-columns:1fr}.f .id{padding-top:0}
+    .screens{flex-direction:column}
+  }
+  @media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+</style>
+
+<header>
+  <div class="wrap hd">
+    <span class="badge"><span class="pulse" aria-hidden="true"></span>Architecture &amp; code review</span>
+    <h1>Stimpack — precise visual stimulation<br><span class="g">for VR neuroscience</span></h1>
+    <p class="thesis">A client/server engine for perspective‑corrected visual stimuli, experiment
+      control, and closed‑loop locomotion on a fly‑VR rig. This is a map of how the three packages
+      fit together and a verified review of where they can be improved.</p>
+
+    <div class="metrics">
+      <div class="metric">
+        <div class="n">3</div>
+        <div class="lbl">Packages</div>
+        <div class="sub">stimpack · labpack · clandinin_labpack</div>
+      </div>
+      <div class="metric">
+        <div class="n">~24k</div>
+        <div class="lbl">Lines of Python</div>
+        <div class="sub">10.2k core · 13k lab · 0.85k template</div>
+      </div>
+      <div class="metric hi">
+        <div class="n">58</div>
+        <div class="lbl">Verified findings</div>
+        <div class="sub">7 candidates refuted &amp; dropped</div>
+      </div>
+      <div class="metric med">
+        <div class="n">9<span style="font-size:15px;color:var(--ink-faint)">·14·28·7</span></div>
+        <div class="lbl">High · Med · Low · Nit</div>
+        <div class="sub">adversarially re‑checked</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">§1 · Process topology</span>
+      <h2 style="margin-top:6px">Everything is processes wired by fire‑and‑forget RPC</h2>
+      <p>One message is a line of JSON — a list of <code style="font-family:var(--mono)">{name, args, kwargs, target}</code>
+        requests, with no responses. A <code style="font-family:var(--mono)">target</code> tag routes each call to a
+        server module; the <code style="font-family:var(--mono)">visual</code> module fans out to one render subprocess per screen.</p>
+    </div>
+
+    <div class="topo">
+      <div class="node">
+        <div class="role">Client process</div>
+        <div class="title">Experiment GUI (PyQt6) or a plain script</div>
+        <div class="desc"><code>BaseProtocol</code> decides what to show &amp; how to sweep params · <code>BaseClient</code> runs the epoch loop · <code>BaseData</code> writes HDF5</div>
+      </div>
+      <div class="connector" data-label="TCP · JSON request lists"></div>
+      <div class="node">
+        <div class="role">Server process — routes by target</div>
+        <div class="title"><code>BaseServer</code> (a MySocketServer)</div>
+        <div class="desc">Root functions: <code>print_on_server</code>, <code>set_subject_state</code>, closed‑loop control. Pluggable modules behind a <code>target()</code> namespace:</div>
+        <div class="chips">
+          <span class="chip"><b>target('visual')</b> → renderer</span>
+          <span class="chip"><b>target('locomotion')</b> → tracker</span>
+          <span class="chip"><b>target('daq')</b> → triggers/opto</span>
+          <span class="chip"><b>target('all')</b> → every module</span>
+        </div>
+      </div>
+      <div class="connector" data-label="one subprocess per Screen"></div>
+      <div class="screens">
+        <div class="screen-node"><div class="role">Screen subprocess</div><div class="title">StimDisplay · Qt + moderngl</div></div>
+        <div class="screen-node"><div class="role">Screen subprocess</div><div class="title">paintGL render loop</div></div>
+        <div class="screen-node"><div class="role">Aux / N…</div><div class="title">per‑display GL context</div></div>
+      </div>
+      <div class="side">
+        <div class="sn"><b>FicTrac / KeyTrac</b> stream the subject's position over UDP into the locomotion module → closed‑loop VR.</div>
+        <div class="sn"><b>DLPC350 Lightcrafters</b> driven over USB‑HID from the rig server; a photodiode <b>corner square</b> timestamps every frame.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">§2 · Subsystems</span>
+      <h2 style="margin-top:6px">The stimpack core, plus two lab layers</h2>
+      <p>Dependencies flow one way: the labpacks import from stimpack and are loaded dynamically by
+        file path from a YAML config. Stimpack never imports them.</p>
+    </div>
+    <div class="grid">
+      <div class="card"><div class="k">stimpack.rpc</div><h3>The IPC backbone</h3>
+        <p>JSON‑over‑TCP transceivers, subprocess <code style="font-family:var(--mono)">launch_server</code>, and <code style="font-family:var(--mono)">MyMultiCall</code> batching. Stdlib only.</p>
+        <div class="meta">6 files · dependency‑free bottom layer</div></div>
+      <div class="card"><div class="k">stimpack.visual_stim</div><h3>The renderer</h3>
+        <p>moderngl/PyQt6 perspective‑corrected engine, ~24 built‑in stimuli, shapes, trajectories, distributions, shared‑memory pixmaps.</p>
+        <div class="meta">13 files · one render process per screen</div></div>
+      <div class="card"><div class="k">stimpack.experiment</div><h3>Orchestration</h3>
+        <p>BaseProtocol (parameter tiers &amp; sweeps), client/server, the PyQt6 GUI, HDF5 data model, and the config/labpack loader.</p>
+        <div class="meta">8 files · run → epoch → pre/stim/tail</div></div>
+      <div class="card"><div class="k">stimpack.device</div><h3>Hardware I/O</h3>
+        <p>DAQ triggering abstraction and the closed‑loop locomotion engine. Ships KeyTrac (keyboard) as the only concrete source.</p>
+        <div class="meta">4 files · real drivers live in labpacks</div></div>
+      <div class="card"><div class="k">labpack</div><h3>Template</h3>
+        <p>The skeleton a lab clones: Client/Data/protocol/DAQ subclasses, custom stimuli, and a rig config YAML. Mostly passthrough.</p>
+        <div class="meta">14 files · copy &amp; fill in</div></div>
+      <div class="card"><div class="k">clandinin_labpack</div><h3>Live instantiation</h3>
+        <p>~15 per‑user protocol modules, rig servers, Lightcrafter/LabJack/FicTrac drivers, and per‑user configs &amp; presets.</p>
+        <div class="meta">50 files · production fly‑VR + 2p rigs</div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">§3 · Review — highest priority</span>
+      <h2 style="margin-top:6px">Eight issues that can break a live experiment</h2>
+      <p>Selected from 58 verified findings. Each was checked against the real code; severities are
+        calibrated for a single‑operator lab rig on a trusted network. Full detail — plus 50 more —
+        in <code style="font-family:var(--mono)">IMPROVEMENTS.md</code>.</p>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--hi)"></span>High</span>
+      <span><span class="swatch" style="background:var(--med)"></span>Medium</span>
+      <span><span class="swatch" style="background:var(--lo)"></span>Low · 28</span>
+      <span><span class="swatch" style="background:var(--nit)"></span>Nit · 7</span>
+    </div>
+    <div class="find">
+      <div class="f hi"><div class="id">#1</div><div>
+        <span class="sev">High</span>
+        <h3>RPC dispatch has no exception isolation</h3>
+        <div class="loc">rpc/transceiver.py:67</div>
+        <div class="body">A handler exception runs inside <b>paintGL</b> (aborts the screen process via qFatal) or inline in <b>loop()</b> (silently kills the server's request thread). This amplifier turns other bugs into crashes.</div>
+      </div></div>
+      <div class="f hi"><div class="id">#2</div><div>
+        <span class="sev">High</span>
+        <h3>Outbound RPC swallows only BrokenPipeError</h3>
+        <div class="loc">rpc/transceiver.py:49</div>
+        <div class="body">After the server dies, every call is an invisible no‑op and the sleep‑timed run marches on. <b>ConnectionResetError</b> isn't caught at all, so a reset kills the sending thread.</div>
+      </div></div>
+      <div class="f hi"><div class="id">#3</div><div>
+        <span class="sev">High</span>
+        <h3>unload_stim_module mutates the list it iterates</h3>
+        <div class="loc">visual_stim/framework.py:557</div>
+        <div class="body">On disconnect it unloads only every other module; the survivors stay in <code style="font-family:var(--mono)">sys.modules</code> and make the next re‑import trip a duplicate‑class <b>assert</b>.</div>
+      </div></div>
+      <div class="f hi"><div class="id">#4</div><div>
+        <span class="sev">High</span>
+        <h3>Locomotion receive_message ignores its timeout</h3>
+        <div class="loc">device/…/loco_managers.py:115</div>
+        <div class="body">A <code style="font-family:var(--mono)">while not ready</code> wrapper defeats the select timeout: no‑data means a busy‑spin, and <b>close() hangs</b> when the tracker stops streaming.</div>
+      </div></div>
+      <div class="f hi"><div class="id">#5</div><div>
+        <span class="sev">High</span>
+        <h3>ctx.disable(0x8DB9) is a magic constant &amp; the wrong call</h3>
+        <div class="loc">visual_stim/framework.py:213</div>
+        <div class="body">In moderngl this doesn't disable <code style="font-family:var(--mono)">GL_FRAMEBUFFER_SRGB</code> (raw enums need <code style="font-family:var(--mono)">disable_direct</code>); the value aliases moderngl's own flags, silently toggling the wrong state under a stray debug comment.</div>
+      </div></div>
+      <div class="f hi"><div class="id">#7</div><div>
+        <span class="sev">High</span>
+        <h3>EGL corner square rebuilds its GL program every frame</h3>
+        <div class="loc">visual_stim/square.py:107</div>
+        <div class="body">On Wayland/EGL, the photodiode square recompiles its shader and reallocates buffers <b>every frame</b> without releasing the old ones — a per‑frame compile plus an unbounded GL leak, even when idle.</div>
+      </div></div>
+      <div class="f hi"><div class="id">#8</div><div>
+        <span class="sev">High</span>
+        <h3>SharedPixMapStimulus.close() always raises BufferError</h3>
+        <div class="loc">visual_stim/shared_pixmap.py:29</div>
+        <div class="body">A live ndarray view blocks <code style="font-family:var(--mono)">memblock.close()</code>, so unlink/join never run and /dev/shm leaks. With #1, this crashes the visual server at the end of the first pixmap epoch.</div>
+      </div></div>
+      <div class="f med"><div class="id">#16</div><div>
+        <span class="sev">Medium</span>
+        <h3>HDF5 write errors abort the whole GUI mid‑run</h3>
+        <div class="loc">experiment/data.py:173</div>
+        <div class="body">No h5py call is guarded and the run has no try/except, so a disk‑full or dropped‑share error aborts the app via qFatal — <b>on_run_finish never runs</b>, leaving locomotion and triggers dangling.</div>
+      </div></div>
+    </div>
+    <p class="note">Cross‑cutting theme: make the RPC layer fail loudly, not silently — per‑request
+      exception isolation, a connection‑health flag, child‑death detection, and an optional ack channel
+      would cover most of the "breaks a live experiment" risk at once.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">§4 · The document set</span>
+      <h2 style="margin-top:6px">Where to read more</h2>
+      <p>Nine Markdown documents in <code style="font-family:var(--mono)">stimpack_docs/</code>. Start with the architecture map.</p>
+    </div>
+    <div class="docs">
+      <div class="doc"><span class="fn">ARCHITECTURE.md</span><span class="dd">Topology, RPC &amp; routing, the epoch/run lifecycle, end‑to‑end data flow. <b>Start here.</b></span></div>
+      <div class="doc"><span class="fn">getting-started.md</span><span class="dd">Install, run the examples, launch the GUI, write your first protocol/config/stimulus.</span></div>
+      <div class="doc"><span class="fn">reference-rpc.md</span><span class="dd">The JSON‑over‑TCP layer, class by class.</span></div>
+      <div class="doc"><span class="fn">reference-visual_stim.md</span><span class="dd">Renderer, perspective math, and the full stimulus catalog.</span></div>
+      <div class="doc"><span class="fn">reference-experiment.md</span><span class="dd">Protocols, GUI, the HDF5 format, and the config schema.</span></div>
+      <div class="doc"><span class="fn">reference-device.md</span><span class="dd">DAQ triggering and the closed‑loop locomotion engine.</span></div>
+      <div class="doc"><span class="fn">labpack-guide.md</span><span class="dd">Build a labpack; tour the Clandinin rig servers &amp; drivers.</span></div>
+      <div class="doc"><span class="fn">IMPROVEMENTS.md</span><span class="dd">All 58 verified findings, prioritized, with fixes.</span></div>
+      <div class="doc"><span class="fn">README.md</span><span class="dd">The index &amp; one‑paragraph mental model.</span></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p class="mono">stimpack · labpack · clandinin_labpack — generated from a full read of all three repositories.</p>
+    <p style="margin-top:6px">Findings were produced across seven review dimensions and independently verified against the source; 7 candidate findings were refuted and dropped. Severity is calibrated for the real deployment: a local, single‑operator lab rig.</p>
+  </div>
+</footer>
