@@ -117,7 +117,7 @@ def _render(ctx, name, kwargs, t=0.0, size=RENDER_SIZE):
     # Mirror StimDisplay.initializeGL's context setup.
     ctx.enable(moderngl.BLEND)
     ctx.enable(moderngl.DEPTH_TEST)
-    ctx.extra = {"n_textures_loaded": 0}
+    ctx.extra = {}
 
     color_rb = ctx.renderbuffer((width, height))
     depth_rb = ctx.depth_renderbuffer((width, height))
@@ -189,3 +189,48 @@ def test_stimulus_matches_reference(case, headless_gl, update_goldens, save_rend
             f"{case['id']}: mean abs pixel error {mae:.2f} exceeds tolerance {case['tol']}. "
             f"Rendered vs reference diff written to tests/gl/_failures/."
         )
+
+
+def test_more_textured_stimuli_than_texture_units_still_render(headless_gl):
+    """An epoch may hold more textured stimuli than the GPU has sampler units.
+
+    Textures used to be bound once at load, each to a unit of its own, so an epoch was capped at
+    GL_MAX_TEXTURE_IMAGE_UNITS textured stimuli -- 32 on the development GPU, 16 on some. A real
+    protocol in clandinin_labpack already loads 31 in one epoch. Past the cap, the drivers tested
+    here bind and render with no GL error at all, so the stimulus is simply wrong on screen with
+    nothing to say so. Binding per draw means one unit suffices for any number of stimuli.
+    """
+    import moderngl
+    from stimpack.visual_stim import stimuli
+
+    ctx = headless_gl
+    limit = ctx.info['GL_MAX_TEXTURE_IMAGE_UNITS']
+    width, height = 64, 64
+
+    ctx.enable(moderngl.BLEND)
+    ctx.enable(moderngl.DEPTH_TEST)
+    ctx.extra = {}
+
+    color_rb = ctx.renderbuffer((width, height))
+    depth_rb = ctx.depth_renderbuffer((width, height))
+    fbo = ctx.framebuffer(color_attachments=[color_rb], depth_attachment=depth_rb)
+    fbo.use()
+    fbo.clear(0.0, 0.0, 0.0, 1.0)
+
+    screen = _make_screen()
+    viewports = [sub.get_viewport(width, height) for sub in screen.subscreens]
+    perspectives = [_perspective(SUBJECT_AT_ORIGIN, sub.pa, sub.pb, sub.pc, screen.horizontal_flip)
+                    for sub in screen.subscreens]
+
+    for i in range(limit + 4):
+        stim = stimuli.CylindricalGrating(screen=screen)
+        stim.initialize(ctx)
+        stim.configure(period=30, mean=0.5, contrast=1.0, profile='square', offset=float(i))
+        assert stim.use_texture, 'CylindricalGrating should be textured'
+        stim.paint_at(0.0, viewports, perspectives, subject_position=SUBJECT_AT_ORIGIN)
+
+    ctx.finish()
+    assert ctx.error == 'GL_NO_ERROR', f'GL error after {limit + 4} textured stimuli: {ctx.error}'
+
+    img = np.frombuffer(fbo.read(components=3, alignment=1), dtype=np.uint8)
+    assert img.any(), 'nothing was drawn'

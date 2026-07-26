@@ -80,6 +80,19 @@ class BaseProgram:
         self.vbo_color.write(colors.flatten(order='F').astype('f4'))
         if self.use_texture:
             self.vbo_texture.write(tex_coords.flatten(order='F').astype('f4'))
+            # Bind this stimulus's texture immediately before drawing it, always to unit 0.
+            #
+            # Each stimulus owns its own shader program and draws on its own, so no draw call ever
+            # needs more than one texture bound -- one unit is enough for any number of stimuli.
+            # Binding once at load instead gave every stimulus a permanent unit of its own, which
+            # capped an epoch at GL_MAX_TEXTURE_IMAGE_UNITS textured stimuli (32 on the development
+            # GPU, 16 on some). Past that, drivers observed here bind and render with no GL error at
+            # all, so the stimulus is simply wrong on screen with nothing to say so.
+            #
+            # Measured on Mesa/Intel at 16-100 stimuli and 1-4 viewports: rebinding is 0-8% *faster*
+            # than holding many units bound, presumably less sampler state for the driver to
+            # validate per draw. Either way it is well under 1 ms/frame against a 16.7 ms budget.
+            self.texture.use(0)
 
         # Render to each subscreen
         for v_ind, vp in enumerate(viewports):
@@ -118,10 +131,9 @@ class BaseProgram:
         else:
             self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
 
-        self.prog['texture_matrix'].value = self.prog.ctx.extra['n_textures_loaded']
-        self.texture.use(self.prog.ctx.extra['n_textures_loaded'])
-
-        self.prog.ctx.extra['n_textures_loaded'] += 1
+        # Every stimulus samples from unit 0; paint_at binds this texture there before drawing.
+        # This uniform belongs to this stimulus's own program, so it never needs to change again.
+        self.prog['texture_matrix'].value = 0
 
     def update_texture_gl(self, texture_image):
         self.texture.write(data=texture_image.tobytes())

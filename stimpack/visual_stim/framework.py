@@ -219,7 +219,6 @@ class StimDisplay(QOpenGLWidget):
 
         # Initialize attribute storage for the context
         self.ctx.extra = {}
-        self.ctx.extra['n_textures_loaded'] = 0
 
         # clear the whole screen
         # self.clear_viewports(color=(0, 0, 0, 1), viewports=None)
@@ -356,6 +355,11 @@ class StimDisplay(QOpenGLWidget):
         :param name: Name of the stimulus (should be a class name)
         """
         if hold is False:
+            # Release before dropping the references: nothing else will. stop_stim used to be the
+            # only path that freed these, so replacing a loaded stimulus without stopping it first
+            # -- View pressed twice, a readiness probe, anything interactive -- leaked every buffer,
+            # program and texture it held.
+            self.release_stims()
             self.stim_list = []
 
         stim_classes = get_all_subclasses(stimuli.BaseProgram)
@@ -398,27 +402,33 @@ class StimDisplay(QOpenGLWidget):
         else:
             self.stim_start_time = t
 
-    def stop_stim(self, print_profile=False):
-        """
-        Stops the stimulus animation and removes it from the display.
-        """
-        # clear texture
-        self.ctx.clear_samplers()
-        self.ctx.extra['n_textures_loaded'] = 0
+    def release_stims(self):
+        """Free the GL objects held by the currently loaded stimuli.
 
+        moderngl's default gc_mode does not free these when the Python objects are collected, so
+        dropping stim_list without calling this leaks buffers, programs and textures on the GPU.
+        """
         for stim in self.stim_list:
             stim.vbo_vert.release()
             stim.vbo_color.release()
             if stim.use_texture:
                 stim.vbo_texture.release()
-                # Release the GL texture too; clear_samplers() only unbinds it, and moderngl's default
-                # gc_mode does not free the object on GC, so otherwise it leaks GPU memory every epoch.
+                # clear_samplers() only unbinds the texture; release it so the memory goes back.
                 if getattr(stim, 'texture', None) is not None:
                     stim.texture.release()
                     stim.texture = None
             stim.vao.release()
             stim.prog.release()
             stim.destroy()
+
+    def stop_stim(self, print_profile=False):
+        """
+        Stops the stimulus animation and removes it from the display.
+        """
+        # clear texture
+        self.ctx.clear_samplers()
+
+        self.release_stims()
 
         # print profiling information if applicable
         if print_profile:
