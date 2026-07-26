@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Data file class for .nwb file format
+Data file class for the .nwb file format.
 
+Where BaseData writes one HDF5 file per experiment, this writes a DIRECTORY per experiment
+holding one .nwb file per series. That difference is the only thing the GUI needs to know, and
+it reads it from the output_is_directory trait rather than from this class's name.
+
+Requires pynwb, which is an optional dependency:  pip install stimpack[nwb]
 """
 from copy import deepcopy
 from csv import writer
@@ -11,59 +16,113 @@ import json
 import numpy as np
 from pathlib import Path
 import posixpath
+import re
+import warnings
 from datetime import datetime, timezone
 
-from pynwb.file import Subject
-from pynwb import NWBFile, NWBHDF5IO
-from pynwb.epoch import TimeIntervals
-from hdmf.common import VectorData,VectorIndex
-from hdmf.backends.hdf5.h5_utils import H5DataIO
-from hdmf.common.table import ElementIdentifiers
+try:
+    from pynwb.file import Subject
+    from pynwb import NWBFile, NWBHDF5IO
+    from pynwb.epoch import TimeIntervals
+    from hdmf.common import VectorData, VectorIndex
+    from hdmf.backends.hdf5.h5_utils import H5DataIO
+    from hdmf.common.table import ElementIdentifiers
+except ImportError as e:  # pragma: no cover - depends on how stimpack was installed
+    # Raised on use rather than on import, so that merely importing stimpack.experiment.data_nwb
+    # (which gui.py does when listing the available backends) does not break an HDF5-only install.
+    raise ImportError(
+        "The NWB data backend requires pynwb. Install it with:  pip install stimpack[nwb]"
+    ) from e
 
+from stimpack.experiment.data import BaseData, hdf5ify_parameter
 from stimpack.experiment.util import config_tools
 
-class NWBData():
-    """
 
-    Data class corresponding to a series of .nwb files. One .nwb file per trial run / series
-    
+def _days_from_iso8601_duration(age):
     """
+    Invert the day-valued ISO 8601 duration NWB stores an age as: 'P3D' -> 3.
+
+    Anything else -- a duration in other units, or an age that was never a plain number of days --
+    is handed back untouched rather than guessed at.
+    """
+    if isinstance(age, str):
+        match = re.fullmatch(r'P(\d+)D', age.strip())
+        if match:
+            return int(match.group(1))
+    return age
+
+
+class NWBData(BaseData):
+    """
+    Data class corresponding to a series of .nwb files. One .nwb file per trial run / series.
+
+    Vocabulary note: this backend's own terms map onto BaseData's as
+        nwb_directory      -> experiment_file_name   (the directory's name)
+        parent_directory   -> data_directory         (what it sits in)
+        current_subject_id -> current_subject
+    The NWB spellings are kept as properties, so protocols and labpack code written against
+    either name keep working.
+    """
+    output_is_directory = True
+    supports_data_browser = False   # h5io's tree browser cannot read a directory of nwb files
+    output_noun = 'NWB directory'
+
     def __init__(self, cfg):
-        self.cfg = cfg
-        self.subject_metadata = {}  # populated in GUI or user protocol
-
+        super().__init__(cfg)
         self.subject = None
-        self.nwb_directory = None
 
-        self.series_count = 1
-        self.current_subject_id = None
+    # # # NWB-flavored aliases for BaseData's storage-neutral attribute names # # #
 
-        # default parent_directory, experimenter from cfg
-        # may be overwritten by GUI or other before initialize_experiment() is called
-        self.parent_directory = config_tools.get_data_directory(self.cfg)
-        self.experimenter = config_tools.get_experimenter(self.cfg)
-        
-    
+    @property
+    def nwb_directory(self):
+        return self.experiment_file_name
+
+    @nwb_directory.setter
+    def nwb_directory(self, value):
+        self.experiment_file_name = value
+
+    @property
+    def parent_directory(self):
+        return self.data_directory
+
+    @parent_directory.setter
+    def parent_directory(self, value):
+        self.data_directory = value
+
+    @property
+    def current_subject_id(self):
+        return self.current_subject
+
+    @current_subject_id.setter
+    def current_subject_id(self, value):
+        self.current_subject = value
+
+    @property
+    def nwb_directory_path(self):
+        """Full path to the experiment directory. Derived, so it cannot fall out of step with
+        the parent directory and name the GUI may still be editing."""
+        return Path(os.path.join(self.data_directory, self.experiment_file_name))
+
+
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # # # # # # # #  Creating experiment file and groups  # # # # # # # # # # # #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-    def initialize_experiment(self):     
+    def initialize_experiment_file(self):
         """
         Create a dict of top level metadata that all the nwb files will share
         Also create the directory where the nwb files will be stored
         """
-        
-        # Create experiment file directory:
-        self.nwb_directory_path = Path(os.path.join(self.parent_directory, self.nwb_directory))
         self.nwb_directory_path.mkdir(parents=True, exist_ok=True)
-
         self.initialize_session()
 
-    def load_experiment(self, nwb_directory_path):
-        self.nwb_directory_path = Path(nwb_directory_path)
-        self.parent_directory = os.path.split(nwb_directory_path)[:-1]
-        self.nwb_directory = os.path.split(nwb_directory_path)[-1]
+    # The name this backend used before it conformed to the BaseData interface.
+    initialize_experiment = initialize_experiment_file
+
+    def load_experiment(self, path):
+        # os.path.split returns (head, tail); [:-1] took the head as a one-element TUPLE, which
+        # then failed every os.path call made on the parent directory afterwards.
+        super().load_experiment(path)
         self.initialize_session()
 
     def initialize_session(self):
@@ -89,18 +148,43 @@ class NWBData():
 
 
     def define_subject(self, subject_metadata):
+        """
+        Record which subject is being run, without touching disk.
+
+        Unlike the HDF5 backend there is no file to write a subject into yet: each series gets its
+        own .nwb file, written at the start of that series, and the subject is embedded in each.
+        """
         self.subject_metadata = subject_metadata
-        self.current_subject_id = subject_metadata['subject_id']
+        self.select_subject(subject_metadata['subject_id'])
+
+    def update_subject(self, subject_metadata):
+        """
+        Revise the current subject's metadata. Takes effect in files written from now on; .nwb
+        files already written keep the metadata they were written with.
+        """
+        if subject_metadata.get('subject_id') != self.current_subject:
+            print('No subject with this ID is currently selected!')
+            return
+        self.subject_metadata = subject_metadata
 
     def create_subject(self, subject_metadata):
         """
         Create an NWB subject for the data object
         """
 
-        if not self.nwb_directory_exists():
-            print('Initialize a nwb directory before defining a subject')
-            return 
-                
+        if not self.experiment_file_exists():
+            print(f'Initialize a {self.output_noun} before defining a subject')
+            return
+
+        self.define_subject(subject_metadata)
+        self.build_nwb_subject(subject_metadata)
+        print('Created subject {}'.format(subject_metadata.get('subject_id')))
+
+    def build_nwb_subject(self, subject_metadata):
+        """
+        Translate a subject-metadata dict into the pynwb Subject and per-subject NWBFile kwargs
+        used when writing each series file. Pure translation: touches no disk and selects nothing.
+        """
         # If those files are passed as metadata, they will be mapped to their canonical place in the nwbfile
         keywords_in_the_nwb_subject_class = ["age", "genotype", "sex", "weight", "age__reference", 
                                                 "species", "subject_id", "date_of_birth", "strain", ]
@@ -129,16 +213,17 @@ class NWBData():
         # Creates a subject object with all the metadata
         self.subject = Subject(**subject_kwargs)
 
-    def create_data_file(self):
+    def prepare_series(self):
         """
-        Write the file for this trial run
+        Write the file for this trial run.
 
+        Called by the GUI before each recorded series (BaseData.prepare_series), because this
+        backend puts each series in its own file rather than a group in a shared one.
         """
-        if (self.current_subject_exists() and self.nwb_directory_exists()):
-            # Re-create the nwb subject object
-            self.create_subject(self.subject_metadata)
+        if (self.current_subject_exists() and self.experiment_file_exists()):
+            # Re-build the nwb Subject object from the current metadata
+            self.build_nwb_subject(self.subject_metadata)
 
-            nwbfile_kwargs = self.subject_nwbfile_kwargs
             nwbfile_kwargs = deepcopy(self.subject_nwbfile_kwargs)
 
             nwbfile_path = self.get_nwb_file_path()
@@ -150,9 +235,11 @@ class NWBData():
                 io.write(nwbfile)
 
         else:
-            print('Create an nwb file directory and/or define a subject first')
+            print(f'Create an {self.output_noun} and/or define a subject first')
 
-        
+    # The name this backend used before it conformed to the BaseData interface.
+    create_data_file = prepare_series
+
 
     def create_epoch_run(self, protocol_object):
         """
@@ -161,7 +248,7 @@ class NWBData():
         
         self.epoch_parameters = {}
                 
-        if (self.current_subject_exists() and self.nwb_directory_exists()):
+        if (self.current_subject_exists() and self.experiment_file_exists()):
             
             self.epoch_parameters = {}
             self.epoch_parameters["series"] = f"series_{str(self.series_count).zfill(3)}"
@@ -184,19 +271,44 @@ class NWBData():
         else:
             print('Create an nwb file directory and/or define a subject first')
 
-    def end_epoch_run(self, protocol_object):
+    def end_epoch_run(self, protocol_object, status='completed', reason=None):
         """
         NWB requires the stop time to be set when the epoch is created
         So this function is called after an epoch run is concluded and this adds an entry
         to the epochs table that corresponds to the whole epoch run
-        """   
-        
-        # Open the nwbfile in append mode
+
+        :param status: how the run ended -- 'completed', 'stopped', 'aborted' or 'error'
+        :param reason: detail for a run that did not complete, e.g. the exception text
+
+        The client calls this from a finally block, so it runs for runs that failed as well as
+        runs that finished. Everything below therefore has to cope with a run that never got as
+        far as creating its epoch parameters or its file.
+        """
+        # create_epoch_run bails out (leaving epoch_parameters empty) when there is no subject or
+        # no directory, and the client still reaches its finally block. Popping a key that was
+        # never set would then raise from inside the error handler, replacing whatever actually
+        # went wrong with a bare KeyError.
+        if not self.epoch_parameters or 'epoch_start_time' not in self.epoch_parameters:
+            warnings.warn(f'No epoch run to close out (run ended {status}); nothing written to NWB.')
+            return
+
+        # Likewise, the per-series file is written by prepare_series; a run that failed before
+        # that has nothing to append to.
         nwbfile_path = self.get_nwb_file_path()
-        with NWBHDF5IO(nwbfile_path, 'r+') as io: 
+        if not os.path.isfile(nwbfile_path):
+            warnings.warn(f'No NWB file at {nwbfile_path} (run ended {status}); nothing written.')
+            return
+
+        # Record how the run ended alongside its parameters, so a partial run is identifiable in
+        # the data rather than looking like a short but successful one.
+        self.epoch_parameters['run_status'] = str(status)
+        self.epoch_parameters['run_status_reason'] = str(reason) if reason is not None else ''
+
+        # Open the nwbfile in append mode
+        with NWBHDF5IO(nwbfile_path, 'r+') as io:
             subject_nwbfile = io.read()
-            
-            # Shift the time to be relative to the session start time            
+
+            # Shift the time to be relative to the session start time
             session_start_time = subject_nwbfile.session_start_time
             start_time = self.epoch_parameters.pop('epoch_start_time')
             start_time = start_time - session_start_time.timestamp()
@@ -272,7 +384,7 @@ class NWBData():
         Then, when the epoch is concluded, we add the data as a row of the trials table.
         """
                 
-        if not (self.current_subject_exists() and self.nwb_directory_exists()):
+        if not (self.current_subject_exists() and self.experiment_file_exists()):
             print('Create a data file and/or define a subject first')
 
             
@@ -369,7 +481,7 @@ class NWBData():
         Because every trial run has its own file, and it isn't written until 'record'
         just use a big .csv file for experiment notes and timestamps
         """
-        if self.nwb_directory_exists():            
+        if self.experiment_file_exists():            
             timestamp = datetime.now(self.timezone).timestamp()
 
             notes_path = os.path.join(self.nwb_directory_path, 'notes.csv')
@@ -386,68 +498,62 @@ class NWBData():
 # # # # # # # # #  Retrieve / query data file # # # # # # # # # # # # # # # # #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-    def nwb_directory_exists(self):
-        if self.nwb_directory is None:
+    def experiment_file_exists(self):
+        if not self.experiment_file_name:
             return False
-        
+
         # Directory with the nwb files
         return self.nwb_directory_path.is_dir()
 
+    # The name this backend used before it conformed to the BaseData interface.
+    nwb_directory_exists = experiment_file_exists
+
     def get_nwb_file_path(self):
         date_code = datetime.today().strftime('%Y%m%d')  # YYYYMMDD
-        return Path(os.path.join(self.nwb_directory_path, f"{date_code}_{self.current_subject_id}_{str(self.series_count).zfill(3)}.nwb"))
-            
-    def current_subject_exists(self):
-        if self.current_subject_id is None:
-            tf = False
-        else:
-            tf = True
-        return tf
+        return Path(os.path.join(self.nwb_directory_path, f"{date_code}_{self.current_subject}_{str(self.series_count).zfill(3)}.nwb"))
+
+    # current_subject_exists() is inherited: BaseData already tests current_subject, which is what
+    # current_subject_id now aliases.
+
+    def get_series_files(self):
+        """The .nwb files in this experiment's directory, or none if it has not been made yet."""
+        if not self.experiment_file_exists():
+            return []
+        return sorted(path for path in self.nwb_directory_path.iterdir() if path.suffix == '.nwb')
 
     def get_existing_series(self):
         series_numbers = []
-        # Iterate over all NWB files in the directory
-        all_files = [path for path in self.nwb_directory_path.iterdir() if str(path).split('.')[-1] == 'nwb']
-
-        for file_path in all_files:
+        for file_path in self.get_series_files():
             series_no = int(os.path.split(file_path)[-1].split('.')[0][-3:])
             series_numbers.append(series_no)
 
         return series_numbers
-        
-    def get_highest_series_count(self):
-        series = self.get_existing_series()
-        if len(series) == 0:
-            return 0
-        else:
-            return np.max(series)
+
+    # get_highest_series_count() is inherited: it is written in terms of get_existing_series().
 
     def get_existing_subject_data(self):
         subject_data_list = []
-        
-        # Gets all the paths for the NWB files
-        if self.nwb_directory is not None:
-            all_files = [path for path in self.nwb_directory_path.iterdir() if '.nwb' in str(path)]
-        else:
-            all_files = []
-        
+        all_files = self.get_series_files()
+
         # Iterate over all the files open them with nwb and extract the subject metadata
         for file_path in all_files:
             with NWBHDF5IO(file_path, 'r') as io:
                 subject_nwbfile = io.read()
-                subject_metadata = subject_nwbfile.subject.fields
+                subject_metadata = dict(subject_nwbfile.subject.fields)
                 # Unfold description as that was all the rest of the attributes that are non-canonical in nwb
                 description_json = subject_metadata.pop('description')
                 description = json.loads(description_json)
                 subject_metadata.update(**description)
-                
+
+                # Undo the NWB-specific encodings applied on the way in, so what comes back out is
+                # what was handed in. Without this the age reads back as 'P3D' and no caller can
+                # tell an age in days from an ISO 8601 duration string.
+                if 'age' in subject_metadata:
+                    subject_metadata['age'] = _days_from_iso8601_duration(subject_metadata['age'])
+
                 subject_data_list.append(subject_metadata)
 
         return subject_data_list
-        
-
-    def select_subject(self, subject_id):
-        self.current_subject = subject_id
 
     def advance_series_count(self):
         self.series_count += 1
@@ -465,29 +571,6 @@ class NWBData():
         self.series_count = np.max(series_numbers) + 1 if series_numbers else 1
 
     def get_server_subdir(self):
-        return posixpath.join(self.nwb_directory, self.current_subject_id)
-
-def hdf5ify_parameter(value):
-    if value is None:
-        value = 'None'
-    if type(value) is dict:  # TODO: Find a way to split this into subgroups. Hacky work around.
-        value = str(value)
-    if type(value) is np.str_:
-        value = str(value)
-    if type(value) is np.ndarray:
-        if value.dtype == 'object':
-            value = value.astype('float')
-    if type(value) is list:
-        new_value = [hdf5ify_parameter(x) for x in value]
-        if any([type(x) is str for x in new_value]):
-            value = new_value
-        else:
-            try:
-                value = np.array(new_value)
-            except ValueError:
-                value = str(value)
-    # if tuple, convert to string
-    if type(value) is tuple:
-        value = str(value)
-
-    return value
+        # One level deeper than the HDF5 backend: the experiment is a directory here, so
+        # server-side files are filed under it by subject.
+        return posixpath.join(self.experiment_file_name, str(self.current_subject))
