@@ -9,6 +9,8 @@ import sys
 import types
 from typing import Any, Optional
 import warnings
+
+from deepmerge import Merger
 from importlib.util import spec_from_file_location, module_from_spec
 
 
@@ -111,6 +113,26 @@ def set_labpack_directory(path):
 
 # %% Functions for finding and loading user configuration files
 
+def merge_configs(cfg1, cfg2):
+    my_merger = Merger(
+    # pass in a list of tuple, with the
+    # strategies you are looking to apply
+    # to each type.
+    [
+        (list, ["append_unique"]), # For lists: append new items, but only if they are unique
+        (dict, ["merge"]), # For dictionaries: deep merge them
+    ],
+    # next, choose the fallback strategies,
+    # applied to all other types:
+    ["override"],
+    # finally, choose the strategies in
+    # the case where the types conflict:
+    ["override"]
+    )
+
+    merged = my_merger.merge(cfg1, cfg2)
+    return merged
+
 def get_default_config():
     return {'experimenter': 'JohnDoe',
             'subject_metadata': {},
@@ -137,6 +159,8 @@ def get_available_config_files(labpack_dir=None):
         cfg_names = [os.path.split(f)[1] for f in glob.glob(os.path.join(labpack_dir, 'configs', '*.yaml'))]
     else:
         cfg_names = []
+
+    cfg_names = [x for x in cfg_names if x != 'lab_config.yaml']
         
     return cfg_names
 
@@ -409,3 +433,9 @@ def get_loco_available(cfg):
 
 def get_experimenter(cfg):
     return cfg.get('experimenter', '')
+
+def get_lab(cfg):
+    return cfg.get('lab', '')
+
+def get_institution(cfg):
+    return cfg.get('institution', '')
