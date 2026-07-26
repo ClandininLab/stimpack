@@ -1,3 +1,5 @@
+from typing import Any, Callable
+
 from stimpack.rpc.transceiver import MyTransceiver, reject_private_attribute
 
 class MyMultiCall:
@@ -10,9 +12,9 @@ class MyMultiCall:
         self.transceiver = transceiver
         self.request_list = []
 
-    def __getattr__(self, name) -> callable:
+    def __getattr__(self, name: str) -> Callable[..., None]:
         reject_private_attribute(name)
-        def f(*args, **kwargs) -> None:
+        def f(*args: Any, **kwargs: Any) -> None:
             request = {'name': name, 'args': args, 'kwargs': kwargs}
             self.request_list.append(request)
 
@@ -31,9 +33,9 @@ class MyMultiCall:
         Directs all function calls to the remote module with target name.
         """
         class remote_module_target:
-            def __getattr__(target_self, target_attr_name:str) -> callable:
+            def __getattr__(target_self, target_attr_name: str) -> Callable[..., None]:
                 reject_private_attribute(target_attr_name)
-                def g(*args, **kwargs) -> None:
+                def g(*args: Any, **kwargs: Any) -> None:
                     request = {'target': target_name, 
                                'name': target_attr_name, 
                                'args': args, 

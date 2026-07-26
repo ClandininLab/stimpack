@@ -1,5 +1,5 @@
 import socket, atexit, traceback
-from typing import Callable
+from typing import Any, Callable
 from queue import Queue, Empty
 from threading import Event, Lock
 import warnings
@@ -246,7 +246,7 @@ class MySocketClient(MyTransceiver):
 
     def __getattr__(self, name: str) -> Callable[..., None]:
         reject_private_attribute(name)
-        def f(*args: list, **kwargs: dict) -> None:
+        def f(*args: Any, **kwargs: Any) -> None:
             request = {'name': name, 'args': args, 'kwargs': kwargs}
             self.write_request_list([request])
 

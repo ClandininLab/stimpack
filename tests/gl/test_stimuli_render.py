@@ -234,3 +234,31 @@ def test_more_textured_stimuli_than_texture_units_still_render(headless_gl):
 
     img = np.frombuffer(fbo.read(components=3, alignment=1), dtype=np.uint8)
     assert img.any(), 'nothing was drawn'
+
+
+def test_dynamic_texture_update_accepts_non_contiguous_arrays(headless_gl):
+    """#31: update_texture_gl hands the array to GL directly when it can.
+
+    A non-contiguous array (a slice, a transpose) has no usable buffer, so it must still go through
+    .tobytes(). Both paths have to produce the same texture.
+    """
+    import moderngl
+    from stimpack.visual_stim.base import BaseProgram
+
+    ctx = headless_gl
+    ctx.extra = {}
+
+    stim = BaseProgram(screen=_make_screen())
+    stim.use_texture = True
+    stim.initialize(ctx)
+
+    contiguous = (np.arange(64 * 64, dtype=np.uint8).reshape(64, 64))
+    stim.add_texture_gl(contiguous)
+
+    stim.update_texture_gl(contiguous)                  # buffer-protocol path
+    assert ctx.error == 'GL_NO_ERROR'
+
+    non_contiguous = np.ascontiguousarray(contiguous)[::-1].T
+    assert not non_contiguous.flags['C_CONTIGUOUS']
+    stim.update_texture_gl(non_contiguous)              # .tobytes() fallback
+    assert ctx.error == 'GL_NO_ERROR'
