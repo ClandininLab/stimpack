@@ -89,9 +89,11 @@ class BaseProgram:
             # GPU, 16 on some). Past that, drivers observed here bind and render with no GL error at
             # all, so the stimulus is simply wrong on screen with nothing to say so.
             #
-            # Measured on Mesa/Intel at 16-100 stimuli and 1-4 viewports: rebinding is 0-8% *faster*
-            # than holding many units bound, presumably less sampler state for the driver to
-            # validate per draw. Either way it is well under 1 ms/frame against a 16.7 ms budget.
+            # Benchmarked at 16-100 stimuli and 1-4 viewports on Mesa/Intel, an RTX A4500 and an
+            # RTX 2080 Ti: between 8% faster (Mesa, which apparently validates less sampler state
+            # per draw with one unit live) and 3% slower (2080 Ti). Every case is a fraction of a
+            # millisecond against a 16.7 ms budget at 60 Hz, so the cap is not worth keeping to
+            # save it.
             self.texture.use(0)
 
         # Render to each subscreen

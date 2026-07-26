@@ -98,8 +98,10 @@ repository, and `scripts/rename_package.py` does the rename a new lab should do 
   permanently at load, so an epoch was capped at GL_MAX_TEXTURE_IMAGE_UNITS textured stimuli -- 32
   on the development GPU, 16 on some. A real protocol here loads 31 in one epoch. Past the cap the
   drivers tested render with no GL error, so it fails silently. Each stimulus owns its own shader
-  program and draws alone, so one unit is enough: the bind moved into `paint_at`. Measured 0-8%
-  *faster* than holding many units bound. `load_stim` now also releases on replace.
+  program and draws alone, so one unit is enough: the bind moved into `paint_at`. Benchmarked on
+  Mesa/Intel, an RTX A4500 and an RTX 2080 Ti: between 8% faster and 3% slower, all a fraction of a
+  millisecond per frame. All three GPUs overflow *silently*, with no GL error. `load_stim` now also
+  releases on replace.
 - *Remaining polish:* #44.
 - *Structural, cross-repo:* #45/#46 (the `example/` vs `clandinin/` fork) and Bruker rig
   server de-duplication (four ~121-line files differing by 1–2 lines).

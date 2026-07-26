@@ -70,3 +70,16 @@ Changes to how stimpack loads user modules can break a labpack silently. Against
 > stimpack --check-labpack           # config keys and module_paths; imports nothing
 > stimpack --check-labpack --deep    # also imports each protocol and checks where its calls go
 ```
+
+### Choosing a GPU for the GL tests
+
+On a machine with both integrated and discrete graphics, moderngl's default context picks the
+integrated one — so `-m gl` and `-m e2e` may not exercise the GPU a rig actually uses. To force the
+NVIDIA card:
+
+```shell
+> __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia pytest -m gl
+```
+
+The golden images are generated on software/Mesa but their tolerances are wide enough to pass on
+NVIDIA unchanged; if you regenerate them, do it on Mesa so they stay portable.
