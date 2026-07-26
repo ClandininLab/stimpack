@@ -94,9 +94,10 @@ class ExperimentGUI(QWidget):
         user_data_module_list = config_tools.load_user_module(self.cfg, 'data')
         if user_data_module_list:
             self.data = user_data_module_list[0].Data(self.cfg)
-        else:  # use the built-in
-            print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('data'))
-            self.data = data.BaseData(self.cfg)
+        else:  # use a built-in, chosen by the config's data_format (default hdf5, or nwb)
+            data_class = config_tools.get_builtin_data_class(self.cfg)
+            print('!!! Using builtin {} module ({}). To use user defined module, you must point to that module in your config file !!!'.format('data', data_class.__name__))
+            self.data = data_class(self.cfg)
 
          # start a client
         user_client_module_list = config_tools.load_user_module(self.cfg, 'client')
@@ -120,7 +121,11 @@ class ExperimentGUI(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle(f"Stimpack Experiment ({self.cfg['current_cfg_name'].split('.')[0]}: {self.cfg['current_rig_name']})")
+        # Name the storage backend in the title when it is not the default, so it is obvious at a
+        # glance which format a running experiment is being written in. Taken from the object in
+        # use rather than from the config's data_format, which a labpack's own data module ignores.
+        format_note = '' if type(self.data) is data.BaseData else f'{type(self.data).__name__}, '
+        self.setWindowTitle(f"Stimpack Experiment ({format_note}{self.cfg['current_cfg_name'].split('.')[0]}: {self.cfg['current_rig_name']})")
 
         # # # TAB 1: MAIN controls, for selecting / playing stimuli
 
@@ -364,11 +369,13 @@ class ExperimentGUI(QWidget):
         self.existing_subject_input = QComboBox()
         self.existing_subject_input.activated.connect(self.on_selected_existing_subject)
         self.data_form.addRow(new_label, self.existing_subject_input)
-        self.update_existing_subject_input()
 
-        new_label = QLabel('Current Subject info:')
-        new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.data_form.addRow(new_label)
+        new_label = QLabel('Current subject:')
+        self.current_subject_display = QLabel('')
+        self.data_form.addRow(new_label, self.current_subject_display)
+
+        # After current_subject_display exists: this populates it.
+        self.update_existing_subject_input()
 
         # Only built-ins are "subject_id," "age" and "notes"
         # subject ID:
@@ -424,7 +431,7 @@ class ExperimentGUI(QWidget):
         # Initialize new experiment button
         initialize_button = QPushButton("Initialize experiment", self)
         initialize_button.clicked.connect(self.on_pressed_button)
-        new_label = QLabel('Current data file:')
+        new_label = QLabel(f'Current {self.data.output_noun}:')
         self.file_form.addRow(initialize_button, new_label)
         # Load existing experiment button
         load_button = QPushButton("Load experiment", self)
@@ -434,6 +441,36 @@ class ExperimentGUI(QWidget):
         self.file_form.addRow(load_button, self.current_experiment_label)
 
         # # # # Data browser: # # # # # # # #
+        # Only for backends that can be walked as a tree of groups and attributes (h5io, i.e.
+        # HDF5). A backend that says it has no browser gets the rest of the tab without these
+        # widgets, rather than a second copy of the GUI without them.
+        if self.data.supports_data_browser:
+            self.build_data_browser()
+
+        # # # Add each tab to the main layout # # #
+        self.tabs = QTabWidget()
+        self.tabs.resize(450, 500)
+        self.tabs.addTab(self.protocol_tab, "Main")
+        self.tabs.addTab(self.ensemble_tab, "Ensemble")
+        self.tabs.addTab(self.data_tab, "Subject")
+        self.tabs.addTab(self.file_tab, "File")
+
+        self.layout = QVBoxLayout(self)
+        self.layout.addWidget(self.tabs)
+
+        # Resize window based on protocol tab
+        self.update_window_width()
+
+        self.show()
+
+    def build_data_browser(self):
+        '''
+        Tree + attribute table for browsing an experiment's contents on the File tab.
+
+        HDF5-specific (see util.h5io): built only when the data backend advertises
+        supports_data_browser. Backends without one -- data_nwb, whose experiment is a
+        directory of files rather than one walkable tree -- simply do not call this.
+        '''
         self.group_tree = QTreeWidget(self)
         self.group_tree.setHeaderHidden(True)
         self.group_tree.itemClicked.connect(self.on_tree_item_clicked)
@@ -476,22 +513,6 @@ class ExperimentGUI(QWidget):
         self.table_attributes.itemChanged.connect(self.update_attrs_to_file)
 
         self.file_form.addRow(self.table_attributes)
-
-        # # # Add each tab to the main layout # # #
-        self.tabs = QTabWidget()
-        self.tabs.resize(450, 500)
-        self.tabs.addTab(self.protocol_tab, "Main")
-        self.tabs.addTab(self.ensemble_tab, "Ensemble")
-        self.tabs.addTab(self.data_tab, "Subject")
-        self.tabs.addTab(self.file_tab, "File")
-
-        self.layout = QVBoxLayout(self)
-        self.layout.addWidget(self.tabs)
-
-        # Resize window based on protocol tab
-        self.update_window_width()
-
-        self.show()
     
     def closeEvent(self, event):
         print("Closing Experiment GUI")
@@ -593,10 +614,10 @@ class ExperimentGUI(QWidget):
             else:
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Icon.Warning)
-                msg.setText("You have not initialized a data file and/or subject yet")
+                msg.setText(f"You have not initialized a {self.data.output_noun} and/or subject yet")
                 msg.setInformativeText("You can show stimuli by clicking the View button, but no metadata will be saved")
-                msg.setWindowTitle("No experiment file and/or subject")
-                msg.setDetailedText("Initialize or load both an experiment file and a subject if you'd like to save your metadata")
+                msg.setWindowTitle(f"No {self.data.output_noun} and/or subject")
+                msg.setDetailedText(f"Initialize or load both a {self.data.output_noun} and a subject if you'd like to save your metadata")
                 msg.setStandardButtons(QMessageBox.StandardButton.Ok)
                 msg.exec()
 
@@ -656,14 +677,16 @@ class ExperimentGUI(QWidget):
             self.populate_groups()
 
         elif sender.text() == 'Load experiment':
-            if os.path.isdir(self.data.data_directory):
-                filePath, _ = QFileDialog.getOpenFileName(self, "Open file", self.data.data_directory)
+            # An experiment is one file for some backends and a directory for others, so ask for
+            # whichever this one is (BaseData.output_is_directory).
+            start_dir = self.data.data_directory if os.path.isdir(self.data.data_directory) else ''
+            if self.data.output_is_directory:
+                path = QFileDialog.getExistingDirectory(self, f"Open {self.data.output_noun}", start_dir)
             else:
-                filePath, _ = QFileDialog.getOpenFileName(self, "Open file")
-            self.data.experiment_file_name = os.path.split(filePath)[1].split('.')[0]
-            self.data.data_directory = os.path.split(filePath)[0]
+                path, _ = QFileDialog.getOpenFileName(self, f"Open {self.data.output_noun}", start_dir)
 
-            if self.data.experiment_file_name != '':
+            if path:  # empty when the dialog was cancelled
+                self.data.load_experiment(path)
                 self.current_experiment_label.setText(self.data.experiment_file_name)
                 # update series count to reflect already-collected series
                 self.data.reload_series_count()
@@ -939,21 +962,41 @@ class ExperimentGUI(QWidget):
         self.show()
 
     def on_selected_existing_subject(self, index):
-        subject_data = self.data.get_existing_subject_data()
-        self.populate_subject_metadata_fields(subject_data[index])
-        self.data.current_subject = subject_data[index].get('subject_id')
+        # Look the subject up by id rather than by dropdown position: the dropdown lists each
+        # subject once, while get_existing_subject_data() may report one record per series
+        # (data_nwb), so the two are not the same sequence.
+        subject_id = self.existing_subject_input.itemText(index)
+        matching = [s for s in self.data.get_existing_subject_data() if s.get('subject_id') == subject_id]
+        if not matching:
+            return
+        self.populate_subject_metadata_fields(matching[-1])   # most recently recorded metadata
+        self.data.select_subject(subject_id)
+        self.current_subject_display.setText(subject_id)
 
     def update_existing_subject_input(self):
         self.existing_subject_input.clear()
-        for subject_data in self.data.get_existing_subject_data():
-            self.existing_subject_input.addItem(subject_data['subject_id'])
+        # dict.fromkeys, not set(): one entry per subject, in the order they were recorded. A
+        # backend that keeps subject metadata in each series file (data_nwb) reports the same
+        # subject once per series, which otherwise fills the dropdown with duplicates.
+        seen = dict.fromkeys(s['subject_id'] for s in self.data.get_existing_subject_data())
+        for subject_id in seen:
+            self.existing_subject_input.addItem(subject_id)
+
         index = self.existing_subject_input.findText(self.data.current_subject)
         if index >= 0:
             self.existing_subject_input.setCurrentIndex(index)
+        self.current_subject_display.setText(self.data.current_subject or '')
 
     def populate_subject_metadata_fields(self, subject_data_dict):
         self.subject_id_input.setText(subject_data_dict['subject_id'])
-        self.subject_age_input.setValue(subject_data_dict['age'])
+        # A backend round-trips metadata through its own encoding, so age may come back as a
+        # string. Fall back to 0 rather than letting one odd value break the whole dialog.
+        try:
+            age = int(subject_data_dict.get('age', 0))
+        except (TypeError, ValueError):
+            warnings.warn(f"Could not read subject age {subject_data_dict.get('age')!r} as a number.")
+            age = 0
+        self.subject_age_input.setValue(age)
         self.subject_notes_input.setText(subject_data_dict['notes'])
         for key in self.subject_metadata_inputs:
             self.subject_metadata_inputs[key].setCurrentText(subject_data_dict[key])
@@ -985,6 +1028,11 @@ class ExperimentGUI(QWidget):
         # Populate parameters from filled fields
         if self.mid_parameter_edit:
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
+
+        # Let the backend set up storage for this series. No-op for a single-file format; a
+        # backend that writes one file per series (data_nwb) creates that file here.
+        if save_metadata_flag:
+            self.data.prepare_series()
 
         # start the epoch run thread:
         self.run_series_thread = runSeriesThread(self.protocol_object,
@@ -1198,6 +1246,10 @@ class ExperimentGUI(QWidget):
         self.epoch_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_epochs", "?")}')
 
     def populate_groups(self):
+        # Called after anything that changes the file's contents. No-op for a backend with no
+        # browser, so those call sites do not each need to ask.
+        if not self.data.supports_data_browser:
+            return
         file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
         group_dset_dict = h5io.get_hierarchy(file_path, additional_exclusions='rois')
         self._populateTree(self.group_tree, group_dset_dict)
@@ -1297,7 +1349,8 @@ class InitializeExperimentGUI(QWidget):
         self.experiment_gui_object = experiment_gui_object
         layout = QFormLayout()
 
-        label_filename = QLabel('File Name:')
+        noun = self.experiment_gui_object.data.output_noun
+        label_filename = QLabel(f'{noun[0].upper() + noun[1:]} name:')
         init_now = datetime.now()
         defaultName = init_now.isoformat()[:-16]
         self.le_filename = QLineEdit(defaultName)
@@ -1322,13 +1375,17 @@ class InitializeExperimentGUI(QWidget):
         self.setLayout(layout)
 
     def on_pressed_enter_button(self):
-        self.experiment_gui_object.data.experiment_file_name = self.le_filename.text()
-        self.experiment_gui_object.data.data_directory = self.le_data_directory.text()
-        self.experiment_gui_object.data.experimenter = self.le_experimenter.text()
+        data = self.experiment_gui_object.data
+        data.experiment_file_name = self.le_filename.text()
+        data.data_directory = self.le_data_directory.text()
+        data.experimenter = self.le_experimenter.text()
 
-        if os.path.isfile(os.path.join(self.experiment_gui_object.data.data_directory, self.experiment_gui_object.data.experiment_file_name) + '.hdf5'):
-           self.label_status.setText('Experiment file already exists!')
-        elif not os.path.isdir(self.experiment_gui_object.data.data_directory):
+        # Ask the backend whether this experiment already exists, rather than testing for an
+        # .hdf5 file here: what "already exists" means is the backend's business (a file for
+        # HDF5, a directory for NWB), and it already answers exactly this question.
+        if data.experiment_file_exists():
+            self.label_status.setText(f'{data.output_noun[0].upper() + data.output_noun[1:]} already exists!')
+        elif not os.path.isdir(data.data_directory):
             self.label_status.setText('Data directory does not exist!')
         else:
             self.label_status.setText('Data entered')
