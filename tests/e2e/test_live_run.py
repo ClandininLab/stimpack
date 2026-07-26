@@ -42,8 +42,30 @@ class LiveProtocol(BaseProtocol):
 
 # --- the rendering stack ------------------------------------------------------------------------
 
-def test_live_server_loads_and_runs_a_stimulus(live_manager):
-    """Drive the screen subprocess directly over the real socket."""
+def frame_count(live_client, live_manager, timeout=15):
+    """Ask the screen how many frames it has rendered, and wait for the answer to come back."""
+    before = len(live_client.server_messages)
+    live_manager.target('visual').report_frame_count()
+
+    def answered():
+        live_manager.process_queue()
+        return any('frame_count=' in text for _, text in live_client.server_messages[before:])
+
+    assert wait_until(answered, timeout=timeout), 'the screen never reported a frame count'
+    reported = [text for _, text in live_client.server_messages[before:] if 'frame_count=' in text]
+    return int(reported[-1].split('frame_count=')[1].split()[0])
+
+
+def test_live_server_loads_and_runs_a_stimulus(live_client, live_manager):
+    """Drive the screen subprocess directly over the real socket, and check it really rendered.
+
+    Asserting only that the link survived is not enough: paintGL is what drains the RPC queue, so a
+    screen whose render loop never starts accepts every command and silently does nothing -- and
+    this test passed against exactly that when the GL context failed to come up under PRIME
+    offload. The frame count is what distinguishes "ran the stimulus" from "accepted the commands".
+    """
+    frames_before = frame_count(live_client, live_manager)
+
     live_manager.target('visual').set_idle_background(0.5)
     live_manager.target('visual').load_stim(name='MovingSpot', radius=15, sphere_radius=1,
                                             color=[1, 1, 1, 1], theta=0, phi=0)
@@ -52,8 +74,13 @@ def test_live_server_loads_and_runs_a_stimulus(live_manager):
     live_manager.target('visual').stop_stim()
     time.sleep(0.1)
 
+    frames_after = frame_count(live_client, live_manager)
+    assert frames_after > frames_before, \
+        f'the screen drew no frames while the stimulus ran ({frames_before} -> {frames_after})'
+
     # The link is still healthy: the screen subprocess did not crash on any of that.
     assert live_manager.connection_broken is False
+    assert live_client.server_error is None
 
 
 def test_live_server_survives_a_bad_stimulus_and_reports_it(live_client, live_manager):

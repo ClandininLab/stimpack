@@ -19,7 +19,7 @@ cross‑cutting recommendations at the end.
 ## Status
 
 Work is on a `dev` branch in each repo, all pushed, nothing merged to `main`:
-**stimpack 49 commits**, **labpack-template 10**, **clandinin_labpack 1**. Verified by
+**stimpack 51 commits**, **labpack-template 10**, **clandinin_labpack 1**. Verified by
 `ruff` + a **184-test suite** (unit / integration / gui / gl / e2e), which now also runs
 whole in a single process. CI is wired but has never executed — an org-level GitHub
 Actions billing lock.

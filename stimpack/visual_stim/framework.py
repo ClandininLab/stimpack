@@ -134,6 +134,19 @@ class StimDisplay(QOpenGLWidget):
         # imported stimuli module names
         self.imported_stim_module_names = []
 
+    def report_frame_count(self):
+        """Push this screen's rendered-frame count back to the client.
+
+        The RPC link is fire-and-forget, so a client has no way to ask a screen anything -- it can
+        only send. That makes "is this screen actually rendering?" unanswerable from the client, and
+        it is exactly the question that matters when a screen stops: paintGL is what drains the RPC
+        queue, so a screen whose render loop has died accepts every command and silently does
+        nothing. Reported over the same channel screen errors use.
+        """
+        reporter = getattr(self.server, 'error_reporter', None)
+        if reporter is not None:
+            reporter('info', f'frame_count={self.frame_count}')
+
     def report_surface_format(self):
         """Say what the GL surface actually granted, next to what make_qt_format asked for.
 
@@ -733,6 +746,7 @@ def main():
     server.register_function(stim_display.save_pos_history_to_file)
     server.register_function(stim_display.import_stim_module)
     server.register_function(stim_display.unload_stim_module)
+    server.register_function(stim_display.report_frame_count)
     
     # Load other stimuli from paths given in kwargs.
     # These modules contain subclasses of stimpack.visual_stim.stimuli.BaseProgram
