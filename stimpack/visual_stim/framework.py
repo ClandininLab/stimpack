@@ -134,6 +134,28 @@ class StimDisplay(QOpenGLWidget):
         # imported stimuli module names
         self.imported_stim_module_names = []
 
+    def report_surface_format(self):
+        """Say what the GL surface actually granted, next to what make_qt_format asked for.
+
+        A driver silently downgrades a surface format it cannot provide, so a request is not a
+        setting. Measured here, setSamples(24) yields samples=0 on Mesa/Intel and on an RTX A4500 --
+        QOpenGLWidget renders into an FBO, where the surface sample count does not apply -- and
+        setAlphaBufferSize(24) yields 8 on Mesa but 0 under NVIDIA/XWayland, despite the comment
+        saying alpha is "needed to enable transparency". Print both so the difference is visible
+        rather than assumed.
+        """
+        try:
+            granted = self.context().format()
+        except Exception:
+            return                                    # not a QOpenGLWidget (render-movie / EGL path)
+
+        requested = make_qt_format(self.screen.vsync)
+        for label, want, got in (('samples', requested.samples(), granted.samples()),
+                                 ('alpha bits', requested.alphaBufferSize(), granted.alphaBufferSize()),
+                                 ('depth bits', requested.depthBufferSize(), granted.depthBufferSize())):
+            note = '' if want == got else '   <-- not granted'
+            print(f'OpenGL {label}: requested {want}, got {got}{note}')
+
     def initializeGL(self):
          # get OpenGL context
         if self.screen.use_egl:
@@ -205,6 +227,7 @@ class StimDisplay(QOpenGLWidget):
         print(f"OpenGL version: {self.ctx.info['GL_VERSION']}")
         print(f"OpenGL vendor: {self.ctx.info['GL_VENDOR']}")
         print(f"OpenGL renderer: {self.ctx.info['GL_RENDERER']}")
+        self.report_surface_format()
 
         self.ctx.enable(moderngl.BLEND) # enable alpha blending
         self.ctx.enable(moderngl.DEPTH_TEST) # enable depth test

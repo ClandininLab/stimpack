@@ -74,8 +74,7 @@ Changes to how stimpack loads user modules can break a labpack silently. Against
 ### Choosing a GPU for the GL tests
 
 On a machine with both integrated and discrete graphics, moderngl's default context picks the
-integrated one — so `-m gl` and `-m e2e` may not exercise the GPU a rig actually uses. To force the
-NVIDIA card:
+integrated one, so `-m gl` may not exercise the GPU a rig uses. To force the NVIDIA card:
 
 ```shell
 > __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia pytest -m gl
@@ -83,3 +82,16 @@ NVIDIA card:
 
 The golden images are generated on software/Mesa but their tolerances are wide enough to pass on
 NVIDIA unchanged; if you regenerate them, do it on Mesa so they stay portable.
+
+This works for `-m gl`, which creates a standalone moderngl context, but **not** for `-m e2e`,
+whose screen subprocesses are Qt widgets. Under PRIME offload those fail to get a usable GL
+context — on native Wayland the context is refused outright (`QEGLPlatformContext: Failed to
+create context: 3009`, i.e. `EGL_BAD_MATCH`), and under XWayland it is created but
+`makeCurrent` fails. Either way `paintGL` never runs, so the screen never dispatches its RPC
+queue and the e2e tests that need a live render loop skip rather than fail. Note
+`__GLX_VENDOR_LIBRARY_NAME=nvidia` alone does *not* select the NVIDIA card for Qt — it still
+renders on the integrated GPU.
+
+This is a hybrid-graphics artifact rather than a stimpack problem: a rig drives its displays
+from the discrete card directly and never goes through PRIME offload. Run `-m e2e` without those
+variables.
