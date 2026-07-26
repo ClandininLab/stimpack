@@ -59,7 +59,7 @@ class PinholeProjector:
     """
 
     def __init__(self, position=(0, 0, 0.30), forward=(0, 0, -1), up=(0, 1, 0),
-                 throw_ratio=0.5, aspect_ratio=16 / 9):
+                 throw_ratio=0.5, aspect_ratio=1.6):
         self.position = tuple(float(v) for v in position)
         self.forward = tuple(float(v) for v in forward)
         self.up = tuple(float(v) for v in up)
@@ -103,6 +103,34 @@ class PinholeProjector:
     @classmethod
     def deserialize(cls, data):
         return cls(**data)
+
+    @classmethod
+    def wintech_pro4500(cls, position, forward=(0, 0, -1), up=(0, 1, 0), lens='long'):
+        """The WinTech PRO4500 optical engine (TI DLP4500, 0.45" WXGA 912x1140 diamond DMD).
+
+        Aspect and throw are read off the manufacturer's working-distance table:
+
+            92 mm  ->  65.6 x 41 mm     aspect 1.600, throw 1.402
+            700 mm ->  400  x 250 mm    aspect 1.600, throw 1.750
+
+        Two things follow. The aspect ratio is 1.6 (16:10), not the 16/9 flystim1.0 assumed -- so
+        that example was slightly off in the axis its own coverage was worst in. And 1.75 is not an
+        arbitrary number: it is this engine's long lens, which is presumably where flystim1.0 got it.
+        The lenses are field-swappable, so check which one is fitted.
+
+        The engine's other published figures are what make the pinhole model appropriate here:
+        "all glass 0% offset optics" means the optical axis runs through the image centre, so no
+        offset term is needed, and distortion is quoted at <1% (0.1-0.5% over much of the range),
+        which is below what this screen geometry needs to resolve.
+
+        :param position: the pinhole, in meters, in the rig frame -- must be measured
+        :param lens: 'long' (throw 1.75) or 'short' (throw 1.40)
+        """
+        throw = {'long': 1.750, 'short': 1.402}
+        if lens not in throw:
+            raise ValueError(f"lens must be one of {sorted(throw)}, not {lens!r}")
+        return cls(position=position, forward=forward, up=up,
+                   throw_ratio=throw[lens], aspect_ratio=1.6)
 
 
 class CurvedSurface:

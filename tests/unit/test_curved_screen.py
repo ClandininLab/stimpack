@@ -199,3 +199,32 @@ def test_mesh_accepts_plain_arrays():
                       triangles=[[0, 1, 2]], positions=[[0, 1, 0], [1, 0, 0], [0, 0, 1]])
     assert mesh.n_triangles == 1
     assert mesh.interleaved().shape == (3, 5)
+
+
+# --- the actual projector ------------------------------------------------------------------------
+
+def test_pro4500_matches_the_published_working_distance_table():
+    """Both rows of WinTech's table must fall out of the model, or the numbers are being misread.
+
+        92 mm  ->  65.6 x 41 mm
+        700 mm ->  400  x 250 mm
+    """
+    for distance_mm, width_mm, height_mm, lens in ((92, 65.6, 41, 'short'), (700, 400, 250, 'long')):
+        d, w, h = distance_mm / 1000, width_mm / 1000, height_mm / 1000
+        projector = PinholeProjector.wintech_pro4500(position=(0, 0, 0), forward=(0, 0, 1),
+                                                     up=(0, 1, 0), lens=lens)
+        # the corners of the quoted field, at the quoted working distance, should be the image edges
+        corners = np.array([[w / 2, h / 2, d], [-w / 2, -h / 2, d]])
+        ndc = projector.to_ndc(corners)
+        assert np.allclose(np.abs(ndc), 1.0, atol=0.005), \
+            f'{lens} lens: field corners map to {ndc}, expected the image boundary'
+
+
+def test_pro4500_aspect_is_16_10_not_16_9():
+    """flystim1.0 used 16/9; the engine is 1.6, and the error lands in the worse-covered axis."""
+    assert PinholeProjector.wintech_pro4500(position=(0, 0, 1)).aspect_ratio == pytest.approx(1.6)
+
+
+def test_pro4500_rejects_an_unknown_lens():
+    with pytest.raises(ValueError, match='lens must be one of'):
+        PinholeProjector.wintech_pro4500(position=(0, 0, 1), lens='fisheye')
