@@ -53,3 +53,52 @@ def tri_draw(p1, p2, p3, ax, color=None, alpha=0.8):
         coll.set_facecolor(color)
 
     ax.add_collection3d(coll)
+
+
+def draw_curved_screen(mesh, surface=None, projector=None, show=True, save_to=None):
+    """Look at a curved screen's geometry before rendering anything through it.
+
+    Two views, because the two ways this goes wrong look different:
+
+      left   the screen in the rig, coloured by azimuth, with the subject at the origin. Wrong
+             surface dimensions or extents show up here.
+      right  the same mesh in projector coordinates, with the projector image as a dashed box.
+             A wrong projector pose, throw ratio or aspect shows up here -- as a mesh that spills
+             far outside the box, or huddles in a corner of it.
+
+    :param mesh: a ScreenMesh from build_screen_mesh
+    :param save_to: path to write the figure to instead of (or as well as) showing it
+    """
+    fig = plt.figure(figsize=(13, 6))
+
+    ax = fig.add_subplot(1, 2, 1, projection='3d')
+    azimuth = np.degrees(np.arctan2(mesh.positions[:, 0], mesh.positions[:, 1]))
+    tri_azimuth = azimuth[mesh.triangles].mean(axis=1)
+    ax.plot_trisurf(mesh.positions[:, 0], mesh.positions[:, 1], mesh.positions[:, 2],
+                    triangles=mesh.triangles, cmap='twilight', array=tri_azimuth,
+                    edgecolor='none', alpha=0.9)
+    ax.scatter(0, 0, 0, c='g', s=40, label='subject')
+    if projector is not None:
+        ax.scatter(*projector.position, c='r', s=40, marker='^', label='projector')
+    ax.set_xlabel('X (m)'); ax.set_ylabel('Y (m)'); ax.set_zlabel('Z (m)')
+    ax.set_title(f'screen in the rig  ({mesh.n_triangles} triangles)')
+    ax.legend(loc='upper left')
+
+    ax2 = fig.add_subplot(1, 2, 2)
+    finite = np.isfinite(mesh.ndc).all(axis=1)
+    keep = finite[mesh.triangles].all(axis=1)
+    ax2.triplot(mesh.ndc[:, 0], mesh.ndc[:, 1], mesh.triangles[keep], lw=0.4, color='0.3')
+    ax2.add_patch(plt.Rectangle((-1, -1), 2, 2, fill=False, ls='--', lw=1.5, color='r'))
+    ax2.set_aspect('equal')
+    ax2.set_xlabel('projector NDC x'); ax2.set_ylabel('projector NDC y')
+    ax2.set_title(f'projector view  ({mesh.off_projector_fraction():.0%} of vertices outside)')
+
+    if surface is not None:
+        fig.suptitle(type(surface).__name__)
+    fig.tight_layout()
+
+    if save_to is not None:
+        fig.savefig(save_to, dpi=110)
+    if show:
+        plt.show()
+    return fig
