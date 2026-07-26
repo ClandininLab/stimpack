@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import os
 import glob
 from platformdirs import user_config_dir
@@ -30,6 +31,15 @@ TupleSafeLoader.add_constructor(
 def safe_load_yaml_with_tuples(stream):
     """yaml.safe_load extended to reconstruct !!python/tuple; safe against arbitrary-code YAML."""
     return yaml.load(stream, Loader=TupleSafeLoader)
+
+
+# Prefix for every labpack module registered in sys.modules. See user_module_sys_name().
+USER_MODULE_NAMESPACE = 'stimpack_labpack'
+
+
+def _path_barcode(full_module_path: str, length: int = 8) -> str:
+    """Short, stable identifier for a file, so two files never share a module name."""
+    return hashlib.sha1(os.path.realpath(full_module_path).encode('utf-8')).hexdigest()[:length]
 
 
 def get_stimpack_config_directory(ensure_exists=True):
@@ -262,10 +272,6 @@ def load_user_module(cfg, module_name: str, allow_multiple=False, distinct_modul
         warnings.warn(f'No user module specified for {module_name} in the cfg file.')
         return []
     
-    if module_name in sys.modules and not allow_multiple:
-        warnings.warn(f'User module {module_name} already loaded, using cached version.')
-        return [sys.modules[module_name]]
-    
     paths_to_module = get_module_full_paths(cfg, module_name)
     if len(paths_to_module) > 1 and not allow_multiple:
         warnings.warn("Only one module import is allowed but there are multiple module files specified. Using only the first one.")
@@ -286,16 +292,43 @@ def load_user_module(cfg, module_name: str, allow_multiple=False, distinct_modul
             loaded_modules.append(loaded_module)
     return loaded_modules
 
+
+def user_module_sys_name(module_name: str, full_module_path: str) -> str:
+    """The sys.modules key for a user module: namespaced, and keyed on the file it came from.
+
+    Not the bare config key ('protocol', 'data', 'client', 'daq'). Those are ordinary words, so
+    registering them at top level both collides with any installed package of the same name and,
+    worse, makes every config's module indistinguishable from every other config's: loading
+    alice_config's data.py and then bob_config's returned Alice's Data class to Bob, reporting only
+    "already loaded, using cached version" -- which reads as an optimization, not as running someone
+    else's code. Keying on the path keeps the caching (the same file twice is still one import)
+    while making two different files two different modules.
+    """
+    return f'{USER_MODULE_NAMESPACE}.{module_name}.{_path_barcode(full_module_path)}'
+
 def load_user_module_from_path(full_module_path: str, module_name: str) -> types.ModuleType:
     """Imports user defined module and returns the loaded package."""
     if not os.path.exists(full_module_path):
         raise FileNotFoundError(f'Could not find module {module_name} at {full_module_path}.')
 
-    spec = spec_from_file_location(module_name, full_module_path)
+    # Registered under a namespaced, path-keyed name rather than the bare config key -- see
+    # user_module_sys_name(). Both places that later look a user module up do so via a class's
+    # __module__ (protocol.py's protocol-path recording, gui.py's protocol label), so they follow
+    # this name without caring what it is.
+    sys_name = user_module_sys_name(module_name, full_module_path)
+
+    cached = sys.modules.get(sys_name)
+    if cached is not None:
+        # Same file already imported in this process: reuse it, as a normal import would. This is
+        # what the old bare-name check was reaching for, but keyed on the file rather than on a word
+        # like 'data', so one config can no longer be served another config's module.
+        return cached
+
+    spec = spec_from_file_location(sys_name, full_module_path)
     if spec is None or spec.loader is None:
         raise ImportError(f'Could not load spec for module {module_name} from {full_module_path}.')
     loaded_mod = module_from_spec(spec)
-    sys.modules[module_name] = loaded_mod
+    sys.modules[sys_name] = loaded_mod
     spec.loader.exec_module(loaded_mod)
 
     print('Loaded {} module from {}'.format(module_name, full_module_path))

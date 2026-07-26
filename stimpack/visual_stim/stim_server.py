@@ -148,12 +148,18 @@ class VisualStimServer(MySocketServer):
                 warnings.warn(f"Error handling root request '{request['name']}':\n{traceback.format_exc()}")
                 self._report_error(f"visual: {request['name']}: {type(e).__name__}: {e}")
 
-        # pre-process the request list as necessary
-        for request in screen_request_list:
-            if isinstance(request, dict) and ('name' in request) and (request['name'] in self.time_stamp_commands):
-                if 'kwargs' not in request:
-                    request['kwargs'] = {}
-                request['kwargs']['t'] = time()
+        # Stamp the screen-bound requests with the current time, copying rather than editing in
+        # place. Under target='all' the server hands the SAME dict objects to every module, and this
+        # module runs first, so mutating one here would deliver a stray 't' kwarg to locomotion and
+        # voltage_out as well. That is invisible today only because neither implements any of
+        # time_stamp_commands; the first one that does would get a TypeError on a signature that
+        # looks correct. 't' is a screen frame timestamp and should not leave this module.
+        screen_request_list = [
+            {**request, 'kwargs': {**request.get('kwargs', {}), 't': time()}}
+            if isinstance(request, dict) and request.get('name') in self.time_stamp_commands
+            else request
+            for request in screen_request_list
+        ]
 
         # send modified request list to screens
         for screen_manager in self.screen_managers:

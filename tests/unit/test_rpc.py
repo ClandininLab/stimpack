@@ -334,3 +334,27 @@ def test_sending_after_close_is_a_silent_no_op():
 
     conn.close()
     listener.close()
+
+
+# --- an undecodable line is reported, not dropped (#27) ------------------------------------------
+
+def test_an_undecodable_line_is_reported():
+    """A line only fails to decode if something is wrong -- a truncated write, two writers
+    interleaving, a non-stimpack client. Dropping it silently is the same invisible failure as an
+    unknown function name: the caller's request just never happens."""
+    from stimpack.rpc.transceiver import _warn_undecodable_line
+    from json.decoder import JSONDecodeError
+
+    with pytest.warns(UserWarning, match='could not be decoded'):
+        _warn_undecodable_line(b'{"name": "load_stim"', JSONDecodeError('x', '{', 0))
+
+
+def test_a_huge_undecodable_line_is_truncated_in_the_warning():
+    from stimpack.rpc.transceiver import _warn_undecodable_line
+    from json.decoder import JSONDecodeError
+
+    with pytest.warns(UserWarning) as record:
+        _warn_undecodable_line('x' * 5000, JSONDecodeError('x', '{', 0))
+
+    assert len(str(record[0].message)) < 500
+    assert '5000 chars' in str(record[0].message)

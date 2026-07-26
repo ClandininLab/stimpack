@@ -32,6 +32,21 @@ def reject_private_attribute(name):
         raise AttributeError(name)
 
 
+def _warn_undecodable_line(line, error):
+    """Report a line that could not be parsed, instead of dropping it silently.
+
+    A line only fails to decode if something is genuinely wrong -- a truncated write, two writers
+    interleaving on one socket, a non-stimpack client. Dropping it without a word means the caller's
+    request simply never happens, which is the same invisible failure as an unknown function name.
+    Truncated because a corrupted line can be arbitrarily long.
+    """
+    excerpt = line.decode('utf-8', 'replace') if isinstance(line, bytes) else line
+    excerpt = excerpt.strip()
+    if len(excerpt) > 200:
+        excerpt = f'{excerpt[:200]}... ({len(excerpt)} chars)'
+    warnings.warn(f'Discarding an RPC line that could not be decoded ({error}): {excerpt!r}')
+
+
 def _disable_nagle(sock):
     """Disable Nagle's algorithm (TCP_NODELAY) so small RPC messages are sent immediately instead of
     being buffered for up to ~40 ms waiting for an ACK. Best-effort: ignore sockets that don't support it."""
@@ -259,7 +274,8 @@ class MySocketClient(MyTransceiver):
             for line in self.infile:
                 try:
                     request_list = self.parse_line(line)
-                except JSONDecodeError:
+                except JSONDecodeError as e:
+                    _warn_undecodable_line(line, e)
                     continue
 
                 self.queue.put(request_list)
@@ -368,7 +384,8 @@ class MySocketServer(MyTransceiver):
                 for line in infile:
                     try:
                         request_list = self.parse_line(line)
-                    except JSONDecodeError:
+                    except JSONDecodeError as e:
+                        _warn_undecodable_line(line, e)
                         continue
 
                     if self.threaded:

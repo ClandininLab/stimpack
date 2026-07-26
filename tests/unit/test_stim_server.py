@@ -23,3 +23,27 @@ def test_forward_screen_message_no_reporter_is_safe():
     vss = VisualStimServer.__new__(VisualStimServer)
     vss.error_reporter = None
     vss._forward_screen_message("error", "x")  # must not raise
+
+
+# --- the timestamp must not leak to other modules (#29) ------------------------------------------
+
+def test_timestamping_screen_requests_does_not_mutate_the_shared_request():
+    """Under target='all' the server hands the SAME dict objects to every module.
+
+    VisualStimServer runs first and stamps 't' onto the screen-bound requests. Editing in place put
+    that 't' into the dicts locomotion and voltage_out then receive -- invisible only because
+    neither implements any of time_stamp_commands. The first module that does would get a TypeError
+    on a signature that looks correct.
+    """
+    from stimpack.visual_stim.stim_server import VisualStimServer
+
+    server = VisualStimServer.__new__(VisualStimServer)
+    server.functions_on_root = {}
+    server.screen_managers = []
+    server.time_stamp_commands = ['start_stim']
+
+    shared = {'target': 'all', 'name': 'start_stim', 'args': [], 'kwargs': {'append_stim_frames': False}}
+    server.handle_request_list([shared])
+
+    assert shared['kwargs'] == {'append_stim_frames': False}, \
+        "the request another module will receive was mutated"

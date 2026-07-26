@@ -55,3 +55,56 @@ def test_rig_getters_read_present_values():
     assert config_tools.get_screen_center(cfg) == [5, -5]
     assert config_tools.get_loco_available(cfg) is False
     assert config_tools.get_available_rig_configs(cfg) == ["rig1"]
+
+
+# --- user modules are namespaced and keyed on their file (#21) -----------------------------------
+
+def test_two_configs_naming_different_files_get_different_modules(tmp_path):
+    """Registering under the bare config key made one config's module serve another's.
+
+    'data', 'client', 'protocol' and 'daq' are ordinary words. Keyed on those, the second config to
+    ask for 'data' was handed the first config's module -- reported only as "already loaded, using
+    cached version", which reads as an optimization rather than as running someone else's code.
+    """
+    for owner in ('alice', 'bob'):
+        (tmp_path / owner).mkdir()
+        (tmp_path / owner / 'data.py').write_text(f"class Data:\n    owner = '{owner}'\n")
+
+    loaded = {}
+    for owner in ('alice', 'bob'):
+        cfg = {'module_paths': {'data': f'{owner}/data.py'}}
+        with config_tools.using_labpack_directory(str(tmp_path)):
+            loaded[owner] = config_tools.load_user_module(cfg, 'data')[0]
+
+    assert loaded['alice'].Data.owner == 'alice'
+    assert loaded['bob'].Data.owner == 'bob'
+
+
+def test_user_modules_do_not_squat_on_generic_names(tmp_path):
+    """sys.modules['data'] would collide with any installed package of that name, both ways."""
+    import sys
+
+    (tmp_path / 'pack').mkdir()
+    (tmp_path / 'pack' / 'data.py').write_text('class Data:\n    pass\n')
+    cfg = {'module_paths': {'data': 'pack/data.py'}}
+
+    with config_tools.using_labpack_directory(str(tmp_path)):
+        config_tools.load_user_module(cfg, 'data')
+
+    assert 'data' not in sys.modules
+    assert any(key.startswith(f'{config_tools.USER_MODULE_NAMESPACE}.data.') for key in sys.modules)
+
+
+def test_the_same_file_is_imported_once(tmp_path):
+    """Several configs share a protocol file; re-executing it per config would make duplicate
+    classes, and every one of them stays registered as a BaseProtocol subclass forever."""
+    (tmp_path / 'pack').mkdir()
+    (tmp_path / 'pack' / 'data.py').write_text('class Data:\n    pass\n')
+    cfg = {'module_paths': {'data': 'pack/data.py'}}
+
+    with config_tools.using_labpack_directory(str(tmp_path)):
+        first = config_tools.load_user_module(cfg, 'data')[0]
+        second = config_tools.load_user_module(cfg, 'data')[0]
+
+    assert first is second
+    assert first.Data is second.Data
