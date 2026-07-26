@@ -5,6 +5,7 @@ Writes real .nwb files under tmp_path -- no rig, no GUI. Skipped entirely when p
 installed, since it is an optional dependency (pip install stimpack[nwb]).
 """
 import os
+import warnings
 
 import pytest
 
@@ -304,3 +305,30 @@ def test_notes_go_to_a_csv_beside_the_series_files(tmp_path):
     notes = tmp_path / 'expt_2026-07-26' / 'notes.csv'
     assert notes.is_file()
     assert 'a note' in notes.read_text()
+
+
+def test_create_epoch_without_a_subject_does_not_collect_parameters(tmp_path):
+    """Warning and carrying on only defers the failure to end_epoch, which then reports a missing
+    file instead of the missing subject that caused it."""
+    data = _make_data(tmp_path, subject=None)
+    with pytest.warns(UserWarning, match='define a subject first'):
+        data.create_epoch(_Protocol())
+    assert data.trial_parameters == {}
+
+
+def test_end_epoch_without_a_series_file_does_not_raise(tmp_path):
+    """Called once per epoch during a run; a run not saving metadata must not raise every epoch."""
+    data = _make_data(tmp_path)
+    data.create_epoch(_Protocol())                        # parameters collected...
+    assert not os.path.isfile(data.get_nwb_file_path())   # ...but no file was ever written
+    with pytest.warns(UserWarning, match='No NWB file at'):
+        data.end_epoch(_Protocol())
+
+
+def test_end_epoch_with_nothing_collected_is_silent(tmp_path):
+    """Not merely non-raising: with no epoch collected there is nothing wrong, so it must not
+    complain about a missing file either. During a View run this is called every epoch."""
+    data = _make_data(tmp_path, subject=None)
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        data.end_epoch(_Protocol())

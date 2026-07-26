@@ -70,6 +70,11 @@ class NWBData(BaseData):
     def __init__(self, cfg):
         super().__init__(cfg)
         self.subject = None
+        # Set here rather than only in create_epoch_run / create_epoch, so the end_* methods can
+        # ask whether there is anything to write without tripping over a missing attribute --
+        # they run from the client's finally block, after failures that never got that far.
+        self.epoch_parameters = {}
+        self.trial_parameters = {}
 
     # # # NWB-flavored aliases for BaseData's storage-neutral attribute names # # #
 
@@ -384,11 +389,15 @@ class NWBData(BaseData):
         Then, when the epoch is concluded, we add the data as a row of the trials table.
         """
                 
-        if not (self.current_subject_exists() and self.experiment_file_exists()):
-            print('Create a data file and/or define a subject first')
-
-            
         self.trial_parameters = {}
+        if not (self.current_subject_exists() and self.experiment_file_exists()):
+            # Return, rather than warning and carrying on: collecting parameters for an epoch
+            # that has nowhere to go only defers the failure to end_epoch, which then reports a
+            # missing file instead of the missing subject that actually caused it.
+            warnings.warn(f'Create an {self.output_noun} and/or define a subject first; '
+                          f'this epoch will not be saved.')
+            return
+
         self.trial_parameters['trial_start_time'] = datetime.now(self.timezone).timestamp()
 
         if protocol_object.save_stringified_params:
@@ -425,9 +434,19 @@ class NWBData(BaseData):
     def end_epoch(self, protocol_object):
         """
         Finalize the trial information and add the trial to the trials table.
+
+        Degrades quietly when there is nothing to write to, the same way create_epoch and
+        end_epoch_run do: this is called once per epoch during a run, and a run that is not
+        saving metadata should not raise on every epoch.
         """
+        if not self.trial_parameters or 'trial_start_time' not in self.trial_parameters:
+            return
 
         nwbfile_path = self.get_nwb_file_path()
+        if not os.path.isfile(nwbfile_path):
+            warnings.warn(f'No NWB file at {nwbfile_path}; this epoch was not saved.')
+            return
+
         with NWBHDF5IO(nwbfile_path, 'r+') as io:
             subject_nwbfile = io.read()
 
