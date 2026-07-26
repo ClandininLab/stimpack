@@ -19,8 +19,8 @@ cross‑cutting recommendations at the end.
 ## Status
 
 Work is on a `dev` branch in each repo, all pushed, nothing merged to `main`:
-**stimpack 45 commits**, **labpack-template 10**, **clandinin_labpack 1**. Verified by
-`ruff` + a **175-test suite** (unit / integration / gui / gl / e2e), which now also runs
+**stimpack 46 commits**, **labpack-template 10**, **clandinin_labpack 1**. Verified by
+`ruff` + a **178-test suite** (unit / integration / gui / gl / e2e), which now also runs
 whole in a single process. CI is wired but has never executed — an org-level GitHub
 Actions billing lock.
 
@@ -36,7 +36,7 @@ Actions billing lock.
 - **Run-outcome recording** (#16): `data.end_epoch_run` writes `run_status`
   (completed/stopped/aborted/error) + reason + end time on the series group;
   `start_run` runs in try/finally and aborts on a dead link or server error.
-- **Test suite + CI** (#19, #35): 175 tests across five tiers — including
+- **Test suite + CI** (#19, #35): 178 tests across five tiers — including
   golden-image stimulus rendering and **end-to-end runs against a live server with
   real screen and KeyTrac subprocesses** — plus `ruff` and GitHub Actions on 3.10–3.12.
 - **`stimpack --check-labpack`**: a preflight for the failure mode behind every silent

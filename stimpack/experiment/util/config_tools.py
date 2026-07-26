@@ -1,6 +1,7 @@
 import contextlib
 import hashlib
 import os
+import re
 import glob
 from platformdirs import user_config_dir
 import yaml
@@ -33,13 +34,31 @@ def safe_load_yaml_with_tuples(stream):
     return yaml.load(stream, Loader=TupleSafeLoader)
 
 
-# Prefix for every labpack module registered in sys.modules. See user_module_sys_name().
+# Prefix for every labpack module registered in sys.modules.
+#
+# Deliberately a fixed name owned by stimpack, rather than the labpack's own package name. A labpack
+# is a real installed package: sys.modules['clandinin_labpack'] is that package, and registering
+# synthesized modules underneath it would mean squatting inside someone else's namespace -- the same
+# mistake as the bare 'protocol'/'data' names this replaced, one level up. It is also not reliably
+# knowable: the repository name, the directory name and the package name need not agree, and a
+# module_paths entry may be an absolute path outside the labpack entirely. Which labpack a module
+# came from is recorded where it cannot go stale -- the module's __file__.
 USER_MODULE_NAMESPACE = 'stimpack_labpack'
 
 
-def _path_barcode(full_module_path: str, length: int = 8) -> str:
-    """Short, stable identifier for a file, so two files never share a module name."""
-    return hashlib.sha1(os.path.realpath(full_module_path).encode('utf-8')).hexdigest()[:length]
+def _module_identifier(full_module_path: str, hash_length: int = 8) -> str:
+    """A readable, unique identifier for a file: its stem plus a hash of its absolute path.
+
+    The stem carries it: 'mc_protocol_062271c8' says which file a traceback is in, where a bare hash
+    says nothing. The hash is only the disambiguator, for two labpacks that both have a
+    protocol/mc_protocol.py -- it has to stay because keying on the path is the whole point.
+    """
+    stem = os.path.splitext(os.path.basename(full_module_path))[0]
+    stem = re.sub(r'\W', '_', stem).strip('_') or 'module'
+    if stem[0].isdigit():
+        stem = f'_{stem}'
+    digest = hashlib.sha1(os.path.realpath(full_module_path).encode('utf-8')).hexdigest()
+    return f'{stem}_{digest[:hash_length]}'
 
 
 def get_stimpack_config_directory(ensure_exists=True):
@@ -304,7 +323,7 @@ def user_module_sys_name(module_name: str, full_module_path: str) -> str:
     else's code. Keying on the path keeps the caching (the same file twice is still one import)
     while making two different files two different modules.
     """
-    return f'{USER_MODULE_NAMESPACE}.{module_name}.{_path_barcode(full_module_path)}'
+    return f'{USER_MODULE_NAMESPACE}.{module_name}.{_module_identifier(full_module_path)}'
 
 def load_user_module_from_path(full_module_path: str, module_name: str) -> types.ModuleType:
     """Imports user defined module and returns the loaded package."""

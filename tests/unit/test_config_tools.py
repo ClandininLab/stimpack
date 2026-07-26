@@ -108,3 +108,33 @@ def test_the_same_file_is_imported_once(tmp_path):
 
     assert first is second
     assert first.Data is second.Data
+
+
+def test_the_module_name_says_which_file_it_came_from(tmp_path):
+    """A bare hash is unique but meaningless in a traceback; lead with the filename."""
+    (tmp_path / 'pack').mkdir()
+    (tmp_path / 'pack' / 'mc_protocol.py').write_text('')
+
+    name = config_tools.user_module_sys_name('protocol', str(tmp_path / 'pack' / 'mc_protocol.py'))
+
+    assert name.startswith(f'{config_tools.USER_MODULE_NAMESPACE}.protocol.mc_protocol_')
+
+
+def test_same_filename_in_two_labpacks_still_gets_distinct_names(tmp_path):
+    """The stem is for humans; the path hash is what keeps them apart."""
+    names = set()
+    for lab in ('lab_a', 'lab_b'):
+        (tmp_path / lab).mkdir()
+        (tmp_path / lab / 'mc_protocol.py').write_text('')
+        names.add(config_tools.user_module_sys_name('protocol', str(tmp_path / lab / 'mc_protocol.py')))
+
+    assert len(names) == 2
+
+
+def test_module_names_are_valid_python_identifiers(tmp_path):
+    """Filenames can contain characters a module name cannot."""
+    (tmp_path / '2 weird-name!.py').write_text('')
+
+    name = config_tools.user_module_sys_name('data', str(tmp_path / '2 weird-name!.py'))
+
+    assert all(part.isidentifier() for part in name.split('.')), name
