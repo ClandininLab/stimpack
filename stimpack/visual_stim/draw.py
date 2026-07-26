@@ -74,10 +74,18 @@ def draw_curved_screen(mesh, surface=None, projector=None, show=True, save_to=No
     ax = fig.add_subplot(1, 2, 1, projection='3d')
     # Colour by whether the projector lights it. On a rig that covers its screen only partly -- a
     # projector to one side of a bowl -- this is the thing worth looking at.
-    tri_lit = mesh.lit[mesh.triangles].all(axis=1).astype(float)
-    ax.plot_trisurf(mesh.positions[:, 0], mesh.positions[:, 1], mesh.positions[:, 2],
-                    triangles=mesh.triangles, cmap='RdYlGn', array=tri_lit,
-                    vmin=0, vmax=1, edgecolor='none', alpha=0.9)
+    #
+    # Built as a Poly3DCollection with explicit face colours rather than through plot_trisurf:
+    # plot_trisurf sets its own scalar array from the z of each triangle, which silently overrides
+    # an `array=` passed in, and paints the whole screen one colour.
+    tri_lit = mesh.lit[mesh.triangles].all(axis=1)
+    polygons = mesh.positions[mesh.triangles]
+    colors = np.where(tri_lit[:, None], np.array([0.20, 0.70, 0.30, 0.95]),
+                      np.array([0.75, 0.20, 0.20, 0.45]))
+    surface_coll = Poly3DCollection(polygons, facecolors=colors, edgecolors='none')
+    ax.add_collection3d(surface_coll)
+    span = float(np.abs(mesh.positions).max()) * 1.05
+    ax.set_xlim(-span, span); ax.set_ylim(-span, span); ax.set_zlim(-span, span)
     ax.scatter(0, 0, 0, c='g', s=40, label='subject')
     if projector is not None:
         ax.scatter(*projector.position, c='r', s=40, marker='^', label='projector')
