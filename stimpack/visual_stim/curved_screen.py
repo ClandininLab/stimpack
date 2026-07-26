@@ -29,9 +29,27 @@ from stimpack.visual_stim.util import normalize
 class PinholeProjector:
     """A projector modelled as a pinhole, mapping points in the rig to projector NDC.
 
+    This answers the question the renderer cannot proceed without: for a point on the screen, which
+    part of the projector image illuminates it? The GPU draws into the projector's framebuffer, so
+    every vertex of the screen mesh needs its position there.
+
+    "Pinhole" because a projector is optically a camera run backwards -- rays through a point onto a
+    rectangle, emitted rather than collected -- so the same algebra applies. Throw ratio is the
+    manufacturer's way of quoting focal length: in NDC units the focal length is 2 * throw_ratio,
+    which is where the factor of 2 below comes from.
+
     Generalizes the model in flystim1.0's examples/hemisphere.py, which assumed a projector on the
     +z axis pointing back at the origin. Here the pose is explicit, so an off-axis or tilted mount
     can be described without rederiving the algebra.
+
+    This class is the only description of the optics anywhere. build_screen_mesh calls to_ndc() and
+    nothing else, so a rig whose optics are not a pinhole -- a fisheye lens, a fold mirror, or a
+    mapping measured with structured light -- can substitute a different class here without
+    disturbing anything downstream.
+
+    The defaults are a placeholder chosen to cover the default SphericalSurface. They describe no
+    real rig: supply the measured pose and the projector's actual throw ratio before pointing this
+    at hardware, and check the result with draw_curved_screen().
 
     :param position: projector pinhole, in meters, in the same frame as the screen
     :param forward: direction the projector points
@@ -40,8 +58,8 @@ class PinholeProjector:
     :param aspect_ratio: image width / height
     """
 
-    def __init__(self, position=(0, 0, 2.0), forward=(0, 0, -1), up=(0, 1, 0),
-                 throw_ratio=1.75, aspect_ratio=16 / 9):
+    def __init__(self, position=(0, 0, 0.30), forward=(0, 0, -1), up=(0, 1, 0),
+                 throw_ratio=0.5, aspect_ratio=16 / 9):
         self.position = tuple(float(v) for v in position)
         self.forward = tuple(float(v) for v in forward)
         self.up = tuple(float(v) for v in up)
