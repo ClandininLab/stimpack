@@ -29,14 +29,14 @@ setup(
         # NWB output. Not everyone writes NWB, and pynwb pulls in a substantial dependency tree,
         # so it is opt-in: pip install stimpack[nwb].
         'nwb': ['pynwb'],
-    },
-    extras_require={
         'test': ['pytest', 'pytest-cov', 'pillow', 'ruff'],  # pillow: GL reference images; ruff: lint
     },
     entry_points={
         'console_scripts': [
             'stimpack=stimpack.experiment.gui:main',
-            'stimpack_nwb=stimpack.experiment.gui_nwb:main'
+            # Retained so an existing NWB setup keeps working; it warns and defers to
+            # `stimpack --data-format nwb`. Prefer setting data_format in the config file.
+            'stimpack_nwb=stimpack.experiment.gui:main_nwb',
         ]
     },
     include_package_data=True,

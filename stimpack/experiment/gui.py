@@ -43,10 +43,16 @@ class ExperimentGUI(QWidget):
     # signal (a queued cross-thread connection) marshals the update onto the GUI thread.
     server_message_signal = pyqtSignal(str, str)
 
-    def __init__(self):
+    def __init__(self, data_format=None):
+        """
+        :param data_format: overrides the config's data_format for this session ('hdf5' or 'nwb').
+                            None means use whatever the chosen config says.
+        """
         super().__init__()
         # set GUI icon
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
+
+        self.data_format_override = data_format
 
         self.note_text = ''
         self.run_parameter_input = {}
@@ -95,6 +101,8 @@ class ExperimentGUI(QWidget):
         if user_data_module_list:
             self.data = user_data_module_list[0].Data(self.cfg)
         else:  # use a built-in, chosen by the config's data_format (default hdf5, or nwb)
+            if self.data_format_override is not None:
+                self.cfg['data_format'] = self.data_format_override
             data_class = config_tools.get_builtin_data_class(self.cfg)
             print('!!! Using builtin {} module ({}). To use user defined module, you must point to that module in your config file !!!'.format('data', data_class.__name__))
             self.data = data_class(self.cfg)
@@ -1632,7 +1640,7 @@ class EnsembleList(QListWidget):
             self.clearSelection()
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(prog='stimpack', description='Stimpack experiment GUI.')
     parser.add_argument('--check-labpack', action='store_true',
                         help="check the configured labpack for problems and exit. Returns nonzero "
@@ -1642,7 +1650,12 @@ def main():
     parser.add_argument('--deep', action='store_true',
                         help="with --check-labpack, also import each protocol and check where its "
                              "calls would be routed. Runs lab code, so it is not done at startup.")
-    args = parser.parse_args()
+    parser.add_argument('--data-format', default=None,
+                        choices=sorted(config_tools.BUILTIN_DATA_FORMATS),
+                        help="storage backend for this session, overriding the config's "
+                             "data_format. For trying a format without editing a config; set "
+                             "data_format in the config file to make it the default.")
+    args = parser.parse_args(argv)
 
     if args.check_labpack:
         from stimpack.experiment.util import check_labpack
@@ -1653,8 +1666,22 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName('Stimpack Experiment')
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))
-    ex = ExperimentGUI()  # noqa: F841 - keep a reference so the top-level window isn't garbage-collected
+    ex = ExperimentGUI(data_format=args.data_format)  # noqa: F841 - keep a reference so the top-level window isn't garbage-collected
     sys.exit(app.exec())
+
+
+def main_nwb():
+    """
+    The `stimpack_nwb` command, from when NWB needed a GUI of its own.
+
+    One GUI now serves both formats, so this is `stimpack --data-format nwb`. Kept so existing
+    setups keep working, and it says what to do instead.
+    """
+    warnings.warn("'stimpack_nwb' is deprecated: one GUI now handles both formats. Put "
+                  "'data_format: nwb' in your config file and run 'stimpack', or pass "
+                  "'stimpack --data-format nwb'.")
+    main(sys.argv[1:] + ['--data-format', 'nwb'])
+
 
 if __name__ == '__main__':
     main()

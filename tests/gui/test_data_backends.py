@@ -307,3 +307,42 @@ def test_hdf5_prepare_series_changes_nothing(experiment_gui, tmp_path):
     before = sorted(os.listdir(tmp_path))
     experiment_gui.data.prepare_series()
     assert sorted(os.listdir(tmp_path)) == before
+
+
+# --- choosing the backend from the command line ---------------------------------------------------
+
+def test_data_format_flag_overrides_the_config(qapp, monkeypatch, test_cfg):
+    """For trying a format without editing a config. The config still decides by default."""
+    pytest.importorskip('pynwb')
+    from stimpack.experiment.data_nwb import NWBData
+    import stimpack.experiment.gui as gui_mod
+    from PyQt6.QtWidgets import QDialog
+    from fakes import FakeClient
+
+    def fake_setupUI(self, experiment_gui_object, parent=None, window_size=None):
+        experiment_gui_object.cfg = dict(test_cfg)     # no data_format -> hdf5
+        experiment_gui_object.cfg_initialized = True
+
+    monkeypatch.setattr(gui_mod.InitializeRigGUI, 'setupUI', fake_setupUI)
+    monkeypatch.setattr(QDialog, 'exec', lambda self: 0)
+    monkeypatch.setattr(gui_mod.client, 'BaseClient', FakeClient)
+
+    gui = gui_mod.ExperimentGUI(data_format='nwb')
+    try:
+        assert type(gui.data) is NWBData
+    finally:
+        gui.close()
+
+
+def test_stimpack_nwb_command_still_works_and_says_what_to_use(monkeypatch):
+    """Max's existing command. It now defers to the one GUI rather than a forked one."""
+    import stimpack.experiment.gui as gui_mod
+
+    seen = {}
+    monkeypatch.setattr(gui_mod, 'main', lambda argv=None: seen.setdefault('argv', argv))
+    monkeypatch.setattr(gui_mod.sys, 'argv', ['stimpack_nwb'])
+
+    with pytest.warns(UserWarning, match="data_format: nwb"):
+        gui_mod.main_nwb()
+
+    assert seen['argv'] == ['--data-format', 'nwb']
