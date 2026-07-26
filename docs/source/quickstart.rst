@@ -9,5 +9,4 @@ Quickstart
     install
     install_labpack
     customize_labpack
-    this_is_a_test
 

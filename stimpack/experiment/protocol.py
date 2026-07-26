@@ -20,12 +20,14 @@ e.g. super().prepare_run()
 
 see the simple example protocol classes at the bottom of this module.
 
--protocol_parameters: user-defined params that are mapped to stimpack.visual_stim epoch params
-                     *saved as attributes at the epoch run level
--epoch_protocol_parameters: epoch-specific user-defined params that are mapped to stimpack.visual_stim epoch params
-                     *saved as attributes at the individual epoch level
--epoch_stim_parameters: parameter set used to define stimpack.visual_stim stimulus
-                     *saved as attributes at the individual epoch level
+The three parameter sets a protocol works with::
+
+    protocol_parameters        user-defined params mapped to stimpack.visual_stim epoch params,
+                               saved as attributes at the epoch run level
+    epoch_protocol_parameters  epoch-specific user-defined params mapped to stimpack.visual_stim
+                               epoch params, saved as attributes at the individual epoch level
+    epoch_stim_parameters      the parameter set defining the stimpack.visual_stim stimulus,
+                               saved as attributes at the individual epoch level
 """
 import sys
 import numpy as np

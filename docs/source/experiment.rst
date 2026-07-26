@@ -1,5 +1,5 @@
 stimpack.experiment
-==================
+===================
 
 Subpackages
 -----------
@@ -15,21 +15,21 @@ Submodules
 experiment.client module
 ------------------------
 
-.. automodule:: experiment.client
+.. automodule:: stimpack.experiment.client
    :members:
    :show-inheritance:
 
 experiment.data module
 ----------------------
 
-.. automodule:: experiment.data
+.. automodule:: stimpack.experiment.data
    :members:
    :show-inheritance:
 
 experiment.gui module
 ---------------------
 
-.. automodule:: experiment.gui
+.. automodule:: stimpack.experiment.gui
    :members:
    :undoc-members:
    :show-inheritance:
@@ -37,7 +37,7 @@ experiment.gui module
 experiment.protocol module
 --------------------------
 
-.. automodule:: experiment.protocol
+.. automodule:: stimpack.experiment.protocol
    :members:
    :undoc-members:
    :show-inheritance:
@@ -45,7 +45,7 @@ experiment.protocol module
 experiment.server module
 ------------------------
 
-.. automodule:: experiment.server
+.. automodule:: stimpack.experiment.server
    :members:
    :undoc-members:
    :show-inheritance:
@@ -53,7 +53,7 @@ experiment.server module
 Module contents
 ---------------
 
-.. automodule:: experiment
+.. automodule:: stimpack.experiment
    :members:
    :undoc-members:
    :show-inheritance:

@@ -6,25 +6,29 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-import sys
-import os
-import sphinx_rtd_theme
 import os
 import sys
-import stimpack
 
-# sys.path.insert(0, os.path.abspath('/dennis/stimpack/src/stimpack/'))
-# sys.path.insert(0, os.path.abspath('/home/dennis/stimpack/src/stimpack/visual_stim'))
-sys.path.insert(0, '../../stimpack/src/stimpack/')
-sys.path.insert(0, '../../stimpack/src/stimpack/visual_stim')
-sys.path.insert(0, '../../stimpack/src/stimpack/rpc')
-sys.path.insert(0, '../../')
+import sphinx_rtd_theme  # noqa: F401 - registers the theme
+
+# The repository root, so autodoc finds `stimpack` whether or not it is installed. The paths that
+# used to be here pointed at directories that never existed in this layout, which is why every
+# automodule below silently failed to import and the entire API section came out empty.
+sys.path.insert(0, os.path.abspath('../..'))
 
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
-    'sphinx.ext.viewcode'
+    'sphinx.ext.napoleon',      # :param: blocks, which is how this codebase writes docstrings
+    'sphinx.ext.viewcode',
 ]
+
+# PyQt6, moderngl and the hardware drivers are not installed on the docs builder, and importing them
+# is not needed to document the modules that use them.
+autodoc_mock_imports = [
+    'PyQt6', 'moderngl', 'OpenGL', 'hid', 'nidaqmx', 'labjack', 'h5py', 'skimage', 'platformdirs',
+]
+autodoc_default_options = {'members': True, 'undoc-members': True, 'show-inheritance': True}
 
 
 autosummary_generate = True  # Automatically generate summary pages

@@ -1,5 +1,5 @@
 stimpack.device
-==============
+===============
 
 Submodules
 ----------
@@ -7,7 +7,7 @@ Submodules
 device.daq module
 -----------------
 
-.. automodule:: device.daq
+.. automodule:: stimpack.device.daq
    :members:
    :undoc-members:
    :show-inheritance:
@@ -15,7 +15,7 @@ device.daq module
 Module contents
 ---------------
 
-.. automodule:: device
+.. automodule:: stimpack.device
    :members:
    :undoc-members:
    :show-inheritance:

@@ -180,7 +180,9 @@ class MovingPatch(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.width = make_as_trajectory(width)
         self.height = make_as_trajectory(height)
@@ -218,7 +220,9 @@ class MovingPatchOnCylinder(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.width = make_as_trajectory(width)
         self.height = make_as_trajectory(height)
@@ -256,7 +260,9 @@ class MovingEllipse(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.sphere_radius = sphere_radius
 
@@ -296,7 +302,9 @@ class MovingEllipseOnCylinder(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.cylinder_radius = cylinder_radius
 
@@ -334,7 +342,9 @@ class MovingSpot(BaseProgram):
         :param color: [r,g,b,a] or mono. Color of the patch
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.sphere_radius = sphere_radius
 
@@ -406,7 +416,9 @@ class UniformWhiteNoise(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.width = width
         self.height = height
@@ -453,7 +465,9 @@ class TexturedSphericalPatch(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.width = width
         self.height = height
@@ -594,7 +608,9 @@ class CylindricalGrating(TexturedCylinder):
         :param n_steps_y: number of steps in y direction to draw the texture (approximate; lowerbound)
 
         :params color, cylinder_radius, cylinder_height, theta, phi, angle: see parent class
-        *Any of these params except cylinder_radius, cylinder_height, profile, n_steps_x, and n_steps_y can be passed as a trajectory dict to vary as a function of time
+
+        .. note::
+           Any of these params except cylinder_radius, cylinder_height, profile, n_steps_x, and n_steps_y can be passed as a trajectory dict to vary as a function of time
         """
         super().configure(color=color, cylinder_radius=cylinder_radius, cylinder_location=cylinder_location, cylinder_height=cylinder_height, theta=theta, phi=phi, angle=angle)
 
@@ -1087,7 +1103,9 @@ class MovingBox(BaseProgram):
         :param yaw: degrees, rotation around z axis
         :param pitch: degrees, rotation around y axis
         :param roll: degrees, rotation around x axis
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.x_length = make_as_trajectory(x_length)
         self.y_length = make_as_trajectory(y_length)

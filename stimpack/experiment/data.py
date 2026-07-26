@@ -5,16 +5,18 @@ Data file class
 
 Data File structure is:
 yyyy-mm-dd
-    Subjects
-        subject_id
-            epoch_runs
-                series_00n (attrs = protocol_parameters)
-                    acquisition
-                    epochs
-                        epoch_001
-                        epoch_002
-                    stimulus_timing
-    Notes
+    ::
+
+        Subjects
+            subject_id
+                epoch_runs
+                    series_00n (attrs = protocol_parameters)
+                        acquisition
+                        epochs
+                            epoch_001
+                            epoch_002
+                        stimulus_timing
+        Notes
 
 """
 import h5py

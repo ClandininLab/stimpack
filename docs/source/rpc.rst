@@ -7,7 +7,7 @@ Submodules
 rpc.echo\_server module
 -----------------------
 
-.. automodule:: rpc.echo_server
+.. automodule:: stimpack.rpc.echo_server
    :members:
    :undoc-members:
    :show-inheritance:
@@ -15,7 +15,7 @@ rpc.echo\_server module
 rpc.launch module
 -----------------
 
-.. automodule:: rpc.launch
+.. automodule:: stimpack.rpc.launch
    :members:
    :undoc-members:
    :show-inheritance:
@@ -23,7 +23,7 @@ rpc.launch module
 rpc.multicall module
 --------------------
 
-.. automodule:: rpc.multicall
+.. automodule:: stimpack.rpc.multicall
    :members:
    :undoc-members:
    :show-inheritance:
@@ -31,7 +31,7 @@ rpc.multicall module
 rpc.transceiver module
 ----------------------
 
-.. automodule:: rpc.transceiver
+.. automodule:: stimpack.rpc.transceiver
    :members:
    :undoc-members:
    :show-inheritance:
@@ -39,7 +39,7 @@ rpc.transceiver module
 rpc.util module
 ---------------
 
-.. automodule:: rpc.util
+.. automodule:: stimpack.rpc.util
    :members:
    :undoc-members:
    :show-inheritance:
@@ -47,7 +47,7 @@ rpc.util module
 Module contents
 ---------------
 
-.. automodule:: rpc
+.. automodule:: stimpack.rpc
    :members:
    :undoc-members:
    :show-inheritance:

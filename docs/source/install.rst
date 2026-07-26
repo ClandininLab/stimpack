@@ -1,9 +1,9 @@
 Installation (Stimpack)
-==========
+=======================
 
 
 1. Make a new python virtualenvironment
-^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 In the terminal, type:
     >>> python3 -m venv .stimpack
@@ -12,14 +12,14 @@ This will create a new virtual environment in the current directory. You can act
     >>> source .stimpack/bin/activate
 
 2. ``pip`` install stimpack 
-^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 In your virtualenvironment, install stimpack via ``pip``:
     >>> python3 -m pip install stimpack
 
 
 3. Confirm installation 
-^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 In the ``.stimpack`` virtual environment, type:
     >>> stimpack
