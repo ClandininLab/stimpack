@@ -56,10 +56,12 @@ class NWBData(BaseData):
     """
     Data class corresponding to a series of .nwb files. One .nwb file per trial run / series.
 
-    Vocabulary note: this backend's own terms map onto BaseData's as
+    Vocabulary note: this backend's own terms map onto BaseData's as::
+
         nwb_directory      -> experiment_file_name   (the directory's name)
         parent_directory   -> data_directory         (what it sits in)
         current_subject_id -> current_subject
+
     The NWB spellings are kept as properties, so protocols and labpack code written against
     either name keep working.
     """

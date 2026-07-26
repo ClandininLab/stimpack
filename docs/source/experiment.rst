@@ -26,6 +26,16 @@ experiment.data module
    :members:
    :show-inheritance:
 
+experiment.data_nwb module
+--------------------------
+
+The NWB storage backend, selected with ``data_format: nwb`` in a config. Requires ``pynwb``
+(``pip install stimpack[nwb]``). See :doc:`labpack_configs`.
+
+.. automodule:: stimpack.experiment.data_nwb
+   :members:
+   :show-inheritance:
+
 experiment.gui module
 ---------------------
 
