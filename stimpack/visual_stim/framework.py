@@ -21,6 +21,7 @@ from stimpack.visual_stim.trajectory import make_as_trajectory, return_for_time_
 from stimpack.visual_stim.perspective import GenPerspective
 from stimpack.visual_stim.square import SquareProgram
 from stimpack.visual_stim.screen import Screen
+from stimpack.visual_stim.curved_screen import CurvedScreen
 
 from stimpack.rpc.transceiver import MySocketServer
 from stimpack.rpc.util import get_kwargs
@@ -256,6 +257,17 @@ class StimDisplay(QOpenGLWidget):
         # Initialize attribute storage for the context
         self.ctx.extra = {}
 
+        # A curved screen renders through a cube map instead of one frustum per flat subscreen.
+        self.cube_renderer = None
+        if isinstance(self.screen, CurvedScreen):
+            from stimpack.visual_stim.cubemap import CubeMapRenderer
+            mesh = self.screen.build_mesh()
+            self.cube_renderer = CubeMapRenderer(self.ctx, mesh,
+                                                 resolution=self.screen.cube_resolution)
+            coverage = mesh.coverage()
+            print(f'Curved screen: {mesh.n_triangles} triangles, '
+                  f'{coverage["fraction"]:.0%} of the surface lit by the projector')
+
         # clear the whole screen
         # self.clear_viewports(color=(0, 0, 0, 1), viewports=None)
         self.ctx.fbo.clear(0, 0, 0, 1)
@@ -284,6 +296,35 @@ class StimDisplay(QOpenGLWidget):
         for viewport in viewports:
             self.ctx.fbo.clear(red=color[0], green=color[1], blue=color[2], alpha=color[3], viewport=viewport)
         
+    def paint_through_cube_map(self, stim_time, display_width, display_height):
+        """Draw the scene into a cube map, then warp it onto the curved screen.
+
+        Both passes happen inside this one frame, deliberately. Rendering the cube on one frame and
+        warping it on the next would be easier to arrange and would add a whole frame of latency to
+        the closed loop -- 8 to 16 ms, against the ~0.3 ms the passes themselves cost. That is the
+        only part of this worth being careful about performance-wise.
+        """
+        from stimpack.visual_stim.cubemap import face_matrices
+
+        renderer = self.cube_renderer
+        matrices = face_matrices(self.subject_position)
+        face_viewport = [(0, 0, renderer.resolution, renderer.resolution)]
+
+        for face, matrix in enumerate(matrices[:renderer.faces]):
+            renderer.use_face(face, clear_color=self.idle_background)
+            if not self.stim_started:
+                continue
+            for stim in self.stim_list:
+                stim.paint_at(stim_time, face_viewport, [matrix],
+                              subject_position=self.subject_position)
+
+        # Back to the display, then the screen mesh in one draw call. No horizontal flip here even
+        # for a rear-projected screen: the mesh already says where each direction lands on the
+        # projector, worked out from the physical geometry, so the handedness is built in.
+        self.ctx.detect_framebuffer().use()
+        self.ctx.viewport = (0, 0, display_width, display_height)
+        renderer.render_warp()
+
     def paintGL(self):
         # t0 = time.time() # benchmarking
         self.frame_count += 1
@@ -324,17 +365,20 @@ class StimDisplay(QOpenGLWidget):
                                         'theta': return_for_time_t(self.subject_theta_trajectory, self.get_stim_time(t)) # deg -> radians
                                         })
 
-            # For each subscreen associated with this screen: get the perspective matrix
-            perspectives = [get_perspective(self.subject_position, x.pa, x.pb, x.pc, self.screen.horizontal_flip) for x in self.screen.subscreens]
+            if self.cube_renderer is not None:
+                self.paint_through_cube_map(self.get_stim_time(t), display_width, display_height)
+            else:
+                # For each subscreen associated with this screen: get the perspective matrix
+                perspectives = [get_perspective(self.subject_position, x.pa, x.pb, x.pc, self.screen.horizontal_flip) for x in self.screen.subscreens]
 
-            for stim in self.stim_list:
-                if self.stim_started:
-                    stim.paint_at(self.get_stim_time(t),
-                                  self.subscreen_viewports,
-                                  perspectives,
-                                  subject_position=self.subject_position)
-                else: # Clear when there is stim loaded but not started (pre-time for the most part)
-                    self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
+                for stim in self.stim_list:
+                    if self.stim_started:
+                        stim.paint_at(self.get_stim_time(t),
+                                      self.subscreen_viewports,
+                                      perspectives,
+                                      subject_position=self.subject_position)
+                    else: # Clear when there is stim loaded but not started (pre-time for the most part)
+                        self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
 
             # Only while the stimulus is running. This used to accumulate from load_stim onward, so
             # pre-time frames were folded into the frame-time statistics print_profile reports --

@@ -23,6 +23,7 @@ a modest tessellation goes a long way -- flystim1.0 used 10x10 over a whole hemi
 """
 import numpy as np
 
+from stimpack.visual_stim.screen import Screen, SubScreen
 from stimpack.visual_stim.util import normalize
 
 
@@ -58,8 +59,16 @@ class PinholeProjector:
     :param aspect_ratio: image width / height
     """
 
-    def __init__(self, position=(0, 0, 0.30), forward=(0, 0, -1), up=(0, 1, 0),
-                 throw_ratio=0.5, aspect_ratio=1.6):
+    def __init__(self, position=(0, 0, 0.30), forward=None, up=(0, 1, 0),
+                 throw_ratio=0.5, aspect_ratio=1.6, look_at=None):
+        if forward is None and look_at is None:
+            look_at = (0.0, 0.0, 0.0)     # aim at the origin, where the subject is
+        if look_at is not None:
+            if forward is not None:
+                raise ValueError('give either forward or look_at, not both')
+            forward = np.asarray(look_at, dtype=float) - np.asarray(position, dtype=float)
+            if np.linalg.norm(forward) < 1e-9:
+                raise ValueError('look_at coincides with the projector position')
         self.position = tuple(float(v) for v in position)
         self.forward = tuple(float(v) for v in forward)
         self.up = tuple(float(v) for v in up)
@@ -105,7 +114,7 @@ class PinholeProjector:
         return cls(**data)
 
     @classmethod
-    def wintech_pro4500(cls, position, forward=(0, 0, -1), up=(0, 1, 0), lens='long'):
+    def wintech_pro4500(cls, position, forward=None, up=(0, 1, 0), lens='long', look_at=None):
         """The WinTech PRO4500 optical engine (TI DLP4500, 0.45" WXGA 912x1140 diamond DMD).
 
         Aspect and throw are read off the manufacturer's working-distance table:
@@ -129,7 +138,7 @@ class PinholeProjector:
         throw = {'long': 1.750, 'short': 1.402}
         if lens not in throw:
             raise ValueError(f"lens must be one of {sorted(throw)}, not {lens!r}")
-        return cls(position=position, forward=forward, up=up,
+        return cls(position=position, forward=forward, up=up, look_at=look_at,
                    throw_ratio=throw[lens], aspect_ratio=1.6)
 
 
@@ -327,6 +336,17 @@ def build_screen_mesh(surface, projector, subject_position=(0, 0, 0)):
     visible = np.isfinite(ndc).all(axis=1) & faces_projector
     triangles = triangles[visible[triangles].all(axis=1)]
 
+    if len(triangles) == 0:
+        # Silently returning an empty mesh would give a screen that renders nothing, with nothing
+        # anywhere explaining it. Almost always the projector is aimed away from the surface, or is
+        # on the wrong side of it -- rear projection lights the convex face.
+        behind = int((~np.isfinite(ndc).all(axis=1)).sum())
+        turned_away = int((~faces_projector).sum())
+        raise ValueError(
+            f'the projector lights no part of this surface: of {len(positions)} points, '
+            f'{behind} fall behind it and {turned_away} face away from it. Check that it is '
+            f'aimed at the screen (look_at=) and on the side the screen is projected from.')
+
     lit = visible & (np.abs(np.nan_to_num(ndc, nan=np.inf)) <= 1).all(axis=1)
     return ScreenMesh(ndc=ndc, directions=directions, triangles=triangles, positions=positions,
                       lit=lit)
@@ -364,3 +384,45 @@ def _grid_triangles(n_u, n_v):
         np.stack([lower_left, lower_right, upper_right], axis=-1),
         np.stack([lower_left, upper_right, upper_left], axis=-1),
     ]).astype(np.int32)
+
+
+class CurvedScreen(Screen):
+    """A Screen whose surface is curved, rendered through a cube map rather than flat frusta.
+
+    Subclasses Screen so everything around it -- launching the subprocess, the photodiode square,
+    fullscreen and display selection, the EGL path -- keeps working untouched. What changes is only
+    how the stimulus reaches the display: StimDisplay draws the scene into a cube map and then draws
+    this screen's mesh once, instead of drawing every stimulus once per flat subscreen.
+
+    The inherited subscreens are left in place and unused, so a curved screen can still answer the
+    questions the planar code asks of it.
+
+    :param surface: a CurvedSurface -- the shape of the screen
+    :param projector: a PinholeProjector -- where its light lands
+    :param cube_resolution: pixels per cube face. 512 is already well under what a fly resolves.
+    """
+
+    def __init__(self, surface=None, projector=None, cube_resolution=1024, **kwargs):
+        super().__init__(**kwargs)
+        self.surface = surface if surface is not None else SphericalSurface()
+        self.projector = projector if projector is not None else PinholeProjector()
+        self.cube_resolution = int(cube_resolution)
+
+    def build_mesh(self, subject_position=(0, 0, 0)):
+        return build_screen_mesh(self.surface, self.projector, subject_position=subject_position)
+
+    def serialize(self):
+        data = super().serialize()
+        data['kind'] = 'curved'
+        data['surface'] = self.surface.serialize()
+        data['projector'] = self.projector.serialize()
+        data['cube_resolution'] = self.cube_resolution
+        return data
+
+    @classmethod
+    def deserialize_curved(cls, data):
+        kwargs = dict(data)
+        kwargs['subscreens'] = [SubScreen.deserialize(sub) for sub in kwargs.get('subscreens', [])]
+        kwargs['surface'] = deserialize_surface(kwargs['surface'])
+        kwargs['projector'] = PinholeProjector.deserialize(kwargs['projector'])
+        return cls(**kwargs)

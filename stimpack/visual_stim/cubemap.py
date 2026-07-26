@@ -81,14 +81,46 @@ def face_projection_matrix(near=1e-4, far=1000.0):
     return projection
 
 
-def face_matrices(subject_position=(0, 0, 0), near=1e-4, far=1000.0):
-    """The six view-projection matrices that fill a cube map from `subject_position`.
+def face_view_projections(subject_position=None, near=1e-4, far=1000.0):
+    """The six view-projection matrices that fill a cube map, as arrays, in GL face order.
 
-    Returned in GL face order, so index i belongs to GL_TEXTURE_CUBE_MAP_POSITIVE_X + i.
+    :param subject_position: the same dict the planar path uses -- {'x','y','z','theta','phi','roll'}
+        -- or None for a subject at the origin facing +y. Heading is applied by rotating each face's
+        axes, so cube-space stays aligned with the rig and the screen mesh's directions (which are
+        fixed rig geometry) can sample it directly.
+
+        The rotation order matches get_perspective exactly: yaw about z, then pitch about x, then
+        roll about y. Anything else here would leave the curved path disagreeing with the planar one
+        the moment a subject turned, which is the kind of difference nobody notices until closed
+        loop behaves oddly.
     """
+    from stimpack.visual_stim.util import rotx, roty, rotz
+
+    eye = (0.0, 0.0, 0.0)
+    rotate = lambda v: v                                          # noqa: E731
+    if subject_position is not None:
+        eye = (subject_position.get('x', 0.0), subject_position.get('y', 0.0),
+               subject_position.get('z', 0.0))
+        theta = np.radians(subject_position.get('theta', 0.0))
+        phi = np.radians(subject_position.get('phi', 0.0))
+        roll = np.radians(subject_position.get('roll', 0.0))
+
+        def rotate(v):                                            # noqa: F811
+            return roty(rotx(rotz(np.asarray(v, dtype=float), theta), phi), roll)
+
     projection = face_projection_matrix(near, far)
-    return [projection @ face_view_matrix(subject_position, forward, up)
+    return [projection @ face_view_matrix(eye, rotate(forward), rotate(up))
             for forward, up in CUBE_FACES]
+
+
+def face_matrices(subject_position=None, near=1e-4, far=1000.0):
+    """The same six matrices as bytes, laid out exactly as get_perspective returns them.
+
+    Column-major float32, so a stimulus's `paint_at` can take these in place of the planar
+    perspectives with no change to any stimulus.
+    """
+    return [m.astype('f4').tobytes(order='F')
+            for m in face_view_projections(subject_position, near, far)]
 
 
 class CubeMapRenderer:
@@ -105,6 +137,11 @@ class CubeMapRenderer:
     def __init__(self, ctx, mesh, resolution=1024, faces=6):
         from OpenGL import GL
 
+        if int(resolution) < 1:
+            raise ValueError(f'cube resolution must be at least 1 pixel, got {resolution}')
+        if not 1 <= int(faces) <= 6:
+            raise ValueError(f'a cube map has 6 faces; asked for {faces}')
+
         self.ctx = ctx
         self.resolution = int(resolution)
         self.faces = int(faces)
@@ -117,6 +154,9 @@ class CubeMapRenderer:
         GL.glEnable(GL.GL_TEXTURE_CUBE_MAP_SEAMLESS)
 
         self._depth = ctx.depth_renderbuffer((self.resolution, self.resolution))
+        # A throwaway colour attachment, only so moderngl will build a complete framebuffer object
+        # for us; the raw call below re-points it at a cube face.
+        self._scratch = ctx.texture((self.resolution, self.resolution), 4)
         self._face_fbos = [self._attach_face(i) for i in range(self.faces)]
 
         self.program = ctx.program(vertex_shader=WARP_VERTEX_SHADER,
@@ -127,32 +167,36 @@ class CubeMapRenderer:
         self.n_vertices = mesh.n_triangles * 3
 
     def _attach_face(self, index):
-        """Attach one cube face to a framebuffer. moderngl cannot do this, so it is raw GL."""
+        """Point one moderngl framebuffer at one cube face.
+
+        The framebuffer object itself is created by moderngl rather than glGenFramebuffers, and
+        only the attachment is raw GL. That matters beyond tidiness: a name from glGenFramebuffers
+        belongs to whichever context PyOpenGL was talking to, which is not reliably the one moderngl
+        holds inside a Qt widget -- doing it that way raised GL_INVALID_VALUE on bind in the screen
+        subprocess while passing under a standalone context. Letting moderngl create and bind the
+        object removes the question, and it also gets cleaned up with everything else.
+        """
         GL = self._gl
-        fbo = GL.glGenFramebuffers(1)
-        GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, fbo)
+        fbo = self.ctx.framebuffer(color_attachments=[self._scratch], depth_attachment=self._depth)
+
+        fbo.use()
         GL.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0,
                                   GL.GL_TEXTURE_CUBE_MAP_POSITIVE_X + index, self.cube.glo, 0)
-        GL.glFramebufferRenderbuffer(GL.GL_FRAMEBUFFER, GL.GL_DEPTH_ATTACHMENT,
-                                     GL.GL_RENDERBUFFER, self._depth.glo)
 
         # Checked explicitly: an incomplete framebuffer raises no exception and renders nothing, so
         # the failure would be a black screen with no explanation anywhere.
         status = GL.glCheckFramebufferStatus(GL.GL_FRAMEBUFFER)
         if status != GL.GL_FRAMEBUFFER_COMPLETE:
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, 0)
             raise RuntimeError(f'cube-map framebuffer for face {index} is incomplete '
                                f'(status 0x{status:x})')
-        GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, 0)
         return fbo
 
     def use_face(self, index, clear_color=(0.0, 0.0, 0.0, 1.0)):
         """Make one cube face the render target. Draw the scene, then move to the next face."""
-        GL = self._gl
-        GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, self._face_fbos[index])
-        GL.glViewport(0, 0, self.resolution, self.resolution)
-        GL.glClearColor(*clear_color)
-        GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+        fbo = self._face_fbos[index]
+        fbo.use()
+        self.ctx.viewport = (0, 0, self.resolution, self.resolution)
+        fbo.clear(*clear_color)
 
     def render_warp(self, viewport=None):
         """Draw the screen mesh into whatever framebuffer is currently bound.
@@ -166,12 +210,14 @@ class CubeMapRenderer:
         self.vao.render(vertices=self.n_vertices)
 
     def release(self):
-        """Free the GL objects. The raw framebuffers are not managed by moderngl, so this matters."""
-        GL = self._gl
-        if self._face_fbos:
-            GL.glDeleteFramebuffers(len(self._face_fbos), self._face_fbos)
-            self._face_fbos = []
-        for owned in (self.vao, self._vbo, self.program, self._depth, self.cube):
+        """Free the GL objects. moderngl's default gc_mode does not do this for us."""
+        for fbo in self._face_fbos:
+            try:
+                fbo.release()
+            except Exception:
+                pass
+        self._face_fbos = []
+        for owned in (self.vao, self._vbo, self.program, self._scratch, self._depth, self.cube):
             try:
                 owned.release()
             except Exception:

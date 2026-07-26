@@ -140,6 +140,13 @@ class Screen:
         # start building up the argument list to instantiate a screen
         kwargs = data.copy()
 
+        # A curved screen serializes through this same path, since launch_screen and the screen
+        # subprocess only know about Screen. Dispatch on the tag rather than making every caller
+        # know which kind it has.
+        if kwargs.pop('kind', None) == 'curved':
+            from stimpack.visual_stim.curved_screen import CurvedScreen
+            return CurvedScreen.deserialize_curved(kwargs)
+
         # do some post-processing as necessary
         kwargs['subscreens'] = [SubScreen.deserialize(sub) for sub in kwargs['subscreens']]
 

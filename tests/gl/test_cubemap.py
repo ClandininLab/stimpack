@@ -15,7 +15,9 @@ pytest.importorskip("OpenGL")
 import moderngl  # noqa: E402
 import numpy as np  # noqa: E402
 
-from stimpack.visual_stim.cubemap import CUBE_FACES, CubeMapRenderer, face_matrices  # noqa: E402
+from stimpack.visual_stim.cubemap import (  # noqa: E402
+    CUBE_FACES, CubeMapRenderer, face_matrices, face_view_projections,
+)
 from stimpack.visual_stim.curved_screen import (  # noqa: E402
     PinholeProjector, ScreenMesh, SphericalSurface, build_screen_mesh,
 )
@@ -128,7 +130,7 @@ def test_every_face_records_the_direction_it_actually_looks_at(headless_gl):
     program = ctx.program(vertex_shader=DIRECTION_VS, fragment_shader=DIRECTION_FS)
     box, n_vertices = enclosing_box(ctx, program)
     try:
-        for index, matrix in enumerate(face_matrices()):
+        for index, matrix in enumerate(face_view_projections()):
             renderer.use_face(index)
             program['Mvp'].write(np.ascontiguousarray(matrix.T))   # column-major for GL
             box.render(moderngl.TRIANGLES, vertices=n_vertices)
@@ -170,7 +172,7 @@ def test_directions_between_faces_stay_on_one_of_the_two(headless_gl):
 def test_face_matrices_are_returned_in_gl_face_order(headless_gl):
     """face_matrices()[i] has to belong to GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, or the scene is
     rendered into the wrong faces and every direction samples the wrong thing."""
-    matrices = face_matrices()
+    matrices = face_view_projections()
     assert len(matrices) == 6
 
     for (forward, _up), matrix in zip(CUBE_FACES, matrices):
@@ -182,11 +184,14 @@ def test_face_matrices_are_returned_in_gl_face_order(headless_gl):
         assert np.allclose(ndc, 0, atol=1e-5), f'axis {forward} maps to {ndc}, expected the centre'
 
 
-def test_an_incomplete_framebuffer_raises_rather_than_rendering_black(headless_gl):
-    """GL reports this by flag, not exception, so without the explicit check the symptom would be
-    a black screen and nothing anywhere saying why."""
-    with pytest.raises(RuntimeError, match='incomplete'):
+def test_a_nonsense_resolution_is_rejected_with_a_clear_message(headless_gl):
+    """Left to moderngl this surfaces as "invalid color attachment", which does not point at the
+    resolution. The framebuffer-completeness check inside remains as insurance for the case GL
+    reports by flag rather than exception -- a black screen with no explanation anywhere."""
+    with pytest.raises(ValueError, match='at least 1 pixel'):
         CubeMapRenderer(headless_gl, flat_mesh([(1, 0, 0)]), resolution=0)
+    with pytest.raises(ValueError, match='6 faces'):
+        CubeMapRenderer(headless_gl, flat_mesh([(1, 0, 0)]), resolution=32, faces=7)
 
 
 def test_the_whole_screen_is_one_draw_call_regardless_of_tessellation(headless_gl):
