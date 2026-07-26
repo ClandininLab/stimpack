@@ -19,14 +19,14 @@ cross‑cutting recommendations at the end.
 ## Status
 
 Work is on a `dev` branch in each repo, all pushed, nothing merged to `main`:
-**stimpack 46 commits**, **labpack-template 10**, **clandinin_labpack 1**. Verified by
-`ruff` + a **178-test suite** (unit / integration / gui / gl / e2e), which now also runs
+**stimpack 47 commits**, **labpack-template 10**, **clandinin_labpack 1**. Verified by
+`ruff` + a **183-test suite** (unit / integration / gui / gl / e2e), which now also runs
 whole in a single process. CI is wired but has never executed — an org-level GitHub
 Actions billing lock.
 
 **Fixed (35 of the 46 findings):** #1, #2, #3, #4, #6, #7\*, #8, #9\*, #10, #11, #12\*\*,
 #13, #14, #15, #16, #17, #18, #19, #20, #21, #22†, #23†, #24, #25, #26, #27, #28, #29,
-#34, #35, #36, #38, #39, #40, plus the `numpy.matlib` deprecation.
+#34, #35, #36, #37, #38, #39, #40, #41, #42, #43, plus the `numpy.matlib` deprecation.
 <br>†#22/#23 fixed for the highest-value instances; a few low-risk sites remain.
 
 **Built beyond the original review:**
@@ -36,7 +36,7 @@ Actions billing lock.
 - **Run-outcome recording** (#16): `data.end_epoch_run` writes `run_status`
   (completed/stopped/aborted/error) + reason + end time on the series group;
   `start_run` runs in try/finally and aborts on a dead link or server error.
-- **Test suite + CI** (#19, #35): 178 tests across five tiers — including
+- **Test suite + CI** (#19, #35): 183 tests across five tiers — including
   golden-image stimulus rendering and **end-to-end runs against a live server with
   real screen and KeyTrac subprocesses** — plus `ruff` and GitHub Actions on 3.10–3.12.
 - **`stimpack --check-labpack`**: a preflight for the failure mode behind every silent
@@ -91,8 +91,15 @@ repository, and `scripts/rename_package.py` does the rename a new lab should do 
   24-bit alpha buffer, which can fail config selection on some drivers); and one real
   run per user to validate the migrated opto `channels_config` — those call paths were
   dead, so the first post-migration run is effectively a first run.
-- *Wants profiling first, not opinion:* #31, #33 (per-frame texture work).
-- *Remaining polish:* #30 (partial), #37, #41–#44.
+- *Wants profiling first, not opinion:* #31 (a full-frame `.tobytes()` copy per frame).
+  #33 is **refuted in part**: `CylindricalGrating`'s nested loop is in `configure()`, so it runs
+  once per load, not per frame. Only `RandomBars`' 255-element comprehension is in `eval_at()`.
+- *Upgraded from polish:* #30. `n_textures_loaded` is the texture *unit index* and only resets in
+  `stop_stim`, so it bounds textured stimuli per epoch. A real protocol here already loads 31
+  stimuli in one epoch, nearly all textured cylinders -- against 32 sampler units on the test GPU.
+  The observed failure mode is silent (the driver renders with the wrong unit rather than raising),
+  which is why it has never been noticed.
+- *Remaining polish:* #30 (see below), #44.
 - *Structural, cross-repo:* #45/#46 (the `example/` vs `clandinin/` fork) and Bruker rig
   server de-duplication (four ~121-line files differing by 1–2 lines).
 - *Not code:* the Actions billing lock; nothing merged to `main` in any repo; LAN

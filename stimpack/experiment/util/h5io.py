@@ -19,7 +19,10 @@ def get_path_from_tree_item(tree_item):
 
 def get_attributes_from_group(file_path, group_path):
     # see https://github.com/CCampJr/LazyHDF5
-    with h5py.File(file_path, 'r+') as experiment_file:
+    # Opened read-only: this only reads. 'r+' takes an HDF5 write lock, which fails outright on a
+    # read-only file (archived data, a read-only share) and can fail or block while another process
+    # has the file open -- i.e. browsing metadata for the experiment currently being written.
+    with h5py.File(file_path, 'r') as experiment_file:
         group = experiment_file[group_path]
         attr_dict = {}
         for at in group.attrs:
@@ -38,7 +41,12 @@ def recursively_load_dict_contents_from_group(h5file, path, additional_exclusion
     # https://codereview.stackexchange.com/questions/120802/recursively-save-python-dictionaries-to-hdf5-files-using-h5py
     exclusions = ['acquisition', 'Client', 'epochs', 'stimulus_timing', 'roipath', 'subpath']
     if additional_exclusions is not None:
-        exclusions.append(additional_exclusions)
+        # extend, not append: appending a list put the list itself in as one element, and the
+        # membership test below then did `['a', 'b'] in key`, which raises TypeError. So the
+        # documented list-valued form never worked -- only a bare string did.
+        if isinstance(additional_exclusions, str):
+            additional_exclusions = [additional_exclusions]
+        exclusions.extend(additional_exclusions)
     ans = {}
     for key, item in h5file[path].items():
         if isinstance(item, h5py._hl.dataset.Dataset):

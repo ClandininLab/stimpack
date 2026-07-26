@@ -301,7 +301,12 @@ class StimDisplay(QOpenGLWidget):
                 else: # Clear when there is stim loaded but not started (pre-time for the most part)
                     self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
 
-            self.profile_frame_times.append(t)
+            # Only while the stimulus is running. This used to accumulate from load_stim onward, so
+            # pre-time frames were folded into the frame-time statistics print_profile reports --
+            # anyone reading those to check for dropped frames was reading polluted numbers. It also
+            # grew for as long as a loaded-but-never-started stimulus sat there.
+            if self.stim_started:
+                self.profile_frame_times.append(t)
         else: # Clear when there is no stim loaded (tail-time and when on standby)
             self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
 

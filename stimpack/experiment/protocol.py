@@ -209,7 +209,7 @@ class BaseProtocol():
         self.epoch_stim_parameters = self.precomputed_epoch_parameters['stim'][self.num_epochs_completed]
         self.epoch_protocol_parameters = self.precomputed_epoch_parameters['protocol'][self.num_epochs_completed]
 
-    def __estimate_run_time(self):
+    def _estimate_run_time(self):
         '''
         If pre_time, stim_time, and tail_time are specified in the protocol parameters, this method will estimate the total run time.
         '''
@@ -296,7 +296,7 @@ class BaseProtocol():
         self.precompute_epoch_parameters(refresh=recompute_epoch_parameters)
 
         # Estimate run time
-        self.__estimate_run_time()
+        self._estimate_run_time()
 
         # If manager exists, set visual_stim background to idle_color
         if manager is not None:

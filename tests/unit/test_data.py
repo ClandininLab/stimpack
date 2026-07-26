@@ -96,3 +96,54 @@ def test_end_epoch_run_missing_series_group_is_safe(tmp_path):
     data = _make_data(tmp_path)
     data.series_count = 999  # a series that was never created
     data.end_epoch_run(_Protocol(stim_params={}), status="error", reason="x")  # must not raise
+
+
+# --- h5io reads should not require write access (#41) --------------------------------------------
+
+def test_attributes_can_be_read_from_a_read_only_file(tmp_path):
+    """Opening 'r+' just to read attrs fails on a read-only file and takes an HDF5 write lock,
+    which can block reading metadata for the experiment currently being written."""
+    import os
+    import stat
+
+    import h5py
+    from stimpack.experiment.util import h5io
+
+    path = tmp_path / 'ro.hdf5'
+    with h5py.File(path, 'w') as f:
+        f.create_group('grp').attrs['note'] = 'hello'
+    os.chmod(path, stat.S_IRUSR)
+
+    try:
+        assert h5io.get_attributes_from_group(str(path), '/grp')['note'] == 'hello'
+    finally:
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+
+
+def test_additional_exclusions_accepts_a_list(tmp_path):
+    """It was appended rather than extended, so a list went in as a single element and the
+    membership test below it raised TypeError -- the documented list form never worked."""
+    import h5py
+    from stimpack.experiment.util import h5io
+
+    path = tmp_path / 'tree.hdf5'
+    with h5py.File(path, 'w') as f:
+        for name in ('keep', 'drop_a', 'drop_b'):
+            f.create_group(name)
+
+    hierarchy = h5io.get_hierarchy(str(path), additional_exclusions=['drop_a', 'drop_b'])
+
+    assert 'keep' in hierarchy
+    assert 'drop_a' not in hierarchy and 'drop_b' not in hierarchy
+
+
+def test_additional_exclusions_still_accepts_a_bare_string(tmp_path):
+    import h5py
+    from stimpack.experiment.util import h5io
+
+    path = tmp_path / 'tree.hdf5'
+    with h5py.File(path, 'w') as f:
+        f.create_group('keep'), f.create_group('drop_a')
+
+    hierarchy = h5io.get_hierarchy(str(path), additional_exclusions='drop_a')
+    assert 'keep' in hierarchy and 'drop_a' not in hierarchy

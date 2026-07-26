@@ -55,3 +55,16 @@ def test_server_error_demo_requests_a_nonexistent_stim():
     p = ServerErrorDemo(cfg={})
     p.get_epoch_parameters()
     assert p.epoch_stim_parameters == {"name": "NoSuchStimulus_ServerErrorDemo"}
+
+
+def test_run_time_estimate_can_be_overridden_by_a_subclass():
+    """Name mangling made _BaseProtocol__estimate_run_time unreachable from a subclass, so a
+    labpack with variable-length epochs could not correct the estimate."""
+    from stimpack.experiment.protocol import BaseProtocol
+
+    class MyProtocol(BaseProtocol):
+        def _estimate_run_time(self):
+            self.est_run_time = 42.0
+
+    assert MyProtocol._estimate_run_time is not BaseProtocol._estimate_run_time
+    assert not hasattr(BaseProtocol, '_BaseProtocol__estimate_run_time')
