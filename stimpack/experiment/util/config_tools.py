@@ -1,5 +1,7 @@
 import contextlib
+from copy import deepcopy
 import hashlib
+import importlib
 import os
 import re
 import glob
@@ -9,6 +11,8 @@ import sys
 import types
 from typing import Any, Optional
 import warnings
+
+from deepmerge import Merger
 from importlib.util import spec_from_file_location, module_from_spec
 
 
@@ -111,6 +115,19 @@ def set_labpack_directory(path):
 
 # %% Functions for finding and loading user configuration files
 
+# Built-in storage backends, keyed by the config's data_format value. Values are import paths
+# rather than classes so that importing config_tools does not pull in pynwb, which is optional.
+BUILTIN_DATA_FORMATS = {
+    'hdf5': ('stimpack.experiment.data', 'BaseData'),
+    'nwb':  ('stimpack.experiment.data_nwb', 'NWBData'),
+}
+# A labpack may put settings shared by everyone in the lab in configs/<LAB_CONFIG_NAME>. It is
+# merged underneath each individual config, so lab-wide values (institution, lab name, a shared
+# subject_metadata schema, ...) live in one place instead of being copied into every rig's config
+# and drifting. It is not itself selectable as a config -- see get_available_config_files.
+LAB_CONFIG_NAME = 'lab_config.yaml'
+
+
 def get_default_config():
     return {'experimenter': 'JohnDoe',
             'subject_metadata': {},
@@ -137,15 +154,43 @@ def get_available_config_files(labpack_dir=None):
         cfg_names = [os.path.split(f)[1] for f in glob.glob(os.path.join(labpack_dir, 'configs', '*.yaml'))]
     else:
         cfg_names = []
+
+    # lab_config.yaml is merged into every config rather than being chosen as one.
+    cfg_names = [x for x in cfg_names if x != LAB_CONFIG_NAME]
         
     return cfg_names
 
 
-def get_configuration_file(cfg_name: str, labpack_dir: Optional[str] = None) -> dict[str, Any]:
-    """Returns config, as dictionary, from  labpack_directory/configs/ based on cfg_name.yaml"""
+def merge_configs(base_cfg: dict, cfg: dict) -> dict:
+    """
+    Merge cfg over base_cfg, deeply. Values in cfg win.
+
+    Dicts merge key by key, so a config can override one rig without restating the others; lists
+    concatenate without duplicating; anything else is replaced outright.
+    """
+    merger = Merger(
+        [
+            (list, ["append_unique"]),   # lists: add new items, but only if they are not present
+            (dict, ["merge"]),           # dicts: merge deeply
+        ],
+        ["override"],                    # everything else: the later value wins
+        ["override"],                    # and likewise when the two types disagree
+    )
+    # deepcopy the base: Merger.merge writes into its first argument, and base_cfg is the lab-wide
+    # config, which would then accumulate one rig's settings and hand them to the next caller.
+    return merger.merge(deepcopy(base_cfg), cfg)
+
+
+def get_configuration_file(cfg_name: str, labpack_dir: Optional[str] = None,
+                           merge_lab_config: bool = True) -> dict[str, Any]:
+    """Returns config, as dictionary, from  labpack_directory/configs/ based on cfg_name.yaml
+
+    If the labpack has a lab_config.yaml, its contents are used as defaults underneath this
+    config. Pass merge_lab_config=False to read a config exactly as written on disk.
+    """
     if labpack_dir is None:
         labpack_dir = get_labpack_directory()
-    
+
     cfg_path = os.path.join(labpack_dir, 'configs', cfg_name)
     if os.path.exists(cfg_path):
         with open(cfg_path, 'r') as ymlfile:
@@ -156,9 +201,23 @@ def get_configuration_file(cfg_name: str, labpack_dir: Optional[str] = None) -> 
     else:
         cfg = get_default_config()
 
+    if merge_lab_config and cfg_name != LAB_CONFIG_NAME:
+        lab_cfg = get_lab_config(labpack_dir)
+        if lab_cfg is not None:
+            cfg = merge_configs(lab_cfg, cfg)
+
     warn_about_legacy_config_keys(cfg, cfg_name)
 
     return cfg
+
+
+def get_lab_config(labpack_dir: Optional[str] = None) -> Optional[dict[str, Any]]:
+    """The labpack's lab-wide config, or None if it has none."""
+    if labpack_dir is None:
+        labpack_dir = get_labpack_directory()
+    if labpack_dir is None or not os.path.exists(os.path.join(labpack_dir, 'configs', LAB_CONFIG_NAME)):
+        return None
+    return get_configuration_file(LAB_CONFIG_NAME, labpack_dir, merge_lab_config=False)
 
 
 # Keys that stimpack used to honor but no longer reads. A config still carrying one of these looks
@@ -409,3 +468,39 @@ def get_loco_available(cfg):
 
 def get_experimenter(cfg):
     return cfg.get('experimenter', '')
+
+def get_data_format(cfg):
+    """
+    Which built-in storage backend to use: 'hdf5' (default) or 'nwb'.
+
+    Set in a config file as:
+
+        data_format: nwb
+
+    Ignored when the config points to a labpack's own data module, which takes precedence over
+    both built-ins. See stimpack.experiment.data / data_nwb.
+    """
+    data_format = str(cfg.get('data_format', 'hdf5')).lower()
+    if data_format not in BUILTIN_DATA_FORMATS:
+        warnings.warn(f"Unknown data_format '{data_format}' in config; expected one of "
+                      f"{sorted(BUILTIN_DATA_FORMATS)}. Falling back to 'hdf5'.")
+        return 'hdf5'
+    return data_format
+
+
+def get_builtin_data_class(cfg):
+    """
+    Import and return the built-in data class named by the config's data_format.
+
+    Imported on demand so an HDF5-only install never touches pynwb, and so a missing pynwb
+    surfaces as its own install hint rather than as an import error at GUI start-up.
+    """
+    module_name, class_name = BUILTIN_DATA_FORMATS[get_data_format(cfg)]
+    return getattr(importlib.import_module(module_name), class_name)
+
+
+def get_lab(cfg):
+    return cfg.get('lab', '')
+
+def get_institution(cfg):
+    return cfg.get('institution', '')

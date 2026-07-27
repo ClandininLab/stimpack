@@ -26,6 +26,27 @@ experiment.data module
    :members:
    :show-inheritance:
 
+experiment.data_nwb module
+--------------------------
+
+The NWB storage backend, selected with ``data_format: nwb`` in a config. Requires ``pynwb``
+(``pip install stimpack[nwb]``). See :doc:`labpack_configs`.
+
+.. automodule:: stimpack.experiment.data_nwb
+   :members:
+   :show-inheritance:
+
+experiment.gui_data_browser module
+----------------------------------
+
+The File tab's data browser. Supplied by the data backend via
+:meth:`~stimpack.experiment.data.BaseData.make_data_browser`, so a format that cannot be browsed
+as a tree simply provides none.
+
+.. automodule:: stimpack.experiment.gui_data_browser
+   :members:
+   :show-inheritance:
+
 experiment.gui module
 ---------------------
 

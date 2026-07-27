@@ -166,3 +166,64 @@ def test_server_warning_does_not_abort_run(client, data, fake_manager):
     assert protocol.num_epochs_completed == 3      # a warning is surfaced but does not stop the run
     assert series_attrs(data)[0]['run_status'] == 'completed'
     assert ('warning', 'just a heads up') in client.server_messages
+
+
+# --- the same lifecycle, writing NWB ------------------------------------------------------------
+#
+# The client does not know which backend it has; it calls end_epoch_run(status=..., reason=...)
+# either way. These assert the NWB backend actually honours that contract under the real run loop,
+# which is where the old data_nwb.end_epoch_run(protocol_object) signature would have raised.
+
+def nwb_epoch_row(data):
+    from pynwb import NWBHDF5IO
+    with NWBHDF5IO(data.get_nwb_file_path(), 'r') as io:
+        nwbfile = io.read()
+        return nwbfile.epochs.to_dataframe().iloc[0], len(nwbfile.trials or [])
+
+
+def test_nwb_run_completes_and_records_status(client, nwb_data, fake_manager):
+    protocol = TinyProtocol(cfg={})
+    client.start_run(protocol, nwb_data, save_metadata_flag=True)
+
+    assert protocol.num_epochs_completed == 3
+    row, n_trials = nwb_epoch_row(nwb_data)
+    assert row['run_status'] == 'completed'
+    assert row['run_status_reason'] == ''
+    assert n_trials == 3                          # every epoch was written as a trial
+
+
+def test_nwb_run_records_a_user_stop(client, nwb_data, fake_manager):
+    protocol = TinyProtocol(cfg={})
+    protocol.on_epoch = lambda p: client.stop_run() if p.num_epochs_completed == 1 else None
+    client.start_run(protocol, nwb_data, save_metadata_flag=True)
+
+    row, _ = nwb_epoch_row(nwb_data)
+    assert row['run_status'] == 'stopped'
+
+
+def test_nwb_run_records_an_exception(client, nwb_data, fake_manager):
+    def boom(p):
+        raise RuntimeError('stimulus blew up')
+
+    protocol = TinyProtocol(cfg={})
+    protocol.on_epoch = boom
+    with pytest.warns(UserWarning):
+        client.start_run(protocol, nwb_data, save_metadata_flag=True)
+
+    row, _ = nwb_epoch_row(nwb_data)
+    assert row['run_status'] == 'error'
+    assert 'stimulus blew up' in row['run_status_reason']
+
+
+def test_nwb_run_that_fails_before_its_file_exists_does_not_mask_the_cause(client, nwb_data,
+                                                                          fake_manager, tmp_path):
+    """end_epoch_run runs from the client's finally block. If the series file was never written,
+    it must say so rather than raising FileNotFoundError over the real failure."""
+    nwb_data.series_count = 99                    # a series prepare_series never created
+    protocol = TinyProtocol(cfg={})
+    with pytest.warns(UserWarning, match='No NWB file at'):
+        client.start_run(protocol, nwb_data, save_metadata_flag=True)
+
+
+def test_nwb_server_subdir_is_experiment_then_subject(client, nwb_data):
+    assert nwb_data.get_server_subdir() == 'integration_test/subj1'

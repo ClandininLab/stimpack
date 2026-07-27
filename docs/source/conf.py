@@ -27,6 +27,10 @@ extensions = [
 # is not needed to document the modules that use them.
 autodoc_mock_imports = [
     'PyQt6', 'moderngl', 'OpenGL', 'hid', 'nidaqmx', 'labjack', 'h5py', 'skimage', 'platformdirs',
+    # pynwb/hdmf are an optional dependency, so they may not be installed where docs are built.
+    # They also cannot be imported during a doc build even when they ARE installed: hdmf rebuilds
+    # its docval docstrings when it detects sphinx, and that rewriting raises on its own types.
+    'pynwb', 'hdmf',
 ]
 autodoc_default_options = {'members': True, 'undoc-members': True, 'show-inheritance': True}
 

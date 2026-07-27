@@ -35,20 +35,33 @@ def test_cfg(tmp_path):
     }
 
 
-@pytest.fixture
-def experiment_gui(qapp, monkeypatch, test_cfg):
-    """A fully constructed ExperimentGUI, with the startup modal and the client stubbed out."""
+def _build_gui(monkeypatch, cfg):
     import stimpack.experiment.gui as gui_mod
     from PyQt6.QtWidgets import QDialog
 
     def fake_setupUI(self, experiment_gui_object, parent=None, window_size=None):
-        experiment_gui_object.cfg = test_cfg
+        experiment_gui_object.cfg = cfg
         experiment_gui_object.cfg_initialized = True
 
     monkeypatch.setattr(gui_mod.InitializeRigGUI, 'setupUI', fake_setupUI)
     monkeypatch.setattr(QDialog, 'exec', lambda self: 0)          # don't block on the modal
     monkeypatch.setattr(gui_mod.client, 'BaseClient', FakeClient)  # don't launch a server
+    return gui_mod.ExperimentGUI()
 
-    gui = gui_mod.ExperimentGUI()
+
+@pytest.fixture
+def experiment_gui(qapp, monkeypatch, test_cfg):
+    """A fully constructed ExperimentGUI, with the startup modal and the client stubbed out."""
+    gui = _build_gui(monkeypatch, test_cfg)
+    yield gui
+    gui.close()
+
+
+@pytest.fixture
+def nwb_experiment_gui(qapp, monkeypatch, test_cfg):
+    """The same GUI, writing NWB instead of HDF5 -- the point being that it IS the same GUI."""
+    pytest.importorskip("pynwb")
+    cfg = dict(test_cfg, data_format='nwb')
+    gui = _build_gui(monkeypatch, cfg)
     yield gui
     gui.close()
