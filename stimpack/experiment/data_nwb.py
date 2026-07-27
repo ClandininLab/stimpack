@@ -584,14 +584,8 @@ class NWBData(BaseData):
 
         return subject_data_list
 
-    def advance_series_count(self):
-        self.series_count += 1
-
-    def update_series_count(self, val):
-        self.series_count = val
-
-    def get_series_count(self):
-        return self.series_count
+    # advance_series_count / update_series_count / get_series_count are inherited: the series
+    # counter is just an integer, with nothing storage-specific about it.
 
     def reload_series_count(self):
         series_numbers = self.get_existing_series()

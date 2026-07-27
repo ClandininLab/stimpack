@@ -278,13 +278,15 @@ def test_recording_creates_the_series_file_for_nwb(nwb_experiment_gui, qapp):
     select_protocol(gui)
 
     assert gui.data.get_series_files() == []
+    # Capture the path before the run: run_finished advances the series counter afterwards,
+    # so get_nwb_file_path() then names the NEXT series, not the one just recorded.
+    expected = gui.data.get_nwb_file_path()
     gui.record_button.click()
     gui.run_series_thread.wait(5000)
     qapp.processEvents()
 
     assert gui.client.runs == [('DriftingSquareGrating', True)]
-    assert len(gui.data.get_series_files()) == 1
-    assert os.path.isfile(gui.data.get_nwb_file_path())
+    assert gui.data.get_series_files() == [expected]
 
 
 def test_viewing_does_not_create_a_series_file(nwb_experiment_gui, qapp):
