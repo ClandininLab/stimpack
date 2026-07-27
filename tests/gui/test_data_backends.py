@@ -346,3 +346,56 @@ def test_stimpack_nwb_command_still_works_and_says_what_to_use(monkeypatch):
         gui_mod.main_nwb()
 
     assert seen['argv'] == ['--data-format', 'nwb']
+
+
+def test_recording_over_an_existing_series_is_refused(nwb_experiment_gui, qapp):
+    """NWB writes each series with 'w-', which refuses to clobber. The GUI has to catch a reused
+    series number BEFORE that, or the run aborts mid-flight on an hdmf error instead of the user
+    simply being told to pick another number."""
+    gui = nwb_experiment_gui
+    initialize(gui, 'reuse')
+    add_subject(gui, 'fly1')
+    select_protocol(gui)
+
+    gui.record_button.click()                    # series 1
+    gui.run_series_thread.wait(5000)
+    qapp.processEvents()
+    assert len(gui.data.get_series_files()) == 1
+
+    gui.series_counter_input.setValue(1)         # back to a series that already exists
+    gui.record_button.click()
+
+    assert gui.status_label.text() == 'Select an unused series number'
+    assert len(gui.data.get_series_files()) == 1    # nothing written, nothing clobbered
+    assert len(gui.client.runs) == 1                # and no second run started
+
+
+def test_a_backend_that_cannot_prepare_a_series_refuses_the_run_instead_of_dying(nwb_experiment_gui):
+    """prepare_series runs inside a Qt slot, where an unhandled Python exception is fatal -- the
+    GUI would disappear mid-experiment. Any failure there has to be reported and the run refused."""
+    gui = nwb_experiment_gui
+    initialize(gui, 'boom')
+    add_subject(gui, 'fly1')
+    select_protocol(gui)
+
+    def explode():
+        raise RuntimeError('disk is full')
+
+    gui.data.prepare_series = explode
+    with pytest.warns(UserWarning, match='Could not prepare storage'):
+        gui.record_button.click()
+
+    assert 'disk is full' in gui.status_label.text()
+    assert gui.client.runs == []              # the run did not start
+
+
+def test_writing_over_an_existing_series_says_so_in_stimpack_s_terms(nwb_experiment_gui, qapp):
+    """Bypassing the GUI's series-number check (a labpack calling create_data_file itself, say)
+    must still give a readable error rather than an HDF5-level one."""
+    gui = nwb_experiment_gui
+    initialize(gui, 'clash')
+    add_subject(gui, 'fly1')
+    gui.data.prepare_series()
+
+    with pytest.raises(FileExistsError, match='already exists for subject fly1'):
+        gui.data.prepare_series()

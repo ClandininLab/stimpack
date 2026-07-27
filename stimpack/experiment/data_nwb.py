@@ -235,6 +235,14 @@ class NWBData(BaseData):
 
             nwbfile_path = self.get_nwb_file_path()
 
+            # Refuse a series that has already been written, and say so in those terms. 'w-'
+            # refuses too, but it does so from inside HDF5, and an HDF5-level failure raised
+            # through a Qt slot takes the whole GUI down rather than reporting anything.
+            if os.path.isfile(nwbfile_path):
+                raise FileExistsError(
+                    f'Series {self.series_count} already exists for subject {self.current_subject} '
+                    f'({nwbfile_path}). Choose an unused series number.')
+
             # Create the nwbfile and save it to disk
             nwbfile = NWBFile(**nwbfile_kwargs, subject=self.subject)
 

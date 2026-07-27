@@ -10,6 +10,7 @@ from datetime import datetime
 import os
 import sys
 import time
+import traceback
 from enum import Enum
 import warnings
 from typing import Any
@@ -1039,8 +1040,17 @@ class ExperimentGUI(QWidget):
 
         # Let the backend set up storage for this series. No-op for a single-file format; a
         # backend that writes one file per series (data_nwb) creates that file here.
+        #
+        # Caught rather than allowed to propagate: this runs in a Qt slot, where an unhandled
+        # Python exception is fatal -- the GUI would vanish mid-experiment instead of saying what
+        # was wrong. Refuse the run and report it, the same as any other reason not to start.
         if save_metadata_flag:
-            self.data.prepare_series()
+            try:
+                self.data.prepare_series()
+            except Exception as e:
+                warnings.warn(f'Could not prepare storage for this series:\n{traceback.format_exc()}')
+                self.status_label.setText(f'Cannot record: {e}')
+                return
 
         # start the epoch run thread:
         self.run_series_thread = runSeriesThread(self.protocol_object,
