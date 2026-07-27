@@ -320,3 +320,20 @@ def test_a_module_that_raises_while_enumerating_is_skipped_not_fatal():
 
     functions = {r['name']: r['args'][0] for r in sent[0]}['report_server_functions']
     assert 'voltage_out' not in functions
+
+
+def test_a_server_can_have_no_visual_module():
+    """A rig that reads a tracker or outputs voltage but drives no display should not open a
+    window -- and should say so, so a protocol can adapt.
+
+    Distinct from passing screens=[]: that leaves the module in place, so has_module('visual')
+    answers True and stimuli are sent to a server with nowhere to draw them.
+    """
+    import inspect
+    from stimpack.experiment.server import BaseServer
+
+    source = inspect.getsource(BaseServer.__init__)
+    assert 'if visual_stim_kwargs is not None:' in source, \
+        'visual_stim_kwargs=None must skip the visual module entirely'
+    # and the modules dict is what on_connection_open advertises, so absence propagates
+    assert "self.modules['visual']" in source

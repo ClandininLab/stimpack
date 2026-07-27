@@ -54,7 +54,7 @@ class BaseServer(MySocketServer):
     def __init__(self,
                  host: str = '127.0.0.1',
                  port: int|None = 60629,
-                 visual_stim_kwargs: dict = {},
+                 visual_stim_kwargs: dict|None = {},
                  loco_class: type|None = None,
                  loco_kwargs: dict = {},
                  daq_class: type|None = None,
@@ -79,11 +79,17 @@ class BaseServer(MySocketServer):
         self.modules = {}
         
         ### Visual stim manager ###
-        # Default aux screen
-        if 'screens' not in visual_stim_kwargs:
-            visual_stim_kwargs['screens'] = [Screen(x_display=None, display_index=0, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
-        
-        self.modules['visual'] = VisualStimServer(**visual_stim_kwargs)  # auto_stop=False
+        # visual_stim_kwargs=None means this rig has no displays at all, and gets no visual module
+        # -- the same way loco_class=None and daq_class=None work below. It is not the same as
+        # passing screens=[]: that would leave the module in place, so has_module('visual') would
+        # answer True and a protocol would send stimuli to a server with nowhere to draw them,
+        # which is the silent failure this reporting exists to prevent.
+        if visual_stim_kwargs is not None:
+            # Default aux screen
+            if 'screens' not in visual_stim_kwargs:
+                visual_stim_kwargs['screens'] = [Screen(x_display=None, display_index=0, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
+
+            self.modules['visual'] = VisualStimServer(**visual_stim_kwargs)  # auto_stop=False
         ### Visual stim manager ###
 
         ### Locomotion manager ###

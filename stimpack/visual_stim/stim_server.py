@@ -99,7 +99,12 @@ class VisualStimServer(MySocketServer):
         self.register_function_on_root(self.clear_shared_pixmap_stim)
 
         # If no screens are specified, create a default screen
-        if screens is None or len(screens) == 0:
+        # screens=None means "you did not say", and gets a default aux screen, as it always has.
+        # screens=[] means "none", and gets none -- a rig that outputs voltage or reads a tracker
+        # but drives no display should not open a window, and neither should a test that only
+        # exercises those. Every screen is a subprocess with its own GL context, so the difference
+        # is not free.
+        if screens is None:
             screens = [Screen(x_display=None, display_index=0, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
         
         # launch screens
