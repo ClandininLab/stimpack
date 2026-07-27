@@ -201,8 +201,28 @@ class BaseServer(MySocketServer):
         the rig instead of assuming its hardware (see BaseProtocol.has_module). Generic on purpose:
         it reports whatever modules exist, rather than any particular capability flag.
         '''
-        self.write_request_list([{'name': 'report_server_modules',
-                                  'args': [sorted(self.modules)], 'kwargs': {}}])
+        # Also advertise the callable names, so a protocol can ask whether this rig has a
+        # lab-registered function rather than calling it and reading the warning afterwards.
+        # Only targets that can enumerate themselves are listed: the visual module forwards to
+        # screen subprocesses, so a list built here would be wrong, and being absent means
+        # "unknown", which has_server_function answers True to.
+        functions = {'root': sorted(self.functions_on_root)}
+        for module_name, module in self.modules.items():
+            # Asked of the CLASS, not the instance. A module may be a transceiver, whose
+            # __getattr__ turns any missing attribute into an RPC stub -- so
+            # getattr(module, 'get_callable_names', None) never returns None, and calling the stub
+            # sends the question down the wire to a screen that has never heard of it.
+            if getattr(type(module), 'get_callable_names', None) is None:
+                continue
+            try:
+                functions[module_name] = sorted(module.get_callable_names())
+            except Exception:
+                pass          # a module that cannot say is simply not listed
+
+        self.write_request_list([
+            {'name': 'report_server_modules', 'args': [sorted(self.modules)], 'kwargs': {}},
+            {'name': 'report_server_functions', 'args': [functions], 'kwargs': {}},
+        ])
 
     def report_to_client(self, level, text):
         '''

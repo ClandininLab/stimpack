@@ -62,3 +62,35 @@ Functions on the root node follow the same rule, with one distinction that matte
     Root was the default rather than the choice, and nothing was found there. That is an
     **error**, and it aborts the run: the call was meant for something and reached nothing.
     If you meant a module, use ``target('all')`` or name it.
+
+Asking what a rig can do
+------------------------
+
+``has_module()`` answers for hardware categories. For the functions a lab registers on its own rig
+servers -- a projector's LED current, a shutter, a valve -- use ``has_server_function()``:
+
+.. code-block:: python
+
+    if self.has_server_function('set_dlpc_current'):
+        manager.target('root').set_dlpc_current(*self.run_parameters['dlpc_current_start'])
+
+It defaults to the ``root`` target, matching an untargeted call. Pass ``target=`` to ask about a
+module instead:
+
+.. code-block:: python
+
+    if self.has_server_function('set_value', target='voltage_out'):
+        manager.target('voltage_out').set_value(output_channels='FIO6', value=1)
+
+Both return ``True`` when the answer is not known, so adopting either changes nothing until there
+is something real to report. Two cases answer "unknown":
+
+* an older stimpack, which advertises nothing
+* a target that cannot enumerate itself. The ``visual`` module forwards to screen subprocesses, so
+  the server cannot list their functions and does not guess.
+
+A module can make itself enumerable by implementing ``get_callable_names()``; the built-in device
+base classes do, because they dispatch on their own attributes.
+
+Skipping the call is optional -- a function the rig does not have is reported as a warning and the
+run continues -- but it keeps the log clean and makes the intent explicit.

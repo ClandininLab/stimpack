@@ -185,3 +185,90 @@ def test_a_registered_root_function_still_runs():
 
     assert called == [(10, 20, 30)]
     assert server.reported == []
+
+
+# --- advertising which functions a rig has --------------------------------------------------------
+
+def test_a_module_that_dispatches_by_attribute_can_enumerate_itself():
+    """DAQ and LocoManager both dispatch with `request['name'] in dir(self)`, so their callable
+    surface is exactly their public attributes and the server can advertise it."""
+    from stimpack.device.daq import DAQ
+
+    class LabDAQ(DAQ):
+        def __init__(self):
+            pass
+        def open_shutter(self):
+            pass
+        def _internal(self):
+            pass
+
+    names = LabDAQ().get_callable_names()
+    assert 'open_shutter' in names          # the lab's own method
+    assert 'send_trigger' in names          # inherited from DAQ
+    assert '_internal' not in names         # private
+
+
+def test_the_visual_module_does_not_claim_to_know_its_functions():
+    """It forwards to screen subprocesses, so any list built server-side would be wrong. Being
+    absent means 'unknown', which has_server_function answers True to."""
+    from stimpack.visual_stim.stim_server import VisualStimServer
+
+    assert not hasattr(VisualStimServer, 'get_callable_names')
+
+
+def test_on_connection_open_advertises_root_and_enumerable_modules():
+    from stimpack.experiment.server import BaseServer
+
+    class Enumerable:
+        def get_callable_names(self):
+            return ['set_value', 'send_trigger']
+
+    sent_over_the_wire = []
+
+    class Opaque:
+        '''Stands in for VisualStimServer: a transceiver, so every missing attribute becomes an
+        RPC stub rather than raising. Asking the INSTANCE whether it can enumerate therefore
+        always says yes, and calling that stub sends the question down the wire to a screen that
+        has never heard of it.'''
+        def __getattr__(self, name):
+            def stub(*args, **kwargs):
+                sent_over_the_wire.append(name)
+                return ['nonsense', 'from', 'a', 'stub']
+            return stub
+
+    server = BaseServer.__new__(BaseServer)
+    server.modules = {'voltage_out': Enumerable(), 'visual': Opaque()}
+    server.functions_on_root = {'print_on_server': None, 'set_dlpc_current': None}
+    sent = []
+    server.write_request_list = sent.append
+
+    server.on_connection_open()
+
+    advertised = {r['name']: r['args'][0] for r in sent[0]}
+    assert advertised['report_server_modules'] == ['visual', 'voltage_out']
+    functions = advertised['report_server_functions']
+    assert functions['root'] == ['print_on_server', 'set_dlpc_current']
+    assert functions['voltage_out'] == ['send_trigger', 'set_value']
+    assert 'visual' not in functions         # not guessed at
+    assert sent_over_the_wire == [], (
+        'the server asked a transceiver module whether it can enumerate, which is not a question '
+        'but an RPC call: it went down the wire to a screen that has no such function')
+
+
+def test_a_module_that_raises_while_enumerating_is_skipped_not_fatal():
+    from stimpack.experiment.server import BaseServer
+
+    class Broken:
+        def get_callable_names(self):
+            raise RuntimeError('nope')
+
+    server = BaseServer.__new__(BaseServer)
+    server.modules = {'voltage_out': Broken()}
+    server.functions_on_root = {}
+    sent = []
+    server.write_request_list = sent.append
+
+    server.on_connection_open()              # must not raise
+
+    functions = {r['name']: r['args'][0] for r in sent[0]}['report_server_functions']
+    assert 'voltage_out' not in functions

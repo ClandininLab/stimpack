@@ -84,6 +84,7 @@ class BaseProtocol():
         # Modules the server advertised, filled in by prepare_run. None until then / for a server
         # that doesn't advertise. See has_module().
         self.available_modules = None
+        self.available_server_functions = None
 
 
     def has_module(self, module_name):
@@ -104,6 +105,36 @@ class BaseProtocol():
         if self.available_modules is None:
             return True
         return module_name in self.available_modules
+
+    def has_server_function(self, function_name, target='root'):
+        """Whether the connected server will answer to this function name.
+
+        The companion to :meth:`has_module`, for the functions a lab registers on its own rig
+        servers -- a projector's LED current, a shutter, a valve -- which exist on one rig and not
+        another::
+
+            if self.has_server_function('set_dlpc_current'):
+                manager.target('root').set_dlpc_current(*self.run_parameters['dlpc_current_start'])
+
+        :param function_name: the name a request would carry
+        :param target: where it would be sent -- ``'root'`` (the default, matching an untargeted
+            call), or a module name such as ``'voltage_out'``
+
+        Answers ``True`` when the answer is not known: an older stimpack that advertises nothing,
+        or a target that cannot enumerate itself. The visual module is the latter -- it forwards to
+        screen subprocesses, so the server cannot list their functions and does not guess. Adopting
+        this is therefore safe: behaviour is unchanged until there is something real to report.
+
+        Calling a function the rig does not have is not fatal -- it is reported as a warning and
+        the run continues -- so this is for protocols that want to skip the call rather than let it
+        be dropped.
+        """
+        if self.available_server_functions is None:
+            return True
+        names = self.available_server_functions.get(target)
+        if names is None:
+            return True
+        return function_name in names
 
     def adjust_center(self, relative_center):
         """
@@ -307,6 +338,7 @@ class BaseProtocol():
         # __getattr__ rather than falling back.
         if manager is not None:
             self.available_modules = vars(manager).get('available_modules')
+            self.available_server_functions = vars(manager).get('available_server_functions')
 
         # Process input parameters and set persistent parameters prior to epoch run loop
         self.process_input_parameters()

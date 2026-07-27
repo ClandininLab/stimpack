@@ -223,10 +223,12 @@ class MySocketClient(MyTransceiver):
         # Modules the server advertised on connect (a set), or None if it never told us -- e.g. an
         # older server. A real attribute, so __getattr__ can't turn it into an RPC stub.
         self.available_modules = None
+        self.available_server_functions = None
         # Only a client receives this, so handle it here rather than on every transceiver. Doing so
         # means any client -- not just BaseClient -- accepts the advertisement instead of treating
         # it as an unknown function.
         self.register_function(self._set_available_modules, name='report_server_modules')
+        self.register_function(self._set_available_server_functions, name='report_server_functions')
 
         # Keep the socket and the reader thread: close() needs both, and without them the reader is
         # unstoppable -- it parks in `for line in self.infile` and only ever exits when the peer
@@ -276,6 +278,14 @@ class MySocketClient(MyTransceiver):
     def _set_available_modules(self, modules):
         '''Record the modules the server advertised (see BaseServer.on_connection_open).'''
         self.available_modules = set(modules)
+
+    def _set_available_server_functions(self, functions):
+        '''Record the callable names the server advertised, per target.
+
+        A target missing from this map does not enumerate its functions, which is not the same as
+        having none -- see BaseProtocol.has_server_function.
+        '''
+        self.available_server_functions = {target: set(names) for target, names in functions.items()}
 
     def __getattr__(self, name: str) -> Callable[..., None]:
         reject_private_attribute(name)
