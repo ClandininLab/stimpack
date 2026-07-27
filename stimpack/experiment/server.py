@@ -160,12 +160,28 @@ class BaseServer(MySocketServer):
         for request in root_request_list:
             # get function call parameters
             if request['name'] not in self.functions_on_root:
-                # This is where an untargeted call with a wrong name lands (untargeted defaults to
-                # 'root'), so report it instead of only printing -- otherwise the call silently
-                # does nothing, which is exactly how mis-migrated daq_* calls stopped firing.
-                msg = f"no such function '{request['name']}' on the server root node"
+                if request.get('_untargeted'):
+                    # An untargeted call landed here by default, not by choice, and found nothing.
+                    # That is the classic silent failure of this RPC style, and how mis-migrated
+                    # daq_* calls stopped firing: an error, because the call was meant for
+                    # something and reached nothing.
+                    msg = (f"no such function '{request['name']}' on the server root node. "
+                           f"Untargeted calls go to root -- if you meant a module, use "
+                           f"target('all') or target('<module>').")
+                    level = 'error'
+                else:
+                    # The caller explicitly said target('root'), so they knew where they were
+                    # aiming; this rig simply has not registered that function. Labs register
+                    # rig-specific functions on root (a projector's LED current, a shutter), and a
+                    # protocol written for one rig should degrade on another rather than refuse to
+                    # run -- the same reasoning as a request for a module this server lacks, which
+                    # is likewise a warning.
+                    msg = (f"no function '{request['name']}' is registered on this server's root "
+                           f"node (registered: {sorted(self.functions_on_root)}); "
+                           f"request was dropped")
+                    level = 'warning'
                 warnings.warn(msg)
-                self.report_to_client('error', msg)
+                self.report_to_client(level, msg)
                 continue
             function = self.functions_on_root[request['name']]
             args = request.get('args', [])
@@ -219,6 +235,9 @@ class BaseServer(MySocketServer):
             if isinstance(request, dict) and ('name' in request):
                 if 'target' not in request:
                     request['target'] = 'root'
+                    # Remember that root was the default rather than the caller's choice: the two
+                    # cases mean opposite things when the name turns out not to be registered.
+                    request['_untargeted'] = True
                 if 'kwargs' not in request:
                     request['kwargs'] = {}
 

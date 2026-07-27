@@ -49,3 +49,16 @@ say -- so adopting it changes nothing until there is something to report.
 A request addressed to a module the server does not have is reported as a **warning**, not an error,
 and the run continues. The server cannot tell "this rig has no opto" from "opto was expected here",
 and only the protocol knows which it is.
+
+Functions on the root node follow the same rule, with one distinction that matters:
+
+``target('root').some_function()``
+    The caller said where they were aiming, and this rig has not registered that function --
+    a **warning**, and the run continues. Labs register rig-specific functions on root (a
+    projector's LED current, a shutter), and a protocol written for one rig should degrade on
+    another rather than refuse to run.
+
+``some_function()``, untargeted
+    Root was the default rather than the choice, and nothing was found there. That is an
+    **error**, and it aborts the run: the call was meant for something and reached nothing.
+    If you meant a module, use ``target('all')`` or name it.

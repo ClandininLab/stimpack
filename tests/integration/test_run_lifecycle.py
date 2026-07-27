@@ -168,6 +168,56 @@ def test_server_warning_does_not_abort_run(client, data, fake_manager):
     assert ('warning', 'just a heads up') in client.server_messages
 
 
+def test_an_error_from_prepare_run_stops_the_run_before_on_run_start(client, data, fake_manager):
+    """on_run_start actuates hardware -- PMT shutters, opto steps, acquisition triggers -- so a run
+    that is already going to abort must not reach it.
+
+    The queue used to be drained only inside the epoch loop, which runs after on_run_start. An
+    error provoked by prepare_run therefore sat unread while the rig was told to close shutters and
+    step opto for a run that then immediately aborted. Seen on a real rig: a protocol calling
+    target('root').set_dlpc_current on a machine without that function.
+    """
+    started = []
+
+    class Protocol(TinyProtocol):
+        def prepare_run(self, manager, recompute_epoch_parameters=True):
+            super().prepare_run(manager, recompute_epoch_parameters)
+            fake_manager.push_server_message('error', 'no such function on the server root node')
+
+        def on_run_start(self, manager, multicall=None):
+            started.append(True)                 # the hardware actuation, in real protocols
+
+    protocol = Protocol(cfg={})
+    fake_manager.register_function(client.report_server_message, name='report_server_message')
+
+    with pytest.warns(UserWarning):
+        client.start_run(protocol, data, save_metadata_flag=True)
+
+    assert started == [], 'on_run_start ran for a run that was already aborting'
+    assert protocol.num_epochs_completed == 0
+    attrs, _ = series_attrs(data)
+    assert attrs['run_status'] == 'error'
+    assert 'root node' in attrs['abort_reason']
+
+
+def test_on_run_start_still_runs_for_a_healthy_run(client, data, fake_manager):
+    """The guard must not cost a normal run its start-up."""
+    started = []
+
+    class Protocol(TinyProtocol):
+        def on_run_start(self, manager, multicall=None):
+            started.append(True)
+
+    protocol = Protocol(cfg={})
+    fake_manager.register_function(client.report_server_message, name='report_server_message')
+
+    client.start_run(protocol, data, save_metadata_flag=True)
+
+    assert started == [True]
+    assert protocol.num_epochs_completed == 3
+    assert series_attrs(data)[0]['run_status'] == 'completed'
+
+
 # --- the same lifecycle, writing NWB ------------------------------------------------------------
 #
 # The client does not know which backend it has; it calls end_epoch_run(status=..., reason=...)

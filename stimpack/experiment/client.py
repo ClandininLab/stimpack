@@ -230,8 +230,14 @@ class BaseClient():
         # guarantees a clean teardown + a recorded outcome even if the run aborts or raises.
         run_status, run_status_reason = 'completed', None
         try:
-            self.manager.print_on_server("Starting run.")
-            protocol_object.on_run_start(self.manager)
+            # Drain before on_run_start, not after. prepare_run has already run, so anything it
+            # provoked -- a missing root function, a bad stimulus -- is sitting in the queue
+            # already. on_run_start actuates hardware (shutters, opto steps, triggers), and a run
+            # that is going to abort must not get that far. The loop below re-checks and stops it.
+            self.manager.process_queue()
+            if self.server_error is None:
+                self.manager.print_on_server("Starting run.")
+                protocol_object.on_run_start(self.manager)
             while protocol_object.num_epochs_completed < protocol_object.run_parameters['num_epochs']:
                 QApplication.processEvents()
 

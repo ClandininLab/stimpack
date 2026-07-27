@@ -111,3 +111,77 @@ def test_the_removed_launch_time_kwarg_is_an_explicit_error():
 
     with pytest.raises(TypeError, match='other_stim_module_paths was removed'):
         VisualStimServer(screens=[], other_stim_module_paths=['/some/path'])
+
+
+# --- how a missing root function is reported ------------------------------------------------------
+
+def _base_server_stub():
+    """A BaseServer with just enough state to route requests, and no sockets."""
+    from stimpack.experiment.server import BaseServer
+
+    server = BaseServer.__new__(BaseServer)
+    server.modules = {}
+    server.functions_on_root = {'print_on_server': lambda x: None}
+    server._warned_module_aliases = set()
+    server.reported = []
+    server.report_to_client = lambda level, text: server.reported.append((level, text))
+    return server
+
+
+def test_an_untargeted_call_that_lands_nowhere_is_an_error():
+    """Untargeted calls default to root. One that finds nothing there was meant for something and
+    reached nothing -- how mis-migrated daq_* calls silently stopped firing."""
+    server = _base_server_stub()
+
+    with pytest.warns(UserWarning):
+        server.handle_request_list([{'name': 'daq_output_step', 'args': [], 'kwargs': {}}])
+
+    assert server.reported and server.reported[0][0] == 'error'
+    assert 'daq_output_step' in server.reported[0][1]
+    assert "target('all')" in server.reported[0][1]      # says what to do instead
+
+
+def test_an_explicit_root_call_this_rig_lacks_is_only_a_warning():
+    """Labs register rig-specific functions on root -- a projector's LED current, a shutter. A
+    protocol written for one rig must degrade on another rather than refuse to run, exactly as a
+    request for a module this server lacks does."""
+    server = _base_server_stub()
+
+    with pytest.warns(UserWarning):
+        server.handle_request_list([{'name': 'set_dlpc_current', 'target': 'root',
+                                     'args': [10, 10, 10], 'kwargs': {}}])
+
+    assert server.reported and server.reported[0][0] == 'warning'
+    assert 'set_dlpc_current' in server.reported[0][1]
+    assert 'print_on_server' in server.reported[0][1]    # lists what IS registered
+
+
+def test_a_missing_module_and_a_missing_root_function_agree_on_severity():
+    """Both mean 'this rig does not have that capability', so both are warnings; only a call that
+    landed nowhere by accident is an error."""
+    server = _base_server_stub()
+
+    with pytest.warns(UserWarning):
+        server.handle_request_list([{'name': 'output_step', 'target': 'voltage_out',
+                                     'args': [], 'kwargs': {}}])
+    missing_module = [level for level, _ in server.reported]
+
+    server.reported.clear()
+    with pytest.warns(UserWarning):
+        server.handle_request_list([{'name': 'set_dlpc_current', 'target': 'root',
+                                     'args': [], 'kwargs': {}}])
+    missing_function = [level for level, _ in server.reported]
+
+    assert missing_module == missing_function == ['warning']
+
+
+def test_a_registered_root_function_still_runs():
+    server = _base_server_stub()
+    called = []
+    server.functions_on_root['set_dlpc_current'] = lambda *a: called.append(a)
+
+    server.handle_request_list([{'name': 'set_dlpc_current', 'target': 'root',
+                                 'args': [10, 20, 30], 'kwargs': {}}])
+
+    assert called == [(10, 20, 30)]
+    assert server.reported == []
