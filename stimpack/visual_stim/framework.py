@@ -38,6 +38,39 @@ from stimpack.visual_stim.screen import Screen
 from stimpack.rpc.transceiver import MySocketServer
 from stimpack.rpc.util import get_kwargs
 
+# Names a screen subprocess answers to, i.e. what target('visual') can call.
+#
+# Fixed in this source rather than discovered at runtime: main() registers exactly these, and
+# VisualStimServer advertises them so a protocol can ask has_server_function(..., target='visual')
+# without a round trip to a subprocess it cannot query. A test asserts every name is a real
+# StimDisplay method, so the list cannot rot.
+SCREEN_FUNCTION_NAMES = (
+    'set_subject_trajectory',
+    'load_stim',
+    'start_stim',
+    'stop_stim',
+    'update_stim',
+    'clear_profile',
+    'print_profile',
+    'save_rendered_movie',
+    'corner_square_toggle_start',
+    'corner_square_toggle_stop',
+    'corner_square_on',
+    'corner_square_off',
+    'set_corner_square',
+    'show_corner_square',
+    'hide_corner_square',
+    'set_idle_background',
+    'set_subject_state',
+    'set_save_pos_history_flag',
+    'set_save_pos_history_dir',
+    'save_pos_history_to_file',
+    'import_stim_module',
+    'unload_stim_module',
+    'report_frame_count',
+)
+
+
 class StimDisplay(QOpenGLWidget):
     """
     Class that controls the stimulus display on one screen.  It contains the pyglet window object for that screen,
@@ -818,30 +851,10 @@ def main():
     debug = kwargs.get('debug', False)
     stim_display = StimDisplay(screen=screen, server=server, app=app, debug=debug)
 
-    # register functions
-    server.register_function(stim_display.set_subject_trajectory)
-    server.register_function(stim_display.load_stim)
-    server.register_function(stim_display.start_stim)
-    server.register_function(stim_display.stop_stim)
-    server.register_function(stim_display.update_stim)
-    server.register_function(stim_display.clear_profile)
-    server.register_function(stim_display.print_profile)
-    server.register_function(stim_display.save_rendered_movie)
-    server.register_function(stim_display.corner_square_toggle_start)
-    server.register_function(stim_display.corner_square_toggle_stop)
-    server.register_function(stim_display.corner_square_on)
-    server.register_function(stim_display.corner_square_off)
-    server.register_function(stim_display.set_corner_square)
-    server.register_function(stim_display.show_corner_square)
-    server.register_function(stim_display.hide_corner_square)
-    server.register_function(stim_display.set_idle_background)
-    server.register_function(stim_display.set_subject_state)
-    server.register_function(stim_display.set_save_pos_history_flag)
-    server.register_function(stim_display.set_save_pos_history_dir)
-    server.register_function(stim_display.save_pos_history_to_file)
-    server.register_function(stim_display.import_stim_module)
-    server.register_function(stim_display.unload_stim_module)
-    server.register_function(stim_display.report_frame_count)
+    # register functions -- from SCREEN_FUNCTION_NAMES, so the advertised surface and the
+    # registered one cannot drift apart
+    for function_name in SCREEN_FUNCTION_NAMES:
+        server.register_function(getattr(stim_display, function_name))
     
     # display the stimulus
     if screen.fullscreen:

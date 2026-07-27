@@ -131,6 +131,19 @@ class VisualStimServer(MySocketServer):
         '''
         self.write_request_list([{'name': 'report_server_message', 'args': [level, str(text)], 'kwargs': {}}])
 
+    def get_callable_names(self):
+        """
+        Names target('visual') answers to: this server's own root functions, plus the ones each
+        screen subprocess registers.
+
+        The screen half comes from framework.SCREEN_FUNCTION_NAMES rather than from asking a
+        screen. The link to a screen is fire-and-forget like every other, so there is nothing to
+        ask over -- but there is also no need, since what a screen registers is fixed in stimpack's
+        own source and known here at import time.
+        """
+        from stimpack.visual_stim.framework import SCREEN_FUNCTION_NAMES
+        return sorted(set(SCREEN_FUNCTION_NAMES) | set(self.functions_on_root))
+
     def register_function_on_root(self, function, name=None):
         '''
         Register function to be executed on the server's root node only, and not on the screens.

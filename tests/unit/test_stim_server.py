@@ -208,12 +208,34 @@ def test_a_module_that_dispatches_by_attribute_can_enumerate_itself():
     assert '_internal' not in names         # private
 
 
-def test_the_visual_module_does_not_claim_to_know_its_functions():
-    """It forwards to screen subprocesses, so any list built server-side would be wrong. Being
-    absent means 'unknown', which has_server_function answers True to."""
+def test_every_advertised_screen_function_is_a_real_method():
+    """The screen's surface is fixed in stimpack's own source rather than discovered at runtime,
+    so it can rot silently. main() registers from this same tuple, so a name that is not a real
+    StimDisplay method would fail at screen launch -- in a subprocess, where it is awkward to see.
+    Catch it here instead."""
+    from stimpack.visual_stim.framework import SCREEN_FUNCTION_NAMES, StimDisplay
+
+    missing = [name for name in SCREEN_FUNCTION_NAMES
+               if not callable(getattr(StimDisplay, name, None))]
+    assert missing == []
+    assert len(set(SCREEN_FUNCTION_NAMES)) == len(SCREEN_FUNCTION_NAMES)   # no duplicates
+
+
+def test_the_visual_module_advertises_screens_and_its_own_functions():
+    """target('visual') reaches either the screens or this server's own root functions, so both
+    belong in what it advertises."""
+    from stimpack.visual_stim.framework import SCREEN_FUNCTION_NAMES
     from stimpack.visual_stim.stim_server import VisualStimServer
 
-    assert not hasattr(VisualStimServer, 'get_callable_names')
+    server = VisualStimServer.__new__(VisualStimServer)
+    server.functions_on_root = {'close': None, 'load_shared_pixmap_stim': None}
+
+    names = server.get_callable_names()
+
+    assert 'load_stim' in names                  # handled by a screen
+    assert 'close' in names                      # handled here
+    assert set(SCREEN_FUNCTION_NAMES).issubset(names)
+    assert 'set_dlpc_current' not in names       # a root registration, not a visual one
 
 
 def test_on_connection_open_advertises_root_and_enumerable_modules():
@@ -226,10 +248,9 @@ def test_on_connection_open_advertises_root_and_enumerable_modules():
     sent_over_the_wire = []
 
     class Opaque:
-        '''Stands in for VisualStimServer: a transceiver, so every missing attribute becomes an
-        RPC stub rather than raising. Asking the INSTANCE whether it can enumerate therefore
-        always says yes, and calling that stub sends the question down the wire to a screen that
-        has never heard of it.'''
+        '''A module that cannot enumerate itself AND is a transceiver, so every missing attribute
+        becomes an RPC stub rather than raising. Asking the INSTANCE whether it can enumerate
+        therefore always says yes, and calling that stub sends the question down the wire.'''
         def __getattr__(self, name):
             def stub(*args, **kwargs):
                 sent_over_the_wire.append(name)

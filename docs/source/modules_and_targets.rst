@@ -83,14 +83,29 @@ module instead:
         manager.target('voltage_out').set_value(output_channels='FIO6', value=1)
 
 Both return ``True`` when the answer is not known, so adopting either changes nothing until there
-is something real to report. Two cases answer "unknown":
+is something real to report. "Unknown" means an older stimpack that advertises nothing, or a target
+that cannot enumerate itself -- a module can make itself enumerable by implementing
+``get_callable_names()``. All three built-in targets do:
 
-* an older stimpack, which advertises nothing
-* a target that cannot enumerate itself. The ``visual`` module forwards to screen subprocesses, so
-  the server cannot list their functions and does not guess.
+``root``
+    the functions registered with ``register_function_on_root``, which is where a lab puts its
+    rig-specific ones
 
-A module can make itself enumerable by implementing ``get_callable_names()``; the built-in device
-base classes do, because they dispatch on their own attributes.
+``voltage_out``, ``locomotion``
+    their public attributes, since they dispatch on exactly those -- so a labpack's own DAQ
+    subclass is covered without doing anything
+
+``visual``
+    the names each screen registers, taken from ``framework.SCREEN_FUNCTION_NAMES``, plus the
+    server's own. The parent process cannot query a screen subprocess, but it does not need to:
+    what a screen registers is fixed in stimpack's source.
+
+.. note::
+
+    This is a snapshot taken when the client connects, not a live query -- calls are one-way, so
+    there is nothing to ask over. A function registered after a client connected is not in that
+    client's snapshot until it reconnects. Register rig-specific functions before ``server.loop()``
+    and this never arises.
 
 Skipping the call is optional -- a function the rig does not have is reported as a warning and the
 run continues -- but it keeps the log clean and makes the intent explicit.

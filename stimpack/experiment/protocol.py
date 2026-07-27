@@ -120,10 +120,10 @@ class BaseProtocol():
         :param target: where it would be sent -- ``'root'`` (the default, matching an untargeted
             call), or a module name such as ``'voltage_out'``
 
-        Answers ``True`` when the answer is not known: an older stimpack that advertises nothing,
-        or a target that cannot enumerate itself. The visual module is the latter -- it forwards to
-        screen subprocesses, so the server cannot list their functions and does not guess. Adopting
-        this is therefore safe: behaviour is unchanged until there is something real to report.
+        Answers ``True`` when the answer is not known -- an older stimpack that advertises
+        nothing, or a target that cannot enumerate itself -- so adopting this is safe: behaviour is
+        unchanged until there is something real to report. All three built-in targets do enumerate,
+        so in practice the answer is real.
 
         Calling a function the rig does not have is not fatal -- it is reported as a warning and
         the run continues -- so this is for protocols that want to skip the call rather than let it
