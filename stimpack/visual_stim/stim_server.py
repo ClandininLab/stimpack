@@ -68,16 +68,27 @@ class VisualStimServer(MySocketServer):
     '''
     time_stamp_commands = ['start_stim', 'pause_stim', 'update_stim']
 
-    def __init__(self, screens=None, host=None, port=None, auto_stop=None, other_stim_module_paths=None, **kwargs):
+    def __init__(self, screens=None, host=None, port=None, auto_stop=None, **kwargs):
         # call super constructor
         super().__init__(host=host, port=port, threaded=False, auto_stop=auto_stop)
 
-        # If other_stim_module_paths specified in kwargs, use that.
-        if other_stim_module_paths is None:
-            other_stim_module_paths = []
-        if not isinstance(other_stim_module_paths, list):
-            other_stim_module_paths = [other_stim_module_paths]
-        
+        # Removed in 0.3.0. Left as an explicit error rather than swallowed by **kwargs: the
+        # modules it loaded were dropped the moment a client disconnected and never re-imported, so
+        # anyone passing it had custom stimuli for exactly one session. Silently accepting it now
+        # would reproduce that, without even the first session working.
+        if 'other_stim_module_paths' in kwargs:
+            raise TypeError(
+                "other_stim_module_paths was removed in stimpack 0.3.0. Import stimulus modules "
+                "from the client instead: manager.target('visual').import_stim_module(path), or "
+                "name them under module_paths.visual_stim in your config. Re-importing is safe -- "
+                "it reloads rather than duplicating.")
+
+        # Screen-side errors reach whoever is connected, even with no BaseServer wrapping this one.
+        # Without this default the reporter stayed None and every error a screen bubbled up was
+        # dropped here -- so a script driving launch_stim_server directly, which is what the
+        # examples do, saw a failing stimulus do nothing at all and say nothing about it.
+        self.error_reporter = self.report_to_client
+
         self.functions_on_root = {}
         self.register_function_on_root(self.close)
 
@@ -92,8 +103,7 @@ class VisualStimServer(MySocketServer):
             screens = [Screen(x_display=None, display_index=0, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
         
         # launch screens
-        launched = [launch_screen(screen=screen, other_stim_module_paths=other_stim_module_paths, **kwargs)
-                    for screen in screens]
+        launched = [launch_screen(screen=screen, **kwargs) for screen in screens]
         self.screen_managers = [client for client, _ in launched]
         self.screen_processes = [proc for _, proc in launched]
 
@@ -110,6 +120,16 @@ class VisualStimServer(MySocketServer):
         self.corner_square_toggle_stop()
         self.corner_square_off()
         self.set_idle_background(0)
+
+    def report_to_client(self, level, text):
+        '''
+        Push a message back to the connected client, which surfaces it and, for level='error',
+        aborts the run. Best-effort: no-ops when nothing is connected.
+
+        A BaseServer replaces this with its own reporter when it owns this module, so messages
+        reach the experiment client rather than stopping here.
+        '''
+        self.write_request_list([{'name': 'report_server_message', 'args': [level, str(text)], 'kwargs': {}}])
 
     def register_function_on_root(self, function, name=None):
         '''

@@ -82,7 +82,7 @@ class BaseServer(MySocketServer):
         if 'screens' not in visual_stim_kwargs:
             visual_stim_kwargs['screens'] = [Screen(x_display=None, display_index=0, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
         
-        self.modules['visual'] = VisualStimServer(**visual_stim_kwargs) # auto_stop=False, other_stim_module_paths=[]
+        self.modules['visual'] = VisualStimServer(**visual_stim_kwargs)  # auto_stop=False
         ### Visual stim manager ###
 
         ### Locomotion manager ###

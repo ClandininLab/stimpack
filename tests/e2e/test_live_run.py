@@ -248,3 +248,42 @@ def test_a_custom_stim_module_survives_successive_client_sessions(tmp_path):
 
     errors = [r for r in reported if r[1] == 'error']
     assert errors == [], f'the server reported an error: {errors}'
+
+
+def test_a_standalone_stim_server_reports_screen_errors_to_its_client():
+    """launch_stim_server without a BaseServer -- what the examples and any plain script do.
+
+    The screen bubbles its errors up to the VisualStimServer, which forwarded them via
+    error_reporter; that was None here, so they were dropped. A failing stimulus did nothing and
+    reported nothing, which is the hardest kind of failure to debug from a script.
+    """
+    from stimpack.visual_stim.screen import Screen
+    from stimpack.visual_stim.stim_server import launch_stim_server
+
+    try:
+        manager = launch_stim_server(Screen(fullscreen=False, vsync=False))
+    except Exception as e:
+        pytest.skip(f"Could not launch a stim server here: {type(e).__name__}: {e}")
+
+    reported = []
+    manager.register_function(lambda level, text: reported.append((level, text)),
+                              name='report_server_message')
+    try:
+        time.sleep(2)
+        manager.load_stim(name='NoSuchStimulus_Standalone')
+
+        def arrived():
+            manager.process_queue()
+            return bool(reported)
+
+        assert wait_until(arrived, timeout=15), \
+            'a standalone stim server never reported the screen-side error to its client'
+        level, text = reported[0]
+        assert level == 'error'
+        assert 'NoSuchStimulus_Standalone' in text
+        assert '[screen]' in text                 # bubbled up from the screen subprocess
+    finally:
+        try:
+            manager.close()
+        except Exception:
+            pass

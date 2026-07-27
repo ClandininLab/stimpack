@@ -124,9 +124,10 @@ restarting the server.
 A stimulus whose name is already taken -- by a built-in, or by a module imported earlier -- shadows
 it, and a warning names both files. That is deliberate: a lab may want its own ``MovingPatch``.
 
-The equivalent at launch time is ``launch_stim_server(screen, other_stim_module_paths=[...])``.
-Note that those are unloaded when a client disconnects and are not re-imported, so for a server
-that outlives a session, importing from the client is the more reliable of the two.
+Importing from the client is the only way to do this. There was once a launch-time
+``other_stim_module_paths`` keyword; it was removed in 0.3.0 because the modules it loaded were
+dropped as soon as a client disconnected and never re-imported, which is the opposite of what its
+name suggested.
 
 ``examples/4-custom_stimuli.py`` and ``examples/example_custom_module/`` are a working pair. See
 :class:`stimpack.visual_stim.base.BaseProgram` for what a stimulus must implement, and

@@ -843,12 +843,6 @@ def main():
     server.register_function(stim_display.unload_stim_module)
     server.register_function(stim_display.report_frame_count)
     
-    # Load other stimuli from paths given in kwargs.
-    # These modules contain subclasses of stimpack.visual_stim.stimuli.BaseProgram
-    other_stim_module_paths = kwargs.get('other_stim_module_paths', [])
-    for stim_module_path in other_stim_module_paths:
-        stim_display.import_stim_module(stim_module_path)
-
     # display the stimulus
     if screen.fullscreen:
         stim_display.showFullScreen()
