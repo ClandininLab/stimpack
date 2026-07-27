@@ -1232,7 +1232,10 @@ class InitializeExperimentGUI(QWidget):
     GUI to initialize experiment file to store data
     """
     def setupUI(self, experiment_gui_object, parent=None):
-        super(InitializeExperimentGUI, self).__init__(parent)
+        # NOT super().__init__(parent) again: both callers already construct this widget
+        # as InitializeExperimentGUI(parent=dialog), and re-running QWidget's constructor on a live widget
+        # is undefined behaviour in PyQt -- it corrupts the C++ side and segfaults later,
+        # somewhere unrelated.
         self.parent = parent
         self.experiment_gui_object = experiment_gui_object
         layout = QFormLayout()
@@ -1288,7 +1291,10 @@ class InitializeExperimentGUI(QWidget):
 
 class InitializeRigGUI(QWidget):
     def setupUI(self, experiment_gui_object, parent=None, window_size=None):
-        super(InitializeRigGUI, self).__init__(parent)
+        # NOT super().__init__(parent) again: both callers already construct this widget
+        # as InitializeRigGUI(parent=dialog), and re-running QWidget's constructor on a live widget
+        # is undefined behaviour in PyQt -- it corrupts the C++ side and segfaults later,
+        # somewhere unrelated.
         self.parent = parent
         self.experiment_gui_object = experiment_gui_object
 

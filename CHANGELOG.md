@@ -51,6 +51,23 @@ On Linux under Wayland an EGL context is created and handed to ModernGL; elsewhe
 - `cartesian_to_spherical`.
 - A specified local server exits gracefully.
 - The error message box uses the right icon.
+- **`UniformWhiteNoise` did not run at all.** It wrapped an already-array intensity as
+  `[c, c, c, 1]`, a ragged nested sequence that NumPy has refused since 1.24 — so on any current
+  install the stimulus raised `ValueError` the moment it was evaluated.
+- **`get_rgba` called `float()` on an array**, which NumPy deprecated in 1.25 and intends to
+  raise on. That is the same defect one release from recurring, and it would take every
+  distribution-driven monochrome stimulus with it.
+- **The startup dialogs re-ran `QWidget.__init__` on themselves.** Both are created by their
+  callers as `Cls(parent=dialog)`, and `setupUI` then constructed the same widget a second time.
+  That is undefined behaviour in PyQt: the widget is destroyed out from under the object still
+  referencing it, so a session that opens the dialog more than a couple of times can die with a
+  `RuntimeError` or a segfault far from the cause.
+
+### Tests
+
+This release adds a small test suite covering the three fixes above (`tests/`). It is the
+beginning of one, not a comprehensive suite — the broader test tiers live on the development
+branch and arrive with the next release.
 
 ### Notes on versioning
 
