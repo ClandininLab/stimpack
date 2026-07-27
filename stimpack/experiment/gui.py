@@ -18,7 +18,7 @@ import yaml
 
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
-                             QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QFrame,
+                             QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QHBoxLayout, QFrame,
                              QScrollArea, QListWidget, QSizePolicy, QAbstractItemView)
 import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, QUrl
@@ -37,9 +37,20 @@ class ParseError(Exception):
         super().__init__()
         self.message = message
 
-# Height of the status window, in pixels. Fixed so that a long message scrolls inside it rather
-# than growing the row and reshaping the window around it.
-STATUS_WINDOW_HEIGHT = 60
+class _StatusLabel(QLabel):
+    """
+    The status line, which mirrors whatever it is showing into its tooltip.
+
+    The window is one text line tall, so a long message -- a server warning listing every
+    registered function -- has to be scrolled to be read. Hovering shows all of it at once,
+    which is usually what someone wants when a warning goes by.
+
+    A QLabel rather than a read-only text box so that setText/text() keep working at the several
+    dozen call sites that set status.
+    """
+    def setText(self, text):
+        super().setText(text)
+        self.setToolTip(text)
 
 
 class ExperimentGUI(QWidget):
@@ -203,10 +214,7 @@ class ExperimentGUI(QWidget):
         # a long message -- a server warning naming every registered function, say -- used to widen
         # its column and reshape the whole window. The label wraps to the viewport instead, and the
         # area scrolls, so the message can be as long as it likes without moving anything.
-        new_label = QLabel('Status:')
-        self.protocol_control_grid.addWidget(new_label, 0, 0)
-
-        self.status_label = QLabel('Select a protocol')
+        self.status_label = _StatusLabel('Select a protocol')
         self.status_label.setWordWrap(True)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         # Selectable so an error can be copied out of the GUI rather than retyped from a screenshot.
@@ -215,13 +223,23 @@ class ExperimentGUI(QWidget):
         self.status_scroll_area = QScrollArea()
         self.status_scroll_area.setWidget(self.status_label)
         self.status_scroll_area.setWidgetResizable(True)      # wrap to the viewport, not the text
-        self.status_scroll_area.setFixedHeight(STATUS_WINDOW_HEIGHT)
         self.status_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.status_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # One text line tall, like the fields below it -- the row is for making the message wider,
+        # not the window taller. Anything longer scrolls, and the whole text is in the tooltip.
+        # Derived from the font rather than a pixel count, so it still fits at another font size.
+        self.status_scroll_area.setFixedHeight(self.status_label.fontMetrics().height()
+                                               + 2 * self.status_scroll_area.frameWidth())
         # No size policy needed: a scroll area's size hint comes from its own frame, not from the
         # widget inside it, so the message length cannot reach the window width from here. Measured
         # -- a 5000-character label gives the same hint as an empty one.
-        self.protocol_control_grid.addWidget(self.status_scroll_area, 0, 1, 1, 3)
+        # 'Status:' sits in the row rather than in column 0, so it takes only the width of the
+        # word instead of the width of that column -- which is set by the widest label under it
+        # ('Elapsed time [s]:') and would otherwise be margin the message could not use.
+        status_row = QHBoxLayout()
+        status_row.addWidget(QLabel('Status:'))
+        status_row.addWidget(self.status_scroll_area)
+        self.protocol_control_grid.addLayout(status_row, 0, 0, 1, 4)
 
         # Current series counter
         new_label = QLabel('Series counter:')

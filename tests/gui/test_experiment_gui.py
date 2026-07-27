@@ -192,9 +192,10 @@ def test_the_status_window_scrolls_instead_of_growing(experiment_gui, qapp):
     gui.status_label.setText('a very long message. ' * 200)
     qapp.processEvents()
 
-    from stimpack.experiment.gui import STATUS_WINDOW_HEIGHT
     assert gui.status_scroll_area.height() == height_before
-    assert gui.status_scroll_area.height() == STATUS_WINDOW_HEIGHT    # fixed, not merely unchanged
+    # one text line, like the fields below it -- fixed, not merely unchanged
+    assert gui.status_scroll_area.height() == (gui.status_label.fontMetrics().height()
+                                               + 2 * gui.status_scroll_area.frameWidth())
     # the label itself is taller than the viewport, which is what there is to scroll through
     assert gui.status_label.height() >= gui.status_scroll_area.viewport().height()
 
@@ -213,12 +214,35 @@ def test_an_unbreakable_message_still_does_not_widen_the_window(experiment_gui, 
 
 
 def test_the_status_window_has_its_own_row_spanning_the_grid(experiment_gui):
+    """Including column 0: the 'Status:' caption is in the row, so the message gets the width the
+    caption column would otherwise reserve."""
     grid = experiment_gui.protocol_control_grid
-    index = grid.indexOf(experiment_gui.status_scroll_area)
-    row, column, row_span, column_span = grid.getItemPosition(index)
 
-    assert (row, column) == (0, 1)
-    assert column_span == 3          # the whole width, so nothing shares its row
+    position = None
+    for index in range(grid.count()):
+        item = grid.itemAt(index)
+        if item.layout() is not None and item.layout().indexOf(experiment_gui.status_scroll_area) >= 0:
+            position = grid.getItemPosition(index)
+    assert position is not None, 'the status window is not in the control grid'
+
+    row, column, row_span, column_span = position
+    assert (row, column) == (0, 0)
+    assert column_span == 4          # every column, so nothing shares its row
+
+
+def test_the_status_window_is_one_line_tall(experiment_gui, qapp):
+    """The row is for making a message wider, not the window taller. It should match the
+    single-line fields below it."""
+    gui = experiment_gui
+    qapp.processEvents()
+    assert gui.status_scroll_area.height() <= gui.elapsed_time_label.sizeHint().height() + 4
+
+
+def test_the_whole_message_is_in_the_tooltip(experiment_gui):
+    """One line means a long message has to be scrolled to read. Hovering shows all of it."""
+    message = 'a long server warning. ' * 20
+    experiment_gui.status_label.setText(message)
+    assert experiment_gui.status_label.toolTip() == message
 
 
 def test_status_text_is_selectable_so_an_error_can_be_copied(experiment_gui):
