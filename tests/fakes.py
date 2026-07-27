@@ -21,9 +21,9 @@ class FakeManager:
 
     def process_queue(self):
         while self.inbox:
-            name, args = self.inbox.pop(0)
+            name, args, kwargs = self.inbox.pop(0)
             if name in self.functions:
-                self.functions[name](*args)
+                self.functions[name](*args, **kwargs)
 
     def target(self, target_name):
         manager = self
@@ -47,7 +47,12 @@ class FakeManager:
 
     def push_server_message(self, level, text):
         """Queue a message as if the server pushed it back; delivered on the next process_queue()."""
-        self.inbox.append(("report_server_message", (level, text)))
+        self.push_server_request("report_server_message", level, text)
+
+    def push_server_request(self, name, *args, **kwargs):
+        """Queue any request as if the server had sent it -- the server calls functions on the
+        client too, not only report_server_message (see BaseServer.end_epoch)."""
+        self.inbox.append((name, args, kwargs))
 
 
 class FakeClient:

@@ -360,3 +360,104 @@ def test_waiting_does_not_spin_the_cpu(client, data, fake_manager):
     cpu_used = time.process_time() - cpu_before
 
     assert cpu_used < 0.1, f'used {cpu_used:.2f}s of CPU waiting 0.5s; it is spinning'
+
+
+# --- trials the animal ends ------------------------------------------------------------------------
+
+def test_the_server_can_end_an_epoch_early(client, data, fake_manager):
+    """The point of the whole mechanism: a trial that lasts until the animal does something.
+
+    The condition can only be evaluated on the server -- the client never receives subject state,
+    and could not ask for it, since requests carry no reply.
+    """
+    import time
+
+    protocol = SlowProtocol(cfg={})          # 30 s stimulus
+    fake_manager.register_function(client.report_server_message, name='report_server_message')
+    fake_manager.register_function(client.stop_epoch, name='stop_epoch')
+
+    # the "tracker" reaches the criterion 0.3 s into each epoch
+    import threading
+
+    def on_epoch(p):
+        threading.Timer(0.3, lambda: fake_manager.push_server_request(
+            'stop_epoch', epoch_index=client.current_epoch_index, reason='reached_goal')).start()
+    protocol.on_epoch = on_epoch
+
+    started = time.monotonic()
+    client.start_run(protocol, data, save_metadata_flag=True)
+    elapsed = time.monotonic() - started
+
+    assert protocol.num_epochs_completed == 3, 'the run should continue, not stop'
+    assert elapsed < 10, f'{elapsed:.1f}s: epochs were not cut short'
+
+
+def test_an_epoch_ended_early_records_why_and_how_long(client, data, fake_manager):
+    import threading
+    import time
+
+    protocol = SlowProtocol(cfg={})
+    protocol.run_parameters['num_epochs'] = 1
+    fake_manager.register_function(client.stop_epoch, name='stop_epoch')
+    protocol.on_epoch = lambda p: threading.Timer(0.3, lambda: fake_manager.push_server_request(
+        'stop_epoch', epoch_index=client.current_epoch_index, reason='reached_goal')).start()
+
+    client.start_run(protocol, data, save_metadata_flag=True)
+
+    import h5py
+    with h5py.File(f'{data.data_directory}/{data.experiment_file_name}.hdf5', 'r') as f:
+        epoch = f[f'/Subjects/{data.current_subject}/epoch_runs/series_001/epochs/epoch_001']
+        assert epoch.attrs['ended_early']
+        assert epoch.attrs['epoch_end_reason'] == 'reached_goal'
+        assert 0 < epoch.attrs['epoch_duration'] < 5      # not the 30 s the protocol asked for
+
+
+def test_an_epoch_that_runs_its_course_is_not_marked_early(client, data, fake_manager):
+    protocol = TinyProtocol(cfg={})
+    client.start_run(protocol, data, save_metadata_flag=True)
+
+    import h5py
+    with h5py.File(f'{data.data_directory}/{data.experiment_file_name}.hdf5', 'r') as f:
+        epoch = f[f'/Subjects/{data.current_subject}/epoch_runs/series_001/epochs/epoch_001']
+        assert not epoch.attrs['ended_early']
+        assert 'epoch_end_reason' not in epoch.attrs
+
+
+def test_a_late_request_does_not_cut_short_the_following_epoch(client, data, fake_manager):
+    """A criterion met just as an epoch ends would otherwise arrive during the next one and end
+    it too -- a truncated trial with no visible cause."""
+    import time
+
+    protocol = TinyProtocol(cfg={})
+    fake_manager.register_function(client.stop_epoch, name='stop_epoch')
+
+    client.current_epoch_index = 0
+    client.protocol_object = protocol
+    protocol.manager = fake_manager
+
+    client.stop_epoch(epoch_index=0, reason='in time')          # for the epoch running now
+    assert protocol.stop_sleep_flag is True
+    assert client.epoch_end_reason == 'in time'
+
+    protocol.stop_sleep_flag = False
+    client.current_epoch_index = 1                              # the next epoch has begun
+    client.stop_epoch(epoch_index=0, reason='too late')         # a straggler for the old one
+    assert protocol.stop_sleep_flag is False, 'a late request ended the wrong epoch'
+    assert client.epoch_end_reason == 'in time', 'a late request overwrote the reason'
+
+
+def test_the_server_does_nothing_between_epochs(fake_manager):
+    """end_epoch outside an epoch would otherwise end whichever one starts next."""
+    from stimpack.experiment.server import BaseServer
+
+    server = BaseServer.__new__(BaseServer)
+    sent = []
+    server.write_request_list = sent.append
+    server.current_epoch_index = None
+
+    server.end_epoch(reason='reached_goal')
+    assert sent == []
+
+    server.set_current_epoch(4)
+    server.end_epoch(reason='reached_goal')
+    assert sent and sent[0][0]['kwargs'] == {'epoch_index': 4, 'reason': 'reached_goal'}

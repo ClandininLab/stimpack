@@ -48,6 +48,10 @@ class BaseClient():
         # The protocol currently running, so stop_run can cut its epoch short rather than let the
         # run finish the one in progress. None between runs.
         self.protocol_object = None
+        # Which epoch is running, and why the last one ended early (None if it ran its full
+        # length). Both are per-epoch, reset as each begins.
+        self.current_epoch_index = None
+        self.epoch_end_reason = None
         self.pause:bool = False
         self.cfg:dict = cfg
 
@@ -120,6 +124,10 @@ class BaseClient():
 
         # Let the server push warnings/errors back to us; delivered when we drain the queue (run loop).
         self.manager.register_function(self.report_server_message, name='report_server_message')
+        # Lets the server end an epoch early -- see BaseServer.end_epoch. Registered here rather
+        # than on BaseServer's side of the link because the server can only ask; the client is
+        # what actually runs the epoch.
+        self.manager.register_function(self.stop_epoch, name='stop_epoch')
 
         # The server advertises its modules as soon as it accepts the connection, but that message
         # only takes effect once we drain the queue. Wait briefly for it here so protocols can rely
@@ -147,18 +155,32 @@ class BaseClient():
                 else:
                     self.manager.target('visual').import_stim_module(path)
 
-    def stop_epoch(self):
+    def stop_epoch(self, epoch_index=None, reason=None):
         """
         End the current epoch's remaining wait, without stopping the run.
 
         The protocol's pre / stimulus / tail intervals are interruptible sleeps (see
-        BaseProtocol.sleep); this is what interrupts them.
+        BaseProtocol.sleep); this is what interrupts them. Called locally by stop_run, and
+        remotely by the server for a trial whose length depends on the animal's behaviour
+        (BaseServer.end_epoch).
+
+        :param epoch_index: the epoch this was meant for. A request is ignored if that epoch has
+            already ended -- without this, one sent as an epoch was finishing would arrive during
+            the next and cut it short, which is close to invisible in the data. None (the local
+            Stop button) always applies to whatever is running now.
+        :param reason: why it ended early, recorded with the epoch.
         """
         # getattr: report_server_message reaches here, and a client may be constructed without
         # going through __init__.
         protocol_object = getattr(self, 'protocol_object', None)
-        if protocol_object is not None:
-            protocol_object.stop_epoch()
+        if protocol_object is None:
+            return
+
+        if epoch_index is not None and epoch_index != getattr(self, 'current_epoch_index', None):
+            return          # meant for an epoch that has already ended
+
+        self.epoch_end_reason = reason
+        protocol_object.stop_epoch()
 
     def stop_run(self):
         self.stop = True
@@ -328,6 +350,12 @@ class BaseClient():
         # Check that all required epoch protocol parameters are set
         protocol_object.check_required_epoch_protocol_parameters()
 
+        # Tell the server which epoch this is, so it can stamp an end_epoch request and we can
+        # tell a late one from a current one.
+        self.current_epoch_index = protocol_object.num_epochs_completed
+        self.epoch_end_reason = None
+        self.manager.set_current_epoch(self.current_epoch_index)
+
         if save_metadata_flag:
             data.create_epoch(protocol_object)
 
@@ -346,8 +374,12 @@ class BaseClient():
 
         self.manager.print_on_server('Epoch completed.')
 
+        # Nothing is running now, so a late end_epoch has nothing to cut short.
+        self.current_epoch_index = None
+        self.manager.set_current_epoch(None)
+
         if save_metadata_flag:
-            data.end_epoch(protocol_object)
+            data.end_epoch(protocol_object, reason=self.epoch_end_reason)
         
         protocol_object.advance_epoch_counter()
 

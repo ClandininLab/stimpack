@@ -39,6 +39,7 @@ MODULE_ALIASES = {'daq': 'voltage_out'}
 ROOT_FUNCTION_NAMES = frozenset({
     'print_on_server',
     'set_subject_state',
+    'set_current_epoch',
     'load_server_side_state_dependent_control',
     'unload_server_side_state_dependent_control',
 })
@@ -108,6 +109,7 @@ class BaseServer(MySocketServer):
         self.functions_on_root = {}
         self.register_function_on_root(lambda x: print(x), "print_on_server")
         self.register_function_on_root(self.set_subject_state, "set_subject_state")
+        self.register_function_on_root(self.set_current_epoch, "set_current_epoch")
         self.register_function_on_root(self.load_server_side_state_dependent_control, "load_server_side_state_dependent_control")
         self.register_function_on_root(self.unload_server_side_state_dependent_control, "unload_server_side_state_dependent_control")
 
@@ -119,6 +121,11 @@ class BaseServer(MySocketServer):
 
         # Custom state-dependent control function, initialized to None        
         self.loaded_custom_state_dependent_control = None
+
+        # Which epoch the client is running, set by the client as each one starts. Used to stamp
+        # end_epoch() so a request cannot arrive late and cut short the epoch after the one it was
+        # meant for. None between epochs, when there is nothing to end.
+        self.current_epoch_index = None
 
         # set the subject position parameters
         self.subject_state = {}
@@ -310,6 +317,48 @@ class BaseServer(MySocketServer):
         '''
         [module.on_connection_close() for module in self.modules.values()]
         
+    def set_current_epoch(self, epoch_index):
+        """
+        Told by the client as each epoch begins, and set to None when it ends.
+
+        Only used to stamp :meth:`end_epoch`; the server does not otherwise care which epoch is
+        running.
+        """
+        self.current_epoch_index = epoch_index
+
+    def end_epoch(self, reason=None):
+        """
+        Ask the client to end the epoch in progress early, and go on to the next one.
+
+        For trials whose length is decided by what the animal does rather than by the clock: a
+        fixation held long enough, a virtual goal reached, a choice made. The condition has to be
+        evaluated here rather than on the client, because the client never sees subject state and
+        could not ask for it if it wanted to -- requests carry no reply.
+
+        Call it from a labpack's server-side closed-loop function, which runs on every tracker
+        update with the full subject state::
+
+            def server_side_state_dependent_control(server, subject_state, state_update):
+                if subject_state['x'] > 0.5:
+                    server.end_epoch(reason='reached_goal')
+                return state_update
+
+        :param reason: recorded with the epoch, so a trial that ended early can be told apart
+            from one that ran its full length. Worth setting: once duration depends on behaviour,
+            the protocol's stim_time describes the intent rather than the trial.
+
+        Does nothing between epochs -- there is nothing to end, and ending the next one because a
+        criterion was met just after the last is a bug that would be hard to see in the data.
+
+        This ends one epoch. To stop the whole run, report an error instead
+        (:meth:`report_to_client`), which aborts it and records why.
+        """
+        if self.current_epoch_index is None:
+            return
+        self.write_request_list([{'name': 'stop_epoch',
+                                  'args': [], 'kwargs': {'epoch_index': self.current_epoch_index,
+                                                         'reason': reason}}])
+
     ### Functions for setting subject state ###
     def set_subject_state(self, state_update:dict={'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll':0}) -> None:
         # Perform custom closed-loop control and get an updated state update

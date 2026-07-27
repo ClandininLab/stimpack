@@ -287,3 +287,56 @@ def test_a_standalone_stim_server_reports_screen_errors_to_its_client():
             manager.close()
         except Exception:
             pass
+
+
+def test_a_live_server_can_end_an_epoch_early(live_server, live_manager, live_client):
+    """The whole path for real: a state update reaches the server, the labpack's closed-loop
+    function decides the trial is over, and the client's epoch wait returns early.
+
+    Everything here is the real object over a real socket -- only the tracker is stood in for, by
+    calling set_subject_state directly as a locomotion manager would.
+    """
+    ended = []
+
+    def control(server, subject_state, state_update):
+        # state_update is what just arrived; subject_state is what it was before. Testing the
+        # latter alone would fire one update late -- or never, on a single update.
+        if state_update.get('x', subject_state.get('x', 0)) > 0.5:
+            server.end_epoch(reason='reached_goal')
+            ended.append(True)
+        return state_update
+
+    live_server.loaded_custom_state_dependent_control = control
+    live_manager.register_function(live_client.stop_epoch, name='stop_epoch')
+
+    class GoalProtocol(BaseProtocol):
+        def get_run_parameter_defaults(self):
+            return {'num_epochs': 1, 'idle_color': 0.5, 'do_loco': False}
+        def get_protocol_parameter_defaults(self):
+            return {'pre_time': 0.0, 'stim_time': 30.0, 'tail_time': 0.0}
+        def get_epoch_parameters(self):
+            super().get_epoch_parameters()
+            self.epoch_stim_parameters = {'name': 'MovingSpot', 'radius': 10, 'sphere_radius': 1,
+                                          'color': [1, 1, 1, 1], 'theta': 0, 'phi': 0}
+        def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
+            # the "animal" reaches the goal 0.3 s in
+            threading.Timer(0.3, lambda: live_server.set_subject_state({'x': 1.0})).start()
+            super().start_stimuli(manager, append_stim_frames=append_stim_frames,
+                                  print_profile=print_profile, multicall=multicall)
+
+    import threading
+    protocol = GoalProtocol(cfg={})
+
+    started = time.monotonic()
+    live_client.start_run(protocol, _NullData(), save_metadata_flag=False)
+    elapsed = time.monotonic() - started
+
+    assert ended, 'the closed-loop function never saw the state update'
+    assert elapsed < 10, f'{elapsed:.1f}s: the 30 s epoch was not cut short'
+    assert protocol.num_epochs_completed == 1
+
+
+class _NullData:
+    """Enough of a data object for a run that saves nothing."""
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None

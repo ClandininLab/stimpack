@@ -232,9 +232,17 @@ class BaseData():
         else:
             print('Create a data file and/or define a subject first')
 
-    def end_epoch(self, protocol_object):
+    def end_epoch(self, protocol_object, reason=None):
         """
-        Save the timestamp when the epoch ends
+        Record when the epoch ended, and why.
+
+        :param reason: None if it ran its full length, otherwise why it was cut short -- the
+            string a labpack passed to BaseServer.end_epoch, for a trial ended by the animal's
+            behaviour.
+
+        Also stores the epoch's actual duration. With a fixed stim_time that is redundant, but a
+        behaviour-ended trial is as long as the animal made it, and the protocol parameters then
+        describe the intent rather than what happened.
         """
         # Match the guard used by the sibling create_* methods; without it, opening 'r+' on a missing
         # file raises mid-run.
@@ -246,6 +254,12 @@ class BaseData():
             epoch_run_group = experiment_file['/Subjects/{}/epoch_runs/series_{}/epochs'.format(self.current_subject, str(self.series_count).zfill(3))]
             epoch_group = epoch_run_group['epoch_{}'.format(str(protocol_object.num_epochs_completed+1).zfill(3))]
             epoch_group.attrs['epoch_end_unix_time'] = epoch_end_unix_time
+            start = epoch_group.attrs.get('epoch_unix_time')
+            if start is not None:
+                epoch_group.attrs['epoch_duration'] = epoch_end_unix_time - start
+            epoch_group.attrs['ended_early'] = reason is not None
+            if reason is not None:
+                epoch_group.attrs['epoch_end_reason'] = str(reason)
 
     def end_epoch_run(self, protocol_object, status='completed', reason=None):
         """

@@ -441,9 +441,14 @@ class NWBData(BaseData):
         # In NWB the name is reserved so I am adding a prefix
         self.trial_parameters["protocol"] = self.trial_parameters.pop("name", "")
 
-    def end_epoch(self, protocol_object):
+    def end_epoch(self, protocol_object, reason=None):
         """
         Finalize the trial information and add the trial to the trials table.
+
+        :param reason: None if the epoch ran its full length, otherwise why it was cut short --
+            see BaseData.end_epoch. Recorded as trial columns, so a behaviour-ended trial can be
+            told from one that ran to time. The trials table already carries start and stop times,
+            so the duration is there by construction.
 
         Degrades quietly when there is nothing to write to, the same way create_epoch and
         end_epoch_run do: this is called once per epoch during a run, and a run that is not
@@ -451,6 +456,9 @@ class NWBData(BaseData):
         """
         if not self.trial_parameters or 'trial_start_time' not in self.trial_parameters:
             return
+
+        self.trial_parameters['ended_early'] = reason is not None
+        self.trial_parameters['epoch_end_reason'] = str(reason) if reason is not None else ''
 
         nwbfile_path = self.get_nwb_file_path()
         if not os.path.isfile(nwbfile_path):

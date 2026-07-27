@@ -42,3 +42,4 @@ in a *labpack* that stimpack loads at runtime. See :doc:`install_labpack`.
     check_labpack
     modules_and_targets
     run_outcomes
+    behaviour_ended_trials
