@@ -337,7 +337,6 @@ def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
     """Tiers 3 and 5 for one config. Returns a list of Findings."""
     from stimpack.experiment.protocol import BaseProtocol
     from stimpack.experiment.server import KNOWN_TARGETS, ROOT_FUNCTION_NAMES
-    from stimpack.util import get_all_subclasses
 
     if labpack_dir is None:
         labpack_dir = config_tools.get_labpack_directory()

@@ -394,7 +394,6 @@ def test_the_server_can_end_an_epoch_early(client, data, fake_manager):
 
 def test_an_epoch_ended_early_records_why_and_how_long(client, data, fake_manager):
     import threading
-    import time
 
     protocol = SlowProtocol(cfg={})
     protocol.run_parameters['num_epochs'] = 1
@@ -426,8 +425,6 @@ def test_an_epoch_that_runs_its_course_is_not_marked_early(client, data, fake_ma
 def test_a_late_request_does_not_cut_short_the_following_epoch(client, data, fake_manager):
     """A criterion met just as an epoch ends would otherwise arrive during the next one and end
     it too -- a truncated trial with no visible cause."""
-    import time
-
     protocol = TinyProtocol(cfg={})
     fake_manager.register_function(client.stop_epoch, name='stop_epoch')
 

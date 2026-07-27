@@ -370,7 +370,7 @@ def test_protocols_that_cannot_be_exercised_are_counted_not_hidden(tmp_path):
 def test_the_deep_check_does_not_sleep_through_the_stimulus(tmp_path):
     """start_stimuli sleeps for the real stimulus duration; checking must not take that long."""
     import time
-    cfg = labpack_with_protocol(tmp_path, "        pass")
+    labpack_with_protocol(tmp_path, "        pass")   # builds the labpack; the cfg is not needed here
     path = tmp_path / 'pack' / 'protocol' / 'my_protocol.py'
     path.write_text(path.read_text().replace("'pre_time': 0.0", "'pre_time': 30.0"))
 

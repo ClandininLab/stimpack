@@ -113,7 +113,7 @@ def test_experiment_file_exists_is_false_before_initialization(tmp_path):
 def test_load_experiment_splits_the_path(tmp_path):
     """Regression: os.path.split(path)[:-1] made parent_directory a one-element TUPLE, so every
     os.path call on it afterwards raised -- including the GUI's own isdir() check."""
-    data = _make_data(tmp_path)
+    _make_data(tmp_path)          # creates the experiment on disk; loaded below is what we test
     loaded = NWBData(cfg=CFG)
     loaded.load_experiment(str(tmp_path / 'expt_2026-07-26'))
 
