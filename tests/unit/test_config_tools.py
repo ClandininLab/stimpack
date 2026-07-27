@@ -138,3 +138,108 @@ def test_module_names_are_valid_python_identifiers(tmp_path):
     name = config_tools.user_module_sys_name('data', str(tmp_path / '2 weird-name!.py'))
 
     assert all(part.isidentifier() for part in name.split('.')), name
+
+
+# --- lab-wide config -----------------------------------------------------------------------------
+
+def _labpack(tmp_path, configs):
+    """A labpack directory holding the given {filename: yaml text} configs."""
+    (tmp_path / 'configs').mkdir(parents=True, exist_ok=True)
+    for name, text in configs.items():
+        (tmp_path / 'configs' / name).write_text(text)
+    return str(tmp_path)
+
+
+def test_lab_config_supplies_defaults_under_each_config(tmp_path):
+    """Settings shared by everyone in the lab live in one file instead of being copied into every
+    rig's config, where they drift."""
+    labpack = _labpack(tmp_path, {
+        'lab_config.yaml': 'lab: Clandinin\ninstitution: Stanford\nexperimenter: nobody\n',
+        'rig_a.yaml': 'experimenter: alice\n',
+    })
+
+    cfg = config_tools.get_configuration_file('rig_a.yaml', labpack)
+
+    assert cfg['lab'] == 'Clandinin'          # inherited
+    assert cfg['institution'] == 'Stanford'   # inherited
+    assert cfg['experimenter'] == 'alice'     # the rig's own value wins
+
+
+def test_lab_config_merges_nested_dicts_rather_than_replacing_them(tmp_path):
+    labpack = _labpack(tmp_path, {
+        'lab_config.yaml': 'subject_metadata:\n  genotype: [wt, mutant]\n  sex: [F, M]\n',
+        'rig_a.yaml': 'subject_metadata:\n  sex: [F]\n  prep: [in vivo]\n',
+    })
+
+    cfg = config_tools.get_configuration_file('rig_a.yaml', labpack)
+
+    assert cfg['subject_metadata']['genotype'] == ['wt', 'mutant']   # kept from the lab config
+    assert cfg['subject_metadata']['prep'] == ['in vivo']            # added by the rig
+    assert cfg['subject_metadata']['sex'] == ['F', 'M']              # lists union, rig's first
+
+
+def test_merge_configs_leaves_its_inputs_alone():
+    """deepmerge writes into its first argument. get_configuration_file re-reads the lab config
+    each time so it would not notice, but any caller holding a config across two merges would get
+    the first merge's result folded into the second."""
+    base = {'rig_config': {'shared': {'screen_center': [0, 0]}}, 'lab': 'X'}
+    merged_a = config_tools.merge_configs(base, {'rig_config': {'a': {'screen_center': [1, 1]}}})
+    merged_b = config_tools.merge_configs(base, {'rig_config': {'b': {'screen_center': [2, 2]}}})
+
+    assert set(base['rig_config']) == {'shared'}          # the base was not written into
+    assert set(merged_a['rig_config']) == {'shared', 'a'}
+    assert set(merged_b['rig_config']) == {'shared', 'b'}  # not {'shared', 'a', 'b'}
+
+
+def test_lab_config_does_not_leak_between_configs(tmp_path):
+    """The same guarantee end to end, through the loader."""
+    labpack = _labpack(tmp_path, {
+        'lab_config.yaml': 'rig_config:\n  shared: {screen_center: [0, 0]}\n',
+        'rig_a.yaml': 'rig_config:\n  a: {screen_center: [1, 1]}\n',
+        'rig_b.yaml': 'rig_config:\n  b: {screen_center: [2, 2]}\n',
+    })
+
+    config_tools.get_configuration_file('rig_a.yaml', labpack)
+    cfg_b = config_tools.get_configuration_file('rig_b.yaml', labpack)
+
+    assert set(cfg_b['rig_config']) == {'shared', 'b'}      # not 'a'
+
+
+def test_lab_config_is_not_offered_as_a_config_to_choose(tmp_path):
+    labpack = _labpack(tmp_path, {'lab_config.yaml': 'lab: X\n', 'rig_a.yaml': 'experimenter: a\n'})
+    assert config_tools.get_available_config_files(labpack) == ['rig_a.yaml']
+
+
+def test_a_labpack_without_a_lab_config_is_unaffected(tmp_path):
+    labpack = _labpack(tmp_path, {'rig_a.yaml': 'experimenter: alice\n'})
+    assert config_tools.get_lab_config(labpack) is None
+    assert config_tools.get_configuration_file('rig_a.yaml', labpack)['experimenter'] == 'alice'
+
+
+def test_merging_can_be_turned_off(tmp_path):
+    labpack = _labpack(tmp_path, {'lab_config.yaml': 'lab: X\n', 'rig_a.yaml': 'experimenter: a\n'})
+    cfg = config_tools.get_configuration_file('rig_a.yaml', labpack, merge_lab_config=False)
+    assert 'lab' not in cfg
+
+
+# --- choosing a built-in data backend --------------------------------------------------------------
+
+def test_data_format_defaults_to_hdf5():
+    assert config_tools.get_data_format({}) == 'hdf5'
+    assert config_tools.get_builtin_data_class({}).__name__ == 'BaseData'
+
+
+def test_data_format_is_case_insensitive():
+    assert config_tools.get_data_format({'data_format': 'NWB'}) == 'nwb'
+
+
+def test_unknown_data_format_warns_and_falls_back():
+    with pytest.warns(UserWarning, match='Unknown data_format'):
+        assert config_tools.get_data_format({'data_format': 'parquet'}) == 'hdf5'
+
+
+def test_nwb_data_class_is_resolved_on_demand():
+    pytest.importorskip('pynwb')
+    cls = config_tools.get_builtin_data_class({'data_format': 'nwb'})
+    assert cls.__name__ == 'NWBData'
+    assert cls.output_is_directory is True

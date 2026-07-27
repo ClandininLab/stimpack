@@ -20,7 +20,6 @@ You can explore how these may be used to customize `stimpack` by reading the fol
 
 .. toctree::
     :maxdepth: 1
-    :numbered:
     
     labpack_self
     labpack_configs

@@ -15,6 +15,12 @@ import copy
 from multiprocessing import shared_memory
 
 class ConstantBackground(BaseProgram):
+    """
+    A uniform background filling the whole visual field.
+
+    Drawn behind everything else, and loaded automatically at the start of each epoch from the
+    protocol's ``idle_color``.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -39,6 +45,9 @@ class ConstantBackground(BaseProgram):
         pass
 
 class Floor(BaseProgram):
+    """
+    An untextured plane below the subject, extending to the horizon.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -70,6 +79,11 @@ class Floor(BaseProgram):
         pass
 
 class TexturedGround(BaseProgram):
+    """
+    A ground plane carrying a random texture, giving optic flow as the subject translates.
+
+    Where :class:`Floor` is featureless and so gives no motion cue, this one does.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
         self.use_texture = True
@@ -113,6 +127,9 @@ class TexturedGround(BaseProgram):
         pass
 
 class CheckerboardFloor(BaseProgram):
+    """
+    A ground plane with a grayscale checkerboard, for visible optic flow with a regular period.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
         self.use_texture = True
@@ -166,6 +183,13 @@ class CheckerboardFloor(BaseProgram):
         pass
 
 class MovingPatch(BaseProgram):
+    """
+    A rectangular patch on a sphere -- the workhorse for moving-object experiments.
+
+    Rectangular in *spherical* coordinates, so it subtends a fixed angle wherever it is placed.
+    Any parameter may be given as a trajectory dictionary to vary it over time, which is how the
+    patch is made to move, change colour or change size.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -180,7 +204,9 @@ class MovingPatch(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.width = make_as_trajectory(width)
         self.height = make_as_trajectory(height)
@@ -204,6 +230,11 @@ class MovingPatch(BaseProgram):
                                                 color=color).rotate(np.radians(theta), np.radians(phi), np.radians(angle))
 
 class MovingPatchOnCylinder(BaseProgram):
+    """
+    A rectangular patch on a cylinder wall, for rigs whose screens wrap horizontally.
+
+    The cylindrical counterpart of :class:`MovingPatch`.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -218,7 +249,9 @@ class MovingPatchOnCylinder(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.width = make_as_trajectory(width)
         self.height = make_as_trajectory(height)
@@ -242,12 +275,15 @@ class MovingPatchOnCylinder(BaseProgram):
                                                         color=color).rotate(np.radians(theta), np.radians(phi), np.radians(angle))
 
 class MovingEllipse(BaseProgram):
+    """
+    An elliptical patch on a sphere, sized in degrees of azimuth and elevation.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
     def configure(self, width=20, height=10, sphere_radius=1, color=[1, 1, 1, 1], theta=0, phi=0, angle=0):
         """
-        Stimulus consisting of a circular patch on the surface of a sphere. Patch is circular in spherical coordinates.
+        Stimulus consisting of an elliptical patch on the surface of a cylinder.
 
         :param width: width of ellipse in degrees
         :param height: height of ellipse in degrees
@@ -256,7 +292,9 @@ class MovingEllipse(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.sphere_radius = sphere_radius
 
@@ -282,6 +320,11 @@ class MovingEllipse(BaseProgram):
                                                     n_steps=36).rotate(np.radians(theta), np.radians(phi), np.radians(angle))
 
 class MovingEllipseOnCylinder(BaseProgram):
+    """
+    An elliptical patch on a cylinder wall.
+
+    The cylindrical counterpart of :class:`MovingEllipse`.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -296,7 +339,9 @@ class MovingEllipseOnCylinder(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.cylinder_radius = cylinder_radius
 
@@ -322,6 +367,11 @@ class MovingEllipseOnCylinder(BaseProgram):
                                                             n_steps=36).rotate(np.radians(theta), np.radians(phi), np.radians(angle))
 
 class MovingSpot(BaseProgram):
+    """
+    A circular patch on a sphere, of fixed angular radius.
+
+    :class:`MovingEllipse` with one radius instead of two.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -334,7 +384,9 @@ class MovingSpot(BaseProgram):
         :param color: [r,g,b,a] or mono. Color of the patch
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.sphere_radius = sphere_radius
 
@@ -355,6 +407,12 @@ class MovingSpot(BaseProgram):
                                                 n_steps=36).rotate(np.radians(theta), np.radians(phi), 0)
 
 class LoomingCircle(BaseProgram):
+    """
+    A circle expanding as though an object were approaching on a collision course.
+
+    Angular size follows the standard looming profile from the object's half-size and approach
+    speed, so the expansion is the one a real approach would produce rather than a linear ramp.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -389,6 +447,12 @@ class LoomingCircle(BaseProgram):
         self.t_prev = t
 
 class UniformWhiteNoise(BaseProgram):
+    """
+    A patch whose intensity is redrawn from a distribution at a fixed rate.
+
+    The seed is derived from elapsed time and ``start_seed``, so the same protocol replays the
+    same sequence. See :mod:`stimpack.visual_stim.distribution` for the available distributions.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -406,7 +470,9 @@ class UniformWhiteNoise(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.width = width
         self.height = height
@@ -430,7 +496,6 @@ class UniformWhiteNoise(BaseProgram):
         np.random.seed(seed)
 
         color = self.noise_distribution.get_random_values(1)
-        color = [color, color, color, 1]
         # TODO: is there a way to make this object once in configure then update with width/height in eval_at?
         self.stim_object = shapes.GlSphericalRect(width=self.width,
                                                 height=self.height,
@@ -438,6 +503,11 @@ class UniformWhiteNoise(BaseProgram):
                                                 color=color).rotate(np.radians(self.theta), np.radians(self.phi), np.radians(self.angle))
 
 class TexturedSphericalPatch(BaseProgram):
+    """
+    Base class for stimuli that paint a texture on a spherical patch.
+
+    Subclasses supply the texture; this handles the geometry and the upload.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
         self.use_texture = True
@@ -453,7 +523,9 @@ class TexturedSphericalPatch(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.width = width
         self.height = height
@@ -478,6 +550,9 @@ class TexturedSphericalPatch(BaseProgram):
         pass
 
 class RandomGridOnSphericalPatch(TexturedSphericalPatch):
+    """
+    A grid of randomly-valued squares painted on a spherical patch.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -544,6 +619,13 @@ class RandomGridOnSphericalPatch(TexturedSphericalPatch):
         self.updateTexture(t)
 
 class TexturedCylinder(BaseProgram):
+    """
+    Base class for stimuli that paint a texture on a cylinder around the subject.
+
+    Subclasses supply the texture -- gratings, bars, grids, checkerboards. The subject is at the
+    cylinder's centre, so the texture surrounds them and its angular period does not depend on
+    the cylinder's radius.
+    """
     def __init__(self, screen, **kwargs):
         super().__init__(screen=screen, **kwargs)
         self.use_texture = True
@@ -576,6 +658,11 @@ class TexturedCylinder(BaseProgram):
         pass
 
 class CylindricalGrating(TexturedCylinder):
+    """
+    A grating wrapped around the subject, square or sinusoidal.
+
+    Set ``angle`` for orientation and give ``theta`` a trajectory to drift it.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -594,7 +681,9 @@ class CylindricalGrating(TexturedCylinder):
         :param n_steps_y: number of steps in y direction to draw the texture (approximate; lowerbound)
 
         :params color, cylinder_radius, cylinder_height, theta, phi, angle: see parent class
-        *Any of these params except cylinder_radius, cylinder_height, profile, n_steps_x, and n_steps_y can be passed as a trajectory dict to vary as a function of time
+
+        .. note::
+           Any of these params except cylinder_radius, cylinder_height, profile, n_steps_x, and n_steps_y can be passed as a trajectory dict to vary as a function of time
         """
         super().configure(color=color, cylinder_radius=cylinder_radius, cylinder_location=cylinder_location, cylinder_height=cylinder_height, theta=theta, phi=phi, angle=angle)
 
@@ -716,6 +805,11 @@ class CylindricalGrating(TexturedCylinder):
         pass
 
 class RotatingGrating(CylindricalGrating):
+    """
+    A :class:`CylindricalGrating` that rotates about the axis its bars run along.
+
+    Distinct from drifting: the bars turn rather than translating past the subject.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -768,6 +862,9 @@ class RotatingGrating(CylindricalGrating):
         self.angle_prev = angle
 
 class ExpandingEdges(TexturedCylinder):
+    """
+    Bars on a cylinder whose edges move outward from a centre, expanding over time.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -855,6 +952,9 @@ class ExpandingEdges(TexturedCylinder):
         self.update_texture_gl(img)
 
 class RandomBars(TexturedCylinder):
+    """
+    Vertical bars of independently random intensity on a cylinder.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -936,6 +1036,12 @@ class RandomBars(TexturedCylinder):
         self.update_texture_gl(img)
 
 class RandomGrid(TexturedCylinder):
+    """
+    A grid of randomly-valued patches covering a cylinder.
+
+    Each patch subtends ``patch_width`` by ``patch_height`` degrees; the cylinder is sized to fit
+    a whole number of them within the requested vertical extent.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -965,7 +1071,7 @@ class RandomGrid(TexturedCylinder):
         # actual vert. extent is based on floor-nearest integer number of patch heights
         assert cylinder_vertical_extent < 180
         self.n_patches_height = int(np.floor(cylinder_vertical_extent/patch_height))
-        patch_height_m = cylinder_radius * np.tan(np.radians(patch_height))  # in meters
+        patch_height_m = 2 * cylinder_radius * np.tan(np.radians(patch_height/2))  # in meters
         cylinder_height = self.n_patches_height * patch_height_m
 
         super().configure(color=color, angle=angle, cylinder_radius=cylinder_radius, cylinder_height=cylinder_height, theta=theta, phi=phi)
@@ -1012,6 +1118,9 @@ class RandomGrid(TexturedCylinder):
         self.update_texture_gl(img)
 
 class Checkerboard(TexturedCylinder):
+    """
+    A regular checkerboard on a cylinder, for a broadband spatial pattern of known period.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -1070,12 +1179,19 @@ class Checkerboard(TexturedCylinder):
         pass
 
 class MovingBox(BaseProgram):
+    """
+    A rectangular box in Cartesian space, positioned and oriented freely.
+
+    Unlike the spherical and cylindrical stimuli, this is an object at a place in the world: its
+    apparent size changes as the subject moves relative to it, which is what makes it useful in
+    closed loop.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
     def configure(self, x_length=1, y_length=1, z_length=1, color=[1, 1, 1, 1], x=0, y=0, z=0, yaw=0, pitch=0, roll=0):
         """
-        Stimulus consisting of a rectangular patch on the surface of a sphere. Patch is rectangular in spherical coordinates.
+        A rectangular box in Cartesian space, positioned and oriented freely.
 
         :param x_length: meters, length of box in x direction
         :param y_length: meters, length of box in y direction
@@ -1087,7 +1203,9 @@ class MovingBox(BaseProgram):
         :param yaw: degrees, rotation around z axis
         :param pitch: degrees, rotation around y axis
         :param roll: degrees, rotation around x axis
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.x_length = make_as_trajectory(x_length)
         self.y_length = make_as_trajectory(y_length)
@@ -1125,6 +1243,9 @@ class MovingBox(BaseProgram):
                                     ).set_color(util.get_rgba(color))
 
 class Tower(BaseProgram):
+    """
+    A single cylindrical tower standing at an arbitrary position -- a landmark in a virtual world.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -1154,13 +1275,26 @@ class Tower(BaseProgram):
         pass
 
 class Forest(BaseProgram):
+    """
+    Many identical towers drawn by one shader program.
+
+    :class:`Tower` repeated across a list of positions, cheaply enough to fill an environment.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen, num_tri=1000)
 
     def configure(self, color=[1, 1, 1, 1], cylinder_radius=0.5, cylinder_height=0.5, n_faces=16, cylinder_locations=[[+5, 0, 0]]):
         """
-        Collection of tower objects created with a single shader program.
+        Many identical towers drawn by one shader program, for a landmark-rich environment.
 
+        One cylinder is built and then translated into copies, rather than rebuilt at each
+        location, because constructing the geometry is the slow part.
+
+        :param color: [r,g,b,a] or mono. Colour shared by every tower
+        :param cylinder_radius: meters, radius of each tower
+        :param cylinder_height: meters, height of each tower
+        :param n_faces: flat faces approximating each tower's wall
+        :param cylinder_locations: list of (x, y, z) positions in meters, one per tower
         """
         self.color = color
         self.cylinder_radius = cylinder_radius
@@ -1187,12 +1321,34 @@ class Forest(BaseProgram):
 # %%
 
 class PixMap(TexturedCylinder):
+    """
+    A texture read live from shared memory and painted on a cylinder or sphere.
+
+    Lets another process drive the display frame by frame. See
+    :mod:`stimpack.visual_stim.shared_pixmap`.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen, num_tri=10000)
 
     def configure(self, memname='test', frame_size=None, rgb_texture=True, width=180, radius=1, 
                         n_steps=16, surface='cylindrical'):
+        """
+        A texture read live from shared memory and painted on a cylinder or sphere.
 
+        Lets another process -- a camera feed, a rendering engine, a stimulus generator written
+        elsewhere -- drive the display by writing frames into a shared buffer, which this reads
+        each update. See :mod:`stimpack.visual_stim.shared_pixmap`.
+
+        :param memname: name of the :class:`multiprocessing.shared_memory.SharedMemory` block
+            the writing process created
+        :param frame_size: (rows, columns) of the frame in that block. Required: it is how the
+            raw buffer is interpreted, and it sets the aspect ratio
+        :param rgb_texture: True for colour frames, False for monochrome
+        :param width: degrees of azimuth the image spans; height follows from the aspect ratio
+        :param radius: meters, radius of the surface it is painted on
+        :param n_steps: subdivisions of the surface
+        :param surface: 'cylindrical' or 'spherical'
+        """
         height = frame_size[0] / frame_size[1]
         height *= width
 

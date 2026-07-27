@@ -78,6 +78,22 @@ def check_config(cfg, cfg_name='', labpack_dir=None):
         level, explanation = config_tools.LEGACY_CONFIG_KEYS[key]
         add(level, 'legacy-config-key', f"'{key}' is no longer read by stimpack: {explanation}")
 
+    # --- data backend: is the requested one actually usable here? -------------------------------
+    # data_format picks a built-in backend, and the NWB one needs pynwb, which is an optional
+    # dependency. Without this the config looks fine and the GUI dies on import at start-up --
+    # at the rig, with an animal on it.
+    data_format = str(cfg.get('data_format', 'hdf5')).lower()
+    if data_format not in config_tools.BUILTIN_DATA_FORMATS:
+        add('error', 'unknown-data-format',
+            f"data_format '{data_format}' is not one of "
+            f"{sorted(config_tools.BUILTIN_DATA_FORMATS)}; stimpack will fall back to hdf5")
+    else:
+        try:
+            config_tools.get_builtin_data_class(cfg)
+        except ImportError as e:
+            add('error', 'data-backend-unavailable',
+                f"data_format is '{data_format}' but its backend cannot be imported: {e}")
+
     # --- tier 2: does everything module_paths names actually exist? -----------------------------
     module_paths = cfg.get('module_paths') or {}
     if not module_paths:
@@ -613,9 +629,20 @@ def _sleep_disabled(protocol_class):
     for namespace in namespaces:
         patched.append((namespace, namespace['sleep']))
         namespace['sleep'] = lambda *args, **kwargs: None
+
+    # Also the method. BaseProtocol.sleep is an interruptible wait that polls the client rather
+    # than calling the module-level sleep, so patching the name above does not reach it -- it
+    # would poll for the full stimulus duration and the check would take as long as the run.
+    had_own_sleep = 'sleep' in vars(protocol_class)
+    original_method = vars(protocol_class).get('sleep')
+    protocol_class.sleep = lambda self, *args, **kwargs: None
     try:
         yield
     finally:
+        if had_own_sleep:
+            protocol_class.sleep = original_method
+        else:
+            del protocol_class.sleep
         for namespace, original in patched:
             namespace['sleep'] = original
 

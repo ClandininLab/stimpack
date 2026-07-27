@@ -7,7 +7,7 @@ Submodules
 experiment.util.config\_tools module
 ------------------------------------
 
-.. automodule:: experiment.util.config_tools
+.. automodule:: stimpack.experiment.util.config_tools
    :members:
    :undoc-members:
    :show-inheritance:
@@ -15,7 +15,7 @@ experiment.util.config\_tools module
 experiment.util.h5io module
 ---------------------------
 
-.. automodule:: experiment.util.h5io
+.. automodule:: stimpack.experiment.util.h5io
    :members:
    :undoc-members:
    :show-inheritance:
@@ -23,7 +23,7 @@ experiment.util.h5io module
 Module contents
 ---------------
 
-.. automodule:: experiment.util
+.. automodule:: stimpack.experiment.util
    :members:
    :undoc-members:
    :show-inheritance:

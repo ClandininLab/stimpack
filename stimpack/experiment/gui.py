@@ -10,6 +10,7 @@ from datetime import datetime
 import os
 import sys
 import time
+import traceback
 from enum import Enum
 import warnings
 from typing import Any
@@ -17,14 +18,13 @@ import yaml
 
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
-                             QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QFrame,
-                             QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
+                             QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QHBoxLayout, QFrame,
                              QScrollArea, QListWidget, QSizePolicy, QAbstractItemView)
 import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, QUrl
 import PyQt6.QtGui as QtGui
 
-from stimpack.experiment.util import config_tools, h5io, check_labpack
+from stimpack.experiment.util import config_tools, check_labpack
 from stimpack.experiment import protocol, data, client
 
 from stimpack.util import get_all_subclasses, ICON_PATH, ROOT_DIR
@@ -37,16 +37,38 @@ class ParseError(Exception):
         super().__init__()
         self.message = message
 
+class _StatusLabel(QLabel):
+    """
+    The status line, which mirrors whatever it is showing into its tooltip.
+
+    The window is one text line tall, so a long message -- a server warning listing every
+    registered function -- has to be scrolled to be read. Hovering shows all of it at once,
+    which is usually what someone wants when a warning goes by.
+
+    A QLabel rather than a read-only text box so that setText/text() keep working at the several
+    dozen call sites that set status.
+    """
+    def setText(self, text):
+        super().setText(text)
+        self.setToolTip(text)
+
+
 class ExperimentGUI(QWidget):
 
     # Emitted when the server pushes a message. report_server_message runs on the run thread, so this
     # signal (a queued cross-thread connection) marshals the update onto the GUI thread.
     server_message_signal = pyqtSignal(str, str)
 
-    def __init__(self):
+    def __init__(self, data_format=None):
+        """
+        :param data_format: overrides the config's data_format for this session ('hdf5' or 'nwb').
+                            None means use whatever the chosen config says.
+        """
         super().__init__()
         # set GUI icon
         self.setWindowIcon(QtGui.QIcon(ICON_PATH))
+
+        self.data_format_override = data_format
 
         self.note_text = ''
         self.run_parameter_input = {}
@@ -94,9 +116,12 @@ class ExperimentGUI(QWidget):
         user_data_module_list = config_tools.load_user_module(self.cfg, 'data')
         if user_data_module_list:
             self.data = user_data_module_list[0].Data(self.cfg)
-        else:  # use the built-in
-            print('!!! Using builtin {} module. To use user defined module, you must point to that module in your config file !!!'.format('data'))
-            self.data = data.BaseData(self.cfg)
+        else:  # use a built-in, chosen by the config's data_format (default hdf5, or nwb)
+            if self.data_format_override is not None:
+                self.cfg['data_format'] = self.data_format_override
+            data_class = config_tools.get_builtin_data_class(self.cfg)
+            print('!!! Using builtin {} module ({}). To use user defined module, you must point to that module in your config file !!!'.format('data', data_class.__name__))
+            self.data = data_class(self.cfg)
 
          # start a client
         user_client_module_list = config_tools.load_user_module(self.cfg, 'client')
@@ -120,7 +145,11 @@ class ExperimentGUI(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle(f"Stimpack Experiment ({self.cfg['current_cfg_name'].split('.')[0]}: {self.cfg['current_rig_name']})")
+        # Name the storage backend in the title when it is not the default, so it is obvious at a
+        # glance which format a running experiment is being written in. Taken from the object in
+        # use rather than from the config's data_format, which a labpack's own data module ignores.
+        format_note = '' if type(self.data) is data.BaseData else f'{type(self.data).__name__}, '
+        self.setWindowTitle(f"Stimpack Experiment ({format_note}{self.cfg['current_cfg_name'].split('.')[0]}: {self.cfg['current_rig_name']})")
 
         # # # TAB 1: MAIN controls, for selecting / playing stimuli
 
@@ -179,31 +208,73 @@ class ExperimentGUI(QWidget):
         save_preset_button.clicked.connect(self.on_pressed_button)
         self.protocol_selector_grid.addWidget(save_preset_button, 2, 2)
 
-        # Status window:
-        new_label = QLabel('Status:')
-        self.protocol_control_grid.addWidget(new_label, 0, 0)
-        self.status_label = QLabel()
-        self.status_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.status_label, 0, 1)
-        self.status_label.setText('Select a protocol')
+        # Status window: its own row, spanning the grid.
+        #
+        # Inside a scroll area rather than bare, because a QLabel's size hint grows with its text:
+        # a long message -- a server warning naming every registered function, say -- used to widen
+        # its column and reshape the whole window. The label wraps to the viewport instead, and the
+        # area scrolls, so the message can be as long as it likes without moving anything.
+        self.status_label = _StatusLabel('Select a protocol')
+        self.status_label.setWordWrap(True)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        # Selectable so an error can be copied out of the GUI rather than retyped from a screenshot.
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        self.status_scroll_area = QScrollArea()
+        self.status_scroll_area.setWidget(self.status_label)
+        self.status_scroll_area.setWidgetResizable(True)      # wrap to the viewport, not the text
+        self.status_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.status_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # One text line tall, like the fields below it -- the row is for making the message wider,
+        # not the window taller. Anything longer scrolls, and the whole text is in the tooltip.
+        # Derived from the font rather than a pixel count, so it still fits at another font size.
+        self.status_scroll_area.setFixedHeight(self.status_label.fontMetrics().height()
+                                               + 2 * self.status_scroll_area.frameWidth())
+        # No size policy needed: a scroll area's size hint comes from its own frame, not from the
+        # widget inside it, so the message length cannot reach the window width from here. Measured
+        # -- a 5000-character label gives the same hint as an empty one.
+        # 'Status:' sits in the row rather than in column 0, so it takes only the width of the
+        # word instead of the width of that column -- which is set by the widest label under it
+        # ('Elapsed time [s]:') and would otherwise be margin the message could not use.
+        status_row = QHBoxLayout()
+        status_row.addWidget(QLabel('Status:'))
+        status_row.addWidget(self.status_scroll_area)
+        self.protocol_control_grid.addLayout(status_row, 0, 0, 1, 4)
 
         # Current series counter
         new_label = QLabel('Series counter:')
-        self.protocol_control_grid.addWidget(new_label, 0, 2)
+        self.protocol_control_grid.addWidget(new_label, 1, 0)
         self.series_counter_input = QSpinBox()
         self.series_counter_input.setMinimum(1)
         self.series_counter_input.setMaximum(1000)
         self.series_counter_input.setValue(1)
         self.series_counter_input.valueChanged.connect(self.on_entered_series_count)
-        self.protocol_control_grid.addWidget(self.series_counter_input, 0, 3)
+        self.protocol_control_grid.addWidget(self.series_counter_input, 1, 1)
 
-        # Elapsed time window:
+        # Current subject, next to the series counter: together they say what the next run will
+        # be recorded as. Otherwise the only place to see the subject is the Subject tab, and
+        # recording onto the wrong one is a mistake worth making hard.
+        new_label = QLabel('Subject:')
+        self.protocol_control_grid.addWidget(new_label, 1, 2)
+        self.current_subject_main_label = QLabel()
+        self.current_subject_main_label.setFrameShadow(QFrame.Shadow(1))
+        self.protocol_control_grid.addWidget(self.current_subject_main_label, 1, 3)
+
+        # Elapsed time and epoch count share a row: both say how far through the run we are, and
+        # neither needs a third of the window to show "0 / 240".
         new_label = QLabel('Elapsed time [s]:')
-        self.protocol_control_grid.addWidget(new_label, 1, 0)
+        self.protocol_control_grid.addWidget(new_label, 2, 0)
         self.elapsed_time_label = QLabel()
         self.elapsed_time_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.elapsed_time_label, 1, 1)
+        self.protocol_control_grid.addWidget(self.elapsed_time_label, 2, 1)
         self.elapsed_time_label.setText('')
+
+        new_label = QLabel('Epoch count:')
+        self.protocol_control_grid.addWidget(new_label, 2, 2)
+        self.epoch_count_label = QLabel()
+        self.epoch_count_label.setFrameShadow(QFrame.Shadow(1))
+        self.protocol_control_grid.addWidget(self.epoch_count_label, 2, 3)
+        self.epoch_count_label.setText('')
 
         # Elapsed timer for protocol
         self.progress_timer = QTimer()
@@ -211,44 +282,35 @@ class ExperimentGUI(QWidget):
         self.progress_timer.setInterval(1000)
         self.progress_timer.timeout.connect(self.update_run_progress)
 
-        # Epoch count refresh button:
-        new_label = QLabel('Epoch count:')
-        self.protocol_control_grid.addWidget(new_label, 1, 2)
-        # Epoch count window:
-        self.epoch_count_label = QLabel()
-        self.epoch_count_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.epoch_count_label, 1, 3)
-        self.epoch_count_label.setText('')
-
         # View button:
         self.view_button = QPushButton("View", self)
         self.view_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(self.view_button, 2, 0)
+        self.protocol_control_grid.addWidget(self.view_button, 3, 0)
 
         # Record button:
         self.record_button = QPushButton("Record", self)
         self.record_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(self.record_button, 2, 1)
+        self.protocol_control_grid.addWidget(self.record_button, 3, 1)
 
         # Pause/resume button:
         self.pause_button = QPushButton("Pause", self)
         self.pause_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(self.pause_button, 2, 2)
+        self.protocol_control_grid.addWidget(self.pause_button, 3, 2)
 
         # Stop button:
         stop_button = QPushButton("Stop", self)
         stop_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(stop_button, 2, 3)
+        self.protocol_control_grid.addWidget(stop_button, 3, 3)
 
         # Enter note button:
         note_button = QPushButton("Enter note", self)
         note_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(note_button, 3, 0)
+        self.protocol_control_grid.addWidget(note_button, 4, 0)
 
         # Notes field:
         self.notes_edit = QTextEdit()
         self.notes_edit.setFixedHeight(30)
-        self.protocol_control_grid.addWidget(self.notes_edit, 3, 1, 1, 3)
+        self.protocol_control_grid.addWidget(self.notes_edit, 4, 1, 1, 3)
 
 
         # # # TAB 2: ENSEMBLE tab # # #
@@ -364,11 +426,13 @@ class ExperimentGUI(QWidget):
         self.existing_subject_input = QComboBox()
         self.existing_subject_input.activated.connect(self.on_selected_existing_subject)
         self.data_form.addRow(new_label, self.existing_subject_input)
-        self.update_existing_subject_input()
 
-        new_label = QLabel('Current Subject info:')
-        new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.data_form.addRow(new_label)
+        new_label = QLabel('Current subject:')
+        self.current_subject_display = QLabel('')
+        self.data_form.addRow(new_label, self.current_subject_display)
+
+        # After current_subject_display exists: this populates it.
+        self.update_existing_subject_input()
 
         # Only built-ins are "subject_id," "age" and "notes"
         # subject ID:
@@ -424,7 +488,7 @@ class ExperimentGUI(QWidget):
         # Initialize new experiment button
         initialize_button = QPushButton("Initialize experiment", self)
         initialize_button.clicked.connect(self.on_pressed_button)
-        new_label = QLabel('Current data file:')
+        new_label = QLabel(f'Current {self.data.output_noun}:')
         self.file_form.addRow(initialize_button, new_label)
         # Load existing experiment button
         load_button = QPushButton("Load experiment", self)
@@ -434,48 +498,12 @@ class ExperimentGUI(QWidget):
         self.file_form.addRow(load_button, self.current_experiment_label)
 
         # # # # Data browser: # # # # # # # #
-        self.group_tree = QTreeWidget(self)
-        self.group_tree.setHeaderHidden(True)
-        self.group_tree.itemClicked.connect(self.on_tree_item_clicked)
-        self.file_form.addRow(self.group_tree)
-
-        # Attribute table
-        self.table_attributes = QTableWidget()
-        self.table_attributes.setStyleSheet("")
-        self.table_attributes.setColumnCount(2)
-        self.table_attributes.setObjectName("table_attributes")
-        self.table_attributes.setRowCount(0)
-        item = QTableWidgetItem()
-        font = QtGui.QFont()
-        font.setPointSize(10)
-        item.setFont(font)
-        item.setBackground(QtGui.QColor(121, 121, 121))
-        brush = QtGui.QBrush(QtGui.QColor(91, 91, 91))
-        brush.setStyle(Qt.BrushStyle.SolidPattern)
-        item.setForeground(brush)
-        self.table_attributes.setHorizontalHeaderItem(0, item)
-        item = QTableWidgetItem()
-        item.setBackground(QtGui.QColor(123, 123, 123))
-        brush = QtGui.QBrush(QtGui.QColor(91, 91, 91))
-        brush.setStyle(Qt.BrushStyle.SolidPattern)
-        item.setForeground(brush)
-        self.table_attributes.setHorizontalHeaderItem(1, item)
-        self.table_attributes.horizontalHeader().setCascadingSectionResizes(True)
-        self.table_attributes.horizontalHeader().setDefaultSectionSize(200)
-        self.table_attributes.horizontalHeader().setHighlightSections(False)
-        self.table_attributes.horizontalHeader().setSortIndicatorShown(True)
-        self.table_attributes.horizontalHeader().setStretchLastSection(True)
-        self.table_attributes.verticalHeader().setVisible(False)
-        self.table_attributes.verticalHeader().setHighlightSections(False)
-        self.table_attributes.setMinimumSize(QtCore.QSize(200, 400))
-        item = self.table_attributes.horizontalHeaderItem(0)
-        item.setText("Attribute")
-        item = self.table_attributes.horizontalHeaderItem(1)
-        item.setText("Value")
-
-        self.table_attributes.itemChanged.connect(self.update_attrs_to_file)
-
-        self.file_form.addRow(self.table_attributes)
+        # Supplied by the data backend, or not at all -- see BaseData.make_data_browser. A backend
+        # without one gets the rest of the tab without these widgets, rather than a second copy of
+        # the GUI without them.
+        self.data_browser = self.data.make_data_browser(parent=self)
+        if self.data_browser is not None:
+            self.file_form.addRow(self.data_browser)
 
         # # # Add each tab to the main layout # # #
         self.tabs = QTabWidget()
@@ -492,7 +520,7 @@ class ExperimentGUI(QWidget):
         self.update_window_width()
 
         self.show()
-    
+
     def closeEvent(self, event):
         print("Closing Experiment GUI")
         self.stop_run_thread()
@@ -593,10 +621,10 @@ class ExperimentGUI(QWidget):
             else:
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Icon.Warning)
-                msg.setText("You have not initialized a data file and/or subject yet")
+                msg.setText(f"You have not initialized a {self.data.output_noun} and/or subject yet")
                 msg.setInformativeText("You can show stimuli by clicking the View button, but no metadata will be saved")
-                msg.setWindowTitle("No experiment file and/or subject")
-                msg.setDetailedText("Initialize or load both an experiment file and a subject if you'd like to save your metadata")
+                msg.setWindowTitle(f"No {self.data.output_noun} and/or subject")
+                msg.setDetailedText(f"Initialize or load both a {self.data.output_noun} and a subject if you'd like to save your metadata")
                 msg.setStandardButtons(QMessageBox.StandardButton.Ok)
                 msg.exec()
 
@@ -656,14 +684,16 @@ class ExperimentGUI(QWidget):
             self.populate_groups()
 
         elif sender.text() == 'Load experiment':
-            if os.path.isdir(self.data.data_directory):
-                filePath, _ = QFileDialog.getOpenFileName(self, "Open file", self.data.data_directory)
+            # An experiment is one file for some backends and a directory for others, so ask for
+            # whichever this one is (BaseData.output_is_directory).
+            start_dir = self.data.data_directory if os.path.isdir(self.data.data_directory) else ''
+            if self.data.output_is_directory:
+                path = QFileDialog.getExistingDirectory(self, f"Open {self.data.output_noun}", start_dir)
             else:
-                filePath, _ = QFileDialog.getOpenFileName(self, "Open file")
-            self.data.experiment_file_name = os.path.split(filePath)[1].split('.')[0]
-            self.data.data_directory = os.path.split(filePath)[0]
+                path, _ = QFileDialog.getOpenFileName(self, f"Open {self.data.output_noun}", start_dir)
 
-            if self.data.experiment_file_name != '':
+            if path:  # empty when the dialog was cancelled
+                self.data.load_experiment(path)
                 self.current_experiment_label.setText(self.data.experiment_file_name)
                 # update series count to reflect already-collected series
                 self.data.reload_series_count()
@@ -939,21 +969,46 @@ class ExperimentGUI(QWidget):
         self.show()
 
     def on_selected_existing_subject(self, index):
-        subject_data = self.data.get_existing_subject_data()
-        self.populate_subject_metadata_fields(subject_data[index])
-        self.data.current_subject = subject_data[index].get('subject_id')
+        # Look the subject up by id rather than by dropdown position: the dropdown lists each
+        # subject once, while get_existing_subject_data() may report one record per series
+        # (data_nwb), so the two are not the same sequence.
+        subject_id = self.existing_subject_input.itemText(index)
+        matching = [s for s in self.data.get_existing_subject_data() if s.get('subject_id') == subject_id]
+        if not matching:
+            return
+        self.populate_subject_metadata_fields(matching[-1])   # most recently recorded metadata
+        self.data.select_subject(subject_id)
+        self.show_current_subject(subject_id)
 
     def update_existing_subject_input(self):
         self.existing_subject_input.clear()
-        for subject_data in self.data.get_existing_subject_data():
-            self.existing_subject_input.addItem(subject_data['subject_id'])
+        # dict.fromkeys, not set(): one entry per subject, in the order they were recorded. A
+        # backend that keeps subject metadata in each series file (data_nwb) reports the same
+        # subject once per series, which otherwise fills the dropdown with duplicates.
+        seen = dict.fromkeys(s['subject_id'] for s in self.data.get_existing_subject_data())
+        for subject_id in seen:
+            self.existing_subject_input.addItem(subject_id)
+
         index = self.existing_subject_input.findText(self.data.current_subject)
         if index >= 0:
             self.existing_subject_input.setCurrentIndex(index)
+        self.show_current_subject(self.data.current_subject or '')
+
+    def show_current_subject(self, subject_id):
+        """Update both places the current subject is shown -- the Subject tab and the Main tab."""
+        self.current_subject_display.setText(subject_id)
+        self.current_subject_main_label.setText(subject_id)
 
     def populate_subject_metadata_fields(self, subject_data_dict):
         self.subject_id_input.setText(subject_data_dict['subject_id'])
-        self.subject_age_input.setValue(subject_data_dict['age'])
+        # A backend round-trips metadata through its own encoding, so age may come back as a
+        # string. Fall back to 0 rather than letting one odd value break the whole dialog.
+        try:
+            age = int(subject_data_dict.get('age', 0))
+        except (TypeError, ValueError):
+            warnings.warn(f"Could not read subject age {subject_data_dict.get('age')!r} as a number.")
+            age = 0
+        self.subject_age_input.setValue(age)
         self.subject_notes_input.setText(subject_data_dict['notes'])
         for key in self.subject_metadata_inputs:
             self.subject_metadata_inputs[key].setCurrentText(subject_data_dict[key])
@@ -985,6 +1040,20 @@ class ExperimentGUI(QWidget):
         # Populate parameters from filled fields
         if self.mid_parameter_edit:
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
+
+        # Let the backend set up storage for this series. No-op for a single-file format; a
+        # backend that writes one file per series (data_nwb) creates that file here.
+        #
+        # Caught rather than allowed to propagate: this runs in a Qt slot, where an unhandled
+        # Python exception is fatal -- the GUI would vanish mid-experiment instead of saying what
+        # was wrong. Refuse the run and report it, the same as any other reason not to start.
+        if save_metadata_flag:
+            try:
+                self.data.prepare_series()
+            except Exception as e:
+                warnings.warn(f'Could not prepare storage for this series:\n{traceback.format_exc()}')
+                self.status_label.setText(f'Cannot record: {e}')
+                return
 
         # start the epoch run thread:
         self.run_series_thread = runSeriesThread(self.protocol_object,
@@ -1198,85 +1267,10 @@ class ExperimentGUI(QWidget):
         self.epoch_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_epochs", "?")}')
 
     def populate_groups(self):
-        file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_dset_dict = h5io.get_hierarchy(file_path, additional_exclusions='rois')
-        self._populateTree(self.group_tree, group_dset_dict)
-
-    def _populateTree(self, widget, dict):
-        widget.clear()
-        self.fill_item(widget.invisibleRootItem(), dict)
-
-    def fill_item(self, item, value):
-        item.setExpanded(True)
-        if type(value) is dict:
-            for key, val in sorted(value.items()):
-                child = QTreeWidgetItem()
-                child.setText(0, key)
-                item.addChild(child)
-                self.fill_item(child, val)
-        elif type(value) is list:
-            for val in value:
-                child = QTreeWidgetItem()
-                item.addChild(child)
-                if type(val) is dict:
-                    child.setText(0, '[dict]')
-                    self.fill_item(child, val)
-                elif type(val) is list:
-                    child.setText(0, '[list]')
-                    self.fill_item(child, val)
-                else:
-                    child.setText(0, val)
-                child.setExpanded(True)
-        else:
-            child = QTreeWidgetItem()
-            child.setText(0, value)
-            item.addChild(child)
-
-    def on_tree_item_clicked(self, item, column):
-        file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
-
-        if group_path != '':
-            attr_dict = h5io.get_attributes_from_group(file_path, group_path)
-            if 'series' in group_path.split('/')[-1]:
-                editable_values = False  # don't let user edit epoch parameters
-            else:
-                editable_values = True
-            self.populate_attrs(attr_dict = attr_dict, editable_values = editable_values)
-
-    def populate_attrs(self, attr_dict=None, editable_values=False):
-        """ Populate attribute for currently selected group """
-        self.table_attributes.blockSignals(True)  # block udpate signals for auto-filled forms
-        self.table_attributes.setRowCount(0)
-        self.table_attributes.setColumnCount(2)
-        self.table_attributes.setSortingEnabled(False)
-
-        if attr_dict:
-            for num, key in enumerate(attr_dict):
-                self.table_attributes.insertRow(self.table_attributes.rowCount())
-                key_item = QTableWidgetItem(key)
-                key_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                self.table_attributes.setItem(num, 0, key_item)
-
-                val_item = QTableWidgetItem(str(attr_dict[key]))
-                if editable_values:
-                    val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEditable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                else:
-                    val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                self.table_attributes.setItem(num, 1, val_item)
-
-        self.table_attributes.blockSignals(False)
-
-    def update_attrs_to_file(self, item):
-        file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
-
-        attr_key = self.table_attributes.item(item.row(), 0).text()
-        attr_val = item.text()
-
-        # update attr in file
-        h5io.change_attribute(file_path, group_path, attr_key, attr_val)
-        print('Changed attr {} to = {}'.format(attr_key, attr_val))
+        # Called after anything that changes the experiment's contents. Delegates to whatever
+        # browser the backend supplied, and does nothing when it supplied none.
+        if self.data_browser is not None:
+            self.data_browser.refresh()
 
     def update_window_width(self):
         self.resize(100, self.height())
@@ -1289,12 +1283,16 @@ class InitializeExperimentGUI(QWidget):
     GUI to initialize experiment file to store data
     """
     def setupUI(self, experiment_gui_object, parent=None):
-        super(InitializeExperimentGUI, self).__init__(parent)
+        # NOT super().__init__(parent) again: both callers already construct this widget
+        # as InitializeExperimentGUI(parent=dialog), and re-running QWidget's constructor on a live widget
+        # is undefined behaviour in PyQt -- it corrupts the C++ side and segfaults later,
+        # somewhere unrelated.
         self.parent = parent
         self.experiment_gui_object = experiment_gui_object
         layout = QFormLayout()
 
-        label_filename = QLabel('File Name:')
+        noun = self.experiment_gui_object.data.output_noun
+        label_filename = QLabel(f'{noun[0].upper() + noun[1:]} name:')
         init_now = datetime.now()
         defaultName = init_now.isoformat()[:-16]
         self.le_filename = QLineEdit(defaultName)
@@ -1319,13 +1317,17 @@ class InitializeExperimentGUI(QWidget):
         self.setLayout(layout)
 
     def on_pressed_enter_button(self):
-        self.experiment_gui_object.data.experiment_file_name = self.le_filename.text()
-        self.experiment_gui_object.data.data_directory = self.le_data_directory.text()
-        self.experiment_gui_object.data.experimenter = self.le_experimenter.text()
+        data = self.experiment_gui_object.data
+        data.experiment_file_name = self.le_filename.text()
+        data.data_directory = self.le_data_directory.text()
+        data.experimenter = self.le_experimenter.text()
 
-        if os.path.isfile(os.path.join(self.experiment_gui_object.data.data_directory, self.experiment_gui_object.data.experiment_file_name) + '.hdf5'):
-           self.label_status.setText('Experiment file already exists!')
-        elif not os.path.isdir(self.experiment_gui_object.data.data_directory):
+        # Ask the backend whether this experiment already exists, rather than testing for an
+        # .hdf5 file here: what "already exists" means is the backend's business (a file for
+        # HDF5, a directory for NWB), and it already answers exactly this question.
+        if data.experiment_file_exists():
+            self.label_status.setText(f'{data.output_noun[0].upper() + data.output_noun[1:]} already exists!')
+        elif not os.path.isdir(data.data_directory):
             self.label_status.setText('Data directory does not exist!')
         else:
             self.label_status.setText('Data entered')
@@ -1345,7 +1347,10 @@ class InitializeExperimentGUI(QWidget):
 
 class InitializeRigGUI(QWidget):
     def setupUI(self, experiment_gui_object, parent=None, window_size=None):
-        super(InitializeRigGUI, self).__init__(parent)
+        # NOT super().__init__(parent) again: both callers already construct this widget
+        # as InitializeRigGUI(parent=dialog), and re-running QWidget's constructor on a live widget
+        # is undefined behaviour in PyQt -- it corrupts the C++ side and segfaults later,
+        # somewhere unrelated.
         self.parent = parent
         self.experiment_gui_object = experiment_gui_object
 
@@ -1569,7 +1574,7 @@ class EnsembleList(QListWidget):
             self.clearSelection()
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(prog='stimpack', description='Stimpack experiment GUI.')
     parser.add_argument('--check-labpack', action='store_true',
                         help="check the configured labpack for problems and exit. Returns nonzero "
@@ -1579,7 +1584,12 @@ def main():
     parser.add_argument('--deep', action='store_true',
                         help="with --check-labpack, also import each protocol and check where its "
                              "calls would be routed. Runs lab code, so it is not done at startup.")
-    args = parser.parse_args()
+    parser.add_argument('--data-format', default=None,
+                        choices=sorted(config_tools.BUILTIN_DATA_FORMATS),
+                        help="storage backend for this session, overriding the config's "
+                             "data_format. For trying a format without editing a config; set "
+                             "data_format in the config file to make it the default.")
+    args = parser.parse_args(argv)
 
     if args.check_labpack:
         from stimpack.experiment.util import check_labpack
@@ -1590,8 +1600,22 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName('Stimpack Experiment')
     app.setWindowIcon(QtGui.QIcon(ICON_PATH))
-    ex = ExperimentGUI()  # noqa: F841 - keep a reference so the top-level window isn't garbage-collected
+    ex = ExperimentGUI(data_format=args.data_format)  # noqa: F841 - keep a reference so the top-level window isn't garbage-collected
     sys.exit(app.exec())
+
+
+def main_nwb():
+    """
+    The `stimpack_nwb` command, from when NWB needed a GUI of its own.
+
+    One GUI now serves both formats, so this is `stimpack --data-format nwb`. Kept so existing
+    setups keep working, and it says what to do instead.
+    """
+    warnings.warn("'stimpack_nwb' is deprecated: one GUI now handles both formats. Put "
+                  "'data_format: nwb' in your config file and run 'stimpack', or pass "
+                  "'stimpack --data-format nwb'.")
+    main(sys.argv[1:] + ['--data-format', 'nwb'])
+
 
 if __name__ == '__main__':
     main()

@@ -219,3 +219,25 @@ def test_a_failing_check_never_blocks_startup(qapp, monkeypatch, tmp_path):
     dialog.cfg, dialog.cfg_name, dialog.labpack_dir = {}, 'x_config.yaml', str(tmp_path)
     with pytest.warns(UserWarning):
         dialog.warn_about_labpack_problems()        # must not raise
+
+
+# --- dialog construction ------------------------------------------------------------------------
+
+def test_repeatedly_opening_the_experiment_dialog_is_safe(experiment_gui, tmp_path):
+    """Regression: setupUI ran QWidget.__init__ a second time on a widget the caller had already
+    constructed with its parent. Re-running a live QWidget's constructor corrupts the C++ object,
+    which does not fail where it happens -- it segfaults later, in unrelated code. Opening the
+    dialog repeatedly in one process is what makes it show up."""
+    from PyQt6.QtWidgets import QDialog
+    import stimpack.experiment.gui as gui_mod
+
+    for i in range(25):
+        dialog = QDialog()
+        dialog_ui = gui_mod.InitializeExperimentGUI(parent=dialog)
+        dialog_ui.setupUI(experiment_gui, dialog)
+        dialog_ui.le_filename.setText(f'expt_{i}')
+        dialog_ui.le_data_directory.setText(str(tmp_path))
+        dialog_ui.on_pressed_enter_button()
+        assert dialog_ui.label_status.text() == 'Data entered'
+
+    assert experiment_gui.data.experiment_file_name == 'expt_24'

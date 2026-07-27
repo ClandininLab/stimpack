@@ -1,3 +1,10 @@
+"""
+Streaming frames from another process into a stimulus via shared memory.
+
+Lets a camera feed, a rendering engine, or a stimulus generator written elsewhere drive the
+display: the other process writes frames into a shared buffer and
+:class:`~stimpack.visual_stim.stimuli.PixMap` paints whatever is there.
+"""
 from multiprocessing import shared_memory
 import numpy as np
 import time

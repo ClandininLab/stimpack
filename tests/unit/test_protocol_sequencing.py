@@ -68,3 +68,40 @@ def test_run_time_estimate_can_be_overridden_by_a_subclass():
 
     assert MyProtocol._estimate_run_time is not BaseProtocol._estimate_run_time
     assert not hasattr(BaseProtocol, '_BaseProtocol__estimate_run_time')
+
+
+# --- asking what the rig can do -------------------------------------------------------------------
+
+def _protocol(functions=None, modules=None):
+    from stimpack.experiment.protocol import BaseProtocol
+    p = BaseProtocol(cfg={})
+    p.available_modules = modules
+    p.available_server_functions = functions
+    return p
+
+
+def test_has_server_function_finds_a_lab_registered_root_function():
+    p = _protocol({'root': {'print_on_server', 'set_dlpc_current'}})
+    assert p.has_server_function('set_dlpc_current') is True
+    assert p.has_server_function('set_shutter') is False
+
+
+def test_has_server_function_defaults_to_the_root_target():
+    """Matching an untargeted call, which also goes to root."""
+    p = _protocol({'root': {'set_dlpc_current'}, 'voltage_out': {'set_value'}})
+    assert p.has_server_function('set_dlpc_current') is True
+    assert p.has_server_function('set_value') is False           # that one is on a module
+    assert p.has_server_function('set_value', target='voltage_out') is True
+
+
+def test_has_server_function_is_true_when_the_server_advertised_nothing():
+    """An older stimpack. Adopting this must not change behaviour until there is something real
+    to report -- the same contract as has_module."""
+    assert _protocol(None).has_server_function('anything') is True
+
+
+def test_has_server_function_is_true_for_a_target_that_cannot_enumerate():
+    """The visual module forwards to screen subprocesses, so it is absent from the map. Absent
+    means unknown, not empty -- answering False would be a wrong answer rather than no answer."""
+    p = _protocol({'root': {'print_on_server'}})
+    assert p.has_server_function('load_stim', target='visual') is True

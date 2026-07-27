@@ -56,3 +56,19 @@ def data(tmp_path):
     d.initialize_experiment_file()
     d.create_subject({"subject_id": "subj1"})
     return d
+
+
+@pytest.fixture
+def nwb_data(tmp_path):
+    """The same, writing NWB: a directory of one .nwb file per series, with a subject selected."""
+    pytest.importorskip("pynwb")
+    from stimpack.experiment.data_nwb import NWBData
+
+    d = NWBData(cfg={'experimenter': 'tester', 'lab': 'TestLab', 'institution': 'TestU',
+                     'current_rig_name': 'rig1', 'rig_config': {'rig1': {'screen_center': [0, 0]}}})
+    d.data_directory = str(tmp_path)
+    d.experiment_file_name = "integration_test"
+    d.initialize_experiment_file()
+    d.create_subject({"subject_id": "subj1", "age": 3, "notes": ""})
+    d.prepare_series()          # the GUI does this before each recorded series
+    return d

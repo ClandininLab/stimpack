@@ -53,3 +53,78 @@ An example may look like:
     "0 stimulus candidates".
 
 
+
+Choosing where data goes
+------------------------
+
+``data_format`` selects one of stimpack's built-in storage backends:
+
+.. code-block:: yaml
+
+    data_format: hdf5      # the default; may be omitted
+    # or
+    data_format: nwb
+
+``hdf5``
+    One ``.hdf5`` file per experiment, with each subject and series a group inside it. This is
+    stimpack's original format and what everything else in these docs assumes.
+
+``nwb``
+    A *directory* per experiment, holding one `NWB <https://www.nwb.org/>`_ file per series. NWB
+    is a community standard for neurophysiology data, so this is the format to choose if you
+    intend to share or archive data in it.
+
+    Requires ``pynwb``, which is not installed by default::
+
+        pip install stimpack[nwb]
+
+    Two extra config keys are written into every NWB file as top-level metadata:
+
+    .. code-block:: yaml
+
+        lab: Clandinin
+        institution: Stanford University
+
+The same GUI handles both; it adapts to whichever backend the config names. The interface differs
+only where the formats genuinely do — loading an experiment asks for a directory rather than a
+file, and the File tab's data browser is HDF5-only, because a directory of NWB files is not one
+walkable tree.
+
+To try a format without editing a config, pass ``stimpack --data-format nwb``.
+
+If a config names a data module of its own under ``module_paths.data``, that class is used and
+``data_format`` is ignored — your own backend takes precedence over both built-ins.
+
+.. note::
+
+    ``stimpack --check-labpack`` reports a ``data_format`` naming a backend that is not available
+    on this machine (for example ``nwb`` where ``pynwb`` is not installed). Without that check the
+    config looks fine and the GUI fails on launch, at the rig.
+
+Settings shared across a lab
+----------------------------
+
+A config file named ``lab_config.yaml`` is treated as defaults underneath every *other* config in
+the same ``configs/`` directory. Values that are the same for everyone in the lab live there once,
+instead of being copied into each rig's config where they drift apart:
+
+.. code-block:: yaml
+
+    # configs/lab_config.yaml
+    lab: Clandinin
+    institution: Stanford University
+    data_format: nwb
+    subject_metadata:
+      species: [Drosophila melanogaster]
+      sex: [Female, Male]
+
+.. code-block:: yaml
+
+    # configs/ephys_rig.yaml -- inherits all of the above
+    experimenter: mht
+    subject_metadata:
+      prep: [ex vivo, in vivo]     # added to the lab-wide fields, not replacing them
+
+The merge is deep: nested dictionaries merge key by key, lists combine without duplicating, and
+anything a rig's own config sets wins over the lab-wide value. ``lab_config.yaml`` is not offered
+in the config picker at startup, since it is not a config to run against on its own.

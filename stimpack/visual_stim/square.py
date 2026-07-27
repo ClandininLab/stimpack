@@ -1,3 +1,10 @@
+"""
+The corner square: a patch driven in the corner of a display as a photodiode timing signal.
+
+Drawn last and in projector coordinates, so it is unaffected by perspective correction. A
+photodiode taped over it gives a recording of exactly when each frame appeared, which is what
+the stimulus and the neural data are aligned by afterwards.
+"""
 # ref: https://github.com/cprogrammer1994/ModernGL/blob/master/examples/julia_fractal.py
 
 import moderngl

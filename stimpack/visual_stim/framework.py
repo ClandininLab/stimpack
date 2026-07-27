@@ -1,5 +1,18 @@
+"""
+The screen subprocess: a Qt window holding a GL context, driven over RPC.
+
+:class:`StimDisplay` is one screen. Its ``paintGL`` is the heartbeat -- it drains the RPC queue,
+evaluates every loaded stimulus at the current time, draws it once per subscreen through that
+subscreen's perspective matrix, and finally draws the corner square used as a photodiode timing
+signal.
+
+Because the queue is drained in ``paintGL``, a screen whose render loop has stopped still accepts
+every command and does nothing with it. ``report_frame_count`` is how a client tells those two
+states apart.
+"""
 import os
 import sys
+import warnings
 
 import time
 import signal
@@ -24,6 +37,39 @@ from stimpack.visual_stim.screen import Screen
 
 from stimpack.rpc.transceiver import MySocketServer
 from stimpack.rpc.util import get_kwargs
+
+# Names a screen subprocess answers to, i.e. what target('visual') can call.
+#
+# Fixed in this source rather than discovered at runtime: main() registers exactly these, and
+# VisualStimServer advertises them so a protocol can ask has_server_function(..., target='visual')
+# without a round trip to a subprocess it cannot query. A test asserts every name is a real
+# StimDisplay method, so the list cannot rot.
+SCREEN_FUNCTION_NAMES = (
+    'set_subject_trajectory',
+    'load_stim',
+    'start_stim',
+    'stop_stim',
+    'update_stim',
+    'clear_profile',
+    'print_profile',
+    'save_rendered_movie',
+    'corner_square_toggle_start',
+    'corner_square_toggle_stop',
+    'corner_square_on',
+    'corner_square_off',
+    'set_corner_square',
+    'show_corner_square',
+    'hide_corner_square',
+    'set_idle_background',
+    'set_subject_state',
+    'set_save_pos_history_flag',
+    'set_save_pos_history_dir',
+    'save_pos_history_to_file',
+    'import_stim_module',
+    'unload_stim_module',
+    'report_frame_count',
+)
+
 
 class StimDisplay(QOpenGLWidget):
     """
@@ -64,6 +110,8 @@ class StimDisplay(QOpenGLWidget):
         if screen.fullscreen:
             screen_geometry = qscreen.geometry() # Get hardware display size
             self.move(screen_geometry.left(), screen_geometry.top())
+            # Explicitly resize to device size because sometimes self.width/height stays at default
+            self.resize(screen_geometry.width(), screen_geometry.height())
         else:
             screen_geometry = qscreen.availableGeometry() # Get available display size
             self.move(screen_geometry.left(), screen_geometry.top())
@@ -131,8 +179,18 @@ class StimDisplay(QOpenGLWidget):
         self.subject_y_trajectory = None
         self.subject_theta_trajectory = None
         
-        # imported stimuli module names
-        self.imported_stim_module_names = []
+        # Imported stimulus modules, and the class registry load_stim resolves against.
+        #
+        # Resolution used to be a scan of BaseProgram.__subclasses__(), which is process-global,
+        # keyed only by class name, and cannot be pruned: a class stays registered for as long as
+        # anything references it, and a loaded stimulus instance does. Re-importing the same module
+        # -- which every client does on connect -- therefore produced two classes of the same name
+        # and load_stim refused to choose. An explicit registry makes the choice ours.
+        self.imported_stim_module_names = []          # barcodes, in import order
+        self.imported_stim_module_paths = {}          # barcode -> the path it came from
+        self.imported_stim_module_classes = {}        # barcode -> {class name: class}
+        self.stim_classes = {}                        # name -> class; later imports shadow earlier
+        self._rebuild_stim_registry()
 
     def report_frame_count(self):
         """Push this screen's rendered-frame count back to the client.
@@ -427,16 +485,24 @@ class StimDisplay(QOpenGLWidget):
             self.release_stims()
             self.stim_list = []
 
-        stim_classes = get_all_subclasses(stimuli.BaseProgram)
-        stim_class_candidates = [x for x in stim_classes if x.__name__ == name]
-        num_candidates = len(stim_class_candidates)
+        # Resolved from the registry rather than by scanning BaseProgram.__subclasses__(), which
+        # is global and cannot distinguish two same-named classes left by successive imports.
+        chosen_stim_class = self.stim_classes.get(name)
 
-        # Use an explicit exception rather than assert (asserts are stripped under `python -O`,
-        # which would let this silently pick the wrong stimulus class).
-        if num_candidates != 1:
-            raise ValueError('ERROR: {} stimulus candidates found with name {}. There should be exactly one'.format(num_candidates, name))
-
-        chosen_stim_class = stim_class_candidates[0]
+        if chosen_stim_class is None:
+            # Fall back to the global scan, for stimuli registered by some other route than
+            # import_stim_module -- a labpack importing its own module, say.
+            candidates = [x for x in get_all_subclasses(stimuli.BaseProgram) if x.__name__ == name]
+            if not candidates:
+                available = ', '.join(sorted(self.stim_classes)) or '(none)'
+                # An explicit exception rather than assert: asserts are stripped under `python -O`,
+                # which would let this silently pick the wrong stimulus class.
+                raise ValueError(f"ERROR: no stimulus named '{name}'. Available: {available}")
+            # Newest last: if several share the name, prefer the most recently defined, and say so.
+            chosen_stim_class = candidates[-1]
+            if len(candidates) > 1:
+                warnings.warn(f"{len(candidates)} classes named '{name}' are registered; using the "
+                              f"most recent, from {getattr(chosen_stim_class, '__module__', '?')}.")
         stim = chosen_stim_class(screen=self.screen)
         stim.initialize(self.ctx)
         stim.kwargs = kwargs
@@ -636,11 +702,67 @@ class StimDisplay(QOpenGLWidget):
                     print(f'WARNING: Invalid key {k} in subject state update. Valid keys are x, y, z, theta, phi, roll.')
         
     def import_stim_module(self, path):
-        # Load other stim modules from paths containing subclasses of stimpack.visual_stim.stimuli.BaseProgram
+        '''
+        Make the stimuli in a directory available to load_stim.
+
+        The directory must contain a ``stimuli.py`` defining subclasses of
+        :class:`~stimpack.visual_stim.base.BaseProgram`; ``trajectory.py`` and ``distribution.py``
+        are picked up too if present.
+
+        Re-importing a path that is already loaded **reloads** it: the previous import is dropped
+        first, so the code on disk now is the code that runs, and no duplicate classes accumulate.
+        That is what makes it safe for every client to import its labpack's stimuli on connect,
+        and what makes an edited stimulus take effect on reconnect.
+
+        A stimulus whose name is already taken -- by a built-in, or by a module imported earlier --
+        shadows it, and the shadowing is reported so it is not silent.
+        '''
+        full_path = os.path.realpath(util.convert_labpack_relative_path_to_full_path(path))
+
+        # Reload rather than add: see the docstring. Without this the same class name ends up
+        # registered twice and resolution becomes ambiguous.
+        for existing in [b for b, p in self.imported_stim_module_paths.items() if p == full_path]:
+            print(f'Reloading stim module {path} (was key {existing})')
+            self.unload_stim_module([existing])
+
         barcode = util.generate_lowercase_barcode(length=10, existing_barcodes=self.imported_stim_module_names)
         util.load_stim_module_from_path(path, barcode)
+
+        # Take the classes from the module objects just created, rather than asking
+        # BaseProgram.__subclasses__() what appeared: that is global, so it cannot tell this
+        # module's classes from any other's, nor from ones left behind by an earlier import.
+        classes = {}
+        for submodule_name, module in list(sys.modules.items()):
+            if not submodule_name.startswith(barcode + '.') or module is None:
+                continue
+            for attr in vars(module).values():
+                if (isinstance(attr, type) and issubclass(attr, stimuli.BaseProgram)
+                        and attr.__module__ == submodule_name):
+                    classes[attr.__name__] = attr
+
+        shadowed = [n for n in classes if n in self.stim_classes]
         self.imported_stim_module_names.append(barcode)
-        print(f'Loaded stim module from {path} with key {barcode}')
+        self.imported_stim_module_paths[barcode] = full_path
+        self.imported_stim_module_classes[barcode] = classes
+        self._rebuild_stim_registry()
+
+        print(f'Loaded stim module from {path} with key {barcode}'
+              + (f' ({len(classes)} stimuli)' if classes else ' (no stimuli found)'))
+        for name in shadowed:
+            warnings.warn(f"Stimulus '{name}' from {full_path} shadows an existing one; "
+                          f"the newly imported one will be used.")
+
+    def _rebuild_stim_registry(self):
+        '''
+        Rebuild the name -> class map: stimpack's own stimuli first, then each imported module in
+        the order it was imported, so a later import shadows an earlier one and unloading a module
+        restores whatever it had been covering.
+        '''
+        registry = {cls.__name__: cls for cls in get_all_subclasses(stimuli.BaseProgram)
+                    if getattr(cls, '__module__', '').startswith('stimpack.')}
+        for barcode in self.imported_stim_module_names:
+            registry.update(self.imported_stim_module_classes.get(barcode, {}))
+        self.stim_classes = registry
     
     def unload_stim_module(self, barcodes=None):
         '''
@@ -662,7 +784,13 @@ class StimDisplay(QOpenGLWidget):
                 submodule_names = [x for x in sys.modules.keys() if x.startswith(barcode)]
                 [util.unload_module(x) for x in submodule_names]
                 self.imported_stim_module_names.remove(barcode)
+                self.imported_stim_module_paths.pop(barcode, None)
+                self.imported_stim_module_classes.pop(barcode, None)
                 print(f'Unloaded stim module with key {barcode}')
+
+        # Rebuild once, after all removals: a module that was shadowing another now stops doing so,
+        # and whatever it covered -- including a built-in of the same name -- comes back.
+        self._rebuild_stim_registry()
         
 def get_perspective(subject_pos, pa, pb, pc, horizontal_flip):
     """
@@ -752,37 +880,11 @@ def main():
     debug = kwargs.get('debug', False)
     stim_display = StimDisplay(screen=screen, server=server, app=app, debug=debug)
 
-    # register functions
-    server.register_function(stim_display.set_subject_trajectory)
-    server.register_function(stim_display.load_stim)
-    server.register_function(stim_display.start_stim)
-    server.register_function(stim_display.stop_stim)
-    server.register_function(stim_display.update_stim)
-    server.register_function(stim_display.clear_profile)
-    server.register_function(stim_display.print_profile)
-    server.register_function(stim_display.save_rendered_movie)
-    server.register_function(stim_display.corner_square_toggle_start)
-    server.register_function(stim_display.corner_square_toggle_stop)
-    server.register_function(stim_display.corner_square_on)
-    server.register_function(stim_display.corner_square_off)
-    server.register_function(stim_display.set_corner_square)
-    server.register_function(stim_display.show_corner_square)
-    server.register_function(stim_display.hide_corner_square)
-    server.register_function(stim_display.set_idle_background)
-    server.register_function(stim_display.set_subject_state)
-    server.register_function(stim_display.set_save_pos_history_flag)
-    server.register_function(stim_display.set_save_pos_history_dir)
-    server.register_function(stim_display.save_pos_history_to_file)
-    server.register_function(stim_display.import_stim_module)
-    server.register_function(stim_display.unload_stim_module)
-    server.register_function(stim_display.report_frame_count)
+    # register functions -- from SCREEN_FUNCTION_NAMES, so the advertised surface and the
+    # registered one cannot drift apart
+    for function_name in SCREEN_FUNCTION_NAMES:
+        server.register_function(getattr(stim_display, function_name))
     
-    # Load other stimuli from paths given in kwargs.
-    # These modules contain subclasses of stimpack.visual_stim.stimuli.BaseProgram
-    other_stim_module_paths = kwargs.get('other_stim_module_paths', [])
-    for stim_module_path in other_stim_module_paths:
-        stim_display.import_stim_module(stim_module_path)
-
     # display the stimulus
     if screen.fullscreen:
         stim_display.showFullScreen()

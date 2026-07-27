@@ -164,3 +164,94 @@ def test_closing_the_gui_stops_a_running_series(experiment_gui, qapp):
 
 def test_closing_the_gui_is_fine_with_no_run_thread(experiment_gui):
     experiment_gui.close()                        # must not raise
+
+
+# --- the status window ----------------------------------------------------------------------------
+
+def test_a_long_status_message_does_not_reshape_the_window(experiment_gui, qapp):
+    """A QLabel's size hint grows with its text, so a long server warning -- one naming every
+    registered function, say -- used to widen its column and reshape the whole window around it."""
+    gui = experiment_gui
+    qapp.processEvents()
+    before = (gui.width(), gui.height())
+
+    gui.status_label.setText(
+        "no function 'set_dlpc_current' is registered on this server's root node (registered: "
+        "['load_server_side_state_dependent_control', 'print_on_server', 'set_subject_state', "
+        "'unload_server_side_state_dependent_control']); request was dropped. " * 3)
+    qapp.processEvents()
+
+    assert (gui.width(), gui.height()) == before
+
+
+def test_the_status_window_scrolls_instead_of_growing(experiment_gui, qapp):
+    gui = experiment_gui
+    qapp.processEvents()
+    height_before = gui.status_scroll_area.height()
+
+    gui.status_label.setText('a very long message. ' * 200)
+    qapp.processEvents()
+
+    assert gui.status_scroll_area.height() == height_before
+    # one text line, like the fields below it -- fixed, not merely unchanged
+    assert gui.status_scroll_area.height() == (gui.status_label.fontMetrics().height()
+                                               + 2 * gui.status_scroll_area.frameWidth())
+    # the label itself is taller than the viewport, which is what there is to scroll through
+    assert gui.status_label.height() >= gui.status_scroll_area.viewport().height()
+
+
+def test_an_unbreakable_message_still_does_not_widen_the_window(experiment_gui, qapp):
+    """Word wrap only helps where there are spaces. A long path, or a list of names run together,
+    has nowhere to break -- so the size policy has to stop the content dictating the width too."""
+    gui = experiment_gui
+    qapp.processEvents()
+    before = gui.width()
+
+    gui.status_label.setText('/very/long/path/' + 'x' * 4000)
+    qapp.processEvents()
+
+    assert gui.width() == before
+
+
+def test_the_status_window_has_its_own_row_spanning_the_grid(experiment_gui):
+    """Including column 0: the 'Status:' caption is in the row, so the message gets the width the
+    caption column would otherwise reserve."""
+    grid = experiment_gui.protocol_control_grid
+
+    position = None
+    for index in range(grid.count()):
+        item = grid.itemAt(index)
+        if item.layout() is not None and item.layout().indexOf(experiment_gui.status_scroll_area) >= 0:
+            position = grid.getItemPosition(index)
+    assert position is not None, 'the status window is not in the control grid'
+
+    row, column, row_span, column_span = position
+    assert (row, column) == (0, 0)
+    assert column_span == 4          # every column, so nothing shares its row
+
+
+def test_the_status_window_is_one_line_tall(experiment_gui, qapp):
+    """The row is for making a message wider, not the window taller. It should match the
+    single-line fields below it."""
+    gui = experiment_gui
+    qapp.processEvents()
+    assert gui.status_scroll_area.height() <= gui.elapsed_time_label.sizeHint().height() + 4
+
+
+def test_the_whole_message_is_in_the_tooltip(experiment_gui):
+    """One line means a long message has to be scrolled to read. Hovering shows all of it."""
+    message = 'a long server warning. ' * 20
+    experiment_gui.status_label.setText(message)
+    assert experiment_gui.status_label.toolTip() == message
+
+
+def test_status_text_is_selectable_so_an_error_can_be_copied(experiment_gui):
+    from PyQt6.QtCore import Qt
+    flags = experiment_gui.status_label.textInteractionFlags()
+    assert flags & Qt.TextInteractionFlag.TextSelectableByMouse
+
+
+def test_the_status_label_still_reads_back_as_text(experiment_gui):
+    """Everything that sets status uses setText/text(); keeping a QLabel means those still work."""
+    experiment_gui.status_label.setText('Ready')
+    assert experiment_gui.status_label.text() == 'Ready'

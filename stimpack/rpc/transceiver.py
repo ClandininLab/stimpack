@@ -1,3 +1,15 @@
+"""
+The RPC link: newline-delimited JSON over a socket.
+
+Both ends are transceivers. A request is ``{'name', 'args', 'kwargs', 'target'}``, and calls are
+**fire-and-forget** -- there is no reply and no return value, so a call naming something the far
+end does not have is accepted, sent, and silently dropped.
+
+Missing attributes become remote calls through ``__getattr__``, which is what lets a protocol
+write ``manager.target('visual').load_stim(...)``. The same mechanism means ``getattr(obj, 'x',
+default)`` never falls back and ``hasattr`` is always true, so neither is a safe way to ask
+whether the far end supports something.
+"""
 import socket, atexit, traceback
 from typing import Any, Callable
 from queue import Queue, Empty
@@ -89,6 +101,13 @@ class MyTransceiver:
 
 
     def register_function(self, function, name=None):
+        """
+        Make a function callable from the other end of the link.
+
+        :param function: the callable to expose
+        :param name: the name remote callers use; defaults to the function's own. Registering a
+            name twice is an error, so collisions surface at startup rather than at run time.
+        """
         if name is None:
             name = function.__name__
 
@@ -96,6 +115,12 @@ class MyTransceiver:
         self.functions[name] = function
 
     def write_request_list(self, request_list: list) -> None:
+        """
+        Send a batch of requests. Returns as soon as they are written -- there is no reply.
+
+        A no-op when nothing is connected, which is why a call made before the far end is up
+        disappears without complaint.
+        """
         if self.outfile is None:
             return
 
@@ -157,6 +182,13 @@ class MyTransceiver:
                 pass
 
     def process_queue(self):
+        """
+        Run every request received since the last call, on the calling thread.
+
+        Requests arrive on a reader thread and are queued rather than executed there, so the
+        owner decides when they run -- a screen does it once per rendered frame, in ``paintGL``.
+        Handler errors are caught and reported rather than killing the loop.
+        """
         while True:
             try:
                 request_list = self.queue.get_nowait()
@@ -166,6 +198,7 @@ class MyTransceiver:
             self.handle_request_list(request_list)
 
     def parse_line(self, line: str | bytes) -> list:
+        """Decode one newline-delimited JSON request list, preserving tuples."""
         if isinstance(line, bytes):
             line = line.decode('utf-8')
 
@@ -190,10 +223,12 @@ class MySocketClient(MyTransceiver):
         # Modules the server advertised on connect (a set), or None if it never told us -- e.g. an
         # older server. A real attribute, so __getattr__ can't turn it into an RPC stub.
         self.available_modules = None
+        self.available_server_functions = None
         # Only a client receives this, so handle it here rather than on every transceiver. Doing so
         # means any client -- not just BaseClient -- accepts the advertisement instead of treating
         # it as an unknown function.
         self.register_function(self._set_available_modules, name='report_server_modules')
+        self.register_function(self._set_available_server_functions, name='report_server_functions')
 
         # Keep the socket and the reader thread: close() needs both, and without them the reader is
         # unstoppable -- it parks in `for line in self.infile` and only ever exits when the peer
@@ -243,6 +278,14 @@ class MySocketClient(MyTransceiver):
     def _set_available_modules(self, modules):
         '''Record the modules the server advertised (see BaseServer.on_connection_open).'''
         self.available_modules = set(modules)
+
+    def _set_available_server_functions(self, functions):
+        '''Record the callable names the server advertised, per target.
+
+        A target missing from this map does not enumerate its functions, which is not the same as
+        having none -- see BaseProtocol.has_server_function.
+        '''
+        self.available_server_functions = {target: set(names) for target, names in functions.items()}
 
     def __getattr__(self, name: str) -> Callable[..., None]:
         reject_private_attribute(name)

@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+The client side of an experiment: runs the protocol and writes the data file.
+
+:class:`BaseClient` owns the run loop. For each epoch it asks the protocol what to present, sends
+the stimulus to the server, waits out the epoch, and records what happened. It also decides how a
+run ends -- completed, stopped by the user, aborted on a dropped link or a server-reported error,
+or failed with an exception -- and stores that outcome alongside the data.
+
+Calls to the server are one-way, so the client cannot tell from a send whether anything happened.
+It detects trouble two ways: the server pushes messages back over the same socket
+(``report_server_message``), and a broken connection is noticed directly.
+"""
 
 import os, sys
 import subprocess
@@ -33,6 +45,13 @@ class BaseClient():
             Configuration dictionary.
         """
         self.stop:bool = False
+        # The protocol currently running, so stop_run can cut its epoch short rather than let the
+        # run finish the one in progress. None between runs.
+        self.protocol_object = None
+        # Which epoch is running, and why the last one ended early (None if it ran its full
+        # length). Both are per-epoch, reset as each begins.
+        self.current_epoch_index = None
+        self.epoch_end_reason = None
         self.pause:bool = False
         self.cfg:dict = cfg
 
@@ -105,6 +124,10 @@ class BaseClient():
 
         # Let the server push warnings/errors back to us; delivered when we drain the queue (run loop).
         self.manager.register_function(self.report_server_message, name='report_server_message')
+        # Lets the server end an epoch early -- see BaseServer.end_epoch. Registered here rather
+        # than on BaseServer's side of the link because the server can only ask; the client is
+        # what actually runs the epoch.
+        self.manager.register_function(self.stop_epoch, name='stop_epoch')
 
         # The server advertises its modules as soon as it accepts the connection, but that message
         # only takes effect once we drain the queue. Wait briefly for it here so protocols can rely
@@ -132,8 +155,39 @@ class BaseClient():
                 else:
                     self.manager.target('visual').import_stim_module(path)
 
+    def stop_epoch(self, epoch_index=None, reason=None):
+        """
+        End the current epoch's remaining wait, without stopping the run.
+
+        The protocol's pre / stimulus / tail intervals are interruptible sleeps (see
+        BaseProtocol.sleep); this is what interrupts them. Called locally by stop_run, and
+        remotely by the server for a trial whose length depends on the animal's behaviour
+        (BaseServer.end_epoch).
+
+        :param epoch_index: the epoch this was meant for. A request is ignored if that epoch has
+            already ended -- without this, one sent as an epoch was finishing would arrive during
+            the next and cut it short, which is close to invisible in the data. None (the local
+            Stop button) always applies to whatever is running now.
+        :param reason: why it ended early, recorded with the epoch.
+        """
+        # getattr: report_server_message reaches here, and a client may be constructed without
+        # going through __init__.
+        protocol_object = getattr(self, 'protocol_object', None)
+        if protocol_object is None:
+            return
+
+        if epoch_index is not None and epoch_index != getattr(self, 'current_epoch_index', None):
+            return          # meant for an epoch that has already ended
+
+        self.epoch_end_reason = reason
+        protocol_object.stop_epoch()
+
     def stop_run(self):
         self.stop = True
+        # Cut the epoch in progress short as well. Without this, Stop is not acted on until the
+        # epoch ends -- so stopping a run with long epochs meant watching the current one finish,
+        # which is no use when the reason for stopping is what is on the screen.
+        self.stop_epoch()
         QApplication.processEvents()
 
     def pause_run(self):
@@ -161,6 +215,9 @@ class BaseClient():
         """
         if level == 'error':
             self.server_error = text        # always, even on a repeat: this aborts the run
+            # End the epoch's wait too: the run loop checks server_error between epochs, so
+            # without this an error reported mid-epoch is not acted on until that epoch finishes.
+            self.stop_epoch()
 
         key = (level, text)
         self._message_counts[key] = self._message_counts.get(key, 0) + 1
@@ -185,6 +242,7 @@ class BaseClient():
         self.pause = False
         self.server_error = None
         self._message_counts = {}       # dedupe is per run, so a recurring issue is reported again
+        self.protocol_object = protocol_object
         protocol_object.save_metadata_flag = save_metadata_flag
 
         # Check run parameters, compute persistent parameters, and precompute epoch parameters
@@ -218,8 +276,14 @@ class BaseClient():
         # guarantees a clean teardown + a recorded outcome even if the run aborts or raises.
         run_status, run_status_reason = 'completed', None
         try:
-            self.manager.print_on_server("Starting run.")
-            protocol_object.on_run_start(self.manager)
+            # Drain before on_run_start, not after. prepare_run has already run, so anything it
+            # provoked -- a missing root function, a bad stimulus -- is sitting in the queue
+            # already. on_run_start actuates hardware (shutters, opto steps, triggers), and a run
+            # that is going to abort must not get that far. The loop below re-checks and stops it.
+            self.manager.process_queue()
+            if self.server_error is None:
+                self.manager.print_on_server("Starting run.")
+                protocol_object.on_run_start(self.manager)
             while protocol_object.num_epochs_completed < protocol_object.run_parameters['num_epochs']:
                 QApplication.processEvents()
 
@@ -274,6 +338,8 @@ class BaseClient():
             if not broken:
                 self.manager.print_on_server('Run ended.')
 
+            self.protocol_object = None
+
     def start_epoch(self, protocol_object:BaseProtocol, data:BaseData, save_metadata_flag:bool=True):
         #  get stimulus parameters for this epoch
         if protocol_object.use_precomputed_epoch_parameters:
@@ -283,6 +349,12 @@ class BaseClient():
         
         # Check that all required epoch protocol parameters are set
         protocol_object.check_required_epoch_protocol_parameters()
+
+        # Tell the server which epoch this is, so it can stamp an end_epoch request and we can
+        # tell a late one from a current one.
+        self.current_epoch_index = protocol_object.num_epochs_completed
+        self.epoch_end_reason = None
+        self.manager.set_current_epoch(self.current_epoch_index)
 
         if save_metadata_flag:
             data.create_epoch(protocol_object)
@@ -302,8 +374,12 @@ class BaseClient():
 
         self.manager.print_on_server('Epoch completed.')
 
+        # Nothing is running now, so a late end_epoch has nothing to cut short.
+        self.current_epoch_index = None
+        self.manager.set_current_epoch(None)
+
         if save_metadata_flag:
-            data.end_epoch(protocol_object)
+            data.end_epoch(protocol_object, reason=self.epoch_end_reason)
         
         protocol_object.advance_epoch_counter()
 
@@ -316,7 +392,7 @@ class BaseClient():
             server_data_directory: Optional[str] = self.server_options.get('data_directory', None)
             if server_data_directory is not None:
                 # set server-side directory in which to save animal positions from each screen.
-                server_series_dir = posixpath.join(server_data_directory, data.experiment_file_name, str(data.series_count))
+                server_series_dir = posixpath.join(server_data_directory, data.get_server_subdir(), str(data.series_count))
                 server_pos_history_dir = posixpath.join(server_series_dir, 'visual_stim_pos')
                 self.manager.target('all').set_save_pos_history_dir(server_pos_history_dir)
 
