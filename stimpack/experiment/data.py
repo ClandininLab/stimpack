@@ -39,8 +39,9 @@ class BaseData():
     # file picker or a directory picker when loading, and how it words itself.
     output_is_directory = False
 
-    # Can the GUI's file tab browse this format's contents as a tree of groups and attributes?
-    # The browser is HDF5-specific (see util.h5io); backends without one simply omit those widgets.
+    # Can the GUI's file tab browse this format's contents? Declared separately from
+    # make_data_browser() below so that headless callers -- the client, --check-labpack, tests --
+    # can ask without importing Qt.
     supports_data_browser = True
 
     # Word for one experiment's worth of data, used in GUI labels and messages.
@@ -102,6 +103,22 @@ class BaseData():
         # Strip the extension for a file ('2024-07-05.hdf5' -> '2024-07-05') but not for a
         # directory, whose name is already the name and may legitimately contain a dot.
         self.experiment_file_name = name if self.output_is_directory else os.path.splitext(name)[0]
+
+    def make_data_browser(self, parent=None):
+        """
+        Widget for browsing this experiment's contents on the GUI's File tab, or None.
+
+        The backend supplies its own browser rather than the GUI keeping one per format: a new
+        backend that wants one overrides this, and the GUI places whatever it is handed.
+
+        GUI-only, and the Qt import is deliberately inside the method -- BaseData is used
+        headlessly by the client, the labpack checker and the tests, none of which should pull in
+        PyQt to write a file.
+        """
+        if not self.supports_data_browser:
+            return None
+        from stimpack.experiment.gui_data_browser import Hdf5DataBrowser
+        return Hdf5DataBrowser(self, parent=parent)
 
     def prepare_series(self):
         """

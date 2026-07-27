@@ -88,12 +88,25 @@ def test_a_labpack_data_module_still_wins_over_data_format(test_cfg):
 
 # --- the GUI adapts to the backend rather than being forked per backend --------------------------
 
-def test_browser_widgets_exist_only_where_they_work(experiment_gui, nwb_experiment_gui):
-    # HDF5 can be walked as a tree of groups; a directory of nwb files cannot.
-    assert hasattr(experiment_gui, 'group_tree')
-    assert hasattr(experiment_gui, 'table_attributes')
-    assert not hasattr(nwb_experiment_gui, 'group_tree')
-    assert not hasattr(nwb_experiment_gui, 'table_attributes')
+def test_the_backend_supplies_the_browser(experiment_gui, nwb_experiment_gui):
+    """HDF5 can be walked as a tree of groups; a directory of nwb files cannot. The GUI places
+    whatever the backend hands it rather than keeping one browser per format."""
+    from stimpack.experiment.gui_data_browser import Hdf5DataBrowser
+
+    assert isinstance(experiment_gui.data_browser, Hdf5DataBrowser)
+    assert nwb_experiment_gui.data_browser is None
+
+    # and it is actually on the File tab, not merely constructed
+    assert experiment_gui.data_browser.parent() is not None
+    assert experiment_gui.data_browser in experiment_gui.findChildren(Hdf5DataBrowser)
+
+
+def test_a_backend_can_decline_a_browser_without_the_gui_knowing_why(experiment_gui, monkeypatch):
+    """make_data_browser is the only thing the GUI asks. A backend returning None gets a File tab
+    without those widgets -- no branch on the format anywhere in gui.py."""
+    assert experiment_gui.data.make_data_browser(parent=None) is not None
+    monkeypatch.setattr(type(experiment_gui.data), 'supports_data_browser', False)
+    assert experiment_gui.data.make_data_browser(parent=None) is None
 
 
 def test_populate_groups_is_a_noop_without_a_browser(nwb_experiment_gui):

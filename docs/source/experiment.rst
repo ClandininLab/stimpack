@@ -36,6 +36,17 @@ The NWB storage backend, selected with ``data_format: nwb`` in a config. Require
    :members:
    :show-inheritance:
 
+experiment.gui_data_browser module
+----------------------------------
+
+The File tab's data browser. Supplied by the data backend via
+:meth:`~stimpack.experiment.data.BaseData.make_data_browser`, so a format that cannot be browsed
+as a tree simply provides none.
+
+.. automodule:: stimpack.experiment.gui_data_browser
+   :members:
+   :show-inheritance:
+
 experiment.gui module
 ---------------------
 

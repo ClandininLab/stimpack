@@ -19,13 +19,12 @@ import yaml
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
                              QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QFrame,
-                             QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
                              QScrollArea, QListWidget, QSizePolicy, QAbstractItemView)
 import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, QUrl
 import PyQt6.QtGui as QtGui
 
-from stimpack.experiment.util import config_tools, h5io, check_labpack
+from stimpack.experiment.util import config_tools, check_labpack
 from stimpack.experiment import protocol, data, client
 
 from stimpack.util import get_all_subclasses, ICON_PATH, ROOT_DIR
@@ -450,11 +449,12 @@ class ExperimentGUI(QWidget):
         self.file_form.addRow(load_button, self.current_experiment_label)
 
         # # # # Data browser: # # # # # # # #
-        # Only for backends that can be walked as a tree of groups and attributes (h5io, i.e.
-        # HDF5). A backend that says it has no browser gets the rest of the tab without these
-        # widgets, rather than a second copy of the GUI without them.
-        if self.data.supports_data_browser:
-            self.build_data_browser()
+        # Supplied by the data backend, or not at all -- see BaseData.make_data_browser. A backend
+        # without one gets the rest of the tab without these widgets, rather than a second copy of
+        # the GUI without them.
+        self.data_browser = self.data.make_data_browser(parent=self)
+        if self.data_browser is not None:
+            self.file_form.addRow(self.data_browser)
 
         # # # Add each tab to the main layout # # #
         self.tabs = QTabWidget()
@@ -472,57 +472,6 @@ class ExperimentGUI(QWidget):
 
         self.show()
 
-    def build_data_browser(self):
-        '''
-        Tree + attribute table for browsing an experiment's contents on the File tab.
-
-        HDF5-specific (see util.h5io): built only when the data backend advertises
-        supports_data_browser. Backends without one -- data_nwb, whose experiment is a
-        directory of files rather than one walkable tree -- simply do not call this.
-        '''
-        self.group_tree = QTreeWidget(self)
-        self.group_tree.setHeaderHidden(True)
-        self.group_tree.itemClicked.connect(self.on_tree_item_clicked)
-        self.file_form.addRow(self.group_tree)
-
-        # Attribute table
-        self.table_attributes = QTableWidget()
-        self.table_attributes.setStyleSheet("")
-        self.table_attributes.setColumnCount(2)
-        self.table_attributes.setObjectName("table_attributes")
-        self.table_attributes.setRowCount(0)
-        item = QTableWidgetItem()
-        font = QtGui.QFont()
-        font.setPointSize(10)
-        item.setFont(font)
-        item.setBackground(QtGui.QColor(121, 121, 121))
-        brush = QtGui.QBrush(QtGui.QColor(91, 91, 91))
-        brush.setStyle(Qt.BrushStyle.SolidPattern)
-        item.setForeground(brush)
-        self.table_attributes.setHorizontalHeaderItem(0, item)
-        item = QTableWidgetItem()
-        item.setBackground(QtGui.QColor(123, 123, 123))
-        brush = QtGui.QBrush(QtGui.QColor(91, 91, 91))
-        brush.setStyle(Qt.BrushStyle.SolidPattern)
-        item.setForeground(brush)
-        self.table_attributes.setHorizontalHeaderItem(1, item)
-        self.table_attributes.horizontalHeader().setCascadingSectionResizes(True)
-        self.table_attributes.horizontalHeader().setDefaultSectionSize(200)
-        self.table_attributes.horizontalHeader().setHighlightSections(False)
-        self.table_attributes.horizontalHeader().setSortIndicatorShown(True)
-        self.table_attributes.horizontalHeader().setStretchLastSection(True)
-        self.table_attributes.verticalHeader().setVisible(False)
-        self.table_attributes.verticalHeader().setHighlightSections(False)
-        self.table_attributes.setMinimumSize(QtCore.QSize(200, 400))
-        item = self.table_attributes.horizontalHeaderItem(0)
-        item.setText("Attribute")
-        item = self.table_attributes.horizontalHeaderItem(1)
-        item.setText("Value")
-
-        self.table_attributes.itemChanged.connect(self.update_attrs_to_file)
-
-        self.file_form.addRow(self.table_attributes)
-    
     def closeEvent(self, event):
         print("Closing Experiment GUI")
         self.stop_run_thread()
@@ -1264,89 +1213,10 @@ class ExperimentGUI(QWidget):
         self.epoch_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_epochs", "?")}')
 
     def populate_groups(self):
-        # Called after anything that changes the file's contents. No-op for a backend with no
-        # browser, so those call sites do not each need to ask.
-        if not self.data.supports_data_browser:
-            return
-        file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_dset_dict = h5io.get_hierarchy(file_path, additional_exclusions='rois')
-        self._populateTree(self.group_tree, group_dset_dict)
-
-    def _populateTree(self, widget, dict):
-        widget.clear()
-        self.fill_item(widget.invisibleRootItem(), dict)
-
-    def fill_item(self, item, value):
-        item.setExpanded(True)
-        if type(value) is dict:
-            for key, val in sorted(value.items()):
-                child = QTreeWidgetItem()
-                child.setText(0, key)
-                item.addChild(child)
-                self.fill_item(child, val)
-        elif type(value) is list:
-            for val in value:
-                child = QTreeWidgetItem()
-                item.addChild(child)
-                if type(val) is dict:
-                    child.setText(0, '[dict]')
-                    self.fill_item(child, val)
-                elif type(val) is list:
-                    child.setText(0, '[list]')
-                    self.fill_item(child, val)
-                else:
-                    child.setText(0, val)
-                child.setExpanded(True)
-        else:
-            child = QTreeWidgetItem()
-            child.setText(0, value)
-            item.addChild(child)
-
-    def on_tree_item_clicked(self, item, column):
-        file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
-
-        if group_path != '':
-            attr_dict = h5io.get_attributes_from_group(file_path, group_path)
-            if 'series' in group_path.split('/')[-1]:
-                editable_values = False  # don't let user edit epoch parameters
-            else:
-                editable_values = True
-            self.populate_attrs(attr_dict = attr_dict, editable_values = editable_values)
-
-    def populate_attrs(self, attr_dict=None, editable_values=False):
-        """ Populate attribute for currently selected group """
-        self.table_attributes.blockSignals(True)  # block udpate signals for auto-filled forms
-        self.table_attributes.setRowCount(0)
-        self.table_attributes.setColumnCount(2)
-        self.table_attributes.setSortingEnabled(False)
-
-        if attr_dict:
-            for num, key in enumerate(attr_dict):
-                self.table_attributes.insertRow(self.table_attributes.rowCount())
-                key_item = QTableWidgetItem(key)
-                key_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                self.table_attributes.setItem(num, 0, key_item)
-
-                val_item = QTableWidgetItem(str(attr_dict[key]))
-                if editable_values:
-                    val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEditable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                else:
-                    val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                self.table_attributes.setItem(num, 1, val_item)
-
-        self.table_attributes.blockSignals(False)
-
-    def update_attrs_to_file(self, item):
-        file_path = os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
-        group_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
-
-        attr_key = self.table_attributes.item(item.row(), 0).text()
-        attr_val = item.text()
-
-        # update attr in file
-        h5io.change_attribute(file_path, group_path, attr_key, attr_val)
-        print('Changed attr {} to = {}'.format(attr_key, attr_val))
+        # Called after anything that changes the experiment's contents. Delegates to whatever
+        # browser the backend supplied, and does nothing when it supplied none.
+        if self.data_browser is not None:
+            self.data_browser.refresh()
 
     def update_window_width(self):
         self.resize(100, self.height())
