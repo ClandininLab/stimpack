@@ -629,9 +629,20 @@ def _sleep_disabled(protocol_class):
     for namespace in namespaces:
         patched.append((namespace, namespace['sleep']))
         namespace['sleep'] = lambda *args, **kwargs: None
+
+    # Also the method. BaseProtocol.sleep is an interruptible wait that polls the client rather
+    # than calling the module-level sleep, so patching the name above does not reach it -- it
+    # would poll for the full stimulus duration and the check would take as long as the run.
+    had_own_sleep = 'sleep' in vars(protocol_class)
+    original_method = vars(protocol_class).get('sleep')
+    protocol_class.sleep = lambda self, *args, **kwargs: None
     try:
         yield
     finally:
+        if had_own_sleep:
+            protocol_class.sleep = original_method
+        else:
+            del protocol_class.sleep
         for namespace, original in patched:
             namespace['sleep'] = original
 

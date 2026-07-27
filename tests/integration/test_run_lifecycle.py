@@ -277,3 +277,86 @@ def test_nwb_run_that_fails_before_its_file_exists_does_not_mask_the_cause(clien
 
 def test_nwb_server_subdir_is_experiment_then_subject(client, nwb_data):
     assert nwb_data.get_server_subdir() == 'integration_test/subj1'
+
+
+# --- stopping without waiting out the epoch --------------------------------------------------------
+
+class SlowProtocol(TinyProtocol):
+    """Epochs long enough that waiting one out would be obvious."""
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 0.0, 'stim_time': 30.0, 'tail_time': 0.0}
+
+
+def test_stop_ends_the_epoch_in_progress(client, data, fake_manager, qapp):
+    """Stop used to be noticed only at the top of the next epoch, so stopping a run with long
+    epochs meant watching the current one finish -- no use when the reason for stopping is what is
+    on the screen right now."""
+    import threading
+    import time
+
+    protocol = SlowProtocol(cfg={})
+    fake_manager.register_function(client.report_server_message, name='report_server_message')
+
+    # press Stop shortly after the first epoch's 30-second stimulus starts
+    threading.Timer(0.3, client.stop_run).start()
+
+    started = time.monotonic()
+    client.start_run(protocol, data, save_metadata_flag=True)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 5, f'the run took {elapsed:.1f}s; it waited out the 30s epoch'
+    assert series_attrs(data)[0]['run_status'] == 'stopped'
+
+
+def test_a_server_error_mid_epoch_aborts_without_waiting(client, data, fake_manager):
+    """Same latency problem for an error the server reports during an epoch."""
+    import threading
+    import time
+
+    protocol = SlowProtocol(cfg={})
+    fake_manager.register_function(client.report_server_message, name='report_server_message')
+    threading.Timer(0.3, lambda: fake_manager.push_server_message('error', 'screen died')).start()
+
+    started = time.monotonic()
+    with pytest.warns(UserWarning):
+        client.start_run(protocol, data, save_metadata_flag=True)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 5, f'the run took {elapsed:.1f}s; it waited out the 30s epoch'
+    attrs, _ = series_attrs(data)
+    assert attrs['run_status'] == 'error'
+    assert 'screen died' in attrs['abort_reason']
+
+
+def test_an_uninterrupted_epoch_still_lasts_its_full_duration(client, data, fake_manager):
+    """The interruptible wait must still wait: an epoch nobody stops has to take its stim_time."""
+    import time
+
+    class BriefProtocol(TinyProtocol):
+        def get_run_parameter_defaults(self):
+            return {'num_epochs': 1, 'idle_color': 0.5, 'do_loco': False}
+        def get_protocol_parameter_defaults(self):
+            return {'pre_time': 0.0, 'stim_time': 0.4, 'tail_time': 0.0}
+
+    protocol = BriefProtocol(cfg={})
+    started = time.monotonic()
+    client.start_run(protocol, data, save_metadata_flag=True)
+    elapsed = time.monotonic() - started
+
+    assert 0.4 <= elapsed < 2.0, f'a 0.4s epoch took {elapsed:.2f}s'
+    assert protocol.num_epochs_completed == 1
+
+
+def test_waiting_does_not_spin_the_cpu(client, data, fake_manager):
+    """The wait polls the client, so it must yield between passes -- otherwise it pegs a core for
+    every epoch, on a client that may also be running the closed-loop locomotion updates."""
+    import time
+
+    protocol = TinyProtocol(cfg={})
+    protocol.manager = fake_manager
+
+    cpu_before = time.process_time()
+    protocol.sleep(0.5)
+    cpu_used = time.process_time() - cpu_before
+
+    assert cpu_used < 0.1, f'used {cpu_used:.2f}s of CPU waiting 0.5s; it is spinning'

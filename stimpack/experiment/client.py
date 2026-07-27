@@ -45,6 +45,9 @@ class BaseClient():
             Configuration dictionary.
         """
         self.stop:bool = False
+        # The protocol currently running, so stop_run can cut its epoch short rather than let the
+        # run finish the one in progress. None between runs.
+        self.protocol_object = None
         self.pause:bool = False
         self.cfg:dict = cfg
 
@@ -144,8 +147,25 @@ class BaseClient():
                 else:
                     self.manager.target('visual').import_stim_module(path)
 
+    def stop_epoch(self):
+        """
+        End the current epoch's remaining wait, without stopping the run.
+
+        The protocol's pre / stimulus / tail intervals are interruptible sleeps (see
+        BaseProtocol.sleep); this is what interrupts them.
+        """
+        # getattr: report_server_message reaches here, and a client may be constructed without
+        # going through __init__.
+        protocol_object = getattr(self, 'protocol_object', None)
+        if protocol_object is not None:
+            protocol_object.stop_epoch()
+
     def stop_run(self):
         self.stop = True
+        # Cut the epoch in progress short as well. Without this, Stop is not acted on until the
+        # epoch ends -- so stopping a run with long epochs meant watching the current one finish,
+        # which is no use when the reason for stopping is what is on the screen.
+        self.stop_epoch()
         QApplication.processEvents()
 
     def pause_run(self):
@@ -173,6 +193,9 @@ class BaseClient():
         """
         if level == 'error':
             self.server_error = text        # always, even on a repeat: this aborts the run
+            # End the epoch's wait too: the run loop checks server_error between epochs, so
+            # without this an error reported mid-epoch is not acted on until that epoch finishes.
+            self.stop_epoch()
 
         key = (level, text)
         self._message_counts[key] = self._message_counts.get(key, 0) + 1
@@ -197,6 +220,7 @@ class BaseClient():
         self.pause = False
         self.server_error = None
         self._message_counts = {}       # dedupe is per run, so a recurring issue is reported again
+        self.protocol_object = protocol_object
         protocol_object.save_metadata_flag = save_metadata_flag
 
         # Check run parameters, compute persistent parameters, and precompute epoch parameters
@@ -291,6 +315,8 @@ class BaseClient():
 
             if not broken:
                 self.manager.print_on_server('Run ended.')
+
+            self.protocol_object = None
 
     def start_epoch(self, protocol_object:BaseProtocol, data:BaseData, save_metadata_flag:bool=True):
         #  get stimulus parameters for this epoch

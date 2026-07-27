@@ -31,6 +31,7 @@ The three parameter sets a protocol works with::
 """
 import sys
 import numpy as np
+import time
 from time import sleep
 import os.path
 import os
@@ -46,6 +47,11 @@ from stimpack.experiment.util import config_tools
 from stimpack.util import ROOT_DIR
 
 
+# How often an interruptible sleep() looks for a reason to stop, in seconds. Small enough that
+# Stop responds within a frame, large enough that waiting costs no measurable CPU.
+SLEEP_POLL_INTERVAL = 0.002
+
+
 class BaseProtocol():
     def __init__(self, cfg):
         self.cfg = cfg
@@ -55,6 +61,12 @@ class BaseProtocol():
         self.trigger_on_epoch = False  # Used in control.EpochRun.start_epoch(), sends a TTL trigger to start acquisition devices
         self.save_metadata_flag = False  # Bool, whether or not to save this series. Set to True by GUI on 'record' but not 'view'.
         self.use_precomputed_epoch_parameters = True  # Bool, whether or not to precompute epoch parameters
+        self.stop_sleep_flag = False  # set by stop_epoch() to cut a sleep() short
+        # The client this protocol is running against, set in prepare_run. None when the protocol
+        # is driven without one -- the labpack checker does that -- in which case waits are plain
+        # and uninterruptible.
+        self.manager = None
+        self._warned_uninterruptible_sleep = False
         self.save_stringified_params = False  # Bool, whether to stringify epoch stim params for nwb saving. Helpful for protocols with different param keys across trials. Need to supply all_epoch_stim_parameter_keys
 
         self.use_server_side_state_dependent_control = False  # Bool, whether or not to use custom closed-loop control
@@ -328,6 +340,7 @@ class BaseProtocol():
             If True, precompute epoch parameters even if they have been computed already
             If False, do not recompute epoch parameters if they have been computed already
         """
+        self.manager = manager      # so sleep() can drain the queue and be interrupted
         self.num_epochs_completed = 0
         self.persistent_parameters = {}
         self.epoch_protocol_parameters = {}
@@ -439,7 +452,7 @@ class BaseProtocol():
         save_pos_history = do_loco_closed_loop and self.save_metadata_flag
         
         ### pre time
-        sleep(self.epoch_protocol_parameters['pre_time'])
+        self.sleep(self.epoch_protocol_parameters['pre_time'])
         
         if multicall is None:
             multicall = MyMultiCall(manager)
@@ -457,7 +470,7 @@ class BaseProtocol():
         multicall.target('all').start_stim(append_stim_frames=append_stim_frames)
         multicall.target('visual').corner_square_toggle_start()
         multicall()
-        sleep(self.epoch_protocol_parameters['stim_time'])
+        self.sleep(self.epoch_protocol_parameters['stim_time'])
 
         ### tail time
         multicall = MyMultiCall(manager)
@@ -473,7 +486,7 @@ class BaseProtocol():
 
         multicall()
 
-        sleep(self.epoch_protocol_parameters['tail_time'])
+        self.sleep(self.epoch_protocol_parameters['tail_time'])
 
     def on_run_finish(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         """
@@ -500,6 +513,54 @@ class BaseProtocol():
         
         multicall()
         
+    def sleep(self, duration, process_server_requests=True):
+        """
+        Wait, while staying responsive to the client.
+
+        Used for an epoch's pre / stimulus / tail intervals in place of ``time.sleep``, which
+        cannot be interrupted: with a bare sleep, pressing Stop is not noticed until the epoch
+        ends, so stopping a 240-second run means watching it finish. The same delay applies to an
+        error the server reports mid-epoch.
+
+        This drains the client's queue as it waits and returns early when
+        :meth:`stop_epoch` is called -- by the Stop button, or by the client when the server
+        reports an error.
+
+        :param duration: seconds to wait
+        :param process_server_requests: set False for a plain, uninterruptible sleep -- for a
+            protocol with no manager, or a wait that must not be cut short
+        """
+        if not process_server_requests or self.manager is None:
+            # Once per protocol, not once per wait: a protocol driven without a client -- the
+            # labpack checker does this -- would otherwise say it three times an epoch.
+            if process_server_requests and not self._warned_uninterruptible_sleep:
+                self._warned_uninterruptible_sleep = True
+                warnings.warn('Protocol: no manager to process the queue during sleep, so waits '
+                              'in this run cannot be interrupted.', RuntimeWarning)
+            time.sleep(duration)
+            return
+
+        self.stop_sleep_flag = False
+        end_time = time.time() + duration
+        while time.time() < end_time:
+            self.manager.process_queue()
+            if self.stop_sleep_flag:
+                self.stop_sleep_flag = False
+                return
+            # Yield rather than spin. Without this the wait pegs a core for the whole epoch, on a
+            # client that may also be running the closed-loop locomotion updates. A step this
+            # small keeps the response to Stop well inside one frame at 120 Hz.
+            time.sleep(min(SLEEP_POLL_INTERVAL, max(0.0, end_time - time.time())))
+
+    def stop_epoch(self):
+        """
+        Cut the current :meth:`sleep` short, ending the epoch's remaining wait.
+
+        The run itself continues unless the caller also asks for it to stop -- see
+        BaseClient.stop_run, which does both.
+        """
+        self.stop_sleep_flag = True
+
     def get_parameter_sequence(self, parameter_list, all_combinations=True, randomize_order=False):
         """
         Expand a protocol parameter into the sequence of values presented across a run.
@@ -666,7 +727,7 @@ class SharedPixMapProtocol(BaseProtocol):
         save_pos_history = do_loco_closed_loop and self.save_metadata_flag
         
         ### pre time
-        sleep(self.epoch_protocol_parameters['pre_time'])
+        self.sleep(self.epoch_protocol_parameters['pre_time'])
         
         if multicall is None:
             multicall = MyMultiCall(manager)
@@ -687,7 +748,7 @@ class SharedPixMapProtocol(BaseProtocol):
         multicall.target('all').start_stim()
         multicall.target('visual').corner_square_toggle_start()
         multicall()
-        sleep(self.epoch_protocol_parameters['stim_time'])
+        self.sleep(self.epoch_protocol_parameters['stim_time'])
 
         ### tail time
         multicall = MyMultiCall(manager)
@@ -707,7 +768,7 @@ class SharedPixMapProtocol(BaseProtocol):
 
         multicall()
 
-        sleep(self.epoch_protocol_parameters['tail_time'])
+        self.sleep(self.epoch_protocol_parameters['tail_time'])
 
     def on_run_finish(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         """

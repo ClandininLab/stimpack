@@ -31,3 +31,21 @@ the log.
 A dead connection is treated the same way. If the socket drops mid-run, the client notices at the
 next epoch boundary and closes the series as ``aborted`` rather than continuing to send into
 nothing.
+
+Stopping a run
+--------------
+
+Stop ends the epoch in progress rather than waiting for it. An epoch's pre, stimulus and tail
+intervals are :meth:`~stimpack.experiment.protocol.BaseProtocol.sleep` -- a wait that drains the
+client's queue as it goes and returns early when asked -- so a run with long epochs stops when the
+button is pressed, not when the epoch happens to end.
+
+An error the server reports mid-epoch ends the wait the same way, so an aborting run does not sit
+through the rest of a stimulus first.
+
+A protocol that needs an uninterruptible wait can ask for one::
+
+    self.sleep(duration, process_server_requests=False)
+
+and one driven without a client -- the labpack checker does this -- falls back to a plain wait and
+says so once.
