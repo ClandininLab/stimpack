@@ -1,3 +1,14 @@
+"""
+The server side of an experiment: owns the hardware and routes requests to it.
+
+:class:`BaseServer` holds one module per capability -- ``visual`` (screens), ``locomotion`` (a
+tracker), ``voltage_out`` (a DAQ) -- and dispatches each incoming request by its ``target``. It
+usually runs on the rig machine while the client runs wherever the experimenter is sitting.
+
+The routing rule that most often catches people out: a request with no target goes to the
+server's own ``root`` registry, **not** to the modules. Use ``target('all')`` for "whichever
+module handles this". See :meth:`BaseServer.handle_request_list`.
+"""
 import signal, sys, os, warnings, traceback
 
 from stimpack.visual_stim.screen import Screen
@@ -28,6 +39,7 @@ MODULE_ALIASES = {'daq': 'voltage_out'}
 ROOT_FUNCTION_NAMES = frozenset({
     'print_on_server',
     'set_subject_state',
+    'set_current_epoch',
     'load_server_side_state_dependent_control',
     'unload_server_side_state_dependent_control',
 })
@@ -71,7 +83,7 @@ class BaseServer(MySocketServer):
         if 'screens' not in visual_stim_kwargs:
             visual_stim_kwargs['screens'] = [Screen(x_display=None, display_index=0, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
         
-        self.modules['visual'] = VisualStimServer(**visual_stim_kwargs) # auto_stop=False, other_stim_module_paths=[]
+        self.modules['visual'] = VisualStimServer(**visual_stim_kwargs)  # auto_stop=False
         ### Visual stim manager ###
 
         ### Locomotion manager ###
@@ -97,6 +109,7 @@ class BaseServer(MySocketServer):
         self.functions_on_root = {}
         self.register_function_on_root(lambda x: print(x), "print_on_server")
         self.register_function_on_root(self.set_subject_state, "set_subject_state")
+        self.register_function_on_root(self.set_current_epoch, "set_current_epoch")
         self.register_function_on_root(self.load_server_side_state_dependent_control, "load_server_side_state_dependent_control")
         self.register_function_on_root(self.unload_server_side_state_dependent_control, "unload_server_side_state_dependent_control")
 
@@ -108,6 +121,11 @@ class BaseServer(MySocketServer):
 
         # Custom state-dependent control function, initialized to None        
         self.loaded_custom_state_dependent_control = None
+
+        # Which epoch the client is running, set by the client as each one starts. Used to stamp
+        # end_epoch() so a request cannot arrive late and cut short the epoch after the one it was
+        # meant for. None between epochs, when there is nothing to end.
+        self.current_epoch_index = None
 
         # set the subject position parameters
         self.subject_state = {}
@@ -149,12 +167,28 @@ class BaseServer(MySocketServer):
         for request in root_request_list:
             # get function call parameters
             if request['name'] not in self.functions_on_root:
-                # This is where an untargeted call with a wrong name lands (untargeted defaults to
-                # 'root'), so report it instead of only printing -- otherwise the call silently
-                # does nothing, which is exactly how mis-migrated daq_* calls stopped firing.
-                msg = f"no such function '{request['name']}' on the server root node"
+                if request.get('_untargeted'):
+                    # An untargeted call landed here by default, not by choice, and found nothing.
+                    # That is the classic silent failure of this RPC style, and how mis-migrated
+                    # daq_* calls stopped firing: an error, because the call was meant for
+                    # something and reached nothing.
+                    msg = (f"no such function '{request['name']}' on the server root node. "
+                           f"Untargeted calls go to root -- if you meant a module, use "
+                           f"target('all') or target('<module>').")
+                    level = 'error'
+                else:
+                    # The caller explicitly said target('root'), so they knew where they were
+                    # aiming; this rig simply has not registered that function. Labs register
+                    # rig-specific functions on root (a projector's LED current, a shutter), and a
+                    # protocol written for one rig should degrade on another rather than refuse to
+                    # run -- the same reasoning as a request for a module this server lacks, which
+                    # is likewise a warning.
+                    msg = (f"no function '{request['name']}' is registered on this server's root "
+                           f"node (registered: {sorted(self.functions_on_root)}); "
+                           f"request was dropped")
+                    level = 'warning'
                 warnings.warn(msg)
-                self.report_to_client('error', msg)
+                self.report_to_client(level, msg)
                 continue
             function = self.functions_on_root[request['name']]
             args = request.get('args', [])
@@ -174,8 +208,28 @@ class BaseServer(MySocketServer):
         the rig instead of assuming its hardware (see BaseProtocol.has_module). Generic on purpose:
         it reports whatever modules exist, rather than any particular capability flag.
         '''
-        self.write_request_list([{'name': 'report_server_modules',
-                                  'args': [sorted(self.modules)], 'kwargs': {}}])
+        # Also advertise the callable names, so a protocol can ask whether this rig has a
+        # lab-registered function rather than calling it and reading the warning afterwards.
+        # Only targets that can enumerate themselves are listed: the visual module forwards to
+        # screen subprocesses, so a list built here would be wrong, and being absent means
+        # "unknown", which has_server_function answers True to.
+        functions = {'root': sorted(self.functions_on_root)}
+        for module_name, module in self.modules.items():
+            # Asked of the CLASS, not the instance. A module may be a transceiver, whose
+            # __getattr__ turns any missing attribute into an RPC stub -- so
+            # getattr(module, 'get_callable_names', None) never returns None, and calling the stub
+            # sends the question down the wire to a screen that has never heard of it.
+            if getattr(type(module), 'get_callable_names', None) is None:
+                continue
+            try:
+                functions[module_name] = sorted(module.get_callable_names())
+            except Exception:
+                pass          # a module that cannot say is simply not listed
+
+        self.write_request_list([
+            {'name': 'report_server_modules', 'args': [sorted(self.modules)], 'kwargs': {}},
+            {'name': 'report_server_functions', 'args': [functions], 'kwargs': {}},
+        ])
 
     def report_to_client(self, level, text):
         '''
@@ -186,27 +240,31 @@ class BaseServer(MySocketServer):
 
     def handle_request_list(self, request_list):
         '''
-        Route each request by its 'target':
+        Route each request by its ``target``::
 
-            (absent) / 'root'  -> the server's own functions_on_root registry ONLY. An untargeted
-                                  call does NOT reach the modules; if the name isn't registered on
-                                  root, nothing happens (and it is now reported back to the client).
-            '<module name>'    -> that module only ('visual', 'locomotion', 'daq').
-            'all'              -> broadcast to every module; each acts only on the names it defines
-                                  (e.g. target('all').start_stim() is handled by the screens, and
-                                  the daq/locomotion modules ignoring it is expected).
+            (absent) / 'root'   the server's own functions_on_root registry ONLY. An untargeted
+                                call does NOT reach the modules; if the name is not registered on
+                                root, nothing happens (and it is reported back to the client).
+            '<module name>'     that module only ('visual', 'locomotion', 'voltage_out').
+            'all'               broadcast to every module; each acts only on the names it
+                                defines, so target('all').start_stim() is handled by the screens
+                                and ignored by the others, which is expected.
 
-        Use target('all') when you mean "whichever module handles this" -- writing the call
+        Use ``target('all')`` when you mean "whichever module handles this" -- writing the call
         untargeted instead sends it to root, where it will not be found.
 
-        Note 'all' covers the modules but NOT root, deliberately: root's set_subject_state itself
-        fans out via target('all'), so including root would recurse forever.
+        Note that ``'all'`` covers the modules but NOT root, deliberately: root's
+        ``set_subject_state`` itself fans out via ``target('all')``, so including root would
+        recurse forever.
         '''
         # pre-process the request list as necessary
         for request in request_list:
             if isinstance(request, dict) and ('name' in request):
                 if 'target' not in request:
                     request['target'] = 'root'
+                    # Remember that root was the default rather than the caller's choice: the two
+                    # cases mean opposite things when the name turns out not to be registered.
+                    request['_untargeted'] = True
                 if 'kwargs' not in request:
                     request['kwargs'] = {}
 
@@ -259,6 +317,48 @@ class BaseServer(MySocketServer):
         '''
         [module.on_connection_close() for module in self.modules.values()]
         
+    def set_current_epoch(self, epoch_index):
+        """
+        Told by the client as each epoch begins, and set to None when it ends.
+
+        Only used to stamp :meth:`end_epoch`; the server does not otherwise care which epoch is
+        running.
+        """
+        self.current_epoch_index = epoch_index
+
+    def end_epoch(self, reason=None):
+        """
+        Ask the client to end the epoch in progress early, and go on to the next one.
+
+        For trials whose length is decided by what the animal does rather than by the clock: a
+        fixation held long enough, a virtual goal reached, a choice made. The condition has to be
+        evaluated here rather than on the client, because the client never sees subject state and
+        could not ask for it if it wanted to -- requests carry no reply.
+
+        Call it from a labpack's server-side closed-loop function, which runs on every tracker
+        update with the full subject state::
+
+            def server_side_state_dependent_control(server, subject_state, state_update):
+                if subject_state['x'] > 0.5:
+                    server.end_epoch(reason='reached_goal')
+                return state_update
+
+        :param reason: recorded with the epoch, so a trial that ended early can be told apart
+            from one that ran its full length. Worth setting: once duration depends on behaviour,
+            the protocol's stim_time describes the intent rather than the trial.
+
+        Does nothing between epochs -- there is nothing to end, and ending the next one because a
+        criterion was met just after the last is a bug that would be hard to see in the data.
+
+        This ends one epoch. To stop the whole run, report an error instead
+        (:meth:`report_to_client`), which aborts it and records why.
+        """
+        if self.current_epoch_index is None:
+            return
+        self.write_request_list([{'name': 'stop_epoch',
+                                  'args': [], 'kwargs': {'epoch_index': self.current_epoch_index,
+                                                         'reason': reason}}])
+
     ### Functions for setting subject state ###
     def set_subject_state(self, state_update:dict={'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll':0}) -> None:
         # Perform custom closed-loop control and get an updated state update

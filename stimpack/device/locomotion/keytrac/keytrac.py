@@ -1,3 +1,9 @@
+"""
+keytrac: a keyboard application that stands in for a movement tracker.
+
+Turns key presses into position updates in the same form a real tracker would send, so closed-loop
+protocols can be developed and tested on a laptop with no hardware attached.
+"""
 import sys
 import socket
 import time

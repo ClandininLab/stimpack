@@ -1,3 +1,4 @@
+"""Helper for drawing a stimulus to an offscreen buffer, used for previews and tests."""
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection

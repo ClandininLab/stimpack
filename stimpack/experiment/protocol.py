@@ -20,15 +20,18 @@ e.g. super().prepare_run()
 
 see the simple example protocol classes at the bottom of this module.
 
--protocol_parameters: user-defined params that are mapped to stimpack.visual_stim epoch params
-                     *saved as attributes at the epoch run level
--epoch_protocol_parameters: epoch-specific user-defined params that are mapped to stimpack.visual_stim epoch params
-                     *saved as attributes at the individual epoch level
--epoch_stim_parameters: parameter set used to define stimpack.visual_stim stimulus
-                     *saved as attributes at the individual epoch level
+The three parameter sets a protocol works with::
+
+    protocol_parameters        user-defined params mapped to stimpack.visual_stim epoch params,
+                               saved as attributes at the epoch run level
+    epoch_protocol_parameters  epoch-specific user-defined params mapped to stimpack.visual_stim
+                               epoch params, saved as attributes at the individual epoch level
+    epoch_stim_parameters      the parameter set defining the stimpack.visual_stim stimulus,
+                               saved as attributes at the individual epoch level
 """
 import sys
 import numpy as np
+import time
 from time import sleep
 import os.path
 import os
@@ -44,6 +47,11 @@ from stimpack.experiment.util import config_tools
 from stimpack.util import ROOT_DIR
 
 
+# How often an interruptible sleep() looks for a reason to stop, in seconds. Small enough that
+# Stop responds within a frame, large enough that waiting costs no measurable CPU.
+SLEEP_POLL_INTERVAL = 0.002
+
+
 class BaseProtocol():
     def __init__(self, cfg):
         self.cfg = cfg
@@ -53,6 +61,13 @@ class BaseProtocol():
         self.trigger_on_epoch = False  # Used in control.EpochRun.start_epoch(), sends a TTL trigger to start acquisition devices
         self.save_metadata_flag = False  # Bool, whether or not to save this series. Set to True by GUI on 'record' but not 'view'.
         self.use_precomputed_epoch_parameters = True  # Bool, whether or not to precompute epoch parameters
+        self.stop_sleep_flag = False  # set by stop_epoch() to cut a sleep() short
+        # The client this protocol is running against, set in prepare_run. None when the protocol
+        # is driven without one -- the labpack checker does that -- in which case waits are plain
+        # and uninterruptible.
+        self.manager = None
+        self._warned_uninterruptible_sleep = False
+        self.save_stringified_params = False  # Bool, whether to stringify epoch stim params for nwb saving. Helpful for protocols with different param keys across trials. Need to supply all_epoch_stim_parameter_keys
 
         self.use_server_side_state_dependent_control = False  # Bool, whether or not to use custom closed-loop control
         
@@ -81,6 +96,7 @@ class BaseProtocol():
         # Modules the server advertised, filled in by prepare_run. None until then / for a server
         # that doesn't advertise. See has_module().
         self.available_modules = None
+        self.available_server_functions = None
 
 
     def has_module(self, module_name):
@@ -102,7 +118,43 @@ class BaseProtocol():
             return True
         return module_name in self.available_modules
 
+    def has_server_function(self, function_name, target='root'):
+        """Whether the connected server will answer to this function name.
+
+        The companion to :meth:`has_module`, for the functions a lab registers on its own rig
+        servers -- a projector's LED current, a shutter, a valve -- which exist on one rig and not
+        another::
+
+            if self.has_server_function('set_dlpc_current'):
+                manager.target('root').set_dlpc_current(*self.run_parameters['dlpc_current_start'])
+
+        :param function_name: the name a request would carry
+        :param target: where it would be sent -- ``'root'`` (the default, matching an untargeted
+            call), or a module name such as ``'voltage_out'``
+
+        Answers ``True`` when the answer is not known -- an older stimpack that advertises
+        nothing, or a target that cannot enumerate itself -- so adopting this is safe: behaviour is
+        unchanged until there is something real to report. All three built-in targets do enumerate,
+        so in practice the answer is real.
+
+        Calling a function the rig does not have is not fatal -- it is reported as a warning and
+        the run continues -- so this is for protocols that want to skip the call rather than let it
+        be dropped.
+        """
+        if self.available_server_functions is None:
+            return True
+        names = self.available_server_functions.get(target)
+        if names is None:
+            return True
+        return function_name in names
+
     def adjust_center(self, relative_center):
+        """
+        Convert a center given relative to the screen center into absolute coordinates.
+
+        Protocols are usually written in relative terms so the same protocol works on rigs whose
+        screens are centered differently; ``screen_center`` comes from the rig config.
+        """
         absolute_center = [sum(x) for x in zip(relative_center, self.screen_center)]
         return absolute_center
 
@@ -125,6 +177,12 @@ class BaseProtocol():
         return {}
 
     def load_parameter_presets(self):
+        """
+        Load this protocol's saved parameter presets from the labpack's preset directory.
+
+        Presets live in ``<parameter_presets_dir>/<ProtocolName>.yaml``. A protocol with no
+        preset file simply has none.
+        """
         fname = os.path.join(self.parameter_preset_directory, self.__class__.__name__) + '.yaml'
         if os.path.isfile(fname):
             with open(fname, 'r') as ymlfile:
@@ -134,6 +192,11 @@ class BaseProtocol():
             self.parameter_presets = {}
 
     def update_parameter_presets(self, name):
+        """
+        Save the current run and protocol parameters as a named preset, and write it to disk.
+
+        Re-saving under an existing name replaces it.
+        """
         self.load_parameter_presets()
         new_preset = {'run_parameters': self.run_parameters,
                       'protocol_parameters': self.protocol_parameters}
@@ -182,6 +245,7 @@ class BaseProtocol():
                 warnings.warn(f'Warning: protocol parameter {k} not found in current protocol. Skipping preset parameter.', RuntimeWarning)            
 
     def advance_epoch_counter(self):
+        """Record that an epoch finished. Drives which precomputed parameters are used next."""
         self.num_epochs_completed += 1
         
     def precompute_epoch_parameters(self, refresh=False):
@@ -206,6 +270,7 @@ class BaseProtocol():
             self.num_epochs_completed = 0
 
     def load_precomputed_epoch_parameters(self):
+        """Take this epoch's parameters from the set computed by :meth:`precompute_epoch_parameters`."""
         self.epoch_stim_parameters = self.precomputed_epoch_parameters['stim'][self.num_epochs_completed]
         self.epoch_protocol_parameters = self.precomputed_epoch_parameters['protocol'][self.num_epochs_completed]
 
@@ -275,6 +340,7 @@ class BaseProtocol():
             If True, precompute epoch parameters even if they have been computed already
             If False, do not recompute epoch parameters if they have been computed already
         """
+        self.manager = manager      # so sleep() can drain the queue and be interrupted
         self.num_epochs_completed = 0
         self.persistent_parameters = {}
         self.epoch_protocol_parameters = {}
@@ -285,6 +351,7 @@ class BaseProtocol():
         # __getattr__ rather than falling back.
         if manager is not None:
             self.available_modules = vars(manager).get('available_modules')
+            self.available_server_functions = vars(manager).get('available_server_functions')
 
         # Process input parameters and set persistent parameters prior to epoch run loop
         self.process_input_parameters()
@@ -344,6 +411,13 @@ class BaseProtocol():
         self.num_epochs_completed = 0
 
     def load_stimuli(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
+        """
+        Send this epoch's stimuli to the server, ready to start.
+
+        Loads the background first, then each stimulus in ``epoch_stim_parameters``. Batched
+        through a :class:`~stimpack.rpc.multicall.MyMultiCall` so they arrive together; pass your
+        own to add further calls to the same batch.
+        """
         if multicall is None:
             multicall = MyMultiCall(manager)
 
@@ -362,13 +436,23 @@ class BaseProtocol():
         multicall()
 
     def start_stimuli(self, manager:MySocketClient, append_stim_frames=False, print_profile=True, multicall:MyMultiCall|None=None):
+        """
+        Run one epoch: start the stimulus, wait out its timing, then stop it.
+
+        Handles the pre / stimulus / tail structure, closed-loop locomotion if the protocol asks
+        for it, and the corner square used for photodiode timing.
+
+        :param append_stim_frames: keep rendered frames on the server for later retrieval
+        :param print_profile: print the epoch's frame-time distribution when it ends
+        :param multicall: batch to add the start calls to, rather than sending them alone
+        """
         # locomotion setting variables
         do_loco = self.run_parameters.get('do_loco', False)
         do_loco_closed_loop = do_loco and self.epoch_protocol_parameters.get('loco_pos_closed_loop', False)
         save_pos_history = do_loco_closed_loop and self.save_metadata_flag
         
         ### pre time
-        sleep(self.epoch_protocol_parameters['pre_time'])
+        self.sleep(self.epoch_protocol_parameters['pre_time'])
         
         if multicall is None:
             multicall = MyMultiCall(manager)
@@ -386,7 +470,7 @@ class BaseProtocol():
         multicall.target('all').start_stim(append_stim_frames=append_stim_frames)
         multicall.target('visual').corner_square_toggle_start()
         multicall()
-        sleep(self.epoch_protocol_parameters['stim_time'])
+        self.sleep(self.epoch_protocol_parameters['stim_time'])
 
         ### tail time
         multicall = MyMultiCall(manager)
@@ -402,7 +486,7 @@ class BaseProtocol():
 
         multicall()
 
-        sleep(self.epoch_protocol_parameters['tail_time'])
+        self.sleep(self.epoch_protocol_parameters['tail_time'])
 
     def on_run_finish(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         """
@@ -429,16 +513,70 @@ class BaseProtocol():
         
         multicall()
         
+    def sleep(self, duration, process_server_requests=True):
+        """
+        Wait, while staying responsive to the client.
+
+        Used for an epoch's pre / stimulus / tail intervals in place of ``time.sleep``, which
+        cannot be interrupted: with a bare sleep, pressing Stop is not noticed until the epoch
+        ends, so stopping a 240-second run means watching it finish. The same delay applies to an
+        error the server reports mid-epoch.
+
+        This drains the client's queue as it waits and returns early when
+        :meth:`stop_epoch` is called -- by the Stop button, or by the client when the server
+        reports an error.
+
+        :param duration: seconds to wait
+        :param process_server_requests: set False for a plain, uninterruptible sleep -- for a
+            protocol with no manager, or a wait that must not be cut short
+        """
+        if not process_server_requests or self.manager is None:
+            # Once per protocol, not once per wait: a protocol driven without a client -- the
+            # labpack checker does this -- would otherwise say it three times an epoch.
+            if process_server_requests and not self._warned_uninterruptible_sleep:
+                self._warned_uninterruptible_sleep = True
+                warnings.warn('Protocol: no manager to process the queue during sleep, so waits '
+                              'in this run cannot be interrupted.', RuntimeWarning)
+            time.sleep(duration)
+            return
+
+        self.stop_sleep_flag = False
+        end_time = time.time() + duration
+        while time.time() < end_time:
+            self.manager.process_queue()
+            if self.stop_sleep_flag:
+                self.stop_sleep_flag = False
+                return
+            # Yield rather than spin. Without this the wait pegs a core for the whole epoch, on a
+            # client that may also be running the closed-loop locomotion updates. A step this
+            # small keeps the response to Stop well inside one frame at 120 Hz.
+            time.sleep(min(SLEEP_POLL_INTERVAL, max(0.0, end_time - time.time())))
+
+    def stop_epoch(self):
+        """
+        Cut the current :meth:`sleep` short, ending the epoch's remaining wait.
+
+        The run itself continues unless the caller also asks for it to stop -- see
+        BaseClient.stop_run, which does both.
+        """
+        self.stop_sleep_flag = True
+
     def get_parameter_sequence(self, parameter_list, all_combinations=True, randomize_order=False):
         """
-        inputs
-        parameter_list can be:
-            -list/array of parameters
-            -single value (int, float etc)
-            -tuple of lists, where each list contains values for a single parameter
-                    in this case, all_combinations = True will return all possible combinations of parameters, taking
-                    one from each parameter list. If all_combinations = False, keeps params associated across lists
-        randomize_order will randomize sequence or sequences at the beginning of each new sequence
+        Expand a protocol parameter into the sequence of values presented across a run.
+
+        :param parameter_list: one of
+
+            * a list or array of values -- used as the sequence directly
+            * a single value (int, float, ...) -- a sequence of length one
+            * a tuple of lists, one list per parameter, combined according to ``all_combinations``
+
+        :param all_combinations: for a tuple of lists, ``True`` takes every combination of one
+            value from each list; ``False`` keeps the lists associated element by element, so
+            ``([1, 2], ['a', 'b'])`` yields ``(1, 'a')`` and ``(2, 'b')`` rather than all four.
+        :param randomize_order: shuffle the sequence at the start of each pass through it, so
+            every value is still presented equally often.
+        :return: the sequence of parameter values for one pass.
         """
 
         # parameter_list is a tuple of lists or a single list
@@ -496,15 +634,16 @@ class BaseProtocol():
     
     def select_epoch_protocol_parameters(self, all_combinations=True, randomize_order=False):
         """
-        inputs
-        all_combinations:
-            True will return all possible combinations of parameters, taking one from each parameter list. 
-            False keeps params associated across lists
-        randomize_order will randomize sequence or sequences at the beginning of each new sequence
+        Pick this epoch's value for every protocol parameter.
 
-        returns
-        epoch_protocol_parameters:
-            dictionary of protocol parameter names and values specific to this epoch.
+        Called once per epoch. Sequences are built on the first epoch of a run and stored in
+        ``persistent_parameters``, so the order is consistent across the run rather than
+        re-drawn each time.
+
+        :param all_combinations: ``True`` takes every combination of one value from each
+            parameter list; ``False`` keeps the lists associated element by element.
+        :param randomize_order: shuffle each sequence at the start of every pass through it.
+        :return: dictionary of protocol parameter names to the value chosen for this epoch.
         """
 
         # new run: initialize parameter sequences if not already done
@@ -588,7 +727,7 @@ class SharedPixMapProtocol(BaseProtocol):
         save_pos_history = do_loco_closed_loop and self.save_metadata_flag
         
         ### pre time
-        sleep(self.epoch_protocol_parameters['pre_time'])
+        self.sleep(self.epoch_protocol_parameters['pre_time'])
         
         if multicall is None:
             multicall = MyMultiCall(manager)
@@ -609,7 +748,7 @@ class SharedPixMapProtocol(BaseProtocol):
         multicall.target('all').start_stim()
         multicall.target('visual').corner_square_toggle_start()
         multicall()
-        sleep(self.epoch_protocol_parameters['stim_time'])
+        self.sleep(self.epoch_protocol_parameters['stim_time'])
 
         ### tail time
         multicall = MyMultiCall(manager)
@@ -629,7 +768,7 @@ class SharedPixMapProtocol(BaseProtocol):
 
         multicall()
 
-        sleep(self.epoch_protocol_parameters['tail_time'])
+        self.sleep(self.epoch_protocol_parameters['tail_time'])
 
     def on_run_finish(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         """

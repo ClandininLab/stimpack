@@ -180,3 +180,163 @@ def test_root_function_names_match_a_live_server(live_server):
     from stimpack.experiment.server import ROOT_FUNCTION_NAMES
 
     assert set(live_server.functions_on_root) == set(ROOT_FUNCTION_NAMES)
+
+
+# --- custom stimulus modules across client sessions ----------------------------------------------
+
+def test_a_custom_stim_module_survives_successive_client_sessions(tmp_path):
+    """Regression: each client imports its labpack's stimuli when it connects, and the server
+    unloads them when it disconnects. Because a loaded stimulus instance keeps its class alive, the
+    unload did not actually remove it, so the second session's import produced two classes of the
+    same name and load_stim failed with '2 stimulus candidates found'.
+
+    A rig server outlives the GUI, so this was hit by closing and reopening the GUI -- while a
+    local server, which dies with the GUI, hid it entirely.
+
+    Uses a BaseServer rather than a bare VisualStimServer: only BaseServer wires the screens'
+    error_reporter, and without it a failing load_stim is swallowed and this test would pass
+    against the bug it exists to catch.
+    """
+    from stimpack.experiment.server import BaseServer
+    from stimpack.rpc.transceiver import MySocketClient
+    from stimpack.visual_stim.screen import Screen
+
+    module_dir = tmp_path / 'custom_stim'
+    module_dir.mkdir()
+    (module_dir / 'stimuli.py').write_text(
+        'from stimpack.visual_stim.base import BaseProgram\n'
+        'from stimpack.visual_stim import shapes\n\n\n'
+        'class SessionTestStim(BaseProgram):\n'
+        '    def configure(self, color=(1, 1, 1, 1)):\n'
+        '        self.color = color\n\n'
+        '    def eval_at(self, t, subject_position=None):\n'
+        '        self.stim_object = shapes.GlSphericalRect(width=10, height=10, color=self.color)\n')
+
+    screen = Screen(fullscreen=False, vsync=False, display_index=0,
+                    pa=(-0.15, 0.15, -0.15), pb=(0.15, 0.15, -0.15), pc=(-0.15, 0.15, 0.15))
+    try:
+        server = BaseServer(host='127.0.0.1', port=None,
+                            visual_stim_kwargs={'screens': [screen]}, start_loop=True)
+    except Exception as e:
+        pytest.skip(f"Could not launch a live stim server here: {type(e).__name__}: {e}")
+
+    reported = []
+    try:
+        for session in (1, 2):
+            manager = MySocketClient(host=server.host, port=server.port)
+            manager.register_function(
+                lambda level, text, s=session: reported.append((s, level, text)),
+                name='report_server_message')
+            time.sleep(0.5)
+
+            manager.target('visual').import_stim_module(str(module_dir))   # BaseClient does this
+            time.sleep(1.5)
+            manager.target('visual').load_stim(name='SessionTestStim')
+
+            def settled():
+                manager.process_queue()
+                return bool(reported)
+            wait_until(settled, timeout=5)      # give an error time to arrive, if there is one
+
+            manager.close()
+            time.sleep(1.5)
+    finally:
+        try:
+            server.close()
+        except Exception:
+            pass
+
+    errors = [r for r in reported if r[1] == 'error']
+    assert errors == [], f'the server reported an error: {errors}'
+
+
+def test_a_standalone_stim_server_reports_screen_errors_to_its_client():
+    """launch_stim_server without a BaseServer -- what the examples and any plain script do.
+
+    The screen bubbles its errors up to the VisualStimServer, which forwarded them via
+    error_reporter; that was None here, so they were dropped. A failing stimulus did nothing and
+    reported nothing, which is the hardest kind of failure to debug from a script.
+    """
+    from stimpack.visual_stim.screen import Screen
+    from stimpack.visual_stim.stim_server import launch_stim_server
+
+    try:
+        manager = launch_stim_server(Screen(fullscreen=False, vsync=False))
+    except Exception as e:
+        pytest.skip(f"Could not launch a stim server here: {type(e).__name__}: {e}")
+
+    reported = []
+    manager.register_function(lambda level, text: reported.append((level, text)),
+                              name='report_server_message')
+    try:
+        time.sleep(2)
+        manager.load_stim(name='NoSuchStimulus_Standalone')
+
+        def arrived():
+            manager.process_queue()
+            return bool(reported)
+
+        assert wait_until(arrived, timeout=15), \
+            'a standalone stim server never reported the screen-side error to its client'
+        level, text = reported[0]
+        assert level == 'error'
+        assert 'NoSuchStimulus_Standalone' in text
+        assert '[screen]' in text                 # bubbled up from the screen subprocess
+    finally:
+        try:
+            manager.close()
+        except Exception:
+            pass
+
+
+def test_a_live_server_can_end_an_epoch_early(live_server, live_manager, live_client):
+    """The whole path for real: a state update reaches the server, the labpack's closed-loop
+    function decides the trial is over, and the client's epoch wait returns early.
+
+    Everything here is the real object over a real socket -- only the tracker is stood in for, by
+    calling set_subject_state directly as a locomotion manager would.
+    """
+    ended = []
+
+    def control(server, subject_state, state_update):
+        # state_update is what just arrived; subject_state is what it was before. Testing the
+        # latter alone would fire one update late -- or never, on a single update.
+        if state_update.get('x', subject_state.get('x', 0)) > 0.5:
+            server.end_epoch(reason='reached_goal')
+            ended.append(True)
+        return state_update
+
+    live_server.loaded_custom_state_dependent_control = control
+    live_manager.register_function(live_client.stop_epoch, name='stop_epoch')
+
+    class GoalProtocol(BaseProtocol):
+        def get_run_parameter_defaults(self):
+            return {'num_epochs': 1, 'idle_color': 0.5, 'do_loco': False}
+        def get_protocol_parameter_defaults(self):
+            return {'pre_time': 0.0, 'stim_time': 30.0, 'tail_time': 0.0}
+        def get_epoch_parameters(self):
+            super().get_epoch_parameters()
+            self.epoch_stim_parameters = {'name': 'MovingSpot', 'radius': 10, 'sphere_radius': 1,
+                                          'color': [1, 1, 1, 1], 'theta': 0, 'phi': 0}
+        def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
+            # the "animal" reaches the goal 0.3 s in
+            threading.Timer(0.3, lambda: live_server.set_subject_state({'x': 1.0})).start()
+            super().start_stimuli(manager, append_stim_frames=append_stim_frames,
+                                  print_profile=print_profile, multicall=multicall)
+
+    import threading
+    protocol = GoalProtocol(cfg={})
+
+    started = time.monotonic()
+    live_client.start_run(protocol, _NullData(), save_metadata_flag=False)
+    elapsed = time.monotonic() - started
+
+    assert ended, 'the closed-loop function never saw the state update'
+    assert elapsed < 10, f'{elapsed:.1f}s: the 30 s epoch was not cut short'
+    assert protocol.num_epochs_completed == 1
+
+
+class _NullData:
+    """Enough of a data object for a run that saves nothing."""
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None

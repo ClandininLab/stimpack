@@ -1,3 +1,4 @@
+"""Locomotion manager for keytrac, the keyboard-driven stand-in tracker."""
 import subprocess
 import signal
 import numpy as np

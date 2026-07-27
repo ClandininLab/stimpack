@@ -6,32 +6,54 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-import sys
-import os
-import sphinx_rtd_theme
 import os
 import sys
-import stimpack
 
-# sys.path.insert(0, os.path.abspath('/dennis/stimpack/src/stimpack/'))
-# sys.path.insert(0, os.path.abspath('/home/dennis/stimpack/src/stimpack/visual_stim'))
-sys.path.insert(0, '../../stimpack/src/stimpack/')
-sys.path.insert(0, '../../stimpack/src/stimpack/visual_stim')
-sys.path.insert(0, '../../stimpack/src/stimpack/rpc')
-sys.path.insert(0, '../../')
+import sphinx_rtd_theme  # noqa: F401 - registers the theme
+
+# The repository root, so autodoc finds `stimpack` whether or not it is installed. The paths that
+# used to be here pointed at directories that never existed in this layout, which is why every
+# automodule below silently failed to import and the entire API section came out empty.
+sys.path.insert(0, os.path.abspath('../..'))
 
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
-    'sphinx.ext.viewcode'
+    'sphinx.ext.napoleon',      # :param: blocks, which is how this codebase writes docstrings
+    'sphinx.ext.viewcode',
 ]
 
+# PyQt6, moderngl and the hardware drivers are not installed on the docs builder, and importing them
+# is not needed to document the modules that use them.
+autodoc_mock_imports = [
+    'PyQt6', 'moderngl', 'OpenGL', 'hid', 'nidaqmx', 'labjack', 'h5py', 'skimage', 'platformdirs',
+    # pynwb/hdmf are an optional dependency, so they may not be installed where docs are built.
+    # They also cannot be imported during a doc build even when they ARE installed: hdmf rebuilds
+    # its docval docstrings when it detects sphinx, and that rewriting raises on its own types.
+    'pynwb', 'hdmf',
+]
+autodoc_default_options = {'members': True, 'undoc-members': True, 'show-inheritance': True}
+
+
+import pathlib
 
 autosummary_generate = True  # Automatically generate summary pages
 project = 'stimpack'
 copyright = '2023, Clandinin Lab'
 author = 'Clandinin Lab'
-release = '1.0'
+
+# Taken from the installed package rather than hard-coded, which had left the published docs
+# announcing a version ('1.0') that has never existed. Read the Docs pip-installs the package
+# before building, so this resolves there; the fallback is for a bare local build.
+try:
+    from importlib.metadata import version as _version
+    release = _version('stimpack')
+except Exception:                                          # pragma: no cover
+    import re as _re
+    _setup = (pathlib.Path(__file__).parents[2] / 'setup.py').read_text()
+    _match = _re.search(r"version\s*=\s*['\"]([^'\"]+)", _setup)
+    release = _match.group(1) if _match else 'unknown'
+version = release
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

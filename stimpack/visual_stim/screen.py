@@ -1,3 +1,13 @@
+"""
+Describing a physical display to stimpack.
+
+A :class:`Screen` is one display device; a :class:`SubScreen` is a rectangular region of it,
+given by its three physical corners in **metres** (``pa`` lower-left, ``pb`` lower-right, ``pc``
+upper-left) plus a viewport within the display. Those corners are what perspective correction is
+computed from, so measuring them accurately is what makes the geometry on screen correct.
+
+Several subscreens may share one display, and several screens may make up a rig.
+"""
 from math import sqrt
 
 class SubScreen:

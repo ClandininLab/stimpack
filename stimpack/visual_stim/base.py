@@ -51,12 +51,22 @@ class BaseProgram:
         self.prog['rgb_texture'].value = False
 
     def configure(self, *args, **kwargs):
+        """
+        Set this stimulus's parameters. Called once, before the epoch starts.
+
+        Subclasses override this. Anything expensive -- building geometry that does not change,
+        generating and uploading a texture -- belongs here rather than in :meth:`eval_at`, which
+        runs every frame. Parameters accepted here are what a protocol passes to ``load_stim``,
+        and what is saved with the data.
+        """
         pass
 
     def update(self, *args, **kwargs):
+        """Update parameters mid-epoch, in response to a ``update_stim`` call from the client."""
         pass
 
     def destroy(self):
+        """Release GL resources. Called when the stimulus is unloaded."""
         pass
 
     def paint_at(self, t, viewports, perspectives, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0}):
@@ -111,6 +121,14 @@ class BaseProgram:
                 self.vao.render(mode=moderngl.TRIANGLES, vertices=n_vertices)
 
     def add_texture_gl(self, texture_image, texture_interpolation='LINEAR'):
+        """
+        Upload a texture for this stimulus.
+
+        :param texture_image: 2D array for monochrome, or x-by-y-by-3 for RGB
+        :param texture_interpolation: ``'LINEAR'`` to smooth between texels, ``'NEAREST'`` to keep
+            hard edges -- the right choice for checkerboards and random grids, where interpolation
+            would blur the pattern
+        """
         # Update the texture booleans for the shader program
         self.prog['rgb_texture'].value = self.rgb_texture
         self.prog['use_texture'].value = self.use_texture
@@ -138,6 +156,8 @@ class BaseProgram:
         self.prog['texture_matrix'].value = 0
 
     def update_texture_gl(self, texture_image):
+        """Replace the texture's contents, keeping the same GL texture object. For stimuli whose
+        texture changes every frame."""
         # Hand the array straight to GL when its memory is already contiguous, rather than copying
         # the whole frame through .tobytes() first. A non-contiguous array has no usable buffer, so
         # it still needs the copy.
@@ -157,6 +177,7 @@ class BaseProgram:
         pass
 
     def get_vertex_shader(self):
+        """The vertex shader source. Override to change how vertices are transformed."""
         vertex_shader = '''
             #version 330
 
@@ -178,6 +199,7 @@ class BaseProgram:
         return vertex_shader
 
     def get_fragment_shader(self):
+        """The fragment shader source. Override to change how fragments are coloured."""
         fragment_shader = '''
             #version 330
 

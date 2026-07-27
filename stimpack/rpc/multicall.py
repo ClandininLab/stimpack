@@ -4,9 +4,20 @@ from stimpack.rpc.transceiver import MyTransceiver, reject_private_attribute
 
 class MyMultiCall:
     """
-    A class to collect multiple function calls and send them as a single request list.
-    This is useful for reducing the number of requests sent over the network 
-        and for sending multiple requests approximately coincidentally.
+    Collects several calls and sends them as one request list.
+
+    This cuts the number of round trips over the socket, and -- more importantly for timing --
+    makes the calls arrive together, so they are acted on at approximately the same moment
+    rather than spread across several sends.
+
+    Calls are accumulated by attribute access and dispatched when the object itself is called::
+
+        multicall = MyMultiCall(manager)
+        multicall.target('visual').start_stim()
+        multicall.target('voltage_out').output_step(output_channels='DAC0', ...)
+        multicall()     # both sent here, as one request list
+
+    The batch is cleared on dispatch, so the same object can be filled and called again.
     """
     def __init__(self, transceiver:MyTransceiver):
         self.transceiver = transceiver

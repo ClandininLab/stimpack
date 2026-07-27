@@ -1,3 +1,12 @@
+"""
+Locomotion managers: the interface between a movement tracker and the server.
+
+A manager starts its tracker, reads positions from it, forwards them to the server as subject
+state, and optionally saves them. Closed-loop stimuli follow from that state.
+
+Trackers themselves are hardware; stimpack ships only :mod:`~stimpack.device.locomotion.keytrac`,
+a keyboard stand-in that lets closed loop be exercised without any. Real trackers live in a labpack.
+"""
 import os
 import socket, select
 import threading
@@ -27,6 +36,19 @@ class LocoManager():
 
     def on_connection_close(self):
         pass
+
+    def get_callable_names(self):
+        """
+        Names this module will answer to, for the server to advertise (see
+        BaseServer.on_connection_open and BaseProtocol.has_server_function).
+
+        Dispatch here is `request['name'] in dir(self)`, so the surface is exactly the public
+        attributes. A module that cannot enumerate itself -- one that forwards to a subprocess,
+        as the visual module does -- simply does not implement this, and callers are told the
+        answer is unknown rather than given a wrong one.
+        """
+        return sorted(name for name in dir(self)
+                      if not name.startswith('_') and callable(getattr(self, name, None)))
 
     def handle_request_list(self, request_list):
         for request in request_list:

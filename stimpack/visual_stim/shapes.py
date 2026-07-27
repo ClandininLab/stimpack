@@ -1,14 +1,41 @@
+"""
+Geometry primitives: triangle meshes with per-vertex colours and texture coordinates.
+
+Every stimulus builds one of these in :meth:`~stimpack.visual_stim.base.BaseProgram.eval_at` and
+hands its vertex, colour and texture-coordinate arrays to the GPU. Shapes compose -- ``add()``
+merges one into another -- and transform in place, so a stimulus assembles what it needs and then
+positions the whole thing::
+
+    patch = GlSphericalRect(width=10, height=30, color=[1, 1, 1, 1])
+    patch = patch.rotate(np.radians(theta), np.radians(phi), np.radians(angle))
+
+Coordinates are stimpack's: metres, with the subject at the origin and heading ``(0, 0, 0)``
+looking along **+y**. Shapes named ``Spherical`` or ``Cylindrical`` take their extents in
+**degrees** subtended at the subject, and lie on a sphere or cylinder of the given radius, which
+is what keeps a patch the same angular size wherever it is placed.
+"""
 import numpy as np
 from math import radians
 from . import util
 
 class GlVertices:
+    """
+    A triangle mesh: vertices, per-vertex RGBA colours, and texture coordinates.
+
+    The base of every shape below, and usable directly for arbitrary geometry. Transform methods
+    (:meth:`rotate`, :meth:`translate`, :meth:`scale`) return the object, so they chain.
+
+    :param vertices: 3 x n array of vertex positions, in metres
+    :param colors: 4 x n array of RGBA values, one per vertex
+    :param tex_coords: 2 x n array of texture coordinates, for textured shapes
+    """
     def __init__(self, vertices=None, colors=None, tex_coords=None):
         self.vertices = vertices
         self.colors = colors
         self.tex_coords = tex_coords
 
     def add(self, obj):
+        """Merge another shape into this one, concatenating its vertices, colours and texture coordinates."""
         # add vertices
         if self.vertices is None:
             self.vertices = obj.vertices
@@ -36,25 +63,32 @@ class GlVertices:
         return GlVertices(vertices=util.rotate(self.vertices, z, x, y), colors=self.colors, tex_coords=self.tex_coords)
 
     def rotx(self, th):
+        """Rotate about the x axis by ``th`` radians. Returns self, so calls chain."""
         return GlVertices(vertices=util.rotx(self.vertices, th), colors=self.colors, tex_coords=self.tex_coords)
 
     def roty(self, th):
+        """Rotate about the y axis by ``th`` radians. Returns self, so calls chain."""
         return GlVertices(vertices=util.roty(self.vertices, th), colors=self.colors, tex_coords=self.tex_coords)
 
     def rotz(self, th):
+        """Rotate about the z axis by ``th`` radians. Returns self, so calls chain."""
         return GlVertices(vertices=util.rotz(self.vertices, th), colors=self.colors, tex_coords=self.tex_coords)
 
     def scale(self, amt):
+        """Scale about the origin. Returns self, so calls chain."""
         return GlVertices(vertices=util.scale(self.vertices, amt), colors=self.colors, tex_coords=self.tex_coords)
 
     def translate(self, amt):
+        """Translate by an (x, y, z) offset in metres. Returns self, so calls chain."""
         return GlVertices(vertices=util.translate(self.vertices, amt), colors=self.colors, tex_coords=self.tex_coords)
 
     def set_color(self, color):
+        """Set every vertex to one colour."""
         new_colors = np.tile(np.array(color), (self.vertices.shape[1], 1)).T
         return GlVertices(vertices=self.vertices, colors=new_colors, tex_coords=self.tex_coords)
 
     def shift_texture(self, shift):
+        """Offset texture coordinates by (u, v) -- how a texture is scrolled across a shape."""
         new_tex_coords = self.tex_coords + np.tile(shift, (self.tex_coords.shape[1], 1)).T
         return GlVertices(vertices=self.vertices, colors=self.colors, tex_coords=new_tex_coords)
 
@@ -68,6 +102,11 @@ class GlVertices:
 
 
 class GlTri(GlVertices):
+    """
+    A single triangle from three vertices, optionally textured.
+
+    The unit every other shape is built from.
+    """
     def __init__(self, v1, v2, v3, color, tc1=None, tc2=None, tc3=None, texture=None):
         vertices = np.concatenate((v1, v2, v3)).reshape((3, 3), order='F')
         colors = np.concatenate((color, color, color)).reshape((4, 3), order='F')
@@ -80,6 +119,12 @@ class GlTri(GlVertices):
 
 
 class GlQuad(GlVertices):
+    """
+    A planar quadrilateral from four vertices, drawn as two triangles.
+
+    Vertices are taken in order around the perimeter. Texture coordinates default to the corners
+    of the texture, so ``use_texture=True`` maps one full copy across the quad.
+    """
     def __init__(self, v1, v2, v3, v4, color, tc1=(0, 0), tc2=(1, 0), tc3=(1, 1), tc4=(0, 1), texture_shift=(0, 0), use_texture=False):
         super().__init__()
         if use_texture:
@@ -96,9 +141,12 @@ class GlQuad(GlVertices):
             self.add(GlTri(v1, v3, v4, color))
 
 class GlCircle(GlVertices):
-    '''
-    Circle parallel to the xz plane
-    '''
+    """
+    A flat disc parallel to the xz plane, built as a fan of ``n_steps`` wedges.
+
+    Flat rather than spherical: its apparent size changes with the subject's distance from it.
+    For a patch that subtends a fixed angle, use :class:`GlSphericalCirc`.
+    """
     def __init__(self, color=(1, 1, 1, 1), center=(0, 0, 0), radius=1.0, n_steps=36):
         # call the super constructor
         super().__init__()
@@ -117,6 +165,12 @@ class GlCircle(GlVertices):
             self.add(GlTri(v1, v2, (0,0,0), color).translate(center))
 
 class GlCube(GlVertices):
+    """
+    An axis-aligned cube, one colour per face.
+
+    :param colors: dict of face name to colour, or None for a default set of six distinct
+        colours -- useful as a visible reference object when checking perspective.
+    """
     def __init__(self, colors=None, center=[0, 0, 0], side_length=1.0):
         # call the super constructor
         super().__init__()
@@ -149,6 +203,11 @@ class GlCube(GlVertices):
         self.add(GlQuad((+s, -s, -s), (+s, +s, -s), (-s, +s, -s), (-s, -s, -s), colors['-z']).translate(center))
 
 class GlBox(GlVertices):
+    """
+    An axis-aligned rectangular box, one colour per face.
+
+    :class:`GlCube` with independent side lengths in x, y and z.
+    """
     def __init__(self, colors=None, center=(0, 0, 0), side_lengths={'x':1.0, 'y':1.0, 'z':1.0}):
         # call the super constructor
         super().__init__()
@@ -183,6 +242,21 @@ class GlBox(GlVertices):
         self.add(GlQuad((+x, -y, -z), (+x, +y, -z), (-x, +y, -z), (-x, -y, -z), colors['-z']).translate(center))
 
 class GlSphericalRect(GlVertices):
+    """
+    A patch on the surface of a sphere, rectangular in spherical coordinates.
+
+    Width and height are angles subtended at the centre of the sphere, so the patch keeps its
+    angular size however the sphere is scaled. Built at the equator and at theta = 90 degrees --
+    facing the subject's default heading -- then rotated into place by the caller, which avoids
+    the distortion a patch would pick up near the poles.
+
+    :param width: degrees of azimuth (theta)
+    :param height: degrees of elevation (phi)
+    :param sphere_radius: metres
+    :param n_steps_x: subdivisions across the width; more make the patch follow the sphere's
+        curvature more closely, at the cost of vertices
+    :param n_steps_y: subdivisions down the height
+    """
     def __init__(self,
                  width=20,  # degrees, theta
                  height=20,  # degrees, phi
@@ -209,6 +283,9 @@ class GlSphericalRect(GlVertices):
                 self.add(GlTri(v1, v3, v4, color))
 
 class GlSphericalTexturedRect(GlVertices):
+    """
+    :class:`GlSphericalRect` carrying texture coordinates, for image and grating stimuli.
+    """
     def __init__(self,
                  width=20,  # degrees, theta
                  height=20,  # degrees, phi
@@ -250,6 +327,11 @@ class GlSphericalTexturedRect(GlVertices):
                     self.add(GlTri(v1, v3, v4, color))
 
 class GlSphericalEllipse(GlVertices):
+    """
+    An ellipse on the surface of a sphere, its axes given as angles subtended at the subject.
+
+    Approximated by a fan of ``n_steps`` triangles.
+    """
     def __init__(self,
                  width=20,  # degrees in spherical coordinates
                  height=10,  # degrees in spherical coordinates
@@ -276,6 +358,12 @@ class GlSphericalEllipse(GlVertices):
             self.add(GlTri(v1, v2, v_center, color).translate(sphere_location))
 
 class GlCylindricalWithPhiEllipse(GlVertices):
+    """
+    :class:`GlSphericalEllipse` laid on a cylinder rather than a sphere.
+
+    Azimuth follows the cylinder wall; elevation is still an angle subtended at the subject, so
+    the shape suits rigs whose screens wrap horizontally but not vertically.
+    """
     def __init__(self,
                  width=20,  # degrees in spherical coordinates
                  height=10,  # degrees in spherical coordinates
@@ -302,6 +390,12 @@ class GlCylindricalWithPhiEllipse(GlVertices):
             self.add(GlTri(v1, v2, v_center, color).translate(cylinder_location))
 
 class GlSphericalCirc(GlVertices):
+    """
+    A circular patch on the surface of a sphere, of fixed angular radius.
+
+    :param circle_radius: degrees subtended at the subject
+    :param n_steps: triangles in the fan approximating the circle
+    """
     def __init__(self,
                  circle_radius=10,  # degrees in spherical coordinates
                  sphere_radius=1,  # meters
@@ -327,6 +421,11 @@ class GlSphericalCirc(GlVertices):
             self.add(GlTri(v1, v2, v_center, color).translate(sphere_location))
 
 class GlCylindricalPoints(GlVertices):
+    """
+    Points placed on a cylinder wall at given azimuths and elevations.
+
+    Drawn as GL points rather than triangles -- see ``draw_mode`` on the stimulus.
+    """
     def __init__(self,
                  cylinder_radius=1,  # meters
                  cylinder_location=(0, 0, 0),  # (x,y,z) meters. (0,0,0) is center of cylinder (r = 0 and z = height/2)
@@ -346,6 +445,9 @@ class GlCylindricalPoints(GlVertices):
         super().__init__(vertices=vertices, colors=colors)
 
 class GlSphericalPoints(GlVertices):
+    """
+    Points placed on a sphere at given azimuths (``theta``) and elevations (``phi``), in degrees.
+    """
     def __init__(self,
                  sphere_radius=1,  # meters
                  color=[1, 1, 1, 1],
@@ -364,6 +466,11 @@ class GlSphericalPoints(GlVertices):
         super().__init__(vertices=vertices, colors=colors)
 
 class GlPointCollection(GlVertices):
+    """
+    Points at arbitrary Cartesian positions, all one colour.
+
+    :param locations: sequence of (x, y, z) positions in metres
+    """
     def __init__(self,
                  locations=[[0, 0, 0]],
                  color=[1, 1, 1, 1]):
@@ -375,6 +482,19 @@ class GlPointCollection(GlVertices):
         super().__init__(vertices=vertices, colors=colors)
 
 class GlCylinder(GlVertices):
+    """
+    A cylinder wall around the subject -- the surface most panoramic stimuli are painted on.
+
+    :param cylinder_height: metres
+    :param cylinder_radius: metres
+    :param cylinder_angular_extent: degrees of azimuth covered; 360 closes the cylinder, less
+        leaves an arc
+    :param n_faces: flat faces approximating the wall
+    :param alpha_by_face: per-face alpha, for fading a cylinder out towards its edges
+    :param texture: whether to generate texture coordinates
+    :param n_texture_repeat_x: how many times the texture tiles around the cylinder
+    :param n_texture_repeat_y: how many times it tiles vertically
+    """
     def __init__(self,
                  cylinder_height=10,  # meters
                  cylinder_radius=1,  # meters
@@ -416,6 +536,11 @@ class GlCylinder(GlVertices):
                 self.add(GlQuad(v1, v2, v3, v4, color).translate(cylinder_location))
 
 class GlCylindricalWithPhiRect(GlVertices):
+    """
+    A rectangular patch on a cylinder wall, sized in degrees of azimuth and elevation.
+
+    The cylindrical counterpart of :class:`GlSphericalRect`.
+    """
     def __init__(self,
                  width=20,  # degrees, theta
                  height=20,  # degrees, phi

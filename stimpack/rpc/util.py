@@ -1,3 +1,4 @@
+"""Small helpers shared by the RPC layer: daemon threads, free ports, tuple-preserving JSON."""
 import sys, json
 
 from collections import defaultdict

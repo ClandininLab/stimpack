@@ -458,3 +458,37 @@ def test_every_stimulus_in_a_multi_stimulus_epoch_is_checked(tmp_path):
     findings = deep_findings(tmp_path)
     assert codes(findings, level='error') == ['unknown-stimulus']
     assert 'AlsoNotReal' in findings[0].message
+
+
+# --- data backend availability --------------------------------------------------------------------
+
+def test_unknown_data_format_is_an_error():
+    findings = check_labpack.check_config({'data_format': 'parquet', 'module_paths': {}}, 'c.yaml')
+    codes = [f.code for f in findings]
+    assert 'unknown-data-format' in codes
+    assert any(f.level == 'error' for f in findings if f.code == 'unknown-data-format')
+
+
+def test_default_data_format_is_fine():
+    findings = check_labpack.check_config({'module_paths': {}}, 'c.yaml')
+    assert [f for f in findings if 'data' in f.code and 'format' in f.code] == []
+
+
+def test_nwb_without_pynwb_is_reported_not_discovered_at_the_rig(monkeypatch):
+    """A config asking for NWB on a machine without pynwb looks fine and then kills the GUI on
+    launch. The checker exists to move that discovery off the rig."""
+    def no_pynwb(cfg):
+        raise ImportError('The NWB data backend requires pynwb.')
+
+    monkeypatch.setattr(check_labpack.config_tools, 'get_builtin_data_class', no_pynwb)
+
+    findings = check_labpack.check_config({'data_format': 'nwb', 'module_paths': {}}, 'c.yaml')
+    matching = [f for f in findings if f.code == 'data-backend-unavailable']
+    assert matching and matching[0].level == 'error'
+    assert 'pynwb' in matching[0].message
+
+
+def test_nwb_with_pynwb_installed_passes():
+    pytest.importorskip('pynwb')
+    findings = check_labpack.check_config({'data_format': 'nwb', 'module_paths': {}}, 'c.yaml')
+    assert [f for f in findings if f.code == 'data-backend-unavailable'] == []

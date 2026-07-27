@@ -1,3 +1,9 @@
+"""
+Read-only helpers for browsing an HDF5 experiment file's group hierarchy and attributes.
+
+Used by the GUI's data browser (:mod:`stimpack.experiment.gui_data_browser`). Bulk data groups
+are excluded from the hierarchy, since this is for inspecting metadata rather than reading data.
+"""
 import h5py
 import numpy as np
 

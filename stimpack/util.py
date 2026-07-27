@@ -1,3 +1,4 @@
+"""Package-wide helpers: subclass discovery, building objects from parameter dictionaries, paths."""
 import inspect
 import os
 
