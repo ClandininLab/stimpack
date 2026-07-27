@@ -22,7 +22,7 @@ import moderngl
 import numpy as np
 import pandas as pd
 from skimage.transform import downscale_local_mean
-from PyQt6 import QtWidgets, QtGui
+from PyQt6 import QtCore, QtWidgets, QtGui
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 
 from stimpack.util import get_all_subclasses, ICON_PATH
@@ -856,6 +856,20 @@ def main():
     for function_name in SCREEN_FUNCTION_NAMES:
         server.register_function(getattr(stim_display, function_name))
     
+    # A new window normally activates itself and takes the keyboard. That is right on a rig, but
+    # disruptive when windowed screens open on a desktop somebody is working in -- above all during
+    # the test suite, which launches a great many of them. STIMPACK_NO_FOCUS=1 shows them without
+    # taking focus.
+    #
+    # Honoured under X11/XWayland, where Qt maps it to _NET_WM_USER_TIME=0 and the window manager
+    # respects that. NOT honoured under the wayland platform plugin: Wayland has no such hint, the
+    # compositor alone decides focus, and mutter activates new toplevels regardless (measured, not
+    # assumed). To get this under a Wayland session, run the screen on XWayland instead --
+    # Screen(x_display=os.environ['DISPLAY']) selects the xcb platform. See tests/conftest.py.
+    if os.environ.get('STIMPACK_NO_FOCUS', '') not in ('', '0'):
+        stim_display.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        stim_display.setWindowFlag(QtCore.Qt.WindowType.WindowDoesNotAcceptFocus, True)
+
     # display the stimulus
     if screen.fullscreen:
         stim_display.showFullScreen()

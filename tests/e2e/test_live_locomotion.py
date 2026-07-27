@@ -15,7 +15,7 @@ import time
 
 import pytest
 
-from helpers import wait_until          # tests/helpers.py (tests/ is on pytest's pythonpath)
+from helpers import unobtrusive_screen, wait_until   # tests/helpers.py (tests/ is on pytest's pythonpath)
 
 pytestmark = pytest.mark.e2e
 
@@ -42,9 +42,8 @@ def make_loco_server(port, with_screen=True):
     """
     from stimpack.device.locomotion.loco_managers.keytrac_managers import KeytracClosedLoopManager
     from stimpack.experiment.server import BaseServer
-    from stimpack.visual_stim.screen import Screen
 
-    visual_stim_kwargs = ({'screens': [Screen(fullscreen=False, vsync=False, display_index=0)]}
+    visual_stim_kwargs = ({'screens': [unobtrusive_screen(display_index=0)]}
                           if with_screen else None)
     return BaseServer(
         host='127.0.0.1', port=None,

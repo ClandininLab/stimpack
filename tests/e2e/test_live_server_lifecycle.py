@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from helpers import wait_until
+from helpers import unobtrusive_screen, wait_until
 
 pytestmark = pytest.mark.e2e
 
@@ -25,11 +25,10 @@ def test_a_standalone_stim_server_reports_screen_errors_to_its_client():
     error_reporter; that was None here, so they were dropped. A failing stimulus did nothing and
     reported nothing, which is the hardest kind of failure to debug from a script.
     """
-    from stimpack.visual_stim.screen import Screen
     from stimpack.visual_stim.stim_server import launch_stim_server
 
     try:
-        manager = launch_stim_server(Screen(fullscreen=False, vsync=False))
+        manager = launch_stim_server(unobtrusive_screen())
     except Exception as e:
         pytest.skip(f"Could not launch a stim server here: {type(e).__name__}: {e}")
 
@@ -78,7 +77,6 @@ def test_a_custom_stim_module_survives_successive_client_sessions(tmp_path):
     """
     from stimpack.experiment.server import BaseServer
     from stimpack.rpc.transceiver import MySocketClient
-    from stimpack.visual_stim.screen import Screen
 
     module_dir = tmp_path / 'custom_stim'
     module_dir.mkdir()
@@ -91,8 +89,8 @@ def test_a_custom_stim_module_survives_successive_client_sessions(tmp_path):
         '    def eval_at(self, t, subject_position=None):\n'
         '        self.stim_object = shapes.GlSphericalRect(width=10, height=10, color=self.color)\n')
 
-    screen = Screen(fullscreen=False, vsync=False, display_index=0,
-                    pa=(-0.15, 0.15, -0.15), pb=(0.15, 0.15, -0.15), pc=(-0.15, 0.15, 0.15))
+    screen = unobtrusive_screen(display_index=0,
+                                pa=(-0.15, 0.15, -0.15), pb=(0.15, 0.15, -0.15), pc=(-0.15, 0.15, 0.15))
     try:
         server = BaseServer(host='127.0.0.1', port=None,
                             visual_stim_kwargs={'screens': [screen]}, start_loop=True)

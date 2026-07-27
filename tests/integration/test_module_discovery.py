@@ -6,6 +6,7 @@ and the protocol adapts, rather than the framework knowing about any particular 
 import pytest
 
 from fakes import FakeManager
+from helpers import unobtrusive_screen
 
 pytestmark = pytest.mark.integration
 
@@ -92,8 +93,6 @@ def test_alias_deprecation_warns_once_not_per_call(visual_only_server_with_volta
 def visual_only_server_with_voltage_out():
     from stimpack.device.daq import DAQ
     from stimpack.experiment.server import BaseServer
-    from stimpack.visual_stim.screen import Screen
-
     class CountingDAQ(DAQ):
         triggered = 0
         def send_trigger(self, *args, **kwargs):
@@ -102,7 +101,7 @@ def visual_only_server_with_voltage_out():
     CountingDAQ.triggered = 0
     try:
         server = BaseServer(host='127.0.0.1', port=None,
-                            visual_stim_kwargs={'screens': [Screen(fullscreen=False, vsync=False)]},
+                            visual_stim_kwargs={'screens': [unobtrusive_screen()]},
                             daq_class=CountingDAQ, start_loop=False)
     except Exception as e:
         pytest.skip(f'could not construct a server here: {type(e).__name__}: {e}')

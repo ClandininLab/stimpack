@@ -8,6 +8,8 @@ import warnings
 
 import pytest
 
+from helpers import unobtrusive_screen
+
 pytestmark = pytest.mark.integration
 
 
@@ -15,11 +17,10 @@ pytestmark = pytest.mark.integration
 def visual_only_server():
     """A server configured like a rig with no opto/locomotion hardware: visual module only."""
     from stimpack.experiment.server import BaseServer
-    from stimpack.visual_stim.screen import Screen
 
     try:
         server = BaseServer(host='127.0.0.1', port=None,
-                            visual_stim_kwargs={'screens': [Screen(fullscreen=False, vsync=False)]},
+                            visual_stim_kwargs={'screens': [unobtrusive_screen()]},
                             start_loop=False)
     except Exception as e:
         pytest.skip(f'could not construct a server here: {type(e).__name__}: {e}')
