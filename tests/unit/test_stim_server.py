@@ -52,14 +52,41 @@ def test_timestamping_screen_requests_does_not_mutate_the_shared_request():
 def test_frame_times_are_only_profiled_while_the_stimulus_runs():
     """#43: paintGL appended a timestamp whenever a stim was loaded, started or not, so pre-time
     frames landed in the statistics print_profile reports -- and a stimulus loaded but never
-    started grew the list for as long as it sat there."""
+    started grew the list for as long as it sat there.
+
+    Checked structurally rather than by grepping one method's source: which method does the
+    appending is an implementation detail (subframe multiplexing moved it into paint_subframe),
+    but every append must sit under `if self.stim_started`.
+    """
+    import ast
     import inspect
-    import re
+    import textwrap
     from stimpack.visual_stim import framework
 
-    body = inspect.getsource(framework.StimDisplay.paintGL)
-    guard = re.search(r'if self\.stim_started:\s*\n\s*self\.profile_frame_times\.append', body)
-    assert guard, "profile_frame_times is appended without a stim_started guard"
+    tree = ast.parse(textwrap.dedent(inspect.getsource(framework.StimDisplay)))
+
+    def guards_stim_started(node):
+        test = node.test
+        return (isinstance(test, ast.Attribute) and test.attr == 'stim_started'
+                and getattr(test.value, 'id', None) == 'self')
+
+    def appends_frame_time(node):
+        return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == 'append'
+                and getattr(node.func.value, 'attr', None) == 'profile_frame_times')
+
+    guarded, total = 0, 0
+    for node in ast.walk(tree):
+        if appends_frame_time(node):
+            total += 1
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and guards_stim_started(node):
+            guarded += sum(1 for sub in ast.walk(node) if appends_frame_time(sub))
+
+    assert total > 0, 'no frame-time profiling found at all'
+    assert guarded == total, (
+        f'{total - guarded} of {total} profile_frame_times.append calls are not under '
+        f'`if self.stim_started`')
 
 
 # --- error reporting and the removed launch-time kwarg -------------------------------------------
