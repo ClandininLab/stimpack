@@ -116,8 +116,17 @@ which is handed to the server after it starts:
     manager.load_stim(name='ShowImage', image_path='./assets/cactus.png',
                       vertical_extent=30, horizontal_extent=30)
 
-(The equivalent at launch time is ``launch_stim_server(screen,
-other_stim_module_paths=[...])``, which is what a labpack's config drives.)
+Importing the same directory again **reloads** it: the previous import is dropped first, so the
+code on disk now is the code that runs and no duplicate classes accumulate. That is what makes it
+safe to import on every connection, and what makes an edited stimulus take effect without
+restarting the server.
+
+A stimulus whose name is already taken -- by a built-in, or by a module imported earlier -- shadows
+it, and a warning names both files. That is deliberate: a lab may want its own ``MovingPatch``.
+
+The equivalent at launch time is ``launch_stim_server(screen, other_stim_module_paths=[...])``.
+Note that those are unloaded when a client disconnects and are not re-imported, so for a server
+that outlives a session, importing from the client is the more reliable of the two.
 
 ``examples/4-custom_stimuli.py`` and ``examples/example_custom_module/`` are a working pair. See
 :class:`stimpack.visual_stim.base.BaseProgram` for what a stimulus must implement, and
