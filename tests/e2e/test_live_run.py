@@ -276,8 +276,14 @@ def test_a_standalone_stim_server_reports_screen_errors_to_its_client():
             manager.process_queue()
             return bool(reported)
 
-        assert wait_until(arrived, timeout=15), \
-            'a standalone stim server never reported the screen-side error to its client'
+        if not wait_until(arrived, timeout=15):
+            # Distinguish "the report did not come back" -- the bug this test exists for -- from
+            # "there is no usable GL here", which is the rest of this tier's skip condition. A
+            # screen that cannot create a context dies, and the socket to it breaks.
+            if getattr(manager, 'connection_broken', False):
+                pytest.skip('the screen subprocess died before it could report anything '
+                            '(no usable GL on this machine)')
+            pytest.fail('a standalone stim server never reported the screen-side error to its client')
         level, text = reported[0]
         assert level == 'error'
         assert 'NoSuchStimulus_Standalone' in text
