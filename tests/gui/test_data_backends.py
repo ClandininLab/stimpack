@@ -414,3 +414,29 @@ def test_writing_over_an_existing_series_says_so_in_stimpack_s_terms(nwb_experim
 
     with pytest.raises(FileExistsError, match='already exists for subject fly1'):
         gui.data.prepare_series()
+
+
+def test_the_current_subject_shows_on_the_main_tab_too(experiment_gui):
+    """The Subject tab is not where you look while starting a run, and recording onto the wrong
+    subject is a mistake worth making hard to miss."""
+    initialize(experiment_gui, 'subject_on_main')
+    add_subject(experiment_gui, 'fly_42')
+
+    assert experiment_gui.current_subject_main_label.text() == 'fly_42'
+    assert experiment_gui.current_subject_display.text() == 'fly_42'
+
+
+def test_selecting_an_existing_subject_updates_both_displays(nwb_experiment_gui):
+    gui = nwb_experiment_gui
+    initialize(gui, 'both_displays')
+    for subject_id in ('flyA', 'flyB'):
+        add_subject(gui, subject_id)
+        gui.data.prepare_series()
+        gui.data.advance_series_count()
+
+    gui.update_existing_subject_input()
+    labels = [gui.existing_subject_input.itemText(i) for i in range(gui.existing_subject_input.count())]
+    gui.on_selected_existing_subject(labels.index('flyA'))
+
+    assert gui.current_subject_main_label.text() == 'flyA'
+    assert gui.current_subject_display.text() == 'flyA'

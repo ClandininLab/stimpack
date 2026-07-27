@@ -251,21 +251,30 @@ class ExperimentGUI(QWidget):
         self.series_counter_input.valueChanged.connect(self.on_entered_series_count)
         self.protocol_control_grid.addWidget(self.series_counter_input, 1, 1)
 
-        # Epoch count window:
-        new_label = QLabel('Epoch count:')
+        # Current subject, next to the series counter: together they say what the next run will
+        # be recorded as. Otherwise the only place to see the subject is the Subject tab, and
+        # recording onto the wrong one is a mistake worth making hard.
+        new_label = QLabel('Subject:')
         self.protocol_control_grid.addWidget(new_label, 1, 2)
-        self.epoch_count_label = QLabel()
-        self.epoch_count_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.epoch_count_label, 1, 3)
-        self.epoch_count_label.setText('')
+        self.current_subject_main_label = QLabel()
+        self.current_subject_main_label.setFrameShadow(QFrame.Shadow(1))
+        self.protocol_control_grid.addWidget(self.current_subject_main_label, 1, 3)
 
-        # Elapsed time window:
+        # Elapsed time and epoch count share a row: both say how far through the run we are, and
+        # neither needs a third of the window to show "0 / 240".
         new_label = QLabel('Elapsed time [s]:')
         self.protocol_control_grid.addWidget(new_label, 2, 0)
         self.elapsed_time_label = QLabel()
         self.elapsed_time_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.elapsed_time_label, 2, 1, 1, 3)
+        self.protocol_control_grid.addWidget(self.elapsed_time_label, 2, 1)
         self.elapsed_time_label.setText('')
+
+        new_label = QLabel('Epoch count:')
+        self.protocol_control_grid.addWidget(new_label, 2, 2)
+        self.epoch_count_label = QLabel()
+        self.epoch_count_label.setFrameShadow(QFrame.Shadow(1))
+        self.protocol_control_grid.addWidget(self.epoch_count_label, 2, 3)
+        self.epoch_count_label.setText('')
 
         # Elapsed timer for protocol
         self.progress_timer = QTimer()
@@ -969,7 +978,7 @@ class ExperimentGUI(QWidget):
             return
         self.populate_subject_metadata_fields(matching[-1])   # most recently recorded metadata
         self.data.select_subject(subject_id)
-        self.current_subject_display.setText(subject_id)
+        self.show_current_subject(subject_id)
 
     def update_existing_subject_input(self):
         self.existing_subject_input.clear()
@@ -983,7 +992,12 @@ class ExperimentGUI(QWidget):
         index = self.existing_subject_input.findText(self.data.current_subject)
         if index >= 0:
             self.existing_subject_input.setCurrentIndex(index)
-        self.current_subject_display.setText(self.data.current_subject or '')
+        self.show_current_subject(self.data.current_subject or '')
+
+    def show_current_subject(self, subject_id):
+        """Update both places the current subject is shown -- the Subject tab and the Main tab."""
+        self.current_subject_display.setText(subject_id)
+        self.current_subject_main_label.setText(subject_id)
 
     def populate_subject_metadata_fields(self, subject_data_dict):
         self.subject_id_input.setText(subject_data_dict['subject_id'])
