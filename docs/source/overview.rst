@@ -25,10 +25,16 @@ They talk over a small JSON protocol. Calls are addressed to a module::
 
 Two things follow from that design and are worth knowing early.
 
-**Calls are one-way.** A request that names something the server does not have is accepted, sent,
-and dropped -- there is no return value to notice its absence. The server pushes errors back over
-the same link so they reach the GUI and abort the run, and :doc:`check_labpack` finds the rest
-before an experiment rather than during one.
+**Calls are one-way.** There is no return value to branch on, and attribute access alone never
+fails -- a mistyped name still produces a callable. The failure is not silent, though: the server
+pushes messages back over the same link. What can only be a mistake (an untargeted call finding
+nothing on the root node, a name a module does not define) is reported as an **error** and aborts
+the run; what legitimately differs between rigs (a module this server has no hardware for, a
+rig-specific function on root) is a **warning**, so one protocol can run across rigs. Broadcasts --
+``target('all')`` -- are the deliberate exception: every module receives them and acts only on the
+names it defines, so an unknown name there stays quiet. Use ``has_server_function()`` to check
+before calling; see :doc:`modules_and_targets`. :doc:`check_labpack` finds the rest before an
+experiment rather than during one.
 
 **An untargeted call goes to the server's root node**, not to every module. ``manager.load_stim(...)``
 without a ``target`` will not reach the screens.

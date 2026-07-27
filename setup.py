@@ -2,7 +2,11 @@ from setuptools import setup, find_packages
 
 setup(
     name='stimpack',
-    version='0.1.1',
+    # Pre-release marker for the branch, not a released version: PEP 440 orders this after 0.2.0
+    # (the current release) and before 0.3.0, so an install from dev is never mistaken for either.
+    # dev carries breaking changes already named as 0.3.0 in user-facing errors -- see the
+    # other_stim_module_paths TypeError in visual_stim/stim_server.py.
+    version='0.3.0.dev0',
     description='Precise and flexible generation of stimuli for neuroscience experiments.',
     url='https://github.com/ClandininLab/stimpack',
     author='Minseung Choi',
