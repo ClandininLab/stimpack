@@ -1,3 +1,12 @@
+"""
+Locomotion managers: the interface between a movement tracker and the server.
+
+A manager starts its tracker, reads positions from it, forwards them to the server as subject
+state, and optionally saves them. Closed-loop stimuli follow from that state.
+
+Trackers themselves are hardware; stimpack ships only :mod:`~stimpack.device.locomotion.keytrac`,
+a keyboard stand-in that lets closed loop be exercised without any. Real trackers live in a labpack.
+"""
 import os
 import socket, select
 import threading

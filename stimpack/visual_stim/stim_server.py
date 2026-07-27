@@ -1,3 +1,10 @@
+"""
+The visual module: manages screen subprocesses and forwards requests to them.
+
+:class:`VisualStimServer` launches one subprocess per :class:`~stimpack.visual_stim.screen.Screen`
+so that one display stalling cannot stall another, and fans each request out to all of them.
+Some calls are handled on the server itself rather than forwarded -- see ``register_function_on_root``.
+"""
 import platform, os, subprocess, warnings, traceback
 from time import time, sleep
 

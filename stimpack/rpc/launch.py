@@ -1,3 +1,4 @@
+"""Launching a server in a subprocess and returning a connected client."""
 import sys, subprocess, os.path, json, atexit
 
 from time import sleep, time

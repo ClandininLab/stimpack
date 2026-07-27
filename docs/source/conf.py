@@ -35,11 +35,25 @@ autodoc_mock_imports = [
 autodoc_default_options = {'members': True, 'undoc-members': True, 'show-inheritance': True}
 
 
+import pathlib
+
 autosummary_generate = True  # Automatically generate summary pages
 project = 'stimpack'
 copyright = '2023, Clandinin Lab'
 author = 'Clandinin Lab'
-release = '1.0'
+
+# Taken from the installed package rather than hard-coded, which had left the published docs
+# announcing a version ('1.0') that has never existed. Read the Docs pip-installs the package
+# before building, so this resolves there; the fallback is for a bare local build.
+try:
+    from importlib.metadata import version as _version
+    release = _version('stimpack')
+except Exception:                                          # pragma: no cover
+    import re as _re
+    _setup = (pathlib.Path(__file__).parents[2] / 'setup.py').read_text()
+    _match = _re.search(r"version\s*=\s*['\"]([^'\"]+)", _setup)
+    release = _match.group(1) if _match else 'unknown'
+version = release
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

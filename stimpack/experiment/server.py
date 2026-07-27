@@ -1,3 +1,14 @@
+"""
+The server side of an experiment: owns the hardware and routes requests to it.
+
+:class:`BaseServer` holds one module per capability -- ``visual`` (screens), ``locomotion`` (a
+tracker), ``voltage_out`` (a DAQ) -- and dispatches each incoming request by its ``target``. It
+usually runs on the rig machine while the client runs wherever the experimenter is sitting.
+
+The routing rule that most often catches people out: a request with no target goes to the
+server's own ``root`` registry, **not** to the modules. Use ``target('all')`` for "whichever
+module handles this". See :meth:`BaseServer.handle_request_list`.
+"""
 import signal, sys, os, warnings, traceback
 
 from stimpack.visual_stim.screen import Screen
@@ -186,21 +197,22 @@ class BaseServer(MySocketServer):
 
     def handle_request_list(self, request_list):
         '''
-        Route each request by its 'target':
+        Route each request by its ``target``::
 
-            (absent) / 'root'  -> the server's own functions_on_root registry ONLY. An untargeted
-                                  call does NOT reach the modules; if the name isn't registered on
-                                  root, nothing happens (and it is now reported back to the client).
-            '<module name>'    -> that module only ('visual', 'locomotion', 'daq').
-            'all'              -> broadcast to every module; each acts only on the names it defines
-                                  (e.g. target('all').start_stim() is handled by the screens, and
-                                  the daq/locomotion modules ignoring it is expected).
+            (absent) / 'root'   the server's own functions_on_root registry ONLY. An untargeted
+                                call does NOT reach the modules; if the name is not registered on
+                                root, nothing happens (and it is reported back to the client).
+            '<module name>'     that module only ('visual', 'locomotion', 'voltage_out').
+            'all'               broadcast to every module; each acts only on the names it
+                                defines, so target('all').start_stim() is handled by the screens
+                                and ignored by the others, which is expected.
 
-        Use target('all') when you mean "whichever module handles this" -- writing the call
+        Use ``target('all')`` when you mean "whichever module handles this" -- writing the call
         untargeted instead sends it to root, where it will not be found.
 
-        Note 'all' covers the modules but NOT root, deliberately: root's set_subject_state itself
-        fans out via target('all'), so including root would recurse forever.
+        Note that ``'all'`` covers the modules but NOT root, deliberately: root's
+        ``set_subject_state`` itself fans out via ``target('all')``, so including root would
+        recurse forever.
         '''
         # pre-process the request list as necessary
         for request in request_list:

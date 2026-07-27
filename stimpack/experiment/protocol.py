@@ -106,6 +106,12 @@ class BaseProtocol():
         return module_name in self.available_modules
 
     def adjust_center(self, relative_center):
+        """
+        Convert a center given relative to the screen center into absolute coordinates.
+
+        Protocols are usually written in relative terms so the same protocol works on rigs whose
+        screens are centered differently; ``screen_center`` comes from the rig config.
+        """
         absolute_center = [sum(x) for x in zip(relative_center, self.screen_center)]
         return absolute_center
 
@@ -128,6 +134,12 @@ class BaseProtocol():
         return {}
 
     def load_parameter_presets(self):
+        """
+        Load this protocol's saved parameter presets from the labpack's preset directory.
+
+        Presets live in ``<parameter_presets_dir>/<ProtocolName>.yaml``. A protocol with no
+        preset file simply has none.
+        """
         fname = os.path.join(self.parameter_preset_directory, self.__class__.__name__) + '.yaml'
         if os.path.isfile(fname):
             with open(fname, 'r') as ymlfile:
@@ -137,6 +149,11 @@ class BaseProtocol():
             self.parameter_presets = {}
 
     def update_parameter_presets(self, name):
+        """
+        Save the current run and protocol parameters as a named preset, and write it to disk.
+
+        Re-saving under an existing name replaces it.
+        """
         self.load_parameter_presets()
         new_preset = {'run_parameters': self.run_parameters,
                       'protocol_parameters': self.protocol_parameters}
@@ -185,6 +202,7 @@ class BaseProtocol():
                 warnings.warn(f'Warning: protocol parameter {k} not found in current protocol. Skipping preset parameter.', RuntimeWarning)            
 
     def advance_epoch_counter(self):
+        """Record that an epoch finished. Drives which precomputed parameters are used next."""
         self.num_epochs_completed += 1
         
     def precompute_epoch_parameters(self, refresh=False):
@@ -209,6 +227,7 @@ class BaseProtocol():
             self.num_epochs_completed = 0
 
     def load_precomputed_epoch_parameters(self):
+        """Take this epoch's parameters from the set computed by :meth:`precompute_epoch_parameters`."""
         self.epoch_stim_parameters = self.precomputed_epoch_parameters['stim'][self.num_epochs_completed]
         self.epoch_protocol_parameters = self.precomputed_epoch_parameters['protocol'][self.num_epochs_completed]
 
@@ -347,6 +366,13 @@ class BaseProtocol():
         self.num_epochs_completed = 0
 
     def load_stimuli(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
+        """
+        Send this epoch's stimuli to the server, ready to start.
+
+        Loads the background first, then each stimulus in ``epoch_stim_parameters``. Batched
+        through a :class:`~stimpack.rpc.multicall.MyMultiCall` so they arrive together; pass your
+        own to add further calls to the same batch.
+        """
         if multicall is None:
             multicall = MyMultiCall(manager)
 
@@ -365,6 +391,16 @@ class BaseProtocol():
         multicall()
 
     def start_stimuli(self, manager:MySocketClient, append_stim_frames=False, print_profile=True, multicall:MyMultiCall|None=None):
+        """
+        Run one epoch: start the stimulus, wait out its timing, then stop it.
+
+        Handles the pre / stimulus / tail structure, closed-loop locomotion if the protocol asks
+        for it, and the corner square used for photodiode timing.
+
+        :param append_stim_frames: keep rendered frames on the server for later retrieval
+        :param print_profile: print the epoch's frame-time distribution when it ends
+        :param multicall: batch to add the start calls to, rather than sending them alone
+        """
         # locomotion setting variables
         do_loco = self.run_parameters.get('do_loco', False)
         do_loco_closed_loop = do_loco and self.epoch_protocol_parameters.get('loco_pos_closed_loop', False)
@@ -434,14 +470,20 @@ class BaseProtocol():
         
     def get_parameter_sequence(self, parameter_list, all_combinations=True, randomize_order=False):
         """
-        inputs
-        parameter_list can be:
-            -list/array of parameters
-            -single value (int, float etc)
-            -tuple of lists, where each list contains values for a single parameter
-                    in this case, all_combinations = True will return all possible combinations of parameters, taking
-                    one from each parameter list. If all_combinations = False, keeps params associated across lists
-        randomize_order will randomize sequence or sequences at the beginning of each new sequence
+        Expand a protocol parameter into the sequence of values presented across a run.
+
+        :param parameter_list: one of
+
+            * a list or array of values -- used as the sequence directly
+            * a single value (int, float, ...) -- a sequence of length one
+            * a tuple of lists, one list per parameter, combined according to ``all_combinations``
+
+        :param all_combinations: for a tuple of lists, ``True`` takes every combination of one
+            value from each list; ``False`` keeps the lists associated element by element, so
+            ``([1, 2], ['a', 'b'])`` yields ``(1, 'a')`` and ``(2, 'b')`` rather than all four.
+        :param randomize_order: shuffle the sequence at the start of each pass through it, so
+            every value is still presented equally often.
+        :return: the sequence of parameter values for one pass.
         """
 
         # parameter_list is a tuple of lists or a single list
@@ -499,15 +541,16 @@ class BaseProtocol():
     
     def select_epoch_protocol_parameters(self, all_combinations=True, randomize_order=False):
         """
-        inputs
-        all_combinations:
-            True will return all possible combinations of parameters, taking one from each parameter list. 
-            False keeps params associated across lists
-        randomize_order will randomize sequence or sequences at the beginning of each new sequence
+        Pick this epoch's value for every protocol parameter.
 
-        returns
-        epoch_protocol_parameters:
-            dictionary of protocol parameter names and values specific to this epoch.
+        Called once per epoch. Sequences are built on the first epoch of a run and stored in
+        ``persistent_parameters``, so the order is consistent across the run rather than
+        re-drawn each time.
+
+        :param all_combinations: ``True`` takes every combination of one value from each
+            parameter list; ``False`` keeps the lists associated element by element.
+        :param randomize_order: shuffle each sequence at the start of every pass through it.
+        :return: dictionary of protocol parameter names to the value chosen for this epoch.
         """
 
         # new run: initialize parameter sequences if not already done

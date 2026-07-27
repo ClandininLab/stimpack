@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Data file class
+The HDF5 data backend: one file per experiment, named ``<experiment_file_name>.hdf5``.
 
-Data File structure is:
-yyyy-mm-dd
-    ::
+The file is laid out as::
 
+    /                                    (attrs: date, experimenter, rig_config, ...)
         Subjects
-            subject_id
+            <subject_id>                 (attrs: subject metadata)
                 epoch_runs
-                    series_00n (attrs = protocol_parameters)
+                    series_00n           (attrs: protocol + run parameters, run outcome)
                         acquisition
                         epochs
-                            epoch_001
+                            epoch_001    (attrs: this epoch's stimulus parameters)
                             epoch_002
                         stimulus_timing
-        Notes
+        Notes                            (attrs: timestamp -> note text)
 
+See :mod:`stimpack.experiment.data_nwb` for the NWB backend, which writes a directory of files
+instead. Which one an experiment uses is set by ``data_format`` in the config.
 """
 import h5py
 import os
@@ -271,6 +272,7 @@ class BaseData():
                 series_group.attrs['abort_reason'] = str(reason)
 
     def create_note(self, note_text):
+        """Append a timestamped free-text note to the experiment, from the GUI's Notes box."""
         ""
         ""
         if self.experiment_file_exists():
@@ -286,6 +288,8 @@ class BaseData():
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
     def experiment_file_exists(self):
+        """Whether this experiment already exists on disk. What that means is the backend's
+        business -- a file here, a directory for :class:`~stimpack.experiment.data_nwb.NWBData`."""
         if self.experiment_file_name == "":
             tf = False
         else:
@@ -293,6 +297,7 @@ class BaseData():
         return tf
 
     def current_subject_exists(self):
+        """Whether a subject has been selected. Recording requires both this and an experiment."""
         if self.current_subject is None:
             tf = False
         else:
@@ -300,6 +305,7 @@ class BaseData():
         return tf
 
     def get_existing_series(self):
+        """Series numbers already recorded in this experiment, so the GUI can refuse to reuse one."""
         all_series = []
         with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r') as experiment_file:
             for subject_id in list(experiment_file['/Subjects'].keys()):
@@ -310,6 +316,7 @@ class BaseData():
         return series
 
     def get_highest_series_count(self):
+        """The largest series number recorded so far, or 0 if none."""
         series = self.get_existing_series()
         if len(series) == 0:
             return 0
@@ -317,6 +324,7 @@ class BaseData():
             return np.max(series)
 
     def get_existing_subject_data(self):
+        """Metadata for every subject in this experiment, one dict each."""
         # return list of dicts for subject metadata already present in experiment file
         subject_data_list = []
         if self.experiment_file_exists():
@@ -331,18 +339,23 @@ class BaseData():
         return subject_data_list
 
     def select_subject(self, subject_id):
+        """Make this the subject that subsequent series are recorded against."""
         self.current_subject = subject_id
 
     def advance_series_count(self):
+        """Move to the next series number. Called after a recorded run finishes."""
         self.series_count += 1
 
     def update_series_count(self, val):
+        """Set the series number the next run will use."""
         self.series_count = val
 
     def get_series_count(self):
+        """The series number the next run will use."""
         return self.series_count
 
     def reload_series_count(self):
+        """Re-read the series number from disk, after loading an experiment recorded earlier."""
         all_series = []
         with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r') as experiment_file:
             for subject_id in list(experiment_file['/Subjects'].keys()):
@@ -357,10 +370,21 @@ class BaseData():
             self.series_count = np.max(series) + 1
 
     def get_server_subdir(self):
+        """
+        Sub-directory the server files this experiment's own output under -- locomotion position
+        histories, for instance. Relative to the server's ``data_directory``.
+        """
         return self.experiment_file_name
 
 
 def hdf5ify_parameter(value):
+    """
+    Coerce a parameter into something HDF5 can store as an attribute.
+
+    Dictionaries and tuples become their string representation, ragged lists become strings, and
+    numeric lists become arrays. Lossy by design: this is metadata for later reference, not data
+    to be read back programmatically.
+    """
     if value is None:
         value = 'None'
     if type(value) is dict:  # TODO: Find a way to split this into subgroups. Hacky work around.

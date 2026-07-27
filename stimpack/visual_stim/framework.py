@@ -1,3 +1,15 @@
+"""
+The screen subprocess: a Qt window holding a GL context, driven over RPC.
+
+:class:`StimDisplay` is one screen. Its ``paintGL`` is the heartbeat -- it drains the RPC queue,
+evaluates every loaded stimulus at the current time, draws it once per subscreen through that
+subscreen's perspective matrix, and finally draws the corner square used as a photodiode timing
+signal.
+
+Because the queue is drained in ``paintGL``, a screen whose render loop has stopped still accepts
+every command and does nothing with it. ``report_frame_count`` is how a client tells those two
+states apart.
+"""
 import os
 import sys
 

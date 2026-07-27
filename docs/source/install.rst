@@ -42,9 +42,24 @@ Press `Enter` (red). You should now see a window that looks like this:
 
 Installation issues
 ^^^^^^^^^^^^^^^^^^^^^^^
-**X11 vs. wayland**
+**X11 vs. Wayland**
 
-Stimpack needs an X11 window system to run properly. Newer versions of Ubuntu default to Wayland. To run stimpack on Ubuntu, log in using an X11 session instead of the default Wayland
+Both work. Stimpack detects the session type at startup rather than assuming one: under Wayland it
+creates an EGL context and hands it to ModernGL, and under X11 it uses GLX. It reports which it
+chose when a screen is launched::
+
+    Display session type: wayland
+    QT platform type: wayland
+
+Pass ``Screen(use_egl=...)`` to override the choice.
+
+(Older versions of stimpack did require X11, and some guides still say so. Since 0.2.0 they do not.)
+
+**Multiple displays**
+
+An X11 session with several X screens per display is supported, as are Windows and macOS. Which
+physical display a screen appears on is set by ``display_index``; see
+:class:`stimpack.visual_stim.screen.Screen`.
 
 **Qt dependency issues**
 

@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+The client side of an experiment: runs the protocol and writes the data file.
+
+:class:`BaseClient` owns the run loop. For each epoch it asks the protocol what to present, sends
+the stimulus to the server, waits out the epoch, and records what happened. It also decides how a
+run ends -- completed, stopped by the user, aborted on a dropped link or a server-reported error,
+or failed with an exception -- and stores that outcome alongside the data.
+
+Calls to the server are one-way, so the client cannot tell from a send whether anything happened.
+It detects trouble two ways: the server pushes messages back over the same socket
+(``report_server_message``), and a broken connection is noticed directly.
+"""
 
 import os, sys
 import subprocess

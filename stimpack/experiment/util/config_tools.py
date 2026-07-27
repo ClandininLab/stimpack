@@ -1,3 +1,14 @@
+"""
+Reading labpack configs and loading the modules they name.
+
+A *labpack* is a lab's own directory of protocols, data classes, rig configs, stimuli and device
+drivers, kept outside stimpack. A config file selects a rig and points at those modules by file
+path; this module finds the config, merges in any lab-wide defaults, and imports the modules.
+
+Loading is by path rather than by package name, so a labpack need not be installed and may be
+called whatever a lab likes. The cost is that a path which no longer resolves fails quietly --
+which is what :mod:`stimpack.experiment.util.check_labpack` exists to catch.
+"""
 import contextlib
 from copy import deepcopy
 import hashlib
@@ -66,6 +77,7 @@ def _module_identifier(full_module_path: str, hash_length: int = 8) -> str:
 
 
 def get_stimpack_config_directory(ensure_exists=True):
+    """Where stimpack keeps its own settings, notably the recorded path to the labpack."""
     return user_config_dir(appname="stimpack", ensure_exists=ensure_exists)
 
 # Set by using_labpack_directory() below, and consulted by get_labpack_directory() ahead of the
@@ -92,6 +104,7 @@ def using_labpack_directory(path):
 
 
 def get_labpack_directory():
+    """The labpack currently in use -- an override if one is active, else the recorded path."""
     if _labpack_directory_override is not None:
         return _labpack_directory_override
 
@@ -108,6 +121,7 @@ def get_labpack_directory():
     return labpack_path
 
 def set_labpack_directory(path):
+    """Record which labpack to use from now on. Written to stimpack's config directory."""
     stimpack_config_dir = get_stimpack_config_directory(ensure_exists=True)
     path_to_labpack = os.path.join(stimpack_config_dir, 'path_to_labpack.txt')
     with open(path_to_labpack, "w") as text_file:
@@ -121,6 +135,7 @@ BUILTIN_DATA_FORMATS = {
     'hdf5': ('stimpack.experiment.data', 'BaseData'),
     'nwb':  ('stimpack.experiment.data_nwb', 'NWBData'),
 }
+
 # A labpack may put settings shared by everyone in the lab in configs/<LAB_CONFIG_NAME>. It is
 # merged underneath each individual config, so lab-wide values (institution, lab name, a shared
 # subject_metadata schema, ...) live in one place instead of being copied into every rig's config
@@ -129,6 +144,7 @@ LAB_CONFIG_NAME = 'lab_config.yaml'
 
 
 def get_default_config():
+    """A minimal config, used when no labpack config is available."""
     return {'experimenter': 'JohnDoe',
             'subject_metadata': {},
             'current_rig_name': 'default',
@@ -140,6 +156,7 @@ def get_default_config():
             }
 
 def user_config_directory_exists(labpack_dir=None):
+    """Whether the labpack has a ``configs/`` directory."""
     if labpack_dir is None:
         labpack_dir = get_labpack_directory()
     if not labpack_dir.strip()=="" and os.path.exists(os.path.join(labpack_dir, 'configs')):
@@ -148,6 +165,7 @@ def user_config_directory_exists(labpack_dir=None):
         return False
 
 def get_available_config_files(labpack_dir=None):
+    """Config files the startup dialog offers, excluding the lab-wide one."""
     if labpack_dir is None:
         labpack_dir = get_labpack_directory()
     if user_config_directory_exists(labpack_dir):
@@ -269,9 +287,11 @@ def warn_about_legacy_config_keys(cfg, cfg_name: str = '') -> list[str]:
 # %% Functions for pulling stuff out of the config dictionary
 
 def get_available_rig_configs(cfg):
+    """Rig names defined in this config; the user picks one at startup."""
     return list((cfg.get('rig_config') or {}).keys())
 
 def get_parameter_preset_directory(cfg):
+    """Where this config's protocol parameter presets are saved."""
     presets_dir = cfg.get('parameter_presets_dir', None)
     if presets_dir is not None:
         return os.path.join(get_labpack_directory(), presets_dir)
@@ -330,21 +350,21 @@ def user_module_paths_exist(cfg, module_name: str) -> list[bool]:
 
 def load_user_module(cfg, module_name: str, allow_multiple=False, distinct_module_names=True) -> list[types.ModuleType]:
     """
-    Imports user defined module and returns the loaded package.
-    
-    Inputs:
-        cfg: configuration dictionary
-        module_name: name of the module to be loaded (e.g. 'protocol', 'data', 'client', 'daq', 'visual_stim', etc.)
-        allow_multiple: 
-            if True, loads all specified module paths.
-            if False, loads only the first specified module path.
-            Default: False.
-        distinct_module_names:
-            Options for handling multiple loaded modules with the same module name.
-            if True, appends an index to the module name for each loaded module to ensure distinct module names.
-            if False, uses the same module name for caching into sys.modules.
-    Returns:
-        list of loaded modules
+    Import a labpack's own module, named by file path in the config's ``module_paths``.
+
+    Loaded by path rather than by package name, so a labpack can be called whatever a lab
+    likes and need not be installed. The consequence is that a path which no longer resolves
+    fails quietly -- see :mod:`stimpack.experiment.util.check_labpack`.
+
+    :param cfg: configuration dictionary
+    :param module_name: which entry of ``module_paths`` to load -- ``'protocol'``, ``'data'``,
+        ``'client'``, ``'daq'``, ``'visual_stim'``, ...
+    :param allow_multiple: load every path listed for this entry, rather than only the first.
+        A lab may keep several protocol modules, for instance.
+    :param distinct_module_names: give each loaded module its own name in ``sys.modules``.
+        With ``False`` they share one name, so loading a second would evict the first.
+    :return: the loaded modules, in the order their paths were listed. Empty if the config
+        names none.
     """
     if not user_module_specified(cfg, module_name):
         warnings.warn(f'No user module specified for {module_name} in the cfg file.')
@@ -431,6 +451,7 @@ def load_trigger_device(cfg):
 # %%
 
 def get_screen_center(cfg):
+    """Center of the current rig's screen, which protocols position stimuli relative to."""
     if 'current_rig_name' in cfg:
         screen_center = ((cfg.get('rig_config') or {}).get(cfg.get('current_rig_name')) or {}).get('screen_center', [0, 0])
     else:
@@ -451,6 +472,7 @@ def get_server_options(cfg) -> dict[str, int|str|bool|None]:
     return server_options
 
 def get_data_directory(cfg):
+    """Where the current rig writes experiment data."""
     if 'current_rig_name' in cfg:
         data_directory = ((cfg.get('rig_config') or {}).get(cfg.get('current_rig_name')) or {}).get('data_directory', os.getcwd())
     else:
@@ -459,6 +481,7 @@ def get_data_directory(cfg):
     return data_directory
 
 def get_loco_available(cfg):
+    """Whether this rig has a movement tracker."""
     if 'current_rig_name' in cfg:
         loco_available = ((cfg.get('rig_config') or {}).get(cfg.get('current_rig_name')) or {}).get('loco_available', True)
     else:
@@ -467,6 +490,7 @@ def get_loco_available(cfg):
     return loco_available
 
 def get_experimenter(cfg):
+    """Default experimenter name for this config."""
     return cfg.get('experimenter', '')
 
 def get_data_format(cfg):
@@ -500,7 +524,9 @@ def get_builtin_data_class(cfg):
 
 
 def get_lab(cfg):
+    """Lab name, written into NWB files as top-level metadata."""
     return cfg.get('lab', '')
 
 def get_institution(cfg):
+    """Institution name, written into NWB files as top-level metadata."""
     return cfg.get('institution', '')
