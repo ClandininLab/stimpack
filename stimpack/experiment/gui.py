@@ -37,6 +37,11 @@ class ParseError(Exception):
         super().__init__()
         self.message = message
 
+# Height of the status window, in pixels. Fixed so that a long message scrolls inside it rather
+# than growing the row and reshaping the window around it.
+STATUS_WINDOW_HEIGHT = 60
+
+
 class ExperimentGUI(QWidget):
 
     # Emitted when the server pushes a message. report_server_message runs on the run thread, so this
@@ -192,30 +197,56 @@ class ExperimentGUI(QWidget):
         save_preset_button.clicked.connect(self.on_pressed_button)
         self.protocol_selector_grid.addWidget(save_preset_button, 2, 2)
 
-        # Status window:
+        # Status window: its own row, spanning the grid.
+        #
+        # Inside a scroll area rather than bare, because a QLabel's size hint grows with its text:
+        # a long message -- a server warning naming every registered function, say -- used to widen
+        # its column and reshape the whole window. The label wraps to the viewport instead, and the
+        # area scrolls, so the message can be as long as it likes without moving anything.
         new_label = QLabel('Status:')
         self.protocol_control_grid.addWidget(new_label, 0, 0)
-        self.status_label = QLabel()
-        self.status_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.status_label, 0, 1)
-        self.status_label.setText('Select a protocol')
+
+        self.status_label = QLabel('Select a protocol')
+        self.status_label.setWordWrap(True)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        # Selectable so an error can be copied out of the GUI rather than retyped from a screenshot.
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        self.status_scroll_area = QScrollArea()
+        self.status_scroll_area.setWidget(self.status_label)
+        self.status_scroll_area.setWidgetResizable(True)      # wrap to the viewport, not the text
+        self.status_scroll_area.setFixedHeight(STATUS_WINDOW_HEIGHT)
+        self.status_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.status_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # No size policy needed: a scroll area's size hint comes from its own frame, not from the
+        # widget inside it, so the message length cannot reach the window width from here. Measured
+        # -- a 5000-character label gives the same hint as an empty one.
+        self.protocol_control_grid.addWidget(self.status_scroll_area, 0, 1, 1, 3)
 
         # Current series counter
         new_label = QLabel('Series counter:')
-        self.protocol_control_grid.addWidget(new_label, 0, 2)
+        self.protocol_control_grid.addWidget(new_label, 1, 0)
         self.series_counter_input = QSpinBox()
         self.series_counter_input.setMinimum(1)
         self.series_counter_input.setMaximum(1000)
         self.series_counter_input.setValue(1)
         self.series_counter_input.valueChanged.connect(self.on_entered_series_count)
-        self.protocol_control_grid.addWidget(self.series_counter_input, 0, 3)
+        self.protocol_control_grid.addWidget(self.series_counter_input, 1, 1)
+
+        # Epoch count window:
+        new_label = QLabel('Epoch count:')
+        self.protocol_control_grid.addWidget(new_label, 1, 2)
+        self.epoch_count_label = QLabel()
+        self.epoch_count_label.setFrameShadow(QFrame.Shadow(1))
+        self.protocol_control_grid.addWidget(self.epoch_count_label, 1, 3)
+        self.epoch_count_label.setText('')
 
         # Elapsed time window:
         new_label = QLabel('Elapsed time [s]:')
-        self.protocol_control_grid.addWidget(new_label, 1, 0)
+        self.protocol_control_grid.addWidget(new_label, 2, 0)
         self.elapsed_time_label = QLabel()
         self.elapsed_time_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.elapsed_time_label, 1, 1)
+        self.protocol_control_grid.addWidget(self.elapsed_time_label, 2, 1, 1, 3)
         self.elapsed_time_label.setText('')
 
         # Elapsed timer for protocol
@@ -224,44 +255,35 @@ class ExperimentGUI(QWidget):
         self.progress_timer.setInterval(1000)
         self.progress_timer.timeout.connect(self.update_run_progress)
 
-        # Epoch count refresh button:
-        new_label = QLabel('Epoch count:')
-        self.protocol_control_grid.addWidget(new_label, 1, 2)
-        # Epoch count window:
-        self.epoch_count_label = QLabel()
-        self.epoch_count_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.epoch_count_label, 1, 3)
-        self.epoch_count_label.setText('')
-
         # View button:
         self.view_button = QPushButton("View", self)
         self.view_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(self.view_button, 2, 0)
+        self.protocol_control_grid.addWidget(self.view_button, 3, 0)
 
         # Record button:
         self.record_button = QPushButton("Record", self)
         self.record_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(self.record_button, 2, 1)
+        self.protocol_control_grid.addWidget(self.record_button, 3, 1)
 
         # Pause/resume button:
         self.pause_button = QPushButton("Pause", self)
         self.pause_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(self.pause_button, 2, 2)
+        self.protocol_control_grid.addWidget(self.pause_button, 3, 2)
 
         # Stop button:
         stop_button = QPushButton("Stop", self)
         stop_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(stop_button, 2, 3)
+        self.protocol_control_grid.addWidget(stop_button, 3, 3)
 
         # Enter note button:
         note_button = QPushButton("Enter note", self)
         note_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(note_button, 3, 0)
+        self.protocol_control_grid.addWidget(note_button, 4, 0)
 
         # Notes field:
         self.notes_edit = QTextEdit()
         self.notes_edit.setFixedHeight(30)
-        self.protocol_control_grid.addWidget(self.notes_edit, 3, 1, 1, 3)
+        self.protocol_control_grid.addWidget(self.notes_edit, 4, 1, 1, 3)
 
 
         # # # TAB 2: ENSEMBLE tab # # #
