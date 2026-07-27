@@ -80,9 +80,39 @@ error, which aborts it and records why.
 
 Ending an epoch is not instantaneous: the request travels over the socket and is acted on when the
 client next polls, every couple of milliseconds. That is well inside a frame, but it is not a
-hardware trigger. If your experiment needs the *stimulus* to change within a frame of the animal's
-behaviour, do that on the server too, in the same function, by driving the stimulus directly --
-``end_epoch`` is for ending the trial, not for closing a fast visual loop.
+hardware trigger, and it is the slowest of the ways a stimulus can respond to an animal.
+
+Which of these you want
+-----------------------
+
+``end_epoch`` is for one thing: ending the trial. Making the *stimulus* respond to the animal is a
+different job, done elsewhere, and much faster -- the client is not involved at all.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 34 66
+
+    * - What you want
+      - Where it happens
+    * - The scene tracks the animal's position and heading
+      - Automatic. Every ``paintGL``, the screen recomputes its perspective matrix from the current
+        subject position, so the viewpoint follows the animal with no code of your own.
+    * - Change the *mapping* between movement and viewpoint -- a gain, an offset, coupling that
+        applies only in some conditions
+      - Your server-side closed-loop function, by returning a modified ``state_update``. What you
+        return is what the screens are told.
+    * - The stimulus itself reshapes per frame based on where the animal is
+      - A custom stimulus. ``paintGL`` passes ``subject_position`` into every stimulus's
+        ``eval_at``, so it can rebuild its geometry each frame from the animal's current state.
+    * - The trial ends
+      - ``end_epoch`` -- this page.
+
+The first three never leave the server, which is why they are fast: a tracker update reaches the
+screens and is drawn on the next frame. Only ending a trial is a once-per-trial decision that the
+client has to hear about, because the client is what runs the epoch loop.
+
+So if a stimulus is not responding quickly enough to the animal, ``end_epoch`` is not the tool that
+was missing -- one of the first three rows is.
 
 What this does to your data
 ===========================
