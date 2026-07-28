@@ -166,6 +166,13 @@ class ExperimentGUI(QWidget):
                                                              QSizePolicy.Policy.Fixed))
         self.protocol_selector_grid = QGridLayout()
         self.protocol_selector_box.setLayout(self.protocol_selector_grid)
+        # Give the whole row's slack to the dropdowns. Left at stretch 0 the grid divides itself
+        # into three equal columns, so a third of the width went to the caption and another third
+        # to a button, leaving the dropdowns -- which hold the longest text on the tab, a protocol
+        # name plus its module -- elliding in the middle third.
+        self.protocol_selector_grid.setColumnStretch(0, 0)   # captions: as wide as their text
+        self.protocol_selector_grid.setColumnStretch(1, 1)   # dropdowns: everything left over
+        self.protocol_selector_grid.setColumnStretch(2, 0)   # Save preset: as wide as the button
 
         self.parameters_box = QWidget()
         self.parameters_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,

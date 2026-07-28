@@ -494,3 +494,31 @@ def test_creating_a_subject_enables_record(experiment_gui, tmp_path):
 
     assert gui.data.current_subject == 'subj_new'
     assert gui.record_button.isEnabled()
+
+
+def test_the_selector_dropdowns_get_the_widths_slack(experiment_gui, qapp):
+    """Three equal columns gave a third of the row to a caption and a third to a button, leaving
+    the dropdowns -- which hold the longest text on the tab -- elliding in the middle third."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    qapp.processEvents()
+
+    grid = gui.protocol_selector_grid
+    assert grid.columnStretch(1) > grid.columnStretch(0)
+    assert grid.columnStretch(1) > grid.columnStretch(2)
+
+    # and it reaches the rendered geometry, not just the stretch factors: widening the window has
+    # to widen the dropdowns rather than the caption and the button beside them. Asserted as a
+    # response to resizing, not as a fraction of the width, so it holds at any window size.
+    save_button = next(b for b in gui.findChildren(type(gui.view_button)) if b.text() == 'Save preset')
+    before = {w: w.width() for w in (gui.parameter_preset_comboBox,
+                                     gui.protocol_selection_combo_box, save_button)}
+
+    extra = 300
+    gui.resize(gui.width() + extra, gui.height())
+    qapp.processEvents()
+
+    grew = {w: w.width() - before[w] for w in before}
+    assert grew[gui.parameter_preset_comboBox] > 0.9 * extra, 'the preset dropdown did not take the slack'
+    assert grew[gui.protocol_selection_combo_box] > 0.9 * extra
+    assert grew[save_button] < 10, 'the button absorbed width the dropdowns should have had'
