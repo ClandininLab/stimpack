@@ -550,3 +550,39 @@ def test_both_tabs_call_it_param_preset(experiment_gui):
     captions = [w.text() for w in experiment_gui.findChildren(QLabel)]
     assert captions.count('Param preset:') == 2      # Main and Ensemble
     assert 'Parameter preset:' not in captions
+
+
+# --- the Subject tab ------------------------------------------------------------------------------
+
+def test_subject_tab_labels_are_left_aligned(experiment_gui):
+    from PyQt6.QtCore import Qt
+    alignment = experiment_gui.data_form.labelAlignment()
+    assert alignment & Qt.AlignmentFlag.AlignLeft
+    assert not (alignment & Qt.AlignmentFlag.AlignHCenter)
+
+
+def test_the_subject_tab_names_the_current_subject_once(experiment_gui):
+    """It used to be three stacked rows -- a dropdown, a read-only label and the ID field -- all
+    showing the same string once a subject was loaded."""
+    from PyQt6.QtWidgets import QLabel
+
+    gui = experiment_gui
+    captions = [w.text() for w in gui.data_tab.findChildren(QLabel)]
+    assert captions.count('Current subject:') == 1
+    assert 'Load existing subject' not in captions        # the dropdown IS the current subject now
+    assert not hasattr(gui, 'current_subject_display')    # the read-only duplicate is gone
+
+
+def test_the_subject_dropdown_is_blank_when_no_subject_is_selected(experiment_gui):
+    """Left on index 0 it would show whichever subject is first as though it were selected -- and
+    Record keys off whether there actually is one."""
+    gui = experiment_gui
+    gui.existing_subject_input.clear()
+    gui.existing_subject_input.addItems(['flyA', 'flyB'])
+    gui.data.current_subject = None
+
+    gui.show_current_subject('')
+
+    assert gui.existing_subject_input.currentIndex() == -1
+    assert gui.existing_subject_input.currentText() == ''
+    assert not gui.record_button.isEnabled()

@@ -471,25 +471,29 @@ class ExperimentGUI(QWidget):
         self.data_tab = QWidget()
         self.data_form = QFormLayout()
         self.data_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self.data_form.setLabelAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Left, not centred: centring ragged-length captions puts every one of them at a different
+        # x, so the eye has no edge to run down.
+        self.data_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.data_tab.setLayout(self.data_form)
 
         # # subject info:
-        new_label = QLabel('Load existing subject')
+        #
+        # One row, not three. This was 'Load existing subject' (a dropdown), 'Current subject:' (a
+        # read-only label) and 'subject ID:' (a line edit) stacked together, all showing the same
+        # string once a subject was loaded. The dropdown is the one that both shows the current
+        # subject and changes it, so it is the one that stays; the read-only label said nothing it
+        # did not, and the Main tab now carries the at-a-glance readout anyway.
+        new_label = QLabel('Current subject:')
         self.existing_subject_input = QComboBox()
         self.existing_subject_input.activated.connect(self.on_selected_existing_subject)
         self.data_form.addRow(new_label, self.existing_subject_input)
 
-        new_label = QLabel('Current subject:')
-        self.current_subject_display = QLabel('')
-        self.data_form.addRow(new_label, self.current_subject_display)
-
-        # After current_subject_display exists: this populates it.
         self.update_existing_subject_input()
 
         # Only built-ins are "subject_id," "age" and "notes"
-        # subject ID:
-        new_label = QLabel('subject ID:')
+        # The editable identity, which the dropdown is not: what Create subject names a new subject,
+        # and what Update subject looks up. Distinct from the row above, so it keeps its own field.
+        new_label = QLabel('Subject ID:')
         self.subject_id_input = QLineEdit()
         self.data_form.addRow(new_label, self.subject_id_input)
 
@@ -1055,17 +1059,29 @@ class ExperimentGUI(QWidget):
         # backend that keeps subject metadata in each series file (data_nwb) reports the same
         # subject once per series, which otherwise fills the dropdown with duplicates.
         seen = dict.fromkeys(s['subject_id'] for s in self.data.get_existing_subject_data())
+        # The current subject belongs in the list whether or not the backend reports it yet. NWB
+        # keeps subject metadata inside each series file, so a subject that has been created but
+        # not yet recorded is not in get_existing_subject_data() -- it would be missing from its
+        # own dropdown, and now that the dropdown is the only thing naming the current subject on
+        # this tab, it would be named nowhere.
+        if self.data.current_subject and self.data.current_subject not in seen:
+            seen[self.data.current_subject] = None
         for subject_id in seen:
             self.existing_subject_input.addItem(subject_id)
 
-        index = self.existing_subject_input.findText(self.data.current_subject)
-        if index >= 0:
-            self.existing_subject_input.setCurrentIndex(index)
         self.show_current_subject(self.data.current_subject or '')
 
     def show_current_subject(self, subject_id):
-        """Update both places the current subject is shown -- the Subject tab and the Main tab."""
-        self.current_subject_display.setText(subject_id)
+        """Reflect the current subject in both places it appears -- the Subject tab's dropdown and
+        the Main tab's readout.
+
+        The dropdown's index is cleared when there is no current subject. Left alone it would sit
+        on whichever subject happens to be first in the list, showing one as selected when none is
+        -- which matters more now that the dropdown is the only thing on that tab naming the
+        current subject, and that Record keys off whether there is one.
+        """
+        index = self.existing_subject_input.findText(subject_id) if subject_id else -1
+        self.existing_subject_input.setCurrentIndex(index)
         self.current_subject_main_label.setText(subject_id)
         self.update_record_button_enabled()
 

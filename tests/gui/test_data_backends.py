@@ -217,7 +217,7 @@ def test_creating_a_subject_selects_and_displays_it(fixture, request):
 
     assert gui.data.current_subject == 'fly1'
     assert gui.data.current_subject_exists()
-    assert gui.current_subject_display.text() == 'fly1'
+    assert gui.existing_subject_input.currentText() == 'fly1'
 
 
 def test_subject_dropdown_lists_each_subject_once(nwb_experiment_gui):
@@ -423,7 +423,7 @@ def test_the_current_subject_shows_on_the_main_tab_too(experiment_gui):
     add_subject(experiment_gui, 'fly_42')
 
     assert experiment_gui.current_subject_main_label.text() == 'fly_42'
-    assert experiment_gui.current_subject_display.text() == 'fly_42'
+    assert experiment_gui.existing_subject_input.currentText() == 'fly_42'
 
 
 def test_selecting_an_existing_subject_updates_both_displays(nwb_experiment_gui):
@@ -439,4 +439,4 @@ def test_selecting_an_existing_subject_updates_both_displays(nwb_experiment_gui)
     gui.on_selected_existing_subject(labels.index('flyA'))
 
     assert gui.current_subject_main_label.text() == 'flyA'
-    assert gui.current_subject_display.text() == 'flyA'
+    assert gui.existing_subject_input.currentText() == 'flyA'
