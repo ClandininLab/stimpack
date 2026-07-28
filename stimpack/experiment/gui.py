@@ -142,6 +142,10 @@ class ExperimentGUI(QWidget):
         self.current_ensemble_idx = 0
 
         self.ensemble_running = False
+        # An ensemble held between items because Pause was pressed during the final epoch of one of
+        # them, and the flag needed to resume it. See run_finished.
+        self.ensemble_paused = False
+        self.ensemble_save_metadata_flag = False
 
         print('# # # # # # # # # # # # # # # #')
         
@@ -295,8 +299,11 @@ class ExperimentGUI(QWidget):
         self.record_button.clicked.connect(self.on_pressed_button)
         self.protocol_control_grid.addWidget(self.record_button, 3, 1)
 
-        # Pause/resume button:
+        # Pause/resume button. Disabled until a run is in progress: pressing it in standby used to
+        # set the client's pause flag and relabel itself 'Resume' with nothing running, so the GUI
+        # sat there claiming to be paused.
         self.pause_button = QPushButton("Pause", self)
+        self.pause_button.setEnabled(False)
         self.pause_button.clicked.connect(self.on_pressed_button)
         self.protocol_control_grid.addWidget(self.pause_button, 3, 2)
 
@@ -648,12 +655,22 @@ class ExperimentGUI(QWidget):
         elif sender.text() == 'Resume':
             self.client.resume_run()
             self.pause_button.setText('Pause')
-            self.update_run_progress()
+            if self.ensemble_paused:
+                # Held between ensemble items rather than inside a run; releasing it starts the
+                # next protocol, which is what the pause deferred.
+                self.ensemble_paused = False
+                self.run_ensemble_item(save_metadata_flag=self.ensemble_save_metadata_flag)
+            else:
+                self.update_run_progress()
             self.show()
 
         elif sender.text() == 'Stop':
             self.client.stop_run()
             self.pause_button.setText('Pause')
+            if self.ensemble_paused:
+                # Stopping out of a held ensemble: no run is in progress for stop_run to end, so
+                # release the hold here or the ensemble would sit there forever.
+                self.release_paused_ensemble()
 
         elif sender.text() == 'Enter note':
             self.note_text = self.notes_edit.toPlainText()
@@ -732,6 +749,8 @@ class ExperimentGUI(QWidget):
         elif sender.text() == 'Stop ensemble':
             self.client.stop_run()
             self.pause_button.setText('Pause')
+            if self.ensemble_paused:
+                self.release_paused_ensemble()
             self.ensemble_running = False
             self.ensemble_list.update_UI(self.ensemble_running)
 
@@ -1077,6 +1096,7 @@ class ExperimentGUI(QWidget):
         # Lock the view and run buttons to prevent spinning up multiple threads
         self.view_button.setEnabled(False)
         self.record_button.setEnabled(False)
+        self.pause_button.setEnabled(True)
         if save_metadata_flag:
             self.status = Status.RECORDING
         else:
@@ -1111,6 +1131,7 @@ class ExperimentGUI(QWidget):
         self.status_label.setText('Ready')
         self.status = Status.STANDBY
         self.pause_button.setText('Pause')
+        self.pause_button.setEnabled(False)
         self._pause_state_shown = 'running'
 
         self.progress_timer.stop()
@@ -1121,9 +1142,20 @@ class ExperimentGUI(QWidget):
             self.data.advance_series_count()
             self.series_counter_input.setValue(self.data.get_series_count())
             self.populate_groups()
-        
+
         if self.ensemble_running:
-            self.run_ensemble_item(save_metadata_flag=save_metadata_flag)
+            # A pause asked for during the final epoch never took effect: the run loop's condition
+            # fails before the pause branch is reached, and the next start_run clears the flag. In
+            # an ensemble that meant pressing Pause, watching the button say 'Resume', and having
+            # the next protocol start anyway. Hold here instead, and let Resume release it.
+            if self.client.pause:
+                self.ensemble_paused = True
+                self.ensemble_save_metadata_flag = save_metadata_flag
+                self.pause_button.setText('Resume')
+                self.pause_button.setEnabled(True)
+                self.status_label.setText('Paused before the next ensemble item')
+            else:
+                self.run_ensemble_item(save_metadata_flag=save_metadata_flag)
 
         if not self.ensemble_running: # if ensemble still running, no need to edit buttons or update parameters from fillable fields
             # Enable/disable buttons on ensemble tab
@@ -1262,6 +1294,19 @@ class ExperimentGUI(QWidget):
         self.update_run_progress()
 
         self.mid_parameter_edit = False
+
+    def release_paused_ensemble(self):
+        """Abandon an ensemble that was holding between items, and return the GUI to standby.
+
+        The hold is not a run, so nothing else brings the GUI back out of it: run_finished has
+        already been and gone, and stop_run has no run loop left to stop.
+        """
+        self.ensemble_paused = False
+        self.ensemble_running = False
+        self.client.pause = False
+        self.pause_button.setEnabled(False)
+        self.status_label.setText('Ready')
+        self.ensemble_list.update_UI(self.ensemble_running)
 
     def run_status_text(self):
         """What the status line should say about a run that is neither pausing nor paused.

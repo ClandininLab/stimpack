@@ -109,6 +109,7 @@ def test_stop_button_asks_the_client_to_stop(experiment_gui):
 def test_pause_button_toggles_pause_and_resume(experiment_gui):
     gui = experiment_gui
     select_protocol(gui, 'DriftingSquareGrating')
+    gui.run_started(save_metadata_flag=False)      # Pause is disabled outside a run
 
     gui.pause_button.click()                       # "Pause" -> pauses
     assert gui.client.pause is True
@@ -268,6 +269,7 @@ def _recording_run(gui, series=12):
     gui.data.series_count = series
     gui.protocol_object.est_run_time = 300.0       # normally set by prepare_run
     gui.status_label.setText(gui.run_status_text())
+    gui.pause_button.setEnabled(True)
     gui._pause_state_shown = 'running'
     gui.run_start_time = time.time()
 
@@ -339,3 +341,71 @@ def test_a_server_message_is_not_wiped_out_a_second_later(experiment_gui):
     gui.update_run_progress()
     gui.update_run_progress()
     assert gui.status_label.text() == '[server error] the screen fell over'
+
+
+def test_pause_is_disabled_until_a_run_is_in_progress(experiment_gui):
+    """Pressing Pause in standby used to set the client's flag and relabel the button 'Resume',
+    leaving the GUI claiming to be paused with nothing running."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    assert not gui.pause_button.isEnabled()
+
+    gui.run_started(save_metadata_flag=False)
+    assert gui.pause_button.isEnabled()
+
+    gui.run_finished(save_metadata_flag=False)
+    assert not gui.pause_button.isEnabled()
+    assert gui.pause_button.text() == 'Pause'
+
+
+def test_an_ensemble_holds_for_a_pause_requested_in_the_final_epoch(experiment_gui, monkeypatch):
+    """The run loop's condition fails before the pause branch is reached on the last epoch, and the
+    next start_run clears the flag -- so the next protocol used to start regardless."""
+    gui = experiment_gui
+    started = []
+    monkeypatch.setattr(gui, 'run_ensemble_item', lambda save_metadata_flag=False: started.append(save_metadata_flag))
+
+    gui.ensemble_running = True
+    gui.client.pause = True                       # asked for during the final epoch
+    gui.run_finished(save_metadata_flag=False)
+
+    assert started == [], 'the next ensemble item started despite the pause'
+    assert gui.ensemble_paused is True
+    assert gui.pause_button.text() == 'Resume' and gui.pause_button.isEnabled()
+    assert gui.status_label.text() == 'Paused before the next ensemble item'
+
+    gui.pause_button.click()                      # Resume
+    assert started == [False], 'resuming did not start the next ensemble item'
+    assert gui.ensemble_paused is False
+
+
+def test_an_ensemble_without_a_pause_runs_straight_on(experiment_gui, monkeypatch):
+    gui = experiment_gui
+    started = []
+    monkeypatch.setattr(gui, 'run_ensemble_item', lambda save_metadata_flag=False: started.append(save_metadata_flag))
+
+    gui.ensemble_running = True
+    gui.client.pause = False
+    gui.run_finished(save_metadata_flag=False)
+
+    assert started == [False]
+    assert gui.ensemble_paused is False
+
+
+def test_stopping_a_held_ensemble_returns_to_standby(experiment_gui, monkeypatch):
+    """The hold is not a run, so stop_run has no loop to stop and run_finished has already been."""
+    gui = experiment_gui
+    monkeypatch.setattr(gui, 'run_ensemble_item', lambda save_metadata_flag=False: None)
+
+    gui.ensemble_running = True
+    gui.client.pause = True
+    gui.run_finished(save_metadata_flag=False)
+    assert gui.ensemble_paused is True
+
+    stop_button = next(b for b in gui.findChildren(type(gui.view_button)) if b.text() == 'Stop')
+    stop_button.click()
+
+    assert gui.ensemble_paused is False
+    assert gui.ensemble_running is False
+    assert not gui.pause_button.isEnabled()
+    assert gui.status_label.text() == 'Ready'

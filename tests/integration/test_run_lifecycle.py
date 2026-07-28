@@ -579,3 +579,47 @@ def test_a_run_stopped_while_paused_stops_accumulating(client, data):
     settled = client.paused_seconds
     _time.sleep(0.3)
     assert client.paused_seconds == settled, 'paused time kept growing after the run ended'
+
+
+def test_a_pause_is_recorded_in_the_data_file(client, data):
+    """A pause is an unexplained gap in the timeline otherwise: the subject sat in the rig between
+    two epochs with nothing being presented, and nothing in the file said so."""
+    pause_seconds = 0.4
+    protocol = TinyProtocol(cfg={})
+
+    def hook(p):
+        if p.num_epochs_completed == 0:
+            client.pause_run()
+            _resume_after(client, pause_seconds)
+    protocol.on_epoch = hook
+
+    client.start_run(protocol, data, save_metadata_flag=True)
+
+    attrs, _ = series_attrs(data)
+    assert attrs['paused_duration'] >= pause_seconds * 0.5
+    assert attrs['run_status'] == 'completed'
+
+
+def test_a_run_with_no_pause_records_zero_rather_than_nothing(client, data):
+    """An absent attribute would be ambiguous between 'not paused' and 'written by an older
+    stimpack that did not record it'."""
+    client.start_run(TinyProtocol(cfg={}), data, save_metadata_flag=True)
+
+    attrs, _ = series_attrs(data)
+    assert attrs['paused_duration'] == 0.0
+
+
+def test_nwb_records_a_pause_too(client, nwb_data):
+    pause_seconds = 0.4
+    protocol = TinyProtocol(cfg={})
+
+    def hook(p):
+        if p.num_epochs_completed == 0:
+            client.pause_run()
+            _resume_after(client, pause_seconds)
+    protocol.on_epoch = hook
+
+    client.start_run(protocol, nwb_data, save_metadata_flag=True)
+
+    row, _ = nwb_epoch_row(nwb_data)
+    assert row['paused_duration'] >= pause_seconds * 0.5

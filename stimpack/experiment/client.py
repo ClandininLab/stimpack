@@ -397,7 +397,8 @@ class BaseClient():
 
             # Record the outcome of this run in the data file.
             if save_metadata_flag:
-                data.end_epoch_run(protocol_object, status=run_status, reason=run_status_reason)
+                data.end_epoch_run(protocol_object, status=run_status, reason=run_status_reason,
+                                   paused_seconds=self.paused_seconds)
 
             if not broken:
                 self.manager.print_on_server('Run ended.')

@@ -261,7 +261,7 @@ class BaseData():
             if reason is not None:
                 epoch_group.attrs['epoch_end_reason'] = str(reason)
 
-    def end_epoch_run(self, protocol_object, status='completed', reason=None):
+    def end_epoch_run(self, protocol_object, status='completed', reason=None, paused_seconds=0.0):
         """
         Record the outcome of an epoch run as attributes on its series group.
 
@@ -270,6 +270,10 @@ class BaseData():
 
         :param status: 'completed' | 'stopped' | 'aborted' | 'error'
         :param reason: optional short string, saved as 'abort_reason' when the run did not complete normally
+        :param paused_seconds: seconds the run spent paused between epochs. Written every time,
+            including as 0.0: a pause leaves an otherwise unexplained gap between one epoch's end
+            and the next one's start, and during it the subject sat in the rig with no stimulus.
+            Recording zero explicitly says nothing was paused, rather than leaving it ambiguous.
         """
         if not (self.current_subject_exists() and self.experiment_file_exists()):
             print('Create a data file and/or define a subject first')
@@ -282,6 +286,7 @@ class BaseData():
             series_group.attrs['run_status'] = status
             series_group.attrs['run_end_unix_time'] = datetime.now().timestamp()
             series_group.attrs['num_epochs_completed'] = int(protocol_object.num_epochs_completed)
+            series_group.attrs['paused_duration'] = float(paused_seconds)
             if reason is not None:
                 series_group.attrs['abort_reason'] = str(reason)
 

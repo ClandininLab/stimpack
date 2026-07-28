@@ -286,7 +286,7 @@ class NWBData(BaseData):
         else:
             print('Create an nwb file directory and/or define a subject first')
 
-    def end_epoch_run(self, protocol_object, status='completed', reason=None):
+    def end_epoch_run(self, protocol_object, status='completed', reason=None, paused_seconds=0.0):
         """
         NWB requires the stop time to be set when the epoch is created
         So this function is called after an epoch run is concluded and this adds an entry
@@ -318,6 +318,9 @@ class NWBData(BaseData):
         # the data rather than looking like a short but successful one.
         self.epoch_parameters['run_status'] = str(status)
         self.epoch_parameters['run_status_reason'] = str(reason) if reason is not None else ''
+        # A pause sits between epochs, so it is otherwise an unexplained gap in the timeline --
+        # during which the subject was in the rig with nothing being presented.
+        self.epoch_parameters['paused_duration'] = float(paused_seconds)
 
         # Open the nwbfile in append mode
         with NWBHDF5IO(nwbfile_path, 'r+') as io:
