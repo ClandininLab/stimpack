@@ -31,9 +31,6 @@ setup(
         'scikit-image',
     ],
     extras_require={
-        # Kept so `pip install stimpack[nwb]` does not break for anyone whose install scripts
-        # name it; pynwb is a hard requirement now, so it asks for nothing extra.
-        'nwb': [],
         'test': ['pytest', 'pytest-cov', 'pillow', 'ruff'],  # pillow: GL reference images; ruff: lint
     },
     entry_points={
