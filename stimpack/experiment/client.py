@@ -36,6 +36,13 @@ from stimpack.device import daq
 from stimpack.device.locomotion.loco_managers.keytrac_managers import KeytracClosedLoopManager
 from stimpack.util import ROOT_DIR
 
+# How often the run loop looks up while paused. Nothing is being presented or recorded in that
+# state and it is waiting on somebody to press Resume, so this only has to beat human reaction
+# time; it is not epoch timing (see protocol.SLEEP_POLL_INTERVAL for that, which is 5x tighter
+# because it gates stimulus durations).
+PAUSE_POLL_INTERVAL = 0.01
+
+
 class BaseClient():
     def __init__(self, cfg:dict):
         """
@@ -52,7 +59,14 @@ class BaseClient():
         # length). Both are per-epoch, reset as each begins.
         self.current_epoch_index = None
         self.epoch_end_reason = None
+        # Pause has two states, and they are not the same thing. `pause` is what the user asked
+        # for, set the instant the button is pressed; `paused_since` is when the run loop actually
+        # went idle, which cannot happen until the epoch in progress finishes. Between the two the
+        # run is still stimulating and recording, so a GUI that reports "Paused" straight away is
+        # lying about what the rig is doing. See pause_state.
         self.pause:bool = False
+        self.paused_since:Optional[float] = None    # monotonic clock, or None if not idle
+        self.paused_duration:float = 0.0            # seconds idled so far this run, closed pauses only
         self.cfg:dict = cfg
 
         # Messages pushed back from the server (drained in the run loop via manager.process_queue()).
@@ -191,12 +205,42 @@ class BaseClient():
         QApplication.processEvents()
 
     def pause_run(self):
+        """Ask the run to pause. Takes effect when the epoch in progress ends, not immediately."""
         self.pause = True
         QApplication.processEvents()
 
     def resume_run(self):
         self.pause = False
         QApplication.processEvents()
+
+    @property
+    def pause_state(self):
+        """'running' | 'pending' | 'paused' -- what to tell the user right now.
+
+        'pending' is the interval between pressing Pause and the run loop reaching the end of the
+        epoch it was in. Stimuli are still being presented and recorded during it.
+        """
+        if not self.pause:
+            return 'running'
+        return 'paused' if self.paused_since is not None else 'pending'
+
+    @property
+    def paused_seconds(self):
+        """Seconds this run has spent idle, including a pause still in progress.
+
+        Excluded from elapsed time in the GUI: est_run_time is a sum of stimulus durations, so a
+        wall-clock elapsed figure stops being comparable to it the moment anyone pauses.
+        """
+        total = self.paused_duration
+        if self.paused_since is not None:
+            total += time.monotonic() - self.paused_since
+        return total
+
+    def _close_out_pause(self):
+        """Fold a pause in progress into the total. Idempotent."""
+        if self.paused_since is not None:
+            self.paused_duration += time.monotonic() - self.paused_since
+            self.paused_since = None
 
     @property
     def available_modules(self):
@@ -240,6 +284,8 @@ class BaseClient():
         """
         self.stop = False
         self.pause = False
+        self.paused_since = None
+        self.paused_duration = 0.0      # pause totals are per run, like the message dedupe below
         self.server_error = None
         self._message_counts = {}       # dedupe is per run, so a recurring issue is reported again
         self.protocol_object = protocol_object
@@ -307,13 +353,31 @@ class BaseClient():
                     break
 
                 if self.pause is True:
-                    pass # do nothing until resumed or stopped
+                    if self.paused_since is None:
+                        # The pause takes effect here, at an epoch boundary -- not when the button
+                        # was pressed. Record when, so paused_seconds can be excluded from elapsed
+                        # time and reported in the data file.
+                        self.paused_since = time.monotonic()
+                        self.manager.print_on_server('Paused.')
+                    # Wait, rather than spin. This branch used to be a bare `pass`, so a paused run
+                    # busy-looped at ~2.2 million iterations a second and held a core at 100% for
+                    # as long as the pause lasted -- next to the timing-sensitive screen subprocess,
+                    # and for exactly the minutes somebody has stepped away from the rig. A pause
+                    # waits on a human, so polling at 100 Hz is imperceptibly responsive.
+                    sleep(PAUSE_POLL_INTERVAL)
                 else: # start epoch and advance counter
+                    if self.paused_since is not None:
+                        self._close_out_pause()
+                        self.manager.print_on_server('Resumed.')
                     self.start_epoch(protocol_object, data, save_metadata_flag=save_metadata_flag)
         except Exception as e:
             run_status, run_status_reason = 'error', f'{type(e).__name__}: {e}'
             warnings.warn(f"Run aborted by exception:\n{traceback.format_exc()}")
         finally:
+            # A run can end while paused -- Stop is checked before the pause branch -- and the
+            # elapsed-time display keeps reading paused_seconds after the loop exits.
+            self._close_out_pause()
+
             protocol_object.on_run_finish(self.manager)
 
             broken = getattr(self.manager, 'connection_broken', False)

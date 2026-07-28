@@ -458,3 +458,124 @@ def test_the_server_does_nothing_between_epochs(fake_manager):
     server.set_current_epoch(4)
     server.end_epoch(reason='reached_goal')
     assert sent and sent[0][0]['kwargs'] == {'epoch_index': 4, 'reason': 'reached_goal'}
+
+
+# --- pause: waiting, not spinning, and knowing which of the two states it is in ------------------
+
+def _resume_after(client, seconds, record=None):
+    """Resume the run from another thread, sampling the client's state just before doing so."""
+    import threading
+    import time as _time
+
+    def worker():
+        _time.sleep(seconds)
+        if record is not None:
+            record['state_while_paused'] = client.pause_state
+            record['paused_seconds'] = client.paused_seconds
+        client.resume_run()
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    return t
+
+
+def test_a_paused_run_waits_instead_of_spinning(client, data, fake_manager):
+    """#pause: the paused branch was a bare `pass`, so the loop ran flat out for the whole pause.
+
+    Measured at ~2.2 million iterations a second, holding a core at 100% -- alongside the
+    timing-sensitive screen subprocess, and for exactly the minutes somebody has stepped away from
+    the rig. process_queue() runs once per iteration, so counting it counts the loop.
+    """
+    import time as _time
+
+    iterations = []
+    real_process_queue = fake_manager.process_queue
+
+    def counting_process_queue():
+        iterations.append(1)
+        real_process_queue()
+    fake_manager.process_queue = counting_process_queue
+
+    pause_seconds = 0.4
+    protocol = TinyProtocol(cfg={})
+
+    def hook(p):
+        if p.num_epochs_completed == 0:
+            client.pause_run()
+            _resume_after(client, pause_seconds)
+    protocol.on_epoch = hook
+
+    t0 = _time.monotonic()
+    client.start_run(protocol, data, save_metadata_flag=False)
+    assert _time.monotonic() - t0 >= pause_seconds, 'the run did not actually wait'
+
+    # 100 Hz polling gives ~40 for this pause; the old spin gave ~900,000. Any threshold in between
+    # separates them, so this is not sensitive to how fast the machine is.
+    assert len(iterations) < 5000, f'the paused loop spun: {len(iterations)} iterations'
+    assert protocol.num_epochs_completed == 3, 'the run did not resume'
+
+
+def test_pause_state_distinguishes_requested_from_in_effect(client, data):
+    """Pressing Pause does not pause the rig: the epoch in progress keeps presenting and recording.
+
+    Reporting "Paused" during that interval tells the experimenter the subject is idle when it is
+    still being stimulated, so the two states are kept apart.
+    """
+    seen = {}
+    protocol = TinyProtocol(cfg={})
+
+    def hook(p):
+        if p.num_epochs_completed == 0:
+            assert client.pause_state == 'running'
+            client.pause_run()
+            # still inside the epoch: requested, but the run loop has not reached the boundary
+            seen['just_after_press'] = client.pause_state
+            _resume_after(client, 0.3, record=seen)
+    protocol.on_epoch = hook
+
+    client.start_run(protocol, data, save_metadata_flag=False)
+
+    assert seen['just_after_press'] == 'pending'
+    assert seen['state_while_paused'] == 'paused'
+    assert client.pause_state == 'running'          # resumed and ran to completion
+
+
+def test_paused_time_is_measured_and_excluded_from_the_run(client, data):
+    """paused_seconds is what lets the GUI keep elapsed time comparable to est_run_time."""
+    pause_seconds = 0.4
+    seen = {}
+    protocol = TinyProtocol(cfg={})
+
+    def hook(p):
+        if p.num_epochs_completed == 0:
+            client.pause_run()
+            _resume_after(client, pause_seconds, record=seen)
+    protocol.on_epoch = hook
+
+    client.start_run(protocol, data, save_metadata_flag=False)
+
+    assert seen['paused_seconds'] >= pause_seconds * 0.5   # a pause in progress is counted
+    assert client.paused_seconds >= pause_seconds * 0.5    # and survives the end of the run
+    # TinyProtocol's epochs are zero-length, so essentially all of the run was the pause.
+    assert client.paused_seconds < pause_seconds + 2
+
+
+def test_a_run_stopped_while_paused_stops_accumulating(client, data):
+    """The elapsed-time display keeps reading paused_seconds after the loop exits."""
+    import time as _time
+
+    protocol = TinyProtocol(cfg={})
+
+    def hook(p):
+        if p.num_epochs_completed == 0:
+            client.pause_run()
+            _resume_after(client, 0.2)                 # resume, then stop on the next epoch
+        elif p.num_epochs_completed == 1:
+            client.stop_run()
+    protocol.on_epoch = hook
+
+    client.start_run(protocol, data, save_metadata_flag=False)
+
+    settled = client.paused_seconds
+    _time.sleep(0.3)
+    assert client.paused_seconds == settled, 'paused time kept growing after the run ended'

@@ -75,6 +75,9 @@ class ExperimentGUI(QWidget):
         self.protocol_parameter_input = {}
         self.mid_parameter_edit = False
         self.status = Status.STANDBY
+        # Last pause state written to the status line, so update_run_progress can write only on a
+        # change and leave server messages alone the rest of the time.
+        self._pause_state_shown = 'running'
 
         # user input to select configuration file and rig name
         # sets self.cfg
@@ -635,13 +638,17 @@ class ExperimentGUI(QWidget):
         elif sender.text() == 'Pause':
             self.client.pause_run()
             self.pause_button.setText('Resume')
-            self.status_label.setText('Paused...')
+            # Don't announce "Paused" here: the run is still presenting and recording the epoch it
+            # was in. update_run_progress reports 'Pausing after this epoch finishes...' now, and
+            # switches to 'Paused' when the run loop has actually gone idle. Called directly rather
+            # than waiting up to a second for the timer, so the button press feels immediate.
+            self.update_run_progress()
             self.show()
 
         elif sender.text() == 'Resume':
             self.client.resume_run()
             self.pause_button.setText('Pause')
-            self.status_label.setText('Viewing...')
+            self.update_run_progress()
             self.show()
 
         elif sender.text() == 'Stop':
@@ -1071,12 +1078,12 @@ class ExperimentGUI(QWidget):
         self.view_button.setEnabled(False)
         self.record_button.setEnabled(False)
         if save_metadata_flag:
-            self.status_label.setText('Recording series ' + str(self.data.get_series_count()))
             self.status = Status.RECORDING
         else:
-            self.status_label.setText('Viewing...')
             self.status = Status.VIEWING
-        
+        self.status_label.setText(self.run_status_text())
+
+        self._pause_state_shown = 'running'   # so the first pause registers as a change
         self.run_start_time = time.time()
         self.progress_timer.start()
 
@@ -1104,6 +1111,7 @@ class ExperimentGUI(QWidget):
         self.status_label.setText('Ready')
         self.status = Status.STANDBY
         self.pause_button.setText('Pause')
+        self._pause_state_shown = 'running'
 
         self.progress_timer.stop()
 
@@ -1255,16 +1263,56 @@ class ExperimentGUI(QWidget):
 
         self.mid_parameter_edit = False
 
+    def run_status_text(self):
+        """What the status line should say about a run that is neither pausing nor paused.
+
+        Derived from self.status rather than remembered, because Resume has to restore it: it used
+        to hardcode 'Viewing...', so resuming a recording run announced that it was only viewing --
+        while it went on recording. Losing the series number is bad enough; claiming a recording
+        run is not recording invites somebody to stop and restart a series that was fine.
+        """
+        if self.status == Status.RECORDING:
+            return 'Recording series ' + str(self.data.get_series_count())
+        elif self.status == Status.VIEWING:
+            return 'Viewing...'
+        return 'Ready'
+
     def update_run_progress(self):
         if self.status == Status.STANDBY:
             elapsed_time = 0
             epoch_count = 0
+            paused_seconds = 0
         else:
-            elapsed_time = int(time.time() - self.run_start_time)
+            # Elapsed excludes time spent paused, so it stays comparable to est_run_time, which is
+            # a sum of stimulus durations and knows nothing about pauses. The pause total is shown
+            # alongside instead of being folded in and silently inflating progress.
+            paused_seconds = int(self.client.paused_seconds)
+            elapsed_time = int(time.time() - self.run_start_time) - paused_seconds
             epoch_count = self.protocol_object.num_epochs_completed
 
-        self.elapsed_time_label.setText(f'{elapsed_time} / {self.protocol_object.est_run_time:.0f}')
+        # est_run_time is only set once prepare_run has precomputed the epochs, and this method is
+        # now reached from the Pause/Resume slots as well as the timer. An exception raised in a Qt
+        # slot takes the whole application down, which is far too high a price for a label.
+        est_run_time = getattr(self.protocol_object, 'est_run_time', None)
+        est_text = f'{est_run_time:.0f}' if est_run_time is not None else '?'
+        elapsed_text = f'{elapsed_time} / {est_text}'
+        if paused_seconds > 0:
+            elapsed_text += f'  (+{paused_seconds} paused)'
+        self.elapsed_time_label.setText(elapsed_text)
         self.epoch_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_epochs", "?")}')
+
+        # Announce pause transitions only, rather than rewriting the status every tick: the same
+        # label carries server messages (see report_server_message), and a once-a-second overwrite
+        # would wipe out an error report a second after it arrived.
+        pause_state = self.client.pause_state if self.status != Status.STANDBY else 'running'
+        if pause_state != self._pause_state_shown:
+            self._pause_state_shown = pause_state
+            if pause_state == 'pending':
+                self.status_label.setText('Pausing after this epoch finishes...')
+            elif pause_state == 'paused':
+                self.status_label.setText(f'Paused after {epoch_count} epochs')
+            else:
+                self.status_label.setText(self.run_status_text())
 
     def populate_groups(self):
         # Called after anything that changes the experiment's contents. Delegates to whatever

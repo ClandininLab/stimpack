@@ -255,3 +255,87 @@ def test_the_status_label_still_reads_back_as_text(experiment_gui):
     """Everything that sets status uses setText/text(); keeping a QLabel means those still work."""
     experiment_gui.status_label.setText('Ready')
     assert experiment_gui.status_label.text() == 'Ready'
+
+
+# --- pause -----------------------------------------------------------------------------------
+
+def _recording_run(gui, series=12):
+    """Put the GUI in the state run_started leaves it in for a recorded series."""
+    import time
+    from stimpack.experiment.gui import Status
+
+    gui.status = Status.RECORDING
+    gui.data.series_count = series
+    gui.protocol_object.est_run_time = 300.0       # normally set by prepare_run
+    gui.status_label.setText(gui.run_status_text())
+    gui._pause_state_shown = 'running'
+    gui.run_start_time = time.time()
+
+
+def test_resume_does_not_claim_a_recording_run_is_only_viewing(experiment_gui):
+    """Resume used to hardcode 'Viewing...', so resuming a recorded series announced that it had
+    stopped recording -- while self.status, and the recording, carried on unchanged. Believing the
+    label means stopping and restarting a series that was fine."""
+    gui = experiment_gui
+    _recording_run(gui, series=12)
+    assert gui.status_label.text() == 'Recording series 12'
+
+    gui.pause_button.click()                       # Pause
+    gui.client.paused_since = None                 # the epoch is still running: pause is pending
+    gui.update_run_progress()
+    assert gui.status_label.text() == 'Pausing after this epoch finishes...'
+
+    gui.pause_button.click()                       # Resume
+    assert gui.status_label.text() == 'Recording series 12'
+    assert gui.pause_button.text() == 'Pause'
+
+
+def test_the_status_line_separates_pausing_from_paused(experiment_gui):
+    """Between pressing Pause and the epoch ending, the rig is still presenting and recording."""
+    import time
+
+    gui = experiment_gui
+    _recording_run(gui)
+
+    gui.client.pause_run()
+    gui.update_run_progress()
+    assert gui.status_label.text() == 'Pausing after this epoch finishes...'
+
+    gui.client.paused_since = time.monotonic()     # the run loop reached the epoch boundary
+    gui.update_run_progress()
+    assert gui.status_label.text().startswith('Paused')
+
+
+def test_elapsed_time_reports_paused_time_separately(experiment_gui):
+    """est_run_time is a sum of stimulus durations, so folding pause into elapsed would make the
+    ratio overstate progress. The pause is shown alongside instead."""
+    import time
+
+    gui = experiment_gui
+    _recording_run(gui)
+    gui.run_start_time = time.time() - 30          # 30 s ago
+
+    gui.update_run_progress()
+    assert '(+' not in gui.elapsed_time_label.text(), 'no pause yet, so nothing to report'
+    unpaused = gui.elapsed_time_label.text()
+
+    gui.client.paused_duration = 18.0              # 18 of those 30 s were spent paused
+    gui.update_run_progress()
+    text = gui.elapsed_time_label.text()
+
+    assert '(+18 paused)' in text
+    assert text.split()[0] == '12', f'elapsed should exclude the pause, got {text!r}'
+    estimate = lambda s: s.split('/')[1].split()[0]     # noqa: E731 - the denominator alone
+    assert estimate(unpaused) == estimate(text) == '300', 'the estimate should not change'
+
+
+def test_a_server_message_is_not_wiped_out_a_second_later(experiment_gui):
+    """update_run_progress runs once a second and shares the status line with server messages, so
+    it writes only when the pause state actually changes."""
+    gui = experiment_gui
+    _recording_run(gui)
+
+    gui.status_label.setText('[server error] the screen fell over')
+    gui.update_run_progress()
+    gui.update_run_progress()
+    assert gui.status_label.text() == '[server error] the screen fell over'
