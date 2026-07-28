@@ -18,7 +18,7 @@ import yaml
 
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
-                             QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QHBoxLayout, QFrame,
+                             QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QFrame,
                              QScrollArea, QListWidget, QSizePolicy, QAbstractItemView)
 import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, QUrl
@@ -209,6 +209,12 @@ class ExperimentGUI(QWidget):
         for button_column in range(4):
             self.protocol_action_grid.setColumnStretch(button_column, 1)
 
+        # Captions sized to their text sit right against the field they name. Widen the gap
+        # between columns, and widen it again before the second caption ('Subject:', 'Epochs run:')
+        # so the two pairs on a row read as two pairs rather than as four things in a line.
+        self.protocol_status_grid.setHorizontalSpacing(10)
+        self.protocol_status_grid.setColumnMinimumWidth(2, 24)
+
         self.protocol_tab = QWidget()
         self.protocol_tab_layout = QVBoxLayout()
         self.protocol_tab_layout.addWidget(self.protocol_selector_box)
@@ -234,7 +240,7 @@ class ExperimentGUI(QWidget):
         self.protocol_selector_grid.addWidget(self.protocol_selection_combo_box, 1, 1, 1, 2)
 
         # Parameter preset drop-down:
-        parameter_preset_label = QLabel('Parameter preset:')
+        parameter_preset_label = QLabel('Param preset:')
         self.protocol_selector_grid.addWidget(parameter_preset_label, 2, 0)
         self.parameter_preset_comboBox = None
         self.update_parameter_preset_selector()
@@ -244,7 +250,11 @@ class ExperimentGUI(QWidget):
         save_preset_button.clicked.connect(self.on_pressed_button)
         self.protocol_selector_grid.addWidget(save_preset_button, 2, 2)
 
-        # Status window: its own row, spanning the grid.
+        # Status window: its own row at the bottom of the tab, below the buttons.
+        #
+        # No caption. 'Status:' was one, but the line only ever holds status -- 'Ready', 'Recording
+        # series 12', a server error -- so the word was restating what the content already said,
+        # in space the message itself could use.
         #
         # Inside a scroll area rather than bare, because a QLabel's size hint grows with its text:
         # a long message -- a server warning naming every registered function, say -- used to widen
@@ -269,47 +279,44 @@ class ExperimentGUI(QWidget):
         # No size policy needed: a scroll area's size hint comes from its own frame, not from the
         # widget inside it, so the message length cannot reach the window width from here. Measured
         # -- a 5000-character label gives the same hint as an empty one.
-        # 'Status:' sits in the row rather than in column 0, so it takes only the width of the
-        # word instead of the width of that column -- which is set by the widest label under it
-        # ('Elapsed / Est:') and would otherwise be margin the message could not use.
-        status_row = QHBoxLayout()
-        status_row.addWidget(QLabel('Status:'))
-        status_row.addWidget(self.status_scroll_area)
-        self.protocol_status_grid.addLayout(status_row, 0, 0, 1, 4)
+        #
+        # Added to the box's layout rather than to either grid, so it spans the full width and sits
+        # below both of them regardless of how many rows they grow.
+        self.protocol_control_layout.addWidget(self.status_scroll_area)
 
         # Current series counter
         new_label = QLabel('Series #')
-        self.protocol_status_grid.addWidget(new_label, 1, 0)
+        self.protocol_status_grid.addWidget(new_label, 0, 0)
         self.series_counter_input = QSpinBox()
         self.series_counter_input.setMinimum(1)
         self.series_counter_input.setMaximum(1000)
         self.series_counter_input.setValue(1)
         self.series_counter_input.valueChanged.connect(self.on_entered_series_count)
-        self.protocol_status_grid.addWidget(self.series_counter_input, 1, 1)
+        self.protocol_status_grid.addWidget(self.series_counter_input, 0, 1)
 
         # Current subject, next to the series counter: together they say what the next run will
         # be recorded as. Otherwise the only place to see the subject is the Subject tab, and
         # recording onto the wrong one is a mistake worth making hard.
         new_label = QLabel('Subject:')
-        self.protocol_status_grid.addWidget(new_label, 1, 2)
+        self.protocol_status_grid.addWidget(new_label, 0, 2)
         self.current_subject_main_label = QLabel()
         self.current_subject_main_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_status_grid.addWidget(self.current_subject_main_label, 1, 3)
+        self.protocol_status_grid.addWidget(self.current_subject_main_label, 0, 3)
 
         # Elapsed time and epoch count share a row: both say how far through the run we are, and
         # neither needs a third of the window to show "0 / 240".
         new_label = QLabel('Elapsed / Est:')
-        self.protocol_status_grid.addWidget(new_label, 2, 0)
+        self.protocol_status_grid.addWidget(new_label, 1, 0)
         self.elapsed_time_label = QLabel()
         self.elapsed_time_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_status_grid.addWidget(self.elapsed_time_label, 2, 1)
+        self.protocol_status_grid.addWidget(self.elapsed_time_label, 1, 1)
         self.elapsed_time_label.setText('')
 
         new_label = QLabel('Epochs run:')
-        self.protocol_status_grid.addWidget(new_label, 2, 2)
+        self.protocol_status_grid.addWidget(new_label, 1, 2)
         self.epoch_count_label = QLabel()
         self.epoch_count_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_status_grid.addWidget(self.epoch_count_label, 2, 3)
+        self.protocol_status_grid.addWidget(self.epoch_count_label, 1, 3)
         self.epoch_count_label.setText('')
 
         # Elapsed timer for protocol
@@ -363,6 +370,11 @@ class ExperimentGUI(QWidget):
                                                              QSizePolicy.Policy.Fixed))
         self.ensemble_protocol_selector_grid = QGridLayout()
         self.ensemble_selector_box.setLayout(self.ensemble_protocol_selector_grid)
+        # Same as the Main tab's selector: the slack goes to the dropdowns, not to the caption
+        # beside them or the button next to the preset.
+        self.ensemble_protocol_selector_grid.setColumnStretch(0, 0)   # captions
+        self.ensemble_protocol_selector_grid.setColumnStretch(1, 1)   # dropdowns
+        self.ensemble_protocol_selector_grid.setColumnStretch(2, 0)   # Append button
 
         self.ensemble_list_box = QWidget()
         self.ensemble_list_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
@@ -391,10 +403,10 @@ class ExperimentGUI(QWidget):
         protocol_label = QLabel('Protocol:')
         self.ensemble_protocol_selection_combo_box.textActivated.connect(self.on_selected_ensemble_protocol_ID)
         self.ensemble_protocol_selector_grid.addWidget(protocol_label, 0, 0)
-        self.ensemble_protocol_selector_grid.addWidget(self.ensemble_protocol_selection_combo_box, 0, 1, 1, 1)
+        self.ensemble_protocol_selector_grid.addWidget(self.ensemble_protocol_selection_combo_box, 0, 1, 1, 2)
 
         # Parameter preset drop-down:
-        parameter_preset_label = QLabel('Parameter preset:')
+        parameter_preset_label = QLabel('Param preset:')
         self.ensemble_parameter_preset_comboBox = QComboBox(self)
         self.ensemble_parameter_preset_comboBox.addItem("Default")
         self.ensemble_protocol_selector_grid.addWidget(parameter_preset_label, 1, 0)

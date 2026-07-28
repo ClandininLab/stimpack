@@ -216,21 +216,19 @@ def test_an_unbreakable_message_still_does_not_widen_the_window(experiment_gui, 
     assert gui.width() == before
 
 
-def test_the_status_window_has_its_own_row_spanning_the_grid(experiment_gui):
-    """Including column 0: the 'Status:' caption is in the row, so the message gets the width the
-    caption column would otherwise reserve."""
-    grid = experiment_gui.protocol_status_grid
+def test_the_status_window_sits_at_the_bottom_with_no_caption(experiment_gui):
+    """Full width, below both grids, and uncaptioned -- the line only ever holds status, so the
+    word 'Status:' restated the content in space the message itself could use."""
+    gui = experiment_gui
+    layout = gui.protocol_control_layout
 
-    position = None
-    for index in range(grid.count()):
-        item = grid.itemAt(index)
-        if item.layout() is not None and item.layout().indexOf(experiment_gui.status_scroll_area) >= 0:
-            position = grid.getItemPosition(index)
-    assert position is not None, 'the status window is not in the status grid'
+    last = layout.itemAt(layout.count() - 1)
+    assert last.widget() is gui.status_scroll_area, 'the status window is not the bottom row'
 
-    row, column, row_span, column_span = position
-    assert (row, column) == (0, 0)
-    assert column_span == 4          # every column, so nothing shares its row
+    # nothing shares its row, and no caption was left behind anywhere in the tab
+    from PyQt6.QtWidgets import QLabel
+    captions = [w.text() for w in gui.protocol_control_box.findChildren(QLabel)]
+    assert 'Status:' not in captions
 
 
 def test_the_status_window_is_one_line_tall(experiment_gui, qapp):
@@ -450,8 +448,7 @@ def test_the_buttons_do_not_share_column_widths_with_the_readouts(experiment_gui
     """One grid sized every column to its widest member, so 'Elapsed / Est:' set the width of the
     View button beneath it. Separate grids size independently."""
     gui = experiment_gui
-    status_widgets = {gui.status_scroll_area, gui.series_counter_input,
-                      gui.elapsed_time_label, gui.epoch_count_label}
+    status_widgets = {gui.series_counter_input, gui.elapsed_time_label, gui.epoch_count_label}
     action_widgets = {gui.view_button, gui.record_button, gui.pause_button, gui.notes_edit}
 
     def widgets_of(grid):
@@ -522,3 +519,34 @@ def test_the_selector_dropdowns_get_the_widths_slack(experiment_gui, qapp):
     assert grew[gui.parameter_preset_comboBox] > 0.9 * extra, 'the preset dropdown did not take the slack'
     assert grew[gui.protocol_selection_combo_box] > 0.9 * extra
     assert grew[save_button] < 10, 'the button absorbed width the dropdowns should have had'
+
+
+def test_the_ensemble_selector_dropdowns_get_the_slack_too(experiment_gui, qapp):
+    """The Ensemble tab has the same protocol/preset rows and had the same three equal columns."""
+    gui = experiment_gui
+    gui.tabs.setCurrentWidget(gui.ensemble_tab)
+    qapp.processEvents()
+
+    grid = gui.ensemble_protocol_selector_grid
+    assert grid.columnStretch(1) > grid.columnStretch(0)
+    assert grid.columnStretch(1) > grid.columnStretch(2)
+
+    append_button = next(b for b in gui.findChildren(type(gui.view_button)) if b.text() == 'Append')
+    before = {w: w.width() for w in (gui.ensemble_parameter_preset_comboBox,
+                                     gui.ensemble_protocol_selection_combo_box, append_button)}
+
+    extra = 300
+    gui.resize(gui.width() + extra, gui.height())
+    qapp.processEvents()
+
+    grew = {w: w.width() - before[w] for w in before}
+    assert grew[gui.ensemble_parameter_preset_comboBox] > 0.9 * extra
+    assert grew[gui.ensemble_protocol_selection_combo_box] > 0.9 * extra
+    assert grew[append_button] < 10
+
+
+def test_both_tabs_call_it_param_preset(experiment_gui):
+    from PyQt6.QtWidgets import QLabel
+    captions = [w.text() for w in experiment_gui.findChildren(QLabel)]
+    assert captions.count('Param preset:') == 2      # Main and Ensemble
+    assert 'Parameter preset:' not in captions
