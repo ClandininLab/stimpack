@@ -180,8 +180,27 @@ class ExperimentGUI(QWidget):
         self.protocol_control_box = QWidget()
         self.protocol_control_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
                                                             QSizePolicy.Policy.Fixed))
-        self.protocol_control_grid = QGridLayout()
-        self.protocol_control_box.setLayout(self.protocol_control_grid)
+        # Two grids, stacked, rather than one. A QGridLayout sizes each column to its widest
+        # member, so while the readouts and the buttons shared a grid, the width of 'Elapsed /
+        # Est:' set the width of the View button under it and every column was a compromise
+        # between a label and a button. Separate layouts size independently.
+        self.protocol_control_layout = QVBoxLayout()
+        self.protocol_control_box.setLayout(self.protocol_control_layout)
+        self.protocol_status_grid = QGridLayout()      # status line and run readouts
+        self.protocol_action_grid = QGridLayout()      # View / Record / Pause / Stop, and notes
+        self.protocol_control_layout.addLayout(self.protocol_status_grid)
+        self.protocol_control_layout.addLayout(self.protocol_action_grid)
+
+        # Splitting the grids is not enough on its own: with every column at stretch 0 a grid
+        # shares its slack out equally, so both ended up with four equal columns and the buttons
+        # still lined up under the readouts. Give the slack to the value columns only, so the
+        # captions take the width of their text and the buttons divide the row on their own terms.
+        for caption_column in (0, 2):
+            self.protocol_status_grid.setColumnStretch(caption_column, 0)
+        for value_column in (1, 3):
+            self.protocol_status_grid.setColumnStretch(value_column, 1)
+        for button_column in range(4):
+            self.protocol_action_grid.setColumnStretch(button_column, 1)
 
         self.protocol_tab = QWidget()
         self.protocol_tab_layout = QVBoxLayout()
@@ -202,7 +221,10 @@ class ExperimentGUI(QWidget):
         protocol_label = QLabel('Protocol:')
         self.protocol_selection_combo_box.activated.connect(self.on_selected_protocol_ID)
         self.protocol_selector_grid.addWidget(protocol_label, 1, 0)
-        self.protocol_selector_grid.addWidget(self.protocol_selection_combo_box, 1, 1, 1, 1)
+        # Spans the preset column too: protocol names are the longest text in this box (a labpack
+        # with several protocol modules appends the module name to each), and the dropdown was
+        # elliding them into one column while the column beside it held a button.
+        self.protocol_selector_grid.addWidget(self.protocol_selection_combo_box, 1, 1, 1, 2)
 
         # Parameter preset drop-down:
         parameter_preset_label = QLabel('Parameter preset:')
@@ -242,45 +264,45 @@ class ExperimentGUI(QWidget):
         # -- a 5000-character label gives the same hint as an empty one.
         # 'Status:' sits in the row rather than in column 0, so it takes only the width of the
         # word instead of the width of that column -- which is set by the widest label under it
-        # ('Elapsed time [s]:') and would otherwise be margin the message could not use.
+        # ('Elapsed / Est:') and would otherwise be margin the message could not use.
         status_row = QHBoxLayout()
         status_row.addWidget(QLabel('Status:'))
         status_row.addWidget(self.status_scroll_area)
-        self.protocol_control_grid.addLayout(status_row, 0, 0, 1, 4)
+        self.protocol_status_grid.addLayout(status_row, 0, 0, 1, 4)
 
         # Current series counter
-        new_label = QLabel('Series counter:')
-        self.protocol_control_grid.addWidget(new_label, 1, 0)
+        new_label = QLabel('Series #')
+        self.protocol_status_grid.addWidget(new_label, 1, 0)
         self.series_counter_input = QSpinBox()
         self.series_counter_input.setMinimum(1)
         self.series_counter_input.setMaximum(1000)
         self.series_counter_input.setValue(1)
         self.series_counter_input.valueChanged.connect(self.on_entered_series_count)
-        self.protocol_control_grid.addWidget(self.series_counter_input, 1, 1)
+        self.protocol_status_grid.addWidget(self.series_counter_input, 1, 1)
 
         # Current subject, next to the series counter: together they say what the next run will
         # be recorded as. Otherwise the only place to see the subject is the Subject tab, and
         # recording onto the wrong one is a mistake worth making hard.
         new_label = QLabel('Subject:')
-        self.protocol_control_grid.addWidget(new_label, 1, 2)
+        self.protocol_status_grid.addWidget(new_label, 1, 2)
         self.current_subject_main_label = QLabel()
         self.current_subject_main_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.current_subject_main_label, 1, 3)
+        self.protocol_status_grid.addWidget(self.current_subject_main_label, 1, 3)
 
         # Elapsed time and epoch count share a row: both say how far through the run we are, and
         # neither needs a third of the window to show "0 / 240".
-        new_label = QLabel('Elapsed time [s]:')
-        self.protocol_control_grid.addWidget(new_label, 2, 0)
+        new_label = QLabel('Elapsed / Est:')
+        self.protocol_status_grid.addWidget(new_label, 2, 0)
         self.elapsed_time_label = QLabel()
         self.elapsed_time_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.elapsed_time_label, 2, 1)
+        self.protocol_status_grid.addWidget(self.elapsed_time_label, 2, 1)
         self.elapsed_time_label.setText('')
 
-        new_label = QLabel('Epoch count:')
-        self.protocol_control_grid.addWidget(new_label, 2, 2)
+        new_label = QLabel('Epochs run:')
+        self.protocol_status_grid.addWidget(new_label, 2, 2)
         self.epoch_count_label = QLabel()
         self.epoch_count_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.epoch_count_label, 2, 3)
+        self.protocol_status_grid.addWidget(self.epoch_count_label, 2, 3)
         self.epoch_count_label.setText('')
 
         # Elapsed timer for protocol
@@ -292,12 +314,14 @@ class ExperimentGUI(QWidget):
         # View button:
         self.view_button = QPushButton("View", self)
         self.view_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(self.view_button, 3, 0)
+        self.protocol_action_grid.addWidget(self.view_button, 0, 0)
 
-        # Record button:
+        # Record button. Disabled until a subject is selected: recording without one is refused
+        # anyway, but by a modal raised after the click, which is a worse way to learn it.
         self.record_button = QPushButton("Record", self)
+        self.record_button.setEnabled(False)
         self.record_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(self.record_button, 3, 1)
+        self.protocol_action_grid.addWidget(self.record_button, 0, 1)
 
         # Pause/resume button. Disabled until a run is in progress: pressing it in standby used to
         # set the client's pause flag and relabel itself 'Resume' with nothing running, so the GUI
@@ -305,22 +329,22 @@ class ExperimentGUI(QWidget):
         self.pause_button = QPushButton("Pause", self)
         self.pause_button.setEnabled(False)
         self.pause_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(self.pause_button, 3, 2)
+        self.protocol_action_grid.addWidget(self.pause_button, 0, 2)
 
         # Stop button:
         stop_button = QPushButton("Stop", self)
         stop_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(stop_button, 3, 3)
+        self.protocol_action_grid.addWidget(stop_button, 0, 3)
 
         # Enter note button:
         note_button = QPushButton("Enter note", self)
         note_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(note_button, 4, 0)
+        self.protocol_action_grid.addWidget(note_button, 1, 0)
 
         # Notes field:
         self.notes_edit = QTextEdit()
         self.notes_edit.setFixedHeight(30)
-        self.protocol_control_grid.addWidget(self.notes_edit, 4, 1, 1, 3)
+        self.protocol_action_grid.addWidget(self.notes_edit, 1, 1, 1, 3)
 
 
         # # # TAB 2: ENSEMBLE tab # # #
@@ -1024,6 +1048,17 @@ class ExperimentGUI(QWidget):
         """Update both places the current subject is shown -- the Subject tab and the Main tab."""
         self.current_subject_display.setText(subject_id)
         self.current_subject_main_label.setText(subject_id)
+        self.update_record_button_enabled()
+
+    def update_record_button_enabled(self):
+        """Record needs a subject to record onto; View does not.
+
+        The single place this is decided, called from show_current_subject (every path that
+        changes the subject goes through it) and from run_finished. Not called while a run is in
+        progress: run_started disables both run buttons, and this must not undo that.
+        """
+        if self.status == Status.STANDBY:
+            self.record_button.setEnabled(bool(self.data.current_subject))
 
     def populate_subject_metadata_fields(self, subject_data_dict):
         self.subject_id_input.setText(subject_data_dict['subject_id'])
@@ -1126,13 +1161,14 @@ class ExperimentGUI(QWidget):
     def run_finished(self, save_metadata_flag):
         # re-enable view/record buttons
         self.view_button.setEnabled(True)
-        self.record_button.setEnabled(True)
 
         self.status_label.setText('Ready')
         self.status = Status.STANDBY
         self.pause_button.setText('Pause')
         self.pause_button.setEnabled(False)
         self._pause_state_shown = 'running'
+        # After self.status is back to STANDBY, so this is allowed to touch the button again.
+        self.update_record_button_enabled()
 
         self.progress_timer.stop()
 
@@ -1339,10 +1375,10 @@ class ExperimentGUI(QWidget):
         # now reached from the Pause/Resume slots as well as the timer. An exception raised in a Qt
         # slot takes the whole application down, which is far too high a price for a label.
         est_run_time = getattr(self.protocol_object, 'est_run_time', None)
-        est_text = f'{est_run_time:.0f}' if est_run_time is not None else '?'
+        est_text = f'{est_run_time:.0f}s' if est_run_time is not None else '?'
         elapsed_text = f'{elapsed_time} / {est_text}'
         if paused_seconds > 0:
-            elapsed_text += f'  (+{paused_seconds} paused)'
+            elapsed_text += f'  (+{paused_seconds})'
         self.elapsed_time_label.setText(elapsed_text)
         self.epoch_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_epochs", "?")}')
 

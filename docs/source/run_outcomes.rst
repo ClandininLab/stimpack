@@ -30,9 +30,9 @@ short would be a partial trial recorded as a whole one. Between pressing Pause a
 the rig is still presenting and recording, so the GUI distinguishes the two states: *Pausing after
 this epoch finishes...* while the epoch runs, then *Paused* once the run is genuinely idle.
 
-Elapsed time in the GUI excludes paused seconds and reports them separately (``123 / 300  (+18
-paused)``), because the estimate it is measured against is a sum of stimulus durations and cannot
-account for a pause.
+Elapsed time in the GUI excludes paused seconds and reports them separately -- ``Elapsed / Est:
+123 / 300s  (+18)`` -- because the estimate it is measured against is a sum of stimulus durations
+and cannot account for a pause.
 
 Errors from the server
 ======================

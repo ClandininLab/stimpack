@@ -25,7 +25,7 @@ def test_gui_constructs_with_expected_widgets(experiment_gui):
     gui = experiment_gui
     assert gui.cfg_initialized is True
     assert gui.view_button.isEnabled()
-    assert gui.record_button.isEnabled()
+    assert not gui.record_button.isEnabled()                # no subject to record onto yet
     assert gui.status_label.text() == 'Select a protocol'   # nothing selected yet
 
 
@@ -86,6 +86,8 @@ def test_record_without_a_data_file_is_refused(experiment_gui, monkeypatch):
     import stimpack.experiment.gui as gui_mod
     gui = experiment_gui
     select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.current_subject = 'subj1'          # enough to enable the button, but there is no file
+    gui.update_record_button_enabled()
 
     alerts = []
     monkeypatch.setattr(gui_mod.QMessageBox, 'exec', lambda self: alerts.append(self.text()))
@@ -217,14 +219,14 @@ def test_an_unbreakable_message_still_does_not_widen_the_window(experiment_gui, 
 def test_the_status_window_has_its_own_row_spanning_the_grid(experiment_gui):
     """Including column 0: the 'Status:' caption is in the row, so the message gets the width the
     caption column would otherwise reserve."""
-    grid = experiment_gui.protocol_control_grid
+    grid = experiment_gui.protocol_status_grid
 
     position = None
     for index in range(grid.count()):
         item = grid.itemAt(index)
         if item.layout() is not None and item.layout().indexOf(experiment_gui.status_scroll_area) >= 0:
             position = grid.getItemPosition(index)
-    assert position is not None, 'the status window is not in the control grid'
+    assert position is not None, 'the status window is not in the status grid'
 
     row, column, row_span, column_span = position
     assert (row, column) == (0, 0)
@@ -325,10 +327,10 @@ def test_elapsed_time_reports_paused_time_separately(experiment_gui):
     gui.update_run_progress()
     text = gui.elapsed_time_label.text()
 
-    assert '(+18 paused)' in text
+    assert '(+18)' in text
     assert text.split()[0] == '12', f'elapsed should exclude the pause, got {text!r}'
     estimate = lambda s: s.split('/')[1].split()[0]     # noqa: E731 - the denominator alone
-    assert estimate(unpaused) == estimate(text) == '300', 'the estimate should not change'
+    assert estimate(unpaused) == estimate(text) == '300s', 'the estimate should not change'
 
 
 def test_a_server_message_is_not_wiped_out_a_second_later(experiment_gui):
@@ -409,3 +411,86 @@ def test_stopping_a_held_ensemble_returns_to_standby(experiment_gui, monkeypatch
     assert gui.ensemble_running is False
     assert not gui.pause_button.isEnabled()
     assert gui.status_label.text() == 'Ready'
+
+
+def test_record_waits_for_a_subject_but_view_does_not(experiment_gui):
+    """Recording without a subject is refused anyway -- but by a modal raised after the click,
+    which is a worse way to find out than a button that is plainly not available yet."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+
+    assert not gui.record_button.isEnabled()
+    assert gui.view_button.isEnabled(), 'viewing needs no subject'
+
+    gui.show_current_subject('subj1')            # every path that sets the subject goes through here
+    assert not gui.record_button.isEnabled(), 'the label changed, but no subject was selected'
+
+    gui.data.current_subject = 'subj1'
+    gui.show_current_subject('subj1')
+    assert gui.record_button.isEnabled()
+
+
+def test_a_run_in_progress_keeps_record_disabled(experiment_gui):
+    """update_record_button_enabled must not undo the lock run_started puts on the run buttons."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.current_subject = 'subj1'
+
+    gui.run_started(save_metadata_flag=False)
+    assert not gui.record_button.isEnabled()
+
+    gui.show_current_subject('subj1')            # e.g. the subject dropdown refreshing mid-run
+    assert not gui.record_button.isEnabled(), 'a run is in progress'
+
+    gui.run_finished(save_metadata_flag=False)
+    assert gui.record_button.isEnabled()
+
+
+def test_the_buttons_do_not_share_column_widths_with_the_readouts(experiment_gui):
+    """One grid sized every column to its widest member, so 'Elapsed / Est:' set the width of the
+    View button beneath it. Separate grids size independently."""
+    gui = experiment_gui
+    status_widgets = {gui.status_scroll_area, gui.series_counter_input,
+                      gui.elapsed_time_label, gui.epoch_count_label}
+    action_widgets = {gui.view_button, gui.record_button, gui.pause_button, gui.notes_edit}
+
+    def widgets_of(grid):
+        found = set()
+        for index in range(grid.count()):
+            item = grid.itemAt(index)
+            if item.widget() is not None:
+                found.add(item.widget())
+            elif item.layout() is not None:
+                for sub in range(item.layout().count()):
+                    if item.layout().itemAt(sub).widget() is not None:
+                        found.add(item.layout().itemAt(sub).widget())
+        return found
+
+    in_status = widgets_of(gui.protocol_status_grid)
+    in_action = widgets_of(gui.protocol_action_grid)
+
+    assert status_widgets <= in_status
+    assert action_widgets <= in_action
+    assert not (in_status & in_action), 'a widget is in both grids'
+
+
+def test_the_protocol_dropdown_spans_the_preset_column(experiment_gui):
+    grid = experiment_gui.protocol_selector_grid
+    index = grid.indexOf(experiment_gui.protocol_selection_combo_box)
+    _, _, _, column_span = grid.getItemPosition(index)
+    assert column_span == 2
+
+
+def test_creating_a_subject_enables_record(experiment_gui, tmp_path):
+    """The end-to-end path a user actually takes, rather than poking current_subject directly."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    assert not gui.record_button.isEnabled()
+
+    gui.data.experiment_file_name = 'record_button_test'
+    gui.data.initialize_experiment_file()
+    gui.subject_id_input.setText('subj_new')
+    gui.on_created_subject()
+
+    assert gui.data.current_subject == 'subj_new'
+    assert gui.record_button.isEnabled()
