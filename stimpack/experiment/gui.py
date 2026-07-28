@@ -799,8 +799,7 @@ class ExperimentGUI(QWidget):
             self.pause_button.setText('Pause')
             if self.ensemble_paused:
                 self.release_paused_ensemble()
-            self.ensemble_running = False
-            self.ensemble_list.update_UI(self.ensemble_running)
+            self.set_ensemble_running(False)
 
         elif label == 'Save ensemble':
             self.save_ensemble_preset()
@@ -881,8 +880,20 @@ class ExperimentGUI(QWidget):
         # Set label with filename
         self.ensemble_file_label.setText(fname)
 
+    def set_ensemble_running(self, running):
+        """Flip the ensemble flag and bring everything that depends on it into step.
+
+        The list widget locks while an ensemble runs, and the run buttons' availability depends on
+        whether there is an ensemble to stop. Keeping the three together here is what stops them
+        disagreeing -- 'Stop ensemble' stayed enabled through a single-series run because the flag
+        moved without the buttons being asked again.
+        """
+        self.ensemble_running = running
+        self.ensemble_list.update_UI(self.ensemble_running)
+        self.update_run_button_states()
+
     def run_ensemble(self, save_metadata_flag=False):
-        self.ensemble_running =True
+        self.set_ensemble_running(True)
         self.ensemble_list.reset_current_ensemble_idx()
 
         self.run_ensemble_item(save_metadata_flag=save_metadata_flag)
@@ -891,9 +902,8 @@ class ExperimentGUI(QWidget):
         self.ensemble_list.increment_current_ensemble_idx()
 
         if self.ensemble_list.get_current_ensemble_idx() >= len(self.ensemble_list):
-            self.ensemble_running = False
             self.ensemble_list.reset_current_ensemble_idx()
-            self.ensemble_list.update_UI(self.ensemble_running)
+            self.set_ensemble_running(False)
             return
 
         print(f'Running ensemble item {self.ensemble_list.get_current_ensemble_idx()+1} / {len(self.ensemble_list)}')
@@ -1084,17 +1094,36 @@ class ExperimentGUI(QWidget):
         index = self.existing_subject_input.findText(subject_id) if subject_id else -1
         self.existing_subject_input.setCurrentIndex(index)
         self.current_subject_main_label.setText(subject_id)
-        self.update_record_button_enabled()
+        self.update_run_button_states()
 
-    def update_record_button_enabled(self):
-        """Record needs a subject to record onto; View does not.
+    def update_run_button_states(self):
+        """Enable each run button only when its action is actually available right now.
 
-        The single place this is decided, called from show_current_subject (every path that
-        changes the subject goes through it) and from run_finished. Not called while a run is in
-        progress: run_started disables both run buttons, and this must not undo that.
+        The buttons are shared between the two tabs and relabelled per tab, so availability has to
+        follow both what is running and which tab is showing. Stop in particular: on the Ensemble
+        tab it reads 'Stop ensemble' and there may be no ensemble to stop -- running one series
+        from the Main tab used to leave it enabled, offering to stop something that was not going.
+
+        Starting needs nothing running; Record additionally needs a subject to record onto, which
+        View does not. Stopping needs the thing named on the button to be running -- a single run
+        for 'Stop', an ensemble for 'Stop ensemble'. During an ensemble, 'Stop' on the Main tab
+        still ends the item in progress, which is a different thing from ending the ensemble.
         """
-        if self.status == Status.STANDBY:
-            self.record_button.setEnabled(bool(self.data.current_subject))
+        running = self.status != Status.STANDBY
+        # Called during initUI as well, by the subject dropdown being populated, which happens
+        # before the tab widget exists. Nothing is showing yet, so the Main tab's labels apply.
+        tabs = getattr(self, 'tabs', None)
+        on_ensemble_tab = tabs is not None and tabs.currentWidget() is self.ensemble_tab
+
+        self.view_button.setEnabled(not running)
+        self.record_button.setEnabled(not running and bool(self.data.current_subject))
+        if on_ensemble_tab:
+            self.stop_button.setEnabled(self.ensemble_running)
+        else:
+            # ...or an ensemble: 'Stop' on the Main tab ends the item in progress, and between
+            # items -- an ensemble held for a pause has nothing running but is not finished -- it
+            # is the way out.
+            self.stop_button.setEnabled(running or self.ensemble_running)
 
     def populate_subject_metadata_fields(self, subject_data_dict):
         self.subject_id_input.setText(subject_data_dict['subject_id'])
@@ -1164,15 +1193,16 @@ class ExperimentGUI(QWidget):
         self.run_series_thread.start()
 
     def run_started(self, save_metadata_flag):
-        # Lock the view and run buttons to prevent spinning up multiple threads
-        self.view_button.setEnabled(False)
-        self.record_button.setEnabled(False)
-        self.pause_button.setEnabled(True)
         if save_metadata_flag:
             self.status = Status.RECORDING
         else:
             self.status = Status.VIEWING
         self.status_label.setText(self.run_status_text())
+
+        # Status first: it is what update_run_button_states reads to lock View and Record, which
+        # is what stops a second run thread being spun up on top of this one.
+        self.pause_button.setEnabled(True)
+        self.update_run_button_states()
 
         self._pause_state_shown = 'running'   # so the first pause registers as a change
         self.run_start_time = time.time()
@@ -1187,22 +1217,21 @@ class ExperimentGUI(QWidget):
         self.ensemble_clear_button.setEnabled(False)
 
         if self.ensemble_running:
-            # Keep single-run parameter editing out of reach mid-ensemble. The run controls
-            # themselves are not in here -- they are the shared section, which stays on the
-            # Ensemble tab for the duration (see on_tab_changed), so Stop stays reachable.
-            self.protocol_tab.setEnabled(False)
+            # Keep single-run parameter editing out of reach mid-ensemble -- but only the inputs.
+            # Disabling the whole tab took the scroll area with it, so you could not scroll down to
+            # read the parameters the running item was using. The box inside the scroll area is
+            # what gets disabled; the area itself keeps scrolling.
+            self.protocol_selector_box.setEnabled(False)
+            self.parameters_box.setEnabled(False)
 
     def run_finished(self, save_metadata_flag):
-        # re-enable view/record buttons
-        self.view_button.setEnabled(True)
-
         self.status_label.setText('Ready')
         self.status = Status.STANDBY
         self.pause_button.setText('Pause')
         self.pause_button.setEnabled(False)
         self._pause_state_shown = 'running'
         # After self.status is back to STANDBY, so this is allowed to touch the button again.
-        self.update_record_button_enabled()
+        self.update_run_button_states()
 
         self.progress_timer.stop()
 
@@ -1236,7 +1265,8 @@ class ExperimentGUI(QWidget):
             self.ensemble_remove_item_button.setEnabled(True)
             self.ensemble_clear_button.setEnabled(True)
 
-            self.protocol_tab.setEnabled(True)
+            self.protocol_selector_box.setEnabled(True)
+            self.parameters_box.setEnabled(True)
 
             # Prepare for next run
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
@@ -1385,17 +1415,16 @@ class ExperimentGUI(QWidget):
         else:
             return
 
-        # Not while an ensemble is running: run_started disables the whole Main tab to keep
-        # single-run parameters out of reach, and moving the controls in there would disable Stop
-        # along with it -- exactly when it is most needed.
-        if not self.ensemble_running:
-            layout = self.ensemble_tab_layout if mode == 'ensemble' else self.protocol_tab_layout
-            layout.addWidget(self.protocol_control_box)
+        layout = self.ensemble_tab_layout if mode == 'ensemble' else self.protocol_tab_layout
+        layout.addWidget(self.protocol_control_box)
 
         labels = self.RUN_BUTTON_LABELS[mode]
         self.view_button.setText(labels['view'])
         self.record_button.setText(labels['record'])
         self.stop_button.setText(labels['stop'])
+        # The labels just changed what each button claims to act on, so what is available changed
+        # with them -- 'Stop ensemble' is only offered when there is an ensemble to stop.
+        self.update_run_button_states()
 
     def release_paused_ensemble(self):
         """Abandon an ensemble that was holding between items, and return the GUI to standby.
@@ -1404,11 +1433,10 @@ class ExperimentGUI(QWidget):
         already been and gone, and stop_run has no run loop left to stop.
         """
         self.ensemble_paused = False
-        self.ensemble_running = False
         self.client.pause = False
         self.pause_button.setEnabled(False)
         self.status_label.setText('Ready')
-        self.ensemble_list.update_UI(self.ensemble_running)
+        self.set_ensemble_running(False)
 
     def run_status_text(self):
         """What the status line should say about a run that is neither pausing nor paused.

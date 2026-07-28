@@ -87,7 +87,7 @@ def test_record_without_a_data_file_is_refused(experiment_gui, monkeypatch):
     gui = experiment_gui
     select_protocol(gui, 'DriftingSquareGrating')
     gui.data.current_subject = 'subj1'          # enough to enable the button, but there is no file
-    gui.update_record_button_enabled()
+    gui.update_run_button_states()
 
     alerts = []
     monkeypatch.setattr(gui_mod.QMessageBox, 'exec', lambda self: alerts.append(self.text()))
@@ -102,8 +102,11 @@ def test_stop_button_asks_the_client_to_stop(experiment_gui):
     gui = experiment_gui
     select_protocol(gui, 'DriftingSquareGrating')
 
-    stop_button = next(b for b in gui.findChildren(type(gui.view_button)) if b.text() == 'Stop')
-    stop_button.click()
+    assert not gui.stop_button.isEnabled(), 'nothing is running to stop'
+
+    gui.run_started(save_metadata_flag=False)
+    assert gui.stop_button.isEnabled()
+    gui.stop_button.click()
 
     assert gui.client.stop is True
 
@@ -431,7 +434,7 @@ def test_record_waits_for_a_subject_but_view_does_not(experiment_gui):
 
 
 def test_a_run_in_progress_keeps_record_disabled(experiment_gui):
-    """update_record_button_enabled must not undo the lock run_started puts on the run buttons."""
+    """update_run_button_states must not undo the lock run_started puts on the run buttons."""
     gui = experiment_gui
     select_protocol(gui, 'DriftingSquareGrating')
     gui.data.current_subject = 'subj1'
@@ -640,7 +643,7 @@ def test_the_shared_buttons_drive_the_ensemble_from_the_ensemble_tab(experiment_
     gui = experiment_gui
     select_protocol(gui, 'DriftingSquareGrating')
     gui.data.current_subject = 'subj1'
-    gui.update_record_button_enabled()
+    gui.update_run_button_states()
 
     ensembles, singles = [], []
     monkeypatch.setattr(gui, 'run_ensemble', lambda save_metadata_flag=False: ensembles.append(save_metadata_flag))
@@ -655,16 +658,65 @@ def test_the_shared_buttons_drive_the_ensemble_from_the_ensemble_tab(experiment_
     assert singles == [False], 'View on the Main tab did not run a single series'
 
 
-def test_the_controls_do_not_move_into_a_disabled_main_tab_mid_ensemble(experiment_gui):
-    """run_started disables the whole Main tab to keep single-run parameters out of reach; moving
-    the controls in there would disable Stop with it, exactly when it is most needed."""
+def test_mid_ensemble_the_main_tab_stays_readable_and_keeps_its_controls(experiment_gui):
+    """Disabling the whole Main tab took the parameter scroll area with it, so you could not scroll
+    down to see what the running item was using -- and the controls had to be pinned to the
+    Ensemble tab to stay usable, so switching to Main showed a tab with no controls at all."""
     gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
     gui.tabs.setCurrentWidget(gui.ensemble_tab)
-    gui.ensemble_running = True
+    gui.set_ensemble_running(True)
     gui.run_started(save_metadata_flag=False)
-    assert not gui.protocol_tab.isEnabled()
 
     gui.tabs.setCurrentWidget(gui.protocol_tab)
 
-    assert control_box_tab(gui) is gui.ensemble_tab, 'the controls followed the tab into a disabled parent'
+    assert control_box_tab(gui) is gui.protocol_tab, 'the controls did not follow the tab'
+    assert gui.stop_button.isEnabled(), 'Stop is unreachable mid-ensemble'
+    assert gui.protocol_tab.isEnabled()
+    assert gui.parameters_scroll_area.isEnabled(), 'the parameters cannot be scrolled'
+    assert not gui.parameters_box.isEnabled(), 'the parameters are still editable mid-ensemble'
+    assert not gui.protocol_selector_box.isEnabled()
+
+
+def test_stop_ensemble_is_only_offered_when_an_ensemble_is_running(experiment_gui):
+    """Running one series from the Main tab left 'Stop ensemble' enabled on the Ensemble tab,
+    offering to stop something that was not going."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+
+    gui.run_started(save_metadata_flag=False)        # a single series, no ensemble
+    gui.tabs.setCurrentWidget(gui.ensemble_tab)
+
+    assert gui.stop_button.text() == 'Stop ensemble'
+    assert not gui.stop_button.isEnabled(), 'offered to stop an ensemble that is not running'
+
+    gui.set_ensemble_running(True)
+    assert gui.stop_button.isEnabled()
+
+
+def test_starting_is_only_offered_when_nothing_is_running(experiment_gui):
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.current_subject = 'subj1'
+    gui.update_run_button_states()
+    assert gui.view_button.isEnabled() and gui.record_button.isEnabled()
+
+    gui.run_started(save_metadata_flag=False)
+    gui.tabs.setCurrentWidget(gui.ensemble_tab)
+    assert not gui.view_button.isEnabled(), 'could start an ensemble on top of a running series'
+    assert not gui.record_button.isEnabled()
+
+
+def test_a_held_ensemble_can_still_be_stopped_from_the_main_tab(experiment_gui, monkeypatch):
+    """Held between items, nothing is 'running' -- but the ensemble is not finished either, and
+    Stop is the way out of it."""
+    gui = experiment_gui
+    monkeypatch.setattr(gui, 'run_ensemble_item', lambda save_metadata_flag=False: None)
+    gui.set_ensemble_running(True)
+    gui.client.pause = True
+    gui.run_finished(save_metadata_flag=False)       # holds, because a pause was requested
+
+    from stimpack.experiment.gui import Status
+    assert gui.ensemble_paused is True
+    assert gui.status == Status.STANDBY, 'no run is in progress'
     assert gui.stop_button.isEnabled()
