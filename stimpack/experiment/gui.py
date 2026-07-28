@@ -324,6 +324,31 @@ class ExperimentGUI(QWidget):
         self.protocol_status_grid.addWidget(self.epoch_count_label, 1, 3)
         self.epoch_count_label.setText('')
 
+        # What this epoch drew: the parameters that vary from epoch to epoch, at their values for
+        # the epoch running now. Those values are chosen on the client and sent to the server,
+        # which prints them; until now the GUI never showed them, so the only way to see what was
+        # on screen was the server's terminal.
+        #
+        # Same treatment as the status line, and for the same reason: a protocol varying several
+        # parameters produces a long line, and a bare QLabel's size hint grows with its text until
+        # it reshapes the window. One line tall, scrolls if longer, whole text in the tooltip.
+        self.epoch_parameters_label = _StatusLabel('')
+        self.epoch_parameters_label.setWordWrap(True)
+        self.epoch_parameters_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.epoch_parameters_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        self.epoch_parameters_scroll_area = QScrollArea()
+        self.epoch_parameters_scroll_area.setWidget(self.epoch_parameters_label)
+        self.epoch_parameters_scroll_area.setWidgetResizable(True)
+        self.epoch_parameters_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.epoch_parameters_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.epoch_parameters_scroll_area.setFixedHeight(
+            self.epoch_parameters_label.fontMetrics().height()
+            + 2 * self.epoch_parameters_scroll_area.frameWidth())
+
+        self.protocol_status_grid.addWidget(QLabel('This epoch:'), 2, 0)
+        self.protocol_status_grid.addWidget(self.epoch_parameters_scroll_area, 2, 1, 1, 3)
+
         # Elapsed timer for protocol
         self.progress_timer = QTimer()
         self.progress_timer.setSingleShot(False)
@@ -1529,6 +1554,36 @@ class ExperimentGUI(QWidget):
             text += f'   [ensemble: protocol {item} of {len(self.ensemble_list)}]'
         return text
 
+    def varying_epoch_parameter_names(self):
+        """Protocol parameters that take a different value from epoch to epoch.
+
+        process_input_parameters records these in persistent_parameters, but a protocol is free to
+        override that method, and a labpack one that does not call super() leaves the list unset.
+        Recomputed from the parameters themselves in that case, using the same rule: a parameter
+        given as a list of more than one value is one that varies.
+        """
+        protocol = self.protocol_object
+        names = (protocol.persistent_parameters or {}).get('variable_protocol_parameter_names')
+        if names is None:
+            names = [key for key, value in protocol.protocol_parameters.items()
+                     if isinstance(value, list) and len(value) > 1]
+        return names
+
+    def epoch_parameters_text(self):
+        """This epoch's values for the parameters that vary, as one line.
+
+        Only the varying ones: the rest are on show in the parameter fields above, unchanged for
+        the whole run, and repeating them here would bury the two or three that actually differ.
+        """
+        if self.status == Status.STANDBY:
+            return ''
+
+        values = self.protocol_object.epoch_protocol_parameters or {}
+        names = [name for name in self.varying_epoch_parameter_names() if name in values]
+        if not names:
+            return '(no parameters vary across epochs)'
+        return ',   '.join(f'{name}: {values[name]}' for name in names)
+
     def update_ensemble_progress(self):
         """The Ensemble tab's readouts: how many of its protocols have run, and for how long.
 
@@ -1572,6 +1627,11 @@ class ExperimentGUI(QWidget):
             elapsed_text += f'  (+{paused_seconds})'
         self.elapsed_time_label.setText(elapsed_text)
         self.epoch_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_epochs", "?")}')
+        # Read straight off the protocol object, like the epoch count above it. The run loop owns
+        # that object on another thread, but these are plain attribute reads of values it replaces
+        # wholesale at the start of each epoch, so the worst case is showing the previous epoch's
+        # values for one tick of the timer.
+        self.epoch_parameters_label.setText(self.epoch_parameters_text())
         self.update_ensemble_progress()
 
         # Announce pause transitions only, rather than rewriting the status every tick: the same

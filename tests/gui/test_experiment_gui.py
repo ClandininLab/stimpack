@@ -819,3 +819,95 @@ def test_neither_tab_can_start_while_the_other_is_running(experiment_gui):
     assert not gui.view_button.isEnabled(), 'could start a series on top of a running ensemble'
     assert not gui.record_button.isEnabled()
     assert not gui.ensemble_view_button.isEnabled()
+
+
+# --- the current epoch's parameters ------------------------------------------------------------
+
+def test_the_epoch_readout_shows_only_the_parameters_that_vary(experiment_gui):
+    """A protocol's varying parameters are chosen per epoch on the client and printed by the
+    server; the GUI never showed them, so the only way to see what was on screen was the server's
+    terminal. The unvarying ones stay out: they are in the fields above, and repeating them would
+    bury the two or three that differ."""
+    from stimpack.experiment.gui import Status
+
+    gui = experiment_gui
+    protocol = select_protocol(gui, 'DriftingSquareGrating')
+    gui.status = Status.VIEWING
+
+    protocol.protocol_parameters['angle'] = [0, 45, 90]        # varies
+    protocol.protocol_parameters['rate'] = 20                  # does not
+    protocol.persistent_parameters = {}                        # force the recomputed fallback
+    protocol.epoch_protocol_parameters = {'angle': 45, 'rate': 20}
+
+    text = gui.epoch_parameters_text()
+    assert 'angle: 45' in text
+    assert 'rate' not in text, 'a parameter that never changes was reported as this epoch\'s'
+
+
+def test_the_epoch_readout_prefers_what_the_protocol_recorded(experiment_gui):
+    """process_input_parameters names the varying parameters; the fallback is only for protocols
+    that override it without calling super()."""
+    from stimpack.experiment.gui import Status
+
+    gui = experiment_gui
+    protocol = select_protocol(gui, 'DriftingSquareGrating')
+    gui.status = Status.RECORDING
+    protocol.persistent_parameters = {'variable_protocol_parameter_names': ['contrast']}
+    protocol.epoch_protocol_parameters = {'contrast': 0.25, 'angle': 45}
+
+    assert gui.epoch_parameters_text() == 'contrast: 0.25'
+
+
+def test_the_epoch_readout_is_blank_between_runs(experiment_gui):
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    assert gui.epoch_parameters_text() == ''
+
+
+def test_the_epoch_readout_says_so_when_nothing_varies(experiment_gui):
+    from stimpack.experiment.gui import Status
+
+    gui = experiment_gui
+    protocol = select_protocol(gui, 'DriftingSquareGrating')
+    gui.status = Status.VIEWING
+    protocol.persistent_parameters = {'variable_protocol_parameter_names': []}
+    protocol.epoch_protocol_parameters = {'angle': 45}
+
+    assert gui.epoch_parameters_text() == '(no parameters vary across epochs)'
+
+
+def test_a_long_epoch_readout_does_not_reshape_the_window(experiment_gui, qapp):
+    gui = experiment_gui
+    qapp.processEvents()
+    before = (gui.width(), gui.height())
+
+    gui.epoch_parameters_label.setText('some_parameter: 3.14159,   ' * 200)
+    qapp.processEvents()
+
+    assert (gui.width(), gui.height()) == before
+    assert gui.epoch_parameters_label.toolTip().startswith('some_parameter')
+
+
+def test_the_epoch_readout_follows_a_real_protocol_epoch_by_epoch(experiment_gui):
+    """Drives the actual parameter-selection machinery rather than setting the dict by hand: the
+    readout is only useful if epoch_protocol_parameters holds the value chosen for this epoch and
+    not the list it was chosen from."""
+    from stimpack.experiment.gui import Status
+
+    gui = experiment_gui
+    protocol = select_protocol(gui, 'DriftingSquareGrating')
+    protocol.protocol_parameters['angle'] = [0, 45, 90]
+    protocol.run_parameters['num_epochs'] = 3
+    protocol.run_parameters['randomize_order'] = False
+    protocol.prepare_run(manager=gui.client.manager, recompute_epoch_parameters=True)
+    gui.status = Status.VIEWING
+
+    seen = []
+    for _ in range(3):
+        protocol.load_precomputed_epoch_parameters()
+        seen.append(gui.epoch_parameters_text())
+        protocol.num_epochs_completed += 1
+
+    assert all(text.startswith('angle: ') for text in seen), seen
+    assert '[' not in ' '.join(seen), 'showed the list of values rather than this epoch\'s value'
+    assert sorted(t.split(': ')[1] for t in seen) == ['0', '45', '90'], seen
