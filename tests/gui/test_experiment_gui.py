@@ -228,7 +228,7 @@ def test_the_status_window_sits_below_the_tabs_with_no_caption(experiment_gui):
 
     last = layout.itemAt(layout.count() - 1)
     assert last.widget() is gui.status_scroll_area, 'the status window is not the bottom row'
-    assert layout.itemAt(layout.count() - 2).widget() is gui.tabs, 'it is not below the tabs'
+    assert layout.itemAt(0).widget() is gui.tabs, 'it is not below the tabs'
 
     # nothing shares its row, and no caption was left behind anywhere in the tab
     from PyQt6.QtWidgets import QLabel
@@ -407,8 +407,7 @@ def test_stopping_a_held_ensemble_returns_to_standby(experiment_gui, monkeypatch
     gui.run_finished(save_metadata_flag=False)
     assert gui.ensemble_paused is True
 
-    stop_button = next(b for b in gui.findChildren(type(gui.view_button)) if b.text() == 'Stop')
-    stop_button.click()
+    gui.ensemble_stop_button.click()
 
     assert gui.ensemble_paused is False
     assert gui.ensemble_running is False
@@ -454,7 +453,7 @@ def test_the_buttons_do_not_share_column_widths_with_the_readouts(experiment_gui
     View button beneath it. Separate grids size independently."""
     gui = experiment_gui
     status_widgets = {gui.series_counter_input, gui.elapsed_time_label, gui.epoch_count_label}
-    action_widgets = {gui.view_button, gui.record_button, gui.pause_button, gui.notes_edit}
+    action_widgets = {gui.view_button, gui.record_button, gui.pause_button, gui.stop_button}
 
     def widgets_of(grid):
         found = set()
@@ -600,82 +599,9 @@ def control_box_tab(gui):
     return gui.protocol_control_box.parent()
 
 
-def test_the_run_controls_move_between_main_and_ensemble(experiment_gui):
-    """One instance, reparented -- a Qt widget has a single parent, so the alternative is two sets
-    of widgets to keep in step."""
-    gui = experiment_gui
-    assert control_box_tab(gui) is gui.protocol_tab
-
-    gui.tabs.setCurrentWidget(gui.ensemble_tab)
-    assert control_box_tab(gui) is gui.ensemble_tab
-
-    gui.tabs.setCurrentWidget(gui.protocol_tab)
-    assert control_box_tab(gui) is gui.protocol_tab
 
 
-def test_the_run_controls_stay_off_the_subject_and_file_tabs(experiment_gui):
-    """Run controls under a metadata form would imply a relationship that is not there."""
-    gui = experiment_gui
-    gui.tabs.setCurrentWidget(gui.ensemble_tab)
 
-    for tab in (gui.data_tab, gui.file_tab):
-        gui.tabs.setCurrentWidget(tab)
-        assert control_box_tab(gui) is not tab
-        assert control_box_tab(gui) is gui.ensemble_tab      # left where it was
-
-
-def test_the_run_buttons_say_which_thing_they_start(experiment_gui):
-    """Same widgets on both tabs, so the label is what stops someone starting a 40-minute ensemble
-    when they meant to run one series."""
-    gui = experiment_gui
-    assert (gui.view_button.text(), gui.record_button.text(), gui.stop_button.text()) \
-        == ('View', 'Record', 'Stop')
-
-    gui.tabs.setCurrentWidget(gui.ensemble_tab)
-    assert (gui.view_button.text(), gui.record_button.text(), gui.stop_button.text()) \
-        == ('View ensemble', 'Record ensemble', 'Stop ensemble')
-
-    gui.tabs.setCurrentWidget(gui.protocol_tab)
-    assert gui.record_button.text() == 'Record'
-
-
-def test_the_shared_buttons_drive_the_ensemble_from_the_ensemble_tab(experiment_gui, monkeypatch):
-    gui = experiment_gui
-    select_protocol(gui, 'DriftingSquareGrating')
-    gui.data.current_subject = 'subj1'
-    gui.update_run_button_states()
-
-    ensembles, singles = [], []
-    monkeypatch.setattr(gui, 'run_ensemble', lambda save_metadata_flag=False: ensembles.append(save_metadata_flag))
-    monkeypatch.setattr(gui, 'send_run', lambda save_metadata_flag=False: singles.append(save_metadata_flag))
-
-    gui.tabs.setCurrentWidget(gui.ensemble_tab)
-    gui.record_button.click()
-    assert ensembles == [True] and singles == [], 'Record on the Ensemble tab ran a single series'
-
-    gui.tabs.setCurrentWidget(gui.protocol_tab)
-    gui.view_button.click()
-    assert singles == [False], 'View on the Main tab did not run a single series'
-
-
-def test_mid_ensemble_the_main_tab_stays_readable_and_keeps_its_controls(experiment_gui):
-    """Disabling the whole Main tab took the parameter scroll area with it, so you could not scroll
-    down to see what the running item was using -- and the controls had to be pinned to the
-    Ensemble tab to stay usable, so switching to Main showed a tab with no controls at all."""
-    gui = experiment_gui
-    select_protocol(gui, 'DriftingSquareGrating')
-    gui.tabs.setCurrentWidget(gui.ensemble_tab)
-    gui.set_ensemble_running(True)
-    gui.run_started(save_metadata_flag=False)
-
-    gui.tabs.setCurrentWidget(gui.protocol_tab)
-
-    assert control_box_tab(gui) is gui.protocol_tab, 'the controls did not follow the tab'
-    assert gui.stop_button.isEnabled(), 'Stop is unreachable mid-ensemble'
-    assert gui.protocol_tab.isEnabled()
-    assert gui.parameters_scroll_area.isEnabled(), 'the parameters cannot be scrolled'
-    assert not gui.parameters_box.isEnabled(), 'the parameters are still editable mid-ensemble'
-    assert not gui.protocol_selector_box.isEnabled()
 
 
 def test_stop_ensemble_is_only_offered_when_an_ensemble_is_running(experiment_gui):
@@ -685,13 +611,12 @@ def test_stop_ensemble_is_only_offered_when_an_ensemble_is_running(experiment_gu
     select_protocol(gui, 'DriftingSquareGrating')
 
     gui.run_started(save_metadata_flag=False)        # a single series, no ensemble
-    gui.tabs.setCurrentWidget(gui.ensemble_tab)
 
-    assert gui.stop_button.text() == 'Stop ensemble'
-    assert not gui.stop_button.isEnabled(), 'offered to stop an ensemble that is not running'
+    assert not gui.ensemble_stop_button.isEnabled(), 'offered to stop an ensemble that is not running'
+    assert gui.stop_button.isEnabled(), 'the running series cannot be stopped'
 
     gui.set_ensemble_running(True)
-    assert gui.stop_button.isEnabled()
+    assert gui.ensemble_stop_button.isEnabled()
 
 
 def test_starting_is_only_offered_when_nothing_is_running(experiment_gui):
@@ -702,24 +627,11 @@ def test_starting_is_only_offered_when_nothing_is_running(experiment_gui):
     assert gui.view_button.isEnabled() and gui.record_button.isEnabled()
 
     gui.run_started(save_metadata_flag=False)
-    gui.tabs.setCurrentWidget(gui.ensemble_tab)
-    assert not gui.view_button.isEnabled(), 'could start an ensemble on top of a running series'
+    assert not gui.view_button.isEnabled()
     assert not gui.record_button.isEnabled()
+    assert not gui.ensemble_view_button.isEnabled(), 'could start an ensemble on top of a running series'
+    assert not gui.ensemble_record_button.isEnabled()
 
-
-def test_a_held_ensemble_can_still_be_stopped_from_the_main_tab(experiment_gui, monkeypatch):
-    """Held between items, nothing is 'running' -- but the ensemble is not finished either, and
-    Stop is the way out of it."""
-    gui = experiment_gui
-    monkeypatch.setattr(gui, 'run_ensemble_item', lambda save_metadata_flag=False: None)
-    gui.set_ensemble_running(True)
-    gui.client.pause = True
-    gui.run_finished(save_metadata_flag=False)       # holds, because a pause was requested
-
-    from stimpack.experiment.gui import Status
-    assert gui.ensemble_paused is True
-    assert gui.status == Status.STANDBY, 'no run is in progress'
-    assert gui.stop_button.isEnabled()
 
 
 def test_parameters_stay_locked_when_an_ensemble_loads_its_next_item(experiment_gui):
@@ -802,3 +714,108 @@ def test_recording_onto_an_existing_series_asks_first(experiment_gui, monkeypatc
     qapp.processEvents()
 
     assert gui.client.runs == [('DriftingSquareGrating', True)], 'accepting the overwrite did not record'
+
+
+# --- each tab owns its controls --------------------------------------------------------------------
+
+def test_each_tab_has_its_own_run_buttons(experiment_gui):
+    """Sharing one set meant buttons whose meaning changed with the tab, and readouts that only
+    ever described a single series."""
+    gui = experiment_gui
+
+    def widgets_under(widget):
+        return set(widget.findChildren(type(gui.view_button))) | set(widget.findChildren(QLabel_type()))
+
+    main = widgets_under(gui.protocol_tab)
+    ensemble = widgets_under(gui.ensemble_tab)
+
+    assert gui.view_button in main and gui.view_button not in ensemble
+    assert gui.ensemble_view_button in ensemble and gui.ensemble_view_button not in main
+    assert gui.elapsed_time_label in main and gui.elapsed_time_label not in ensemble
+    assert gui.ensemble_progress_label in ensemble and gui.ensemble_progress_label not in main
+
+
+def QLabel_type():
+    from PyQt6.QtWidgets import QLabel
+    return QLabel
+
+
+def test_the_notes_row_sits_below_the_tabs(experiment_gui):
+    """A note is about the experiment, not about whichever tab is showing."""
+    gui = experiment_gui
+    in_main = gui.protocol_tab.findChildren(type(gui.notes_edit))
+    assert gui.notes_edit not in in_main
+    assert gui.notes_edit.parent() is gui
+
+
+def test_the_ensemble_tab_counts_protocols_not_epochs(experiment_gui):
+    gui = experiment_gui
+    gui.ensemble_list.append_item('DriftingSquareGrating', 'Default')
+    gui.ensemble_list.append_item('MovingPatch', 'Default')
+
+    gui.update_ensemble_progress()
+    assert gui.ensemble_progress_label.text() == '0 / 2'
+    assert gui.ensemble_elapsed_label.text() == ''
+
+    gui.set_ensemble_running(True)
+    gui.ensemble_list.reset_current_ensemble_idx()
+    gui.ensemble_list.increment_current_ensemble_idx()      # the first item is running
+    gui.update_ensemble_progress()
+
+    # Counts protocols finished, the way 'Epochs run' counts epochs finished: the one in progress
+    # is not one of them.
+    assert gui.ensemble_progress_label.text() == '0 / 2'
+    assert gui.ensemble_elapsed_label.text().endswith('s')
+
+    gui.ensemble_list.increment_current_ensemble_idx()      # on to the second
+    gui.update_ensemble_progress()
+    assert gui.ensemble_progress_label.text() == '1 / 2'
+
+
+def test_ensemble_elapsed_covers_the_gaps_between_protocols(experiment_gui):
+    """Timed from the start of the ensemble, not of the item in progress: the gap between one
+    protocol finishing and the next starting is time the ensemble is taking."""
+    import time as _time
+
+    gui = experiment_gui
+    gui.ensemble_list.append_item('DriftingSquareGrating', 'Default')
+    gui.set_ensemble_running(True)
+    started = gui.ensemble_start_time
+    assert started is not None
+
+    gui.run_started(save_metadata_flag=False)
+    gui.run_finished(save_metadata_flag=False)             # between items: no run in progress
+    assert gui.ensemble_start_time == started, 'the ensemble clock restarted with the item'
+
+    gui.set_ensemble_running(False)
+    assert gui.ensemble_start_time is None
+    _time.sleep(0)                                         # nothing running: nothing to measure
+    gui.update_ensemble_progress()
+    assert gui.ensemble_elapsed_label.text() == ''
+
+
+def test_both_pause_buttons_say_the_same_thing(experiment_gui):
+    """Two buttons onto one run loop."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.run_started(save_metadata_flag=False)
+    assert gui.pause_button.isEnabled() and gui.ensemble_pause_button.isEnabled()
+
+    gui.pause_button.click()
+    assert gui.client.pause is True
+    assert gui.pause_button.text() == 'Resume' and gui.ensemble_pause_button.text() == 'Resume'
+
+    gui.ensemble_pause_button.click()                      # resume from the other tab
+    assert gui.client.pause is False
+    assert gui.pause_button.text() == 'Pause' and gui.ensemble_pause_button.text() == 'Pause'
+
+
+def test_neither_tab_can_start_while_the_other_is_running(experiment_gui):
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.current_subject = 'subj1'
+    gui.set_ensemble_running(True)
+
+    assert not gui.view_button.isEnabled(), 'could start a series on top of a running ensemble'
+    assert not gui.record_button.isEnabled()
+    assert not gui.ensemble_view_button.isEnabled()
