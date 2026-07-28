@@ -2,7 +2,7 @@
 Unit tests for the NWB data backend (stimpack.experiment.data_nwb).
 
 Writes real .nwb files under tmp_path -- no rig, no GUI. Skipped entirely when pynwb is not
-installed, since it is an optional dependency (pip install stimpack[nwb]).
+installed. It is a hard dependency now, so this only skips on a partial install.
 """
 import os
 import warnings

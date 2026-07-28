@@ -1776,6 +1776,22 @@ class InitializeRigGUI(QWidget):
         self.rig_combobox = QComboBox()
         self.init_grid.addWidget(self.rig_combobox, 2, 1, 1, 2)
 
+        # Which storage backend to write. Chosen here rather than in the main window because this
+        # dialog runs to completion before the data object -- or the File tab's browser, or the
+        # labels naming it -- is built, so there is nothing yet to swap out and no open experiment
+        # to invalidate. An experiment cannot change format part-way through in any case.
+        label_data_format = QLabel('Data format')
+        label_data_format.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        self.init_grid.addWidget(label_data_format, 3, 0)
+
+        self.data_format_combobox = QComboBox()
+        for format_name in sorted(config_tools.BUILTIN_DATA_FORMATS):
+            self.data_format_combobox.addItem(format_name)
+        self.data_format_combobox.setToolTip(
+            "Which format to write. Defaults to the selected config's data_format.\n"
+            "Ignored if the labpack supplies its own data module, which takes precedence.")
+        self.init_grid.addWidget(self.data_format_combobox, 3, 1, 1, 2)
+
         self.update_available_rigs()
 
         self.pb_enter = QPushButton('Enter')
@@ -1821,12 +1837,30 @@ class InitializeRigGUI(QWidget):
         self.cfg = config_tools.get_configuration_file(self.cfg_name, self.labpack_dir)
         self.available_rig_configs = config_tools.get_available_rig_configs(self.cfg)
         self.update_available_rigs()
+        self.update_data_format_selection()
         self.show()
+
+    def update_data_format_selection(self):
+        """Show the format this config would use, so the default is the config's own answer.
+
+        Follows the config selection above it: picking a different config re-reads its
+        data_format rather than leaving the previous config's answer showing. A --data-format on
+        the command line wins over both, so it is shown here too -- the flag is applied after this
+        dialog either way, and a dialog displaying something other than what will be used is worse
+        than no dialog.
+        """
+        override = getattr(self.experiment_gui_object, 'data_format_override', None)
+        data_format = override if override is not None else config_tools.get_data_format(self.cfg)
+        index = self.data_format_combobox.findText(data_format)
+        if index >= 0:
+            self.data_format_combobox.setCurrentIndex(index)
+        self.data_format_combobox.setEnabled(override is None)
 
     def on_pressed_enter_button(self):
         # Store the rig and cfg names in the cfg dict
         self.cfg['current_rig_name'] = self.rig_combobox.currentText()
         self.cfg['current_cfg_name'] = self.cfg_name
+        self.cfg['data_format'] = self.data_format_combobox.currentText()
 
         self.warn_about_labpack_problems()
 

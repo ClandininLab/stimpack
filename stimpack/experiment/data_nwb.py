@@ -7,7 +7,7 @@ Where BaseData writes one HDF5 file per experiment, this writes a DIRECTORY per 
 holding one .nwb file per series. That difference is the only thing the GUI needs to know, and
 it reads it from the output_is_directory trait rather than from this class's name.
 
-Requires pynwb, which is an optional dependency:  pip install stimpack[nwb]
+Requires pynwb, which stimpack installs as a dependency.
 """
 from copy import deepcopy
 from csv import writer
@@ -20,19 +20,12 @@ import re
 import warnings
 from datetime import datetime, timezone
 
-try:
-    from pynwb.file import Subject
-    from pynwb import NWBFile, NWBHDF5IO
-    from pynwb.epoch import TimeIntervals
-    from hdmf.common import VectorData, VectorIndex
-    from hdmf.backends.hdf5.h5_utils import H5DataIO
-    from hdmf.common.table import ElementIdentifiers
-except ImportError as e:  # pragma: no cover - depends on how stimpack was installed
-    # Raised on use rather than on import, so that merely importing stimpack.experiment.data_nwb
-    # (which gui.py does when listing the available backends) does not break an HDF5-only install.
-    raise ImportError(
-        "The NWB data backend requires pynwb. Install it with:  pip install stimpack[nwb]"
-    ) from e
+from pynwb.file import Subject
+from pynwb import NWBFile, NWBHDF5IO
+from pynwb.epoch import TimeIntervals
+from hdmf.common import VectorData, VectorIndex
+from hdmf.backends.hdf5.h5_utils import H5DataIO
+from hdmf.common.table import ElementIdentifiers
 
 from stimpack.experiment.data import BaseData, hdf5ify_parameter
 from stimpack.experiment.util import config_tools

@@ -22,6 +22,7 @@ setup(
         'platformdirs',
         'PyQt6',
         'h5py',
+        'pynwb',          # the NWB data backend; required, so the GUI can offer either format
         'PyYAML',
         'deepmerge',      # merging a lab-wide config with a user's own
 
@@ -30,9 +31,9 @@ setup(
         'scikit-image',
     ],
     extras_require={
-        # NWB output. Not everyone writes NWB, and pynwb pulls in a substantial dependency tree,
-        # so it is opt-in: pip install stimpack[nwb].
-        'nwb': ['pynwb'],
+        # Kept so `pip install stimpack[nwb]` does not break for anyone whose install scripts
+        # name it; pynwb is a hard requirement now, so it asks for nothing extra.
+        'nwb': [],
         'test': ['pytest', 'pytest-cov', 'pillow', 'ruff'],  # pillow: GL reference images; ruff: lint
     },
     entry_points={

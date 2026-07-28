@@ -65,6 +65,12 @@ Choosing where data goes
     # or
     data_format: nwb
 
+This sets the default. The startup dialog offers the same choice, showing whatever the selected
+config asks for, so a format can be tried without editing the config; ``stimpack --data-format``
+overrides both. The choice is made there rather than in the main window because an experiment
+cannot change format part-way through -- its file, subject and series number all belong to one
+backend.
+
 ``hdf5``
     One ``.hdf5`` file per experiment, with each subject and series a group inside it. This is
     stimpack's original format and what everything else in these docs assumes.
@@ -73,10 +79,6 @@ Choosing where data goes
     A *directory* per experiment, holding one `NWB <https://www.nwb.org/>`_ file per series. NWB
     is a community standard for neurophysiology data, so this is the format to choose if you
     intend to share or archive data in it.
-
-    Requires ``pynwb``, which is not installed by default::
-
-        pip install stimpack[nwb]
 
     Two extra config keys are written into every NWB file as top-level metadata:
 

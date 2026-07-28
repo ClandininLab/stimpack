@@ -24,7 +24,8 @@ source .stimpack/bin/activate     # Windows: .stimpack\Scripts\activate
 pip install stimpack
 ```
 
-For the NWB data backend, `pip install stimpack[nwb]`. To work on stimpack itself, clone the
+Both data backends (HDF5 and NWB) are installed; pick one per config, or in the startup
+dialog. To work on stimpack itself, clone the
 repository and `pip install -e .[test]`.
 
 Running `stimpack` opens the experiment GUI. See the
