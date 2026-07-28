@@ -623,3 +623,43 @@ def test_nwb_records_a_pause_too(client, nwb_data):
 
     row, _ = nwb_epoch_row(nwb_data)
     assert row['paused_duration'] >= pause_seconds * 0.5
+
+
+# --- overwriting a series -------------------------------------------------------------------------
+
+def test_a_series_can_be_deleted_and_recorded_again(client, data):
+    """The GUI offers this after asking, so a false start can be redone under the same number
+    rather than renumbered around."""
+    client.start_run(TinyProtocol(cfg={}), data, save_metadata_flag=True)
+    assert data.get_series_count() in data.get_existing_series()
+    first_attrs, first_epochs = series_attrs(data)
+    assert len(first_epochs) == 3
+
+    assert data.delete_series() is True
+    assert data.get_series_count() not in data.get_existing_series()
+
+    protocol = TinyProtocol(cfg={})
+    protocol.run_parameters['num_epochs'] = 2          # a visibly different second attempt
+    client.start_run(protocol, data, save_metadata_flag=True)
+
+    attrs, epochs = series_attrs(data)
+    assert len(epochs) == 2, 'the replacement series kept the old epochs'
+    assert attrs['run_status'] == 'completed'
+    assert attrs['run_start_unix_time'] >= first_attrs['run_start_unix_time']
+
+
+def test_deleting_a_series_that_is_not_there_says_so(data):
+    assert data.delete_series(series_number=99) is False
+
+
+def test_nwb_deletes_the_series_file(client, nwb_data):
+    client.start_run(TinyProtocol(cfg={}), nwb_data, save_metadata_flag=True)
+    path = nwb_data.get_nwb_file_path()
+    assert path.is_file()
+
+    assert nwb_data.delete_series() is True
+    assert not path.is_file(), 'the series file is still there'
+
+    # and prepare_series, which refuses to overwrite, is happy to write it again
+    nwb_data.prepare_series()
+    assert path.is_file()

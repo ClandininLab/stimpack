@@ -146,6 +146,8 @@ class ExperimentGUI(QWidget):
         # them, and the flag needed to resume it. See run_finished.
         self.ensemble_paused = False
         self.ensemble_save_metadata_flag = False
+        # Whether the protocol/preset selectors and parameter fields accept edits. Off mid-ensemble.
+        self.parameter_editing_enabled = True
 
         print('# # # # # # # # # # # # # # # #')
         
@@ -620,8 +622,17 @@ class ExperimentGUI(QWidget):
         self.show()
 
         self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
-        self.status = Status.STANDBY
-        self.status_label.setText('Ready')
+
+        # No need to re-apply the parameter lock after rebuilding the inputs: Qt disables a widget
+        # added to a disabled parent, and these all go into parameters_box / protocol_selector_box.
+        # Verified by removing the call and watching the test below still pass -- which is why the
+        # test asserts the behaviour rather than the mechanism.
+
+        # Only announce readiness if that is true. This is also how an ensemble loads its next
+        # item, and declaring STANDBY there both said 'Ready' in the middle of an ensemble and
+        # re-enabled View and Record, which update_run_button_states reads status to decide.
+        if self.status == Status.STANDBY:
+            self.status_label.setText('Ready')
 
     def on_server_message_received(self, level, text):
         '''Runs on the GUI thread (via server_message_signal): surface a message the server pushed back.
@@ -1096,6 +1107,18 @@ class ExperimentGUI(QWidget):
         self.current_subject_main_label.setText(subject_id)
         self.update_run_button_states()
 
+    def set_parameter_editing_enabled(self, enabled):
+        """Lock or unlock the protocol/preset selectors and the parameter fields.
+
+        Locked mid-ensemble: the values on show belong to the item the ensemble is running, and
+        editing them would say something the run will not do. Only the inputs are locked -- the
+        scroll area around them is not -- so the parameters stay readable and scrollable, which
+        disabling the whole tab prevented.
+        """
+        self.parameter_editing_enabled = enabled
+        self.protocol_selector_box.setEnabled(enabled)
+        self.parameters_box.setEnabled(enabled)
+
     def update_run_button_states(self):
         """Enable each run button only when its action is actually available right now.
 
@@ -1147,6 +1170,22 @@ class ExperimentGUI(QWidget):
             else:
                 self.series_counter_input.setStyleSheet("background-color: rgb(255, 255, 255);")
 
+    def confirm_series_overwrite(self, series_number):
+        """Ask before recording onto a series number that already holds data. True to go ahead.
+
+        Its own method so a test can answer it without a human, and so the wording lives in one
+        place: what is about to be destroyed, named, with No as the default button.
+        """
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle('Overwrite series?')
+        msg.setText(f'Series {series_number} already exists for subject {self.data.current_subject}.')
+        msg.setInformativeText('Recording will delete the existing series and everything in it. '
+                               'This cannot be undone.')
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg.setDefaultButton(QMessageBox.StandardButton.No)
+        return msg.exec() == QMessageBox.StandardButton.Yes
+
     def send_run(self, save_metadata_flag=True):
         # check to make sure a protocol has been selected
         if self.protocol_object.__class__.__name__ == 'BaseProtocol':
@@ -1157,11 +1196,16 @@ class ExperimentGUI(QWidget):
         if save_metadata_flag:
             self.data.update_series_count(self.series_counter_input.value())
             if (self.data.get_series_count() in self.data.get_existing_series()):
-                self.series_counter_input.setStyleSheet("background-color: rgb(255, 0, 0);")
-                self.status_label.setText('Select an unused series number')
-                return  # group already exists, don't send anything
-            else:
-                self.series_counter_input.setStyleSheet("background-color: rgb(255, 255, 255);")
+                # Ask rather than refuse. A series that exists is usually a false start somebody
+                # wants to redo under the same number, and refusing outright left renumbering
+                # around it as the only option -- so the file grew a gap and the numbering stopped
+                # matching the notebook. Destructive, so it is opt-in and defaults to No.
+                if not self.confirm_series_overwrite(self.data.get_series_count()):
+                    self.series_counter_input.setStyleSheet("background-color: rgb(255, 0, 0);")
+                    self.status_label.setText('Select an unused series number')
+                    return
+                self.data.delete_series()
+            self.series_counter_input.setStyleSheet("background-color: rgb(255, 255, 255);")
 
         # Populate parameters from filled fields
         if self.mid_parameter_edit:
@@ -1217,12 +1261,7 @@ class ExperimentGUI(QWidget):
         self.ensemble_clear_button.setEnabled(False)
 
         if self.ensemble_running:
-            # Keep single-run parameter editing out of reach mid-ensemble -- but only the inputs.
-            # Disabling the whole tab took the scroll area with it, so you could not scroll down to
-            # read the parameters the running item was using. The box inside the scroll area is
-            # what gets disabled; the area itself keeps scrolling.
-            self.protocol_selector_box.setEnabled(False)
-            self.parameters_box.setEnabled(False)
+            self.set_parameter_editing_enabled(False)
 
     def run_finished(self, save_metadata_flag):
         self.status_label.setText('Ready')
@@ -1265,8 +1304,7 @@ class ExperimentGUI(QWidget):
             self.ensemble_remove_item_button.setEnabled(True)
             self.ensemble_clear_button.setEnabled(True)
 
-            self.protocol_selector_box.setEnabled(True)
-            self.parameters_box.setEnabled(True)
+            self.set_parameter_editing_enabled(True)
 
             # Prepare for next run
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
@@ -1447,10 +1485,19 @@ class ExperimentGUI(QWidget):
         run is not recording invites somebody to stop and restart a series that was fine.
         """
         if self.status == Status.RECORDING:
-            return 'Recording series ' + str(self.data.get_series_count())
+            text = 'Recording series ' + str(self.data.get_series_count())
         elif self.status == Status.VIEWING:
-            return 'Viewing...'
-        return 'Ready'
+            text = 'Viewing...'
+        else:
+            return 'Ready'
+
+        # Say when this series is one item of an ensemble. Otherwise a recorded series looks
+        # exactly like a single run, and the difference matters: an ensemble carries on to the
+        # next protocol by itself, so 'this will end shortly' is the wrong thing to assume.
+        if self.ensemble_running:
+            item = self.ensemble_list.get_current_ensemble_idx() + 1
+            text += f'   [ensemble: protocol {item} of {len(self.ensemble_list)}]'
+        return text
 
     def update_run_progress(self):
         if self.status == Status.STANDBY:

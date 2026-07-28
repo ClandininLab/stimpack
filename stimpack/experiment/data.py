@@ -334,6 +334,26 @@ class BaseData():
         series = [int(x.split('_')[-1]) for x in all_series]
         return series
 
+    def delete_series(self, series_number=None):
+        """Remove a recorded series so its number can be recorded onto again.
+
+        Destructive and not undoable: the GUI asks first (a series number that already exists used
+        to be refused outright, which meant renumbering around a false start rather than replacing
+        it). Returns whether anything was removed.
+
+        :param series_number: which series; the current one if not given.
+        """
+        series_number = self.series_count if series_number is None else series_number
+        if not (self.current_subject_exists() and self.experiment_file_exists()):
+            return False
+        with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
+            runs = experiment_file.get('/Subjects/{}/epoch_runs'.format(self.current_subject))
+            name = 'series_{}'.format(str(series_number).zfill(3))
+            if runs is None or name not in runs:
+                return False
+            del runs[name]
+        return True
+
     def get_highest_series_count(self):
         """The largest series number recorded so far, or 0 if none."""
         series = self.get_existing_series()

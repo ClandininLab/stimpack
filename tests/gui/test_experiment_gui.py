@@ -720,3 +720,85 @@ def test_a_held_ensemble_can_still_be_stopped_from_the_main_tab(experiment_gui, 
     assert gui.ensemble_paused is True
     assert gui.status == Status.STANDBY, 'no run is in progress'
     assert gui.stop_button.isEnabled()
+
+
+def test_parameters_stay_locked_when_an_ensemble_loads_its_next_item(experiment_gui):
+    """Each ensemble item rebuilds the parameter widgets, and new widgets do not inherit a lock
+    applied to the ones they replaced."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.set_ensemble_running(True)
+    gui.run_started(save_metadata_flag=False)
+    assert not gui.parameters_box.isEnabled()
+
+    select_protocol(gui, 'MovingPatch')          # what run_ensemble_item does between items
+
+    assert not gui.parameters_box.isEnabled(), 'the rebuilt parameter fields are editable'
+    assert not gui.protocol_selector_box.isEnabled(), 'the protocol/preset dropdowns are editable'
+    assert gui.parameters_scroll_area.isEnabled(), 'the parameters cannot be scrolled'
+
+
+def test_loading_an_ensemble_item_does_not_declare_the_gui_idle(experiment_gui):
+    """Selecting a protocol is also how an ensemble loads its next item. Declaring STANDBY there
+    said 'Ready' mid-ensemble and re-enabled View and Record."""
+    from stimpack.experiment.gui import Status
+
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.set_ensemble_running(True)
+    gui.run_started(save_metadata_flag=False)
+
+    select_protocol(gui, 'MovingPatch')
+
+    assert gui.status == Status.VIEWING
+    assert gui.status_label.text() != 'Ready'
+    assert not gui.view_button.isEnabled()
+
+
+def test_the_status_line_says_when_a_series_belongs_to_an_ensemble(experiment_gui):
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.ensemble_list.append_item('DriftingSquareGrating', 'Default')
+    gui.ensemble_list.append_item('MovingPatch', 'Default')
+    gui.set_ensemble_running(True)
+    gui.ensemble_list.reset_current_ensemble_idx()
+    gui.ensemble_list.increment_current_ensemble_idx()
+
+    gui.run_started(save_metadata_flag=False)
+
+    text = gui.status_label.text()
+    assert 'ensemble' in text and '1 of 2' in text, text
+
+    gui.set_ensemble_running(False)
+    gui.run_started(save_metadata_flag=False)
+    assert 'ensemble' not in gui.status_label.text()
+
+
+# --- overwriting a series -------------------------------------------------------------------------
+
+def test_recording_onto_an_existing_series_asks_first(experiment_gui, monkeypatch, qapp):
+    """It used to be refused outright, so a false start meant renumbering around it -- the file
+    grew a gap and the numbering stopped matching the notebook."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.experiment_file_name = 'overwrite_test'
+    gui.data.initialize_experiment_file()
+    gui.subject_id_input.setText('subj_ow')
+    gui.on_created_subject()
+    gui.data.create_epoch_run(gui.protocol_object)              # series 1 now exists
+    assert gui.data.get_series_count() in gui.data.get_existing_series()
+
+    asked = []
+    monkeypatch.setattr(gui, 'confirm_series_overwrite', lambda n: asked.append(n) or False)
+    gui.record_button.click()
+
+    assert asked == [gui.data.get_series_count()], 'recorded without asking'
+    assert gui.client.runs == [], 'declining the overwrite still started a run'
+    assert gui.data.get_series_count() in gui.data.get_existing_series(), 'declined, but deleted anyway'
+
+    monkeypatch.setattr(gui, 'confirm_series_overwrite', lambda n: True)
+    gui.record_button.click()
+    gui.run_series_thread.wait(5000)                            # the run thread (FakeClient) is quick
+    qapp.processEvents()
+
+    assert gui.client.runs == [('DriftingSquareGrating', True)], 'accepting the overwrite did not record'
