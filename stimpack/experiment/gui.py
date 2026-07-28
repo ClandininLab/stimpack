@@ -280,9 +280,10 @@ class ExperimentGUI(QWidget):
         # widget inside it, so the message length cannot reach the window width from here. Measured
         # -- a 5000-character label gives the same hint as an empty one.
         #
-        # Added to the box's layout rather than to either grid, so it spans the full width and sits
-        # below both of them regardless of how many rows they grow.
-        self.protocol_control_layout.addWidget(self.status_scroll_area)
+        # Added to the window's layout, below the tab widget, rather than to a tab: a server error
+        # can arrive while you are on the Subject or File tab, and the run aborts whichever tab you
+        # happen to be looking at. Inside a tab, the only notice of it would be on one you are not
+        # looking at. See the end of initUI, where the window layout is assembled.
 
         # Current series counter
         new_label = QLabel('Series #')
@@ -346,9 +347,9 @@ class ExperimentGUI(QWidget):
         self.protocol_action_grid.addWidget(self.pause_button, 0, 2)
 
         # Stop button:
-        stop_button = QPushButton("Stop", self)
-        stop_button.clicked.connect(self.on_pressed_button)
-        self.protocol_action_grid.addWidget(stop_button, 0, 3)
+        self.stop_button = QPushButton("Stop", self)
+        self.stop_button.clicked.connect(self.on_pressed_button)
+        self.protocol_action_grid.addWidget(self.stop_button, 0, 3)
 
         # Enter note button:
         note_button = QPushButton("Enter note", self)
@@ -382,17 +383,10 @@ class ExperimentGUI(QWidget):
         self.ensemble_list_grid = QGridLayout()
         self.ensemble_list_box.setLayout(self.ensemble_list_grid)
 
-        self.ensemble_control_box = QWidget()
-        self.ensemble_control_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
-                                                            QSizePolicy.Policy.Fixed))
-        self.ensemble_control_grid = QGridLayout()
-        self.ensemble_control_box.setLayout(self.ensemble_control_grid)
-
         self.ensemble_tab = QWidget()
         self.ensemble_tab_layout = QVBoxLayout()
         self.ensemble_tab_layout.addWidget(self.ensemble_selector_box)
         self.ensemble_tab_layout.addWidget(self.ensemble_list_box)
-        self.ensemble_tab_layout.addWidget(self.ensemble_control_box)
         self.ensemble_tab.setLayout(self.ensemble_tab_layout)
 
         # Protocol ID drop-down:
@@ -450,20 +444,6 @@ class ExperimentGUI(QWidget):
         self.ensemble_clear_button = QPushButton('Clear')
         self.ensemble_clear_button.clicked.connect(self.on_pressed_button_ensemble)
         self.ensemble_list_grid.addWidget(self.ensemble_clear_button, 4, 1)
-
-        # Ensemble control buttons
-        self.ensemble_view_button = QPushButton("View ensemble", self)
-        self.ensemble_view_button.clicked.connect(self.on_pressed_button_ensemble)
-        self.ensemble_control_grid.addWidget(self.ensemble_view_button, 0,0)
-
-        self.ensemble_record_button = QPushButton("Record ensemble", self)
-        self.ensemble_record_button.clicked.connect(self.on_pressed_button_ensemble)
-        self.ensemble_control_grid.addWidget(self.ensemble_record_button, 0,1)
-
-        self.ensemble_stop_button = QPushButton("Stop ensemble", self)
-        self.ensemble_stop_button.clicked.connect(self.on_pressed_button_ensemble)
-        self.ensemble_stop_button.setEnabled(False)
-        self.ensemble_control_grid.addWidget(self.ensemble_stop_button, 0,2)
 
         # # # TAB 3: Current subject metadata information # # #
 
@@ -572,6 +552,13 @@ class ExperimentGUI(QWidget):
 
         self.layout = QVBoxLayout(self)
         self.layout.addWidget(self.tabs)
+        self.layout.addWidget(self.status_scroll_area)   # outside the tabs: always visible
+
+        # The run controls live on whichever of Main/Ensemble is showing. One instance, moved
+        # between the two tabs, rather than a second set of widgets to keep in step -- a Qt widget
+        # has one parent, so "the same section on both tabs" is either this or a duplicate.
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+        self.on_tab_changed(self.tabs.currentIndex())
 
         # Resize window based on protocol tab
         self.update_window_width()
@@ -672,6 +659,14 @@ class ExperimentGUI(QWidget):
 
     def on_pressed_button(self):
         sender = self.sender()
+
+        # View/Record/Stop are shared between the Main and Ensemble tabs and relabelled to say
+        # which one they act on (see on_tab_changed), so on the Ensemble tab their presses arrive
+        # here under the ensemble names and belong to the ensemble handler.
+        if sender.text() in ('View ensemble', 'Record ensemble', 'Stop ensemble'):
+            self.handle_ensemble_action(sender.text())
+            return
+
         if sender.text() == 'Record':
             if (self.data.experiment_file_exists() and self.data.current_subject_exists()):
                 self.send_run(save_metadata_flag=True)
@@ -775,8 +770,14 @@ class ExperimentGUI(QWidget):
         # # # Buttons for ensemble tab # # #
 
     def on_pressed_button_ensemble(self):
-        sender = self.sender()
-        if sender.text() == 'Append':
+        """Slot for the Ensemble tab's own buttons. Takes no arguments -- clicked() passes its
+        `checked` flag to any slot that will accept one, which is not what a label lookup wants."""
+        self.handle_ensemble_action(self.sender().text())
+
+    def handle_ensemble_action(self, label):
+        """The ensemble actions, keyed by label rather than by widget, so the shared run buttons
+        can forward to them (see on_pressed_button) without pretending to be the sender."""
+        if label == 'Append':
             if self.ensemble_protocol_selection_combo_box.currentIndex() == 0:
                 return
 
@@ -787,13 +788,13 @@ class ExperimentGUI(QWidget):
             if not self.ensemble_file_label.text().endswith('(changes unsaved)'):
                 self.ensemble_file_label.setText(f'{self.ensemble_file_label.text()} (changes unsaved)')
 
-        elif sender.text() == 'View ensemble':
+        elif label == 'View ensemble':
             self.run_ensemble(save_metadata_flag=False)
 
-        elif sender.text() == 'Record ensemble':
+        elif label == 'Record ensemble':
             self.run_ensemble(save_metadata_flag=True)
 
-        elif sender.text() == 'Stop ensemble':
+        elif label == 'Stop ensemble':
             self.client.stop_run()
             self.pause_button.setText('Pause')
             if self.ensemble_paused:
@@ -801,13 +802,13 @@ class ExperimentGUI(QWidget):
             self.ensemble_running = False
             self.ensemble_list.update_UI(self.ensemble_running)
 
-        elif sender.text() == 'Save ensemble':
+        elif label == 'Save ensemble':
             self.save_ensemble_preset()
         
-        elif sender.text() == 'Load ensemble':
+        elif label == 'Load ensemble':
             self.load_ensemble_preset()
             
-        elif sender.text() == 'Remove item':
+        elif label == 'Remove item':
             # Reversing order of selected rows so that removing each doesn't mess up the indices
             selected_row_idxes = sorted([x.row() for x in self.ensemble_list.selectionModel().selectedRows()])[::-1]
             for row_idx in selected_row_idxes:
@@ -816,7 +817,7 @@ class ExperimentGUI(QWidget):
             if not self.ensemble_file_label.text().endswith('(changes unsaved)'):
                 self.ensemble_file_label.setText(f'{self.ensemble_file_label.text()} (changes unsaved)')
 
-        elif sender.text() == 'Clear':
+        elif label == 'Clear':
             self.ensemble_list.clear()
 
             # Set label with filename
@@ -1185,13 +1186,11 @@ class ExperimentGUI(QWidget):
         self.ensemble_remove_item_button.setEnabled(False)
         self.ensemble_clear_button.setEnabled(False)
 
-        self.ensemble_view_button.setEnabled(False)
-        self.ensemble_record_button.setEnabled(False)
         if self.ensemble_running:
-            self.ensemble_stop_button.setEnabled(True)
+            # Keep single-run parameter editing out of reach mid-ensemble. The run controls
+            # themselves are not in here -- they are the shared section, which stays on the
+            # Ensemble tab for the duration (see on_tab_changed), so Stop stays reachable.
             self.protocol_tab.setEnabled(False)
-        else:
-            self.ensemble_stop_button.setEnabled(False)
 
     def run_finished(self, save_metadata_flag):
         # re-enable view/record buttons
@@ -1236,10 +1235,6 @@ class ExperimentGUI(QWidget):
             self.ensemble_save_preset_button.setEnabled(True)
             self.ensemble_remove_item_button.setEnabled(True)
             self.ensemble_clear_button.setEnabled(True)
-
-            self.ensemble_view_button.setEnabled(True)
-            self.ensemble_record_button.setEnabled(True)
-            self.ensemble_stop_button.setEnabled(False)
 
             self.protocol_tab.setEnabled(True)
 
@@ -1365,6 +1360,42 @@ class ExperimentGUI(QWidget):
         self.update_run_progress()
 
         self.mid_parameter_edit = False
+
+    # The run buttons' labels on each tab. They are the same three widgets either way -- the label
+    # is what says which thing a press will act on, so nobody starts a 40-minute ensemble meaning
+    # to run one series. on_pressed_button routes by label, so these names also pick the handler.
+    RUN_BUTTON_LABELS = {
+        'protocol': {'view': 'View', 'record': 'Record', 'stop': 'Stop'},
+        'ensemble': {'view': 'View ensemble', 'record': 'Record ensemble', 'stop': 'Stop ensemble'},
+    }
+
+    def on_tab_changed(self, index):
+        """Move the run controls onto whichever of Main/Ensemble is showing, and relabel them.
+
+        Adding a widget to a layout reparents it, so this moves the one instance rather than
+        keeping two in step. Subject and File get nothing: run controls under a metadata form
+        would imply a relationship that is not there. The section simply stays where it was, on a
+        tab that is not visible.
+        """
+        tab = self.tabs.widget(index)
+        if tab is self.ensemble_tab:
+            mode = 'ensemble'
+        elif tab is self.protocol_tab:
+            mode = 'protocol'
+        else:
+            return
+
+        # Not while an ensemble is running: run_started disables the whole Main tab to keep
+        # single-run parameters out of reach, and moving the controls in there would disable Stop
+        # along with it -- exactly when it is most needed.
+        if not self.ensemble_running:
+            layout = self.ensemble_tab_layout if mode == 'ensemble' else self.protocol_tab_layout
+            layout.addWidget(self.protocol_control_box)
+
+        labels = self.RUN_BUTTON_LABELS[mode]
+        self.view_button.setText(labels['view'])
+        self.record_button.setText(labels['record'])
+        self.stop_button.setText(labels['stop'])
 
     def release_paused_ensemble(self):
         """Abandon an ensemble that was holding between items, and return the GUI to standby.

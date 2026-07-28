@@ -216,14 +216,16 @@ def test_an_unbreakable_message_still_does_not_widen_the_window(experiment_gui, 
     assert gui.width() == before
 
 
-def test_the_status_window_sits_at_the_bottom_with_no_caption(experiment_gui):
-    """Full width, below both grids, and uncaptioned -- the line only ever holds status, so the
-    word 'Status:' restated the content in space the message itself could use."""
+def test_the_status_window_sits_below_the_tabs_with_no_caption(experiment_gui):
+    """Outside the tab widget, so a server error is visible whichever tab you are on -- the run
+    aborts regardless of where you happen to be looking. Uncaptioned, because the line only ever
+    holds status and the word restated what the content already said."""
     gui = experiment_gui
-    layout = gui.protocol_control_layout
+    layout = gui.layout
 
     last = layout.itemAt(layout.count() - 1)
     assert last.widget() is gui.status_scroll_area, 'the status window is not the bottom row'
+    assert layout.itemAt(layout.count() - 2).widget() is gui.tabs, 'it is not below the tabs'
 
     # nothing shares its row, and no caption was left behind anywhere in the tab
     from PyQt6.QtWidgets import QLabel
@@ -586,3 +588,83 @@ def test_the_subject_dropdown_is_blank_when_no_subject_is_selected(experiment_gu
     assert gui.existing_subject_input.currentIndex() == -1
     assert gui.existing_subject_input.currentText() == ''
     assert not gui.record_button.isEnabled()
+
+
+# --- the shared run controls ----------------------------------------------------------------------
+
+def control_box_tab(gui):
+    """Which tab currently holds the run controls."""
+    return gui.protocol_control_box.parent()
+
+
+def test_the_run_controls_move_between_main_and_ensemble(experiment_gui):
+    """One instance, reparented -- a Qt widget has a single parent, so the alternative is two sets
+    of widgets to keep in step."""
+    gui = experiment_gui
+    assert control_box_tab(gui) is gui.protocol_tab
+
+    gui.tabs.setCurrentWidget(gui.ensemble_tab)
+    assert control_box_tab(gui) is gui.ensemble_tab
+
+    gui.tabs.setCurrentWidget(gui.protocol_tab)
+    assert control_box_tab(gui) is gui.protocol_tab
+
+
+def test_the_run_controls_stay_off_the_subject_and_file_tabs(experiment_gui):
+    """Run controls under a metadata form would imply a relationship that is not there."""
+    gui = experiment_gui
+    gui.tabs.setCurrentWidget(gui.ensemble_tab)
+
+    for tab in (gui.data_tab, gui.file_tab):
+        gui.tabs.setCurrentWidget(tab)
+        assert control_box_tab(gui) is not tab
+        assert control_box_tab(gui) is gui.ensemble_tab      # left where it was
+
+
+def test_the_run_buttons_say_which_thing_they_start(experiment_gui):
+    """Same widgets on both tabs, so the label is what stops someone starting a 40-minute ensemble
+    when they meant to run one series."""
+    gui = experiment_gui
+    assert (gui.view_button.text(), gui.record_button.text(), gui.stop_button.text()) \
+        == ('View', 'Record', 'Stop')
+
+    gui.tabs.setCurrentWidget(gui.ensemble_tab)
+    assert (gui.view_button.text(), gui.record_button.text(), gui.stop_button.text()) \
+        == ('View ensemble', 'Record ensemble', 'Stop ensemble')
+
+    gui.tabs.setCurrentWidget(gui.protocol_tab)
+    assert gui.record_button.text() == 'Record'
+
+
+def test_the_shared_buttons_drive_the_ensemble_from_the_ensemble_tab(experiment_gui, monkeypatch):
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.current_subject = 'subj1'
+    gui.update_record_button_enabled()
+
+    ensembles, singles = [], []
+    monkeypatch.setattr(gui, 'run_ensemble', lambda save_metadata_flag=False: ensembles.append(save_metadata_flag))
+    monkeypatch.setattr(gui, 'send_run', lambda save_metadata_flag=False: singles.append(save_metadata_flag))
+
+    gui.tabs.setCurrentWidget(gui.ensemble_tab)
+    gui.record_button.click()
+    assert ensembles == [True] and singles == [], 'Record on the Ensemble tab ran a single series'
+
+    gui.tabs.setCurrentWidget(gui.protocol_tab)
+    gui.view_button.click()
+    assert singles == [False], 'View on the Main tab did not run a single series'
+
+
+def test_the_controls_do_not_move_into_a_disabled_main_tab_mid_ensemble(experiment_gui):
+    """run_started disables the whole Main tab to keep single-run parameters out of reach; moving
+    the controls in there would disable Stop with it, exactly when it is most needed."""
+    gui = experiment_gui
+    gui.tabs.setCurrentWidget(gui.ensemble_tab)
+    gui.ensemble_running = True
+    gui.run_started(save_metadata_flag=False)
+    assert not gui.protocol_tab.isEnabled()
+
+    gui.tabs.setCurrentWidget(gui.protocol_tab)
+
+    assert control_box_tab(gui) is gui.ensemble_tab, 'the controls followed the tab into a disabled parent'
+    assert gui.stop_button.isEnabled()
