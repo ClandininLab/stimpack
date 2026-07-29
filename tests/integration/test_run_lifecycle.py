@@ -39,9 +39,9 @@ class TinyProtocol(BaseProtocol):
 
 
 def series_attrs(data):
-    path = '/Subjects/{}/epoch_runs/series_{}'.format(data.current_subject, str(data.series_count).zfill(3))
+    path = data.series_path()
     with h5py.File(f'{data.data_directory}/{data.experiment_file_name}.hdf5', 'r') as f:
-        return dict(f[path].attrs), list(f[path]['epochs'].keys())
+        return dict(f[path].attrs), list(f[path][data.TRIALS_GROUP].keys())
 
 
 # --- normal completion ------------------------------------------------------------------------
@@ -68,7 +68,7 @@ def test_run_without_metadata_writes_nothing(client, data, fake_manager):
 
     assert protocol.num_trials_completed == 3
     with h5py.File(f'{data.data_directory}/{data.experiment_file_name}.hdf5', 'r') as f:
-        assert list(f['/Subjects/subj1/epoch_runs'].keys()) == []   # view mode: no series group
+        assert list(f[data.subject_series_path()].keys()) == []   # view mode: no series group
 
 
 # --- user stop / pause ------------------------------------------------------------------------
@@ -405,7 +405,7 @@ def test_an_epoch_ended_early_records_why_and_how_long(client, data, fake_manage
 
     import h5py
     with h5py.File(f'{data.data_directory}/{data.experiment_file_name}.hdf5', 'r') as f:
-        epoch = f[f'/Subjects/{data.current_subject}/epoch_runs/series_001/epochs/epoch_001']
+        epoch = f[data.trials_path() + '/trial_001']
         assert epoch.attrs['ended_early']
         assert epoch.attrs['trial_end_reason'] == 'reached_goal'
         assert 0 < epoch.attrs['trial_duration'] < 5      # not the 30 s the protocol asked for
@@ -417,7 +417,7 @@ def test_an_epoch_that_runs_its_course_is_not_marked_early(client, data, fake_ma
 
     import h5py
     with h5py.File(f'{data.data_directory}/{data.experiment_file_name}.hdf5', 'r') as f:
-        epoch = f[f'/Subjects/{data.current_subject}/epoch_runs/series_001/epochs/epoch_001']
+        epoch = f[data.trials_path() + '/trial_001']
         assert not epoch.attrs['ended_early']
         assert 'trial_end_reason' not in epoch.attrs
 

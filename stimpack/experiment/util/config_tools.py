@@ -134,6 +134,9 @@ def set_labpack_directory(path):
 BUILTIN_DATA_FORMATS = {
     'hdf5': ('stimpack.experiment.data', 'BaseData'),
     'nwb':  ('stimpack.experiment.data_nwb', 'NWBData'),
+    # The layout stimpack wrote before it renamed epoch -> trial and epoch run -> series. Same
+    # code, old names, so analysis that walks epoch_runs/.../epochs keeps working.
+    'legacy_hdf5': ('stimpack.experiment.data_legacy', 'LegacyHdf5Data'),
 }
 
 # A labpack may put settings shared by everyone in the lab in configs/<LAB_CONFIG_NAME>. It is

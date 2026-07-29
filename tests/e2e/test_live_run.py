@@ -120,14 +120,14 @@ def test_full_experiment_series_end_to_end(live_client, live_data):
 
     path = f'{live_data.data_directory}/{live_data.experiment_file_name}.hdf5'
     with h5py.File(path, 'r') as f:
-        series = f['/Subjects/subj_e2e/epoch_runs/series_001']
+        series = f[live_data.series_path()]
         assert series.attrs['run_status'] == 'completed'
         assert series.attrs['num_trials_completed'] == 2
         assert series.attrs['protocol_ID'] == 'LiveProtocol'
-        epochs = list(series['epochs'].keys())
+        epochs = list(series[live_data.TRIALS_GROUP].keys())
         assert len(epochs) == 2
         # the per-epoch stimulus parameters really made it into the file
-        assert series['epochs'][epochs[0]].attrs['name'] == 'MovingSpot'
+        assert series[live_data.TRIALS_GROUP][epochs[0]].attrs['name'] == 'MovingSpot'
 
     assert live_client.server_error is None          # no server-side errors during the run
 
@@ -142,7 +142,7 @@ def test_stopping_a_live_run_halts_it(live_client, live_data):
     assert protocol.num_trials_completed == 1
     path = f'{live_data.data_directory}/{live_data.experiment_file_name}.hdf5'
     with h5py.File(path, 'r') as f:
-        series = f['/Subjects/subj_e2e/epoch_runs/series_001']
+        series = f[live_data.series_path()]
         assert series.attrs['run_status'] == 'stopped'
 
 
@@ -166,7 +166,7 @@ def test_live_run_aborts_when_the_protocol_asks_for_a_bad_stimulus(live_client, 
 
     path = f'{live_data.data_directory}/{live_data.experiment_file_name}.hdf5'
     with h5py.File(path, 'r') as f:
-        series = f['/Subjects/subj_e2e/epoch_runs/series_001']
+        series = f[live_data.series_path()]
         assert series.attrs['run_status'] == 'error'
         assert 'abort_reason' in series.attrs
     assert protocol.num_trials_completed < 2         # did not run the whole series

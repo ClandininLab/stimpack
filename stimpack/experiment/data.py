@@ -49,6 +49,43 @@ class BaseData():
     # Word for one experiment's worth of data, used in GUI labels and messages.
     output_noun = 'data file'
 
+    # # # The names this backend writes into the file # # #
+    #
+    # Held here rather than inline, so LegacyHdf5Data can write the pre-0.3 layout by overriding
+    # five strings instead of reimplementing every method that touches the file. stimpack renamed
+    # an epoch to a trial and an epoch run to a series; the layout follows the code, and a lab
+    # whose analysis reads the old names keeps writing them by choosing the legacy backend.
+    SERIES_GROUP = 'series'         # was 'epoch_runs'
+    TRIALS_GROUP = 'trials'         # was 'epochs'
+    TRIAL_PREFIX = 'trial_'         # was 'epoch_'
+    # Attributes whose spelling changed with the rename. Anything not named here is written the
+    # same by both backends.
+    ATTRIBUTE_NAMES = {'num_trials_completed': 'num_trials_completed',
+                       'trial_duration': 'trial_duration',
+                       'trial_end_reason': 'trial_end_reason',
+                       'trial_unix_time': 'trial_unix_time',
+                       'trial_end_unix_time': 'trial_end_unix_time'}
+
+    def attribute_name(self, name):
+        """The spelling this backend writes for an attribute stimpack knows by ``name``."""
+        return self.ATTRIBUTE_NAMES.get(name, name)
+
+    def series_path(self, subject=None, series_number=None):
+        """Path of one series' group. The single place the layout is spelled out."""
+        subject = self.current_subject if subject is None else subject
+        series_number = self.series_count if series_number is None else series_number
+        return '/Subjects/{}/{}/series_{}'.format(subject, self.SERIES_GROUP,
+                                                  str(series_number).zfill(3))
+
+    def trials_path(self, subject=None, series_number=None):
+        """Path of the group holding one series' trials."""
+        return '{}/{}'.format(self.series_path(subject, series_number), self.TRIALS_GROUP)
+
+    def subject_series_path(self, subject=None):
+        """Path of the group holding all of a subject's series."""
+        subject = self.current_subject if subject is None else subject
+        return '/Subjects/{}/{}'.format(subject, self.SERIES_GROUP)
+
     def __init__(self, cfg):
         self.cfg = cfg
 
@@ -148,7 +185,7 @@ class BaseData():
                 for key in subject_metadata:
                     new_subject.attrs[key] = subject_metadata.get(key)
 
-                new_subject.create_group('epoch_runs')
+                new_subject.create_group(self.SERIES_GROUP)
 
             self.select_subject(subject_metadata.get('subject_id'))
             print('Created subject {}'.format(subject_metadata.get('subject_id')))
@@ -183,21 +220,20 @@ class BaseData():
         if (self.current_subject_exists() and self.experiment_file_exists()):
             with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
                 run_start_unix_time = datetime.now().timestamp()
-                subject_group = experiment_file['/Subjects/{}/epoch_runs'.format(self.current_subject)]
-                new_epoch_run = subject_group.create_group('series_{}'.format(str(self.series_count).zfill(3)))
-                new_epoch_run.attrs['run_start_unix_time'] = run_start_unix_time
+                new_series = experiment_file.create_group(self.series_path())
+                new_series.attrs['run_start_unix_time'] = run_start_unix_time
                 for key in protocol_object.run_parameters:  # add run parameter attributes
-                    new_epoch_run.attrs[key] = protocol_object.run_parameters[key]
-                new_epoch_run.attrs['protocol_ID'] = protocol_object.__class__.__name__
+                    new_series.attrs[key] = protocol_object.run_parameters[key]
+                new_series.attrs['protocol_ID'] = protocol_object.__class__.__name__
 
                 for key in protocol_object.protocol_parameters:  # add user-entered protocol params
-                    new_epoch_run.attrs[key] = hdf5ify_parameter(protocol_object.protocol_parameters[key])
+                    new_series.attrs[key] = hdf5ify_parameter(protocol_object.protocol_parameters[key])
 
                 # add subgroups:
-                new_epoch_run.create_group('acquisition')
-                new_epoch_run.create_group('epochs')
-                new_epoch_run.create_group('rois')
-                new_epoch_run.create_group('stimulus_timing')
+                new_series.create_group('acquisition')
+                new_series.create_group(self.TRIALS_GROUP)
+                new_series.create_group('rois')
+                new_series.create_group('stimulus_timing')
 
         else:
             print('Create a data file and/or define a subject first')
@@ -207,12 +243,12 @@ class BaseData():
         """
         if (self.current_subject_exists() and self.experiment_file_exists()):
             with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
-                epoch_unix_time = datetime.now().timestamp()
-                epoch_run_group = experiment_file['/Subjects/{}/epoch_runs/series_{}/epochs'.format(self.current_subject, str(self.series_count).zfill(3))]
-                new_epoch = epoch_run_group.create_group('epoch_{}'.format(str(protocol_object.num_trials_completed+1).zfill(3)))
-                new_epoch.attrs['epoch_unix_time'] = epoch_unix_time
+                trial_unix_time = datetime.now().timestamp()
+                trials_group = experiment_file[self.trials_path()]
+                new_trial = trials_group.create_group('{}{}'.format(self.TRIAL_PREFIX, str(protocol_object.num_trials_completed+1).zfill(3)))
+                new_trial.attrs[self.attribute_name('trial_unix_time')] = trial_unix_time
 
-                epoch_stim_parameters_group = new_epoch
+                epoch_stim_parameters_group = new_trial
                 # Handle both tuple and list of stims (protocol.load_stimuli supports a list too);
                 # otherwise a list-valued trial_stim_parameters is silently not saved.
                 if type(protocol_object.trial_stim_parameters) in (tuple, list):  # multiple stims layered on top of one another
@@ -226,7 +262,7 @@ class BaseData():
                     for key in protocol_object.trial_stim_parameters:
                         epoch_stim_parameters_group.attrs[key] = hdf5ify_parameter(protocol_object.trial_stim_parameters[key])
 
-                epoch_protocol_parameters_group = new_epoch
+                epoch_protocol_parameters_group = new_trial
                 for key in protocol_object.trial_protocol_parameters:  # save out convenience parameters
                     epoch_protocol_parameters_group.attrs[key] = hdf5ify_parameter(protocol_object.trial_protocol_parameters[key])
 
@@ -251,16 +287,16 @@ class BaseData():
             print('Create a data file and/or define a subject first')
             return
         with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
-            epoch_end_unix_time = datetime.now().timestamp()
-            epoch_run_group = experiment_file['/Subjects/{}/epoch_runs/series_{}/epochs'.format(self.current_subject, str(self.series_count).zfill(3))]
-            epoch_group = epoch_run_group['epoch_{}'.format(str(protocol_object.num_trials_completed+1).zfill(3))]
-            epoch_group.attrs['epoch_end_unix_time'] = epoch_end_unix_time
-            start = epoch_group.attrs.get('epoch_unix_time')
+            trial_end_unix_time = datetime.now().timestamp()
+            trials_group = experiment_file[self.trials_path()]
+            trial_group = trials_group['{}{}'.format(self.TRIAL_PREFIX, str(protocol_object.num_trials_completed+1).zfill(3))]
+            trial_group.attrs[self.attribute_name('trial_end_unix_time')] = trial_end_unix_time
+            start = trial_group.attrs.get(self.attribute_name('trial_unix_time'))
             if start is not None:
-                epoch_group.attrs['trial_duration'] = epoch_end_unix_time - start
-            epoch_group.attrs['ended_early'] = reason is not None
+                trial_group.attrs[self.attribute_name('trial_duration')] = trial_end_unix_time - start
+            trial_group.attrs['ended_early'] = reason is not None
             if reason is not None:
-                epoch_group.attrs['trial_end_reason'] = str(reason)
+                trial_group.attrs[self.attribute_name('trial_end_reason')] = str(reason)
 
     def end_series(self, protocol_object, status='completed', reason=None, paused_seconds=0.0):
         """
@@ -280,13 +316,13 @@ class BaseData():
             print('Create a data file and/or define a subject first')
             return
         with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
-            series_path = '/Subjects/{}/epoch_runs/series_{}'.format(self.current_subject, str(self.series_count).zfill(3))
+            series_path = self.series_path()
             series_group = experiment_file.get(series_path)
             if series_group is None:  # run never created its series group (e.g. nothing recorded)
                 return
             series_group.attrs['run_status'] = status
             series_group.attrs['run_end_unix_time'] = datetime.now().timestamp()
-            series_group.attrs['num_trials_completed'] = int(protocol_object.num_trials_completed)
+            series_group.attrs[self.attribute_name('num_trials_completed')] = int(protocol_object.num_trials_completed)
             series_group.attrs['paused_duration'] = float(paused_seconds)
             if reason is not None:
                 series_group.attrs['abort_reason'] = str(reason)
@@ -329,7 +365,7 @@ class BaseData():
         all_series = []
         with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r') as experiment_file:
             for subject_id in list(experiment_file['/Subjects'].keys()):
-                new_series = list(experiment_file['/Subjects/{}/epoch_runs'.format(subject_id)].keys())
+                new_series = list(experiment_file[self.subject_series_path(subject_id)].keys())
                 all_series.append(new_series)
         all_series = [val for s in all_series for val in s]
         series = [int(x.split('_')[-1]) for x in all_series]
@@ -348,7 +384,7 @@ class BaseData():
         if not (self.current_subject_exists() and self.experiment_file_exists()):
             return False
         with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
-            runs = experiment_file.get('/Subjects/{}/epoch_runs'.format(self.current_subject))
+            runs = experiment_file.get(self.subject_series_path())
             name = 'series_{}'.format(str(series_number).zfill(3))
             if runs is None or name not in runs:
                 return False
@@ -399,7 +435,7 @@ class BaseData():
         all_series = []
         with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r') as experiment_file:
             for subject_id in list(experiment_file['/Subjects'].keys()):
-                new_series = list(experiment_file['/Subjects/{}/epoch_runs'.format(subject_id)].keys())
+                new_series = list(experiment_file[self.subject_series_path(subject_id)].keys())
                 all_series.append(new_series)
         all_series = [val for s in all_series for val in s]
         series = [int(x.split('_')[-1]) for x in all_series]

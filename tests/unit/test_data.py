@@ -51,7 +51,7 @@ def test_list_valued_stim_parameters_are_saved(tmp_path):
 
     fpath = tmp_path / "test_experiment.hdf5"
     with h5py.File(fpath, "r") as f:
-        epoch = f["/Subjects/s1/epoch_runs/series_001/epochs/epoch_001"]
+        epoch = f[data.trials_path() + "/trial_001"]
         assert epoch.attrs["stim0_name"] == "StimA"
         assert epoch.attrs["stim1_name"] == "StimB"
 
@@ -72,7 +72,7 @@ def test_end_epoch_run_records_status_and_reason(tmp_path):
     data.end_series(proto, status="aborted", reason="server_connection_lost")
 
     with h5py.File(tmp_path / "test_experiment.hdf5", "r") as f:
-        series = f["/Subjects/s1/epoch_runs/series_001"]
+        series = f[data.series_path()]
         assert series.attrs["run_status"] == "aborted"
         assert series.attrs["abort_reason"] == "server_connection_lost"
         assert series.attrs["num_trials_completed"] == 3
@@ -86,7 +86,7 @@ def test_end_epoch_run_completed_has_no_reason(tmp_path):
     data.end_series(proto)  # default status='completed'
 
     with h5py.File(tmp_path / "test_experiment.hdf5", "r") as f:
-        series = f["/Subjects/s1/epoch_runs/series_001"]
+        series = f[data.series_path()]
         assert series.attrs["run_status"] == "completed"
         assert "abort_reason" not in series.attrs
 

@@ -73,7 +73,23 @@ backend.
 
 ``hdf5``
     One ``.hdf5`` file per experiment, with each subject and series a group inside it. This is
-    stimpack's original format and what everything else in these docs assumes.
+    stimpack's original format and what everything else in these docs assumes::
+
+        /Subjects/<id>/series/series_001/trials/trial_001
+
+``legacy_hdf5``
+    The same file, with the names stimpack used before 0.3, when a trial was called an epoch and a
+    series an epoch run::
+
+        /Subjects/<id>/epoch_runs/series_001/epochs/epoch_001
+
+    Choose it if analysis code reads the old layout. It is the same backend as ``hdf5`` with those
+    names overridden -- not a copy frozen at 0.2 -- so it keeps every fix the current one gets. A
+    test asserts that a file it writes is indistinguishable from one stimpack wrote before the
+    rename.
+
+    Put it in a labpack's ``lab_config.yaml`` to apply it to every rig at once, and set
+    ``data_format: hdf5`` in one rig's own config to move that rig over when its analysis is ready.
 
 ``nwb``
     A *directory* per experiment, holding one `NWB <https://www.nwb.org/>`_ file per series. NWB

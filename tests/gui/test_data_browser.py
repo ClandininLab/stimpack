@@ -77,13 +77,13 @@ def test_refresh_shows_the_experiment_hierarchy(browser):
     labels = tree_labels(browser.group_tree.invisibleRootItem())
     assert 'Subjects' in labels
     assert 'fly1' in labels and 'fly2' in labels
-    assert 'epoch_runs' in labels and 'series_001' in labels
+    assert browser.data.SERIES_GROUP in labels and 'series_001' in labels
 
 
 def test_noisy_groups_are_excluded(browser):
     """h5io hides the bulk data groups; the browser is for metadata."""
     labels = tree_labels(browser.group_tree.invisibleRootItem())
-    for hidden in ('epochs', 'acquisition', 'stimulus_timing', 'rois'):
+    for hidden in (browser.data.TRIALS_GROUP, 'acquisition', 'stimulus_timing', 'rois'):
         assert hidden not in labels
 
 
@@ -138,7 +138,7 @@ def test_subject_attributes_are_editable(browser):
 def test_series_attributes_are_read_only(browser):
     """A series records what was actually presented, so its parameters must not be editable."""
     from PyQt6.QtCore import Qt
-    select(browser, ['Subjects', 'fly1', 'epoch_runs', 'series_001'])
+    select(browser, ['Subjects', 'fly1', browser.data.SERIES_GROUP, 'series_001'])
     attrs = table_contents(browser)
     assert 'protocol_ID' in attrs
     for row in range(browser.table_attributes.rowCount()):
