@@ -393,6 +393,104 @@ def projector_irradiance(surface, projector, positions):
     return irradiance / peak if peak > 0 else irradiance
 
 
+class MeasuredFalloff:
+    """A rig's measured brightness variation, as a function of position in the projector's image.
+
+    The half of the falloff that geometry cannot predict: lens vignetting, uneven illumination of
+    the DMD, an apodizing filter someone installed, the screen material's transmission at angle.
+    Every one of those is a property of the projector or of the material, not of where the screen
+    happens to sit -- which is why this is indexed by projector NDC rather than by position on the
+    screen. A table measured that way survives moving the screen, and two projectors lighting one
+    screen each keep their own.
+
+    (The rig this was written against indexes its curve by position on the sphere instead. That
+    works there because its projector sits on the bowl's axis, which makes the two equivalent; it
+    stops working the moment anything is off-axis.)
+
+    **This is a residual, not a measurement.** It multiplies the computed geometric term rather than
+    replacing it, so handing it raw photometer readings counts the geometry twice -- the screen then
+    gets corrected about twice as hard as it needs, which looks like a plausible over-correction
+    rather than an obvious bug. Use from_measurements(), which divides the geometry out for you.
+
+    :param radii: sample positions, as isotropic radius in the projector image (see radius_in_image)
+    :param values: relative brightness there, any scale -- normalised on construction
+    :param aspect_ratio: of the projector, needed to make the radius isotropic
+    """
+
+    def __init__(self, radii, values, aspect_ratio=1.0):
+        radii = np.asarray(radii, dtype=float)
+        values = np.asarray(values, dtype=float)
+        if radii.shape != values.shape or radii.ndim != 1 or len(radii) < 2:
+            raise ValueError('radii and values must be 1-D arrays of the same length, at least 2')
+        if np.any(np.diff(radii) <= 0):
+            raise ValueError('radii must increase; sort the samples before constructing')
+        if np.any(values <= 0):
+            raise ValueError('brightness values must be positive')
+
+        self.radii = radii
+        self.values = values / values.max()
+        self.aspect_ratio = float(aspect_ratio)
+
+    @staticmethod
+    def radius_in_image(ndc, aspect_ratio):
+        """Distance from the centre of the projector image, in units where its half-WIDTH is 1.
+
+        NDC is anisotropic -- x spans the width and y the height, and the image is wider than it is
+        tall -- so plain hypot(x, y) is not a distance in the image and would smear a rotationally
+        symmetric optic into an elliptical one. Dividing y by the aspect ratio restores it.
+        """
+        ndc = np.atleast_2d(np.asarray(ndc, dtype=float))
+        return np.hypot(ndc[:, 0], ndc[:, 1] / aspect_ratio)
+
+    def __call__(self, ndc):
+        """Relative brightness at each NDC position, in [0, 1]. Flat beyond the sampled range."""
+        radius = self.radius_in_image(ndc, self.aspect_ratio)
+        return np.interp(radius, self.radii, self.values)
+
+    @classmethod
+    def from_measurements(cls, positions, measured, surface, projector):
+        """Build a residual from raw photometer readings taken on the screen.
+
+        The one that should be used. It divides out what the geometry already accounts for, so what
+        is stored is only what the geometry got wrong.
+
+        Readings may be in any units and taken at any single commanded value: only ratios between
+        points are used, so the display's transfer function cancels and no gamma is involved here.
+
+        :param positions: (N, 3) where each reading was taken, in meters, in the rig frame
+        :param measured: (N,) photometer readings there
+        """
+        positions = np.atleast_2d(np.asarray(positions, dtype=float))
+        measured = np.asarray(measured, dtype=float)
+        if len(positions) != len(measured):
+            raise ValueError(f'{len(positions)} positions but {len(measured)} readings')
+
+        geometric = projector_irradiance(surface, projector, positions)
+        if np.any(geometric <= 0):
+            raise ValueError('some measurement positions are not lit by this projector at all; '
+                             'check they are on the screen and the projector pose is right')
+
+        residual = measured / geometric
+        radius = cls.radius_in_image(projector.to_ndc(positions), projector.aspect_ratio)
+
+        # Readings at the same radius are repeats: for an optic symmetric about the projector's
+        # axis they sample the same place in the image, just at different azimuths. Averaging them
+        # is both what the table needs -- one value per radius -- and better statistics than
+        # picking one. A ring of measurements round the screen is a natural way to collect these,
+        # so this is the common case rather than an edge one.
+        keys, groups = np.unique(np.round(radius, 6), return_inverse=True)
+        averaged = np.bincount(groups, weights=residual) / np.bincount(groups)
+        return cls(keys, averaged, aspect_ratio=projector.aspect_ratio)
+
+    def serialize(self):
+        return {'radii': self.radii.tolist(), 'values': self.values.tolist(),
+                'aspect_ratio': self.aspect_ratio}
+
+    @classmethod
+    def deserialize(cls, data):
+        return cls(**data)
+
+
 def brightness_gain(irradiance, target, gamma=1.0):
     """Per-vertex multiplier that flattens `irradiance` to `target` x its peak.
 
@@ -429,7 +527,7 @@ def brightness_gain(irradiance, target, gamma=1.0):
 
 
 def build_screen_mesh(surface, projector, subject_position=(0, 0, 0),
-                      brightness_correction=None, gamma=1.0):
+                      brightness_correction=None, gamma=1.0, measured_falloff=None):
     """Tessellate `surface` and work out, for each vertex, where it projects and where it lies.
 
     Two different things are worked out here and it is worth not conflating them.
@@ -474,8 +572,15 @@ def build_screen_mesh(surface, projector, subject_position=(0, 0, 0),
 
     gain = None
     if brightness_correction is not None:
-        gain = brightness_gain(projector_irradiance(surface, projector, positions),
-                               target=brightness_correction, gamma=gamma)
+        irradiance = projector_irradiance(surface, projector, positions)
+        if measured_falloff is not None:
+            # The measured residual multiplies the computed geometry rather than replacing it; see
+            # MeasuredFalloff, which is also where the trap of passing raw readings is described.
+            irradiance = irradiance * measured_falloff(ndc)
+            peak = irradiance.max()
+            if peak > 0:
+                irradiance = irradiance / peak
+        gain = brightness_gain(irradiance, target=brightness_correction, gamma=gamma)
 
     return ScreenMesh(ndc=ndc, directions=directions, triangles=triangles, positions=positions,
                       lit=lit, gain=gain)
@@ -580,7 +685,7 @@ class CurvedScreen(Screen):
     """
 
     def __init__(self, surface=None, projector=None, cube_resolution=1024,
-                 brightness_correction=None, gamma=1.0, **kwargs):
+                 brightness_correction=None, gamma=1.0, measured_falloff=None, **kwargs):
         super().__init__(**kwargs)
         self.surface = surface if surface is not None else SphericalSurface()
         self.projector = projector if projector is not None else PinholeProjector()
@@ -588,6 +693,7 @@ class CurvedScreen(Screen):
         self.brightness_correction = (None if brightness_correction is None
                                       else float(brightness_correction))
         self.gamma = float(gamma)
+        self.measured_falloff = measured_falloff
 
     def build_mesh(self, subject_position=(0, 0, 0)):
         """The screen mesh. subject_position is where the subject physically sits, not where it is
@@ -603,7 +709,7 @@ class CurvedScreen(Screen):
         return build_screen_mesh(self.surface, self.projector,
                                 subject_position=subject_position,
                                 brightness_correction=self.brightness_correction,
-                                gamma=self.gamma)
+                                gamma=self.gamma, measured_falloff=self.measured_falloff)
 
     def serialize(self):
         data = super().serialize()
@@ -613,6 +719,8 @@ class CurvedScreen(Screen):
         data['cube_resolution'] = self.cube_resolution
         data['brightness_correction'] = self.brightness_correction
         data['gamma'] = self.gamma
+        data['measured_falloff'] = (None if self.measured_falloff is None
+                                    else self.measured_falloff.serialize())
         return data
 
     @classmethod
@@ -625,4 +733,6 @@ class CurvedScreen(Screen):
         kwargs['subscreens'] = [SubScreen.deserialize(sub) for sub in kwargs.get('subscreens', [])]
         kwargs['surface'] = deserialize_surface(kwargs['surface'])
         kwargs['projector'] = PinholeProjector.deserialize(kwargs['projector'])
+        if kwargs.get('measured_falloff') is not None:
+            kwargs['measured_falloff'] = MeasuredFalloff.deserialize(kwargs['measured_falloff'])
         return cls(**kwargs)

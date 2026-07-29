@@ -569,3 +569,167 @@ def test_the_correction_survives_serialization():
     assert restored.brightness_correction == 0.3
     assert restored.gamma == 2.2
     assert np.allclose(restored.build_mesh().gain, screen.build_mesh().gain)
+
+
+# --- the measured residual -------------------------------------------------------------------------
+
+def hemisphere_rig():
+    """The Clandinin hemisphere, from its own measurements."""
+    from stimpack.visual_stim.curved_screen import SphericalSurface, PinholeProjector
+
+    surface = SphericalSurface(radius=0.0715, elevation_range=(0, 90),
+                               n_azimuth=36, n_elevation=12)
+    projector = PinholeProjector(position=(0, 0, 0.302067), look_at=(0, 0, 0),
+                                 throw_ratio=1.57523511, aspect_ratio=1.6)
+    return surface, projector
+
+
+def test_a_known_residual_is_recovered_from_readings():
+    """The round trip that matters: invent an optical falloff, simulate what a photometer would
+    read through it, and check from_measurements gets it back rather than the total."""
+    from stimpack.visual_stim.curved_screen import (MeasuredFalloff, projector_irradiance)
+
+    surface, projector = hemisphere_rig()
+    positions, _ = surface.vertices_and_triangles()
+    lit = projector_irradiance(surface, projector, positions) > 0
+    positions = positions[lit][::7]
+
+    geometric = projector_irradiance(surface, projector, positions)
+    radius = MeasuredFalloff.radius_in_image(projector.to_ndc(positions), projector.aspect_ratio)
+    true_residual = 1 - 0.4 * radius            # a plain vignette, the thing geometry cannot know
+    readings = 12.5 * geometric * true_residual  # arbitrary photometer units
+
+    falloff = MeasuredFalloff.from_measurements(positions, readings, surface, projector)
+    recovered = falloff(projector.to_ndc(positions))
+
+    assert np.allclose(recovered, true_residual / true_residual.max(), atol=1e-6)
+
+
+def test_the_readings_units_and_level_do_not_matter():
+    """Only ratios between points are used, so the photometer's units and the commanded value it
+    was measured at both cancel -- which is also why no gamma enters here."""
+    from stimpack.visual_stim.curved_screen import MeasuredFalloff, projector_irradiance
+
+    surface, projector = hemisphere_rig()
+    positions, _ = surface.vertices_and_triangles()
+    positions = positions[projector_irradiance(surface, projector, positions) > 0][::9]
+    readings = projector_irradiance(surface, projector, positions) * (1 - 0.3 * np.arange(len(positions)) / len(positions))
+
+    one = MeasuredFalloff.from_measurements(positions, readings, surface, projector)
+    other = MeasuredFalloff.from_measurements(positions, readings * 87.3, surface, projector)
+
+    assert np.allclose(one.values, other.values)
+
+
+def test_passing_raw_readings_as_a_residual_double_counts():
+    """The trap the API is shaped to avoid. Handing the raw curve straight to MeasuredFalloff --
+    rather than through from_measurements -- multiplies the geometry in twice, and the result is a
+    plausible-looking over-correction rather than an obvious failure."""
+    from stimpack.visual_stim.curved_screen import (MeasuredFalloff, build_screen_mesh,
+                                                    projector_irradiance)
+
+    surface, projector = hemisphere_rig()
+    positions, _ = surface.vertices_and_triangles()
+    sample = positions[projector_irradiance(surface, projector, positions) > 0][::7]
+    readings = projector_irradiance(surface, projector, sample)      # pure geometry, no residual
+
+    right = MeasuredFalloff.from_measurements(sample, readings, surface, projector)
+
+    # What building the table by hand from raw readings looks like: same averaging by radius, but
+    # without dividing the geometry out first.
+    radius = MeasuredFalloff.radius_in_image(projector.to_ndc(sample), projector.aspect_ratio)
+    keys, groups = np.unique(np.round(radius, 6), return_inverse=True)
+    averaged = np.bincount(groups, weights=readings) / np.bincount(groups)
+    wrong = MeasuredFalloff(keys, averaged, aspect_ratio=projector.aspect_ratio)
+
+    # Done right, the residual is flat -- there was nothing for it to explain.
+    assert np.allclose(right.values, 1.0, atol=1e-6)
+    assert wrong.values.min() < 0.5, 'the raw curve should be far from flat'
+
+    # The symptom is not a bigger number anywhere -- the smallest gain is always the target -- it
+    # is that the result stops being flat. Believing the screen is dimmer than it is over-corrects
+    # towards the edges, so the residual gradient comes back inverted.
+    truth = projector_irradiance(surface, projector, positions)
+    correct = build_screen_mesh(surface, projector, brightness_correction=0.3,
+                                measured_falloff=right).gain
+    doubled = build_screen_mesh(surface, projector, brightness_correction=0.3,
+                                measured_falloff=wrong).gain
+
+    corrected_region = (correct < 1) & (doubled < 1) & (truth > 0)
+    assert corrected_region.sum() > 20, 'not enough of the screen is being corrected to compare'
+
+    right_light = truth[corrected_region] * correct[corrected_region]
+    wrong_light = truth[corrected_region] * doubled[corrected_region]
+    assert np.allclose(right_light, right_light[0], rtol=1e-3), 'the correct residual is not flat'
+    assert wrong_light.max() / wrong_light.min() > 1.5, 'double counting left the screen flat'
+
+
+def test_the_residual_multiplies_the_geometry_rather_than_replacing_it():
+    from stimpack.visual_stim.curved_screen import MeasuredFalloff, build_screen_mesh
+
+    surface, projector = hemisphere_rig()
+    flat = MeasuredFalloff([0.0, 2.0], [1.0, 1.0], aspect_ratio=projector.aspect_ratio)
+
+    without = build_screen_mesh(surface, projector, brightness_correction=0.3).gain
+    with_flat = build_screen_mesh(surface, projector, brightness_correction=0.3,
+                                  measured_falloff=flat).gain
+    assert np.allclose(without, with_flat), 'a flat residual should change nothing'
+
+    vignette = MeasuredFalloff([0.0, 1.0], [1.0, 0.25], aspect_ratio=projector.aspect_ratio)
+    with_vignette = build_screen_mesh(surface, projector, brightness_correction=0.3,
+                                      measured_falloff=vignette).gain
+    assert not np.allclose(without, with_vignette), 'a real residual should change the correction'
+
+
+def test_the_radius_is_isotropic_in_the_image():
+    """NDC x spans the width and y the height, and the image is wider than tall, so plain hypot
+    would smear a rotationally symmetric optic into an elliptical one."""
+    from stimpack.visual_stim.curved_screen import MeasuredFalloff
+
+    aspect = 1.6
+    # the right edge midpoint and the top edge midpoint are at different distances in the image
+    right_edge = MeasuredFalloff.radius_in_image([[1.0, 0.0]], aspect)
+    top_edge = MeasuredFalloff.radius_in_image([[0.0, 1.0]], aspect)
+
+    assert np.isclose(right_edge[0], 1.0)
+    assert np.isclose(top_edge[0], 1.0 / aspect)
+    assert np.isclose(MeasuredFalloff.radius_in_image([[0.0, 0.0]], aspect)[0], 0.0)
+
+
+def test_a_falloff_refuses_input_it_cannot_use():
+    from stimpack.visual_stim.curved_screen import MeasuredFalloff
+
+    with pytest.raises(ValueError, match='at least 2'):
+        MeasuredFalloff([0.0], [1.0])
+    with pytest.raises(ValueError, match='increase'):
+        MeasuredFalloff([1.0, 0.0], [1.0, 0.5])
+    with pytest.raises(ValueError, match='positive'):
+        MeasuredFalloff([0.0, 1.0], [1.0, 0.0])
+
+    surface, projector = hemisphere_rig()
+    with pytest.raises(ValueError, match='positions but'):
+        MeasuredFalloff.from_measurements(np.zeros((3, 3)), [1.0, 2.0], surface, projector)
+
+
+def test_measurements_off_the_lit_area_are_refused():
+    """Dividing by a geometric term of zero would produce an infinite residual, and silently."""
+    from stimpack.visual_stim.curved_screen import MeasuredFalloff
+
+    surface, projector = hemisphere_rig()
+    behind = np.array([[0.0, 0.0, -0.0715], [0.0, 0.0, 0.0715]])
+    with pytest.raises(ValueError, match='not lit'):
+        MeasuredFalloff.from_measurements(behind, [1.0, 1.0], surface, projector)
+
+
+def test_the_residual_survives_serialization():
+    from stimpack.visual_stim.curved_screen import CurvedScreen, MeasuredFalloff
+    from stimpack.visual_stim.screen import Screen
+
+    surface, projector = hemisphere_rig()
+    falloff = MeasuredFalloff([0.0, 0.5, 1.0], [1.0, 0.8, 0.4], aspect_ratio=1.6)
+    screen = CurvedScreen(surface=surface, projector=projector,
+                          brightness_correction=0.3, measured_falloff=falloff)
+
+    restored = Screen.deserialize(screen.serialize())
+    assert np.allclose(restored.measured_falloff.values, falloff.values)
+    assert np.allclose(restored.build_mesh().gain, screen.build_mesh().gain)
