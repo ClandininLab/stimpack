@@ -1,10 +1,15 @@
-# This workflow will upload a Python Package using Twine when a release is created
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python#publishing-to-package-registries
-
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
+# Publish to PyPI when a GitHub Release is published.
+#
+# Authenticated by PyPI trusted publishing (OIDC), not an API token: GitHub mints a short-lived
+# token for this specific workflow in this specific repository, and PyPI checks it against the
+# publisher registered on the project. Nothing secret is stored here, and there is no token to
+# rotate or leak.
+#
+# For that to work, three things have to line up:
+#   - `id-token: write` below, so the job may request an OIDC token at all;
+#   - no `user`/`password` on the publish step -- passing either makes the action use token auth;
+#   - the publisher registered on PyPI naming this repository AND this workflow file
+#     (python-publish.yml). If it names an environment, add a matching `environment:` to this job.
 
 name: Upload Python Package
 
@@ -20,10 +25,13 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    permissions:
+      id-token: write     # required to mint the OIDC token trusted publishing uses
+
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v5
       with:
         python-version: '3.x'
     - name: Install dependencies
@@ -32,8 +40,12 @@ jobs:
         pip install build
     - name: Build package
       run: python -m build
+    - name: Check the built artifacts
+      run: |
+        pip install twine
+        twine check dist/*
     - name: Publish package
-      uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
-      with:
-        user: __token__
-        password: ${{ secrets.PYPI_API_TOKEN }}
+      # release/v1 rather than a pinned commit: the previous pin was from February 2021, which
+      # predates trusted publishing support (added in v1.8), so it could not have worked whatever
+      # the permissions said.
+      uses: pypa/gh-action-pypi-publish@release/v1
