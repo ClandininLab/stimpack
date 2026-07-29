@@ -320,3 +320,25 @@ def test_the_format_follows_the_selected_config(qapp, tmp_path):
     dialog.cfg = {'data_format': 'hdf5'}
     dialog.update_data_format_selection()
     assert dialog.data_format_combobox.currentText() == 'hdf5'
+
+
+def test_the_format_choice_is_disabled_when_the_labpack_supplies_a_data_module(qapp, tmp_path):
+    """The GUI takes module_paths.data when it is set and only falls back to data_format
+    otherwise. Offering the choice anyway is offering one that does nothing -- which is what it
+    did: a config naming its own HDF5 data module answered a request for NWB with an .hdf5 file
+    and said nothing about why."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path,
+                                    {'data_format': 'nwb',
+                                     'module_paths': {'data': 'labpack/data.py'}})
+
+    assert not dialog.data_format_combobox.isEnabled()
+    assert 'labpack/data.py' in dialog.data_format_combobox.toolTip()
+    assert 'labpack' in dialog.label_data_format.text().lower()
+
+
+def test_the_format_choice_is_offered_when_nothing_overrides_it(qapp, tmp_path):
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {'data_format': 'nwb', 'module_paths': {}})
+
+    assert dialog.data_format_combobox.isEnabled()
+    assert dialog.data_format_combobox.currentText() == 'nwb'
+    assert dialog.label_data_format.text() == 'Data format'

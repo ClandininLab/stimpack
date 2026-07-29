@@ -146,7 +146,12 @@ class ExperimentGUI(QWidget):
         # start a data object
         user_data_module_list = config_tools.load_user_module(self.cfg, 'data')
         if user_data_module_list:
+            # Named so it is obvious which class is writing the file. Without this the only
+            # startup line about the data module was the one printed when a built-in was used.
             self.data = user_data_module_list[0].Data(self.cfg)
+            named = (self.cfg.get('module_paths') or {}).get('data')
+            print(f"!!! Using labpack data module {named} ({type(self.data).__name__}); "
+                  f"the config's data_format is not consulted !!!")
         else:  # use a built-in, chosen by the config's data_format (default hdf5, or nwb)
             if self.data_format_override is not None:
                 self.cfg['data_format'] = self.data_format_override
@@ -1949,9 +1954,9 @@ class InitializeRigGUI(QWidget):
         # dialog runs to completion before the data object -- or the File tab's browser, or the
         # labels naming it -- is built, so there is nothing yet to swap out and no open experiment
         # to invalidate. An experiment cannot change format part-way through in any case.
-        label_data_format = QLabel('Data format')
-        label_data_format.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
-        self.init_grid.addWidget(label_data_format, 3, 0)
+        self.label_data_format = QLabel('Data format')
+        self.label_data_format.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        self.init_grid.addWidget(self.label_data_format, 3, 0)
 
         self.data_format_combobox = QComboBox()
         for format_name in sorted(config_tools.BUILTIN_DATA_FORMATS):
@@ -2018,12 +2023,31 @@ class InitializeRigGUI(QWidget):
         dialog either way, and a dialog displaying something other than what will be used is worse
         than no dialog.
         """
+        # A labpack data module beats both. The GUI takes module_paths.data when it is set and
+        # only falls back to data_format otherwise, so offering the choice here would be offering
+        # one that does nothing -- which is exactly what it did: a config naming its own HDF5 data
+        # module answered a request for NWB with an .hdf5 file and said nothing about why.
+        labpack_module = (self.cfg.get('module_paths') or {}).get('data')
         override = getattr(self.experiment_gui_object, 'data_format_override', None)
+
+        if labpack_module:
+            self.data_format_combobox.setEnabled(False)
+            self.data_format_combobox.setToolTip(
+                f'This config supplies its own data module ({labpack_module}), which decides the '
+                f'format. Remove module_paths.data from the config to choose one here.')
+            self.label_data_format.setText('Data format (set by labpack)')
+            return
+
+        self.label_data_format.setText('Data format')
         data_format = override if override is not None else config_tools.get_data_format(self.cfg)
         index = self.data_format_combobox.findText(data_format)
         if index >= 0:
             self.data_format_combobox.setCurrentIndex(index)
         self.data_format_combobox.setEnabled(override is None)
+        self.data_format_combobox.setToolTip(
+            "Which format to write. Defaults to the selected config's data_format."
+            if override is None else
+            'Set by --data-format on the command line, which wins over the config.')
 
     def on_pressed_enter_button(self):
         # Store the rig and cfg names in the cfg dict
