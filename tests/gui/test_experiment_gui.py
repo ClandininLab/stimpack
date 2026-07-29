@@ -1178,3 +1178,74 @@ def test_every_protocol_and_preset_dropdown_is_capped(experiment_gui):
                 gui.ensemble_protocol_selection_combo_box, gui.ensemble_parameter_preset_comboBox):
         assert box.sizeAdjustPolicy() == QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         assert box.minimumContentsLength() > 0
+
+
+# --- the subject button -------------------------------------------------------------------------
+
+def experiment_with_subject(gui, name, subject='fly1'):
+    gui.data.experiment_file_name = name
+    gui.data.initialize_experiment_file()
+    gui.data.create_subject({'subject_id': subject, 'age': 1, 'notes': ''})
+    gui.update_existing_subject_input()
+
+
+def test_the_subject_button_says_which_of_the_two_it_will_do(experiment_gui):
+    """Two always-enabled buttons meant Update subject on an unknown ID printed a line to the
+    terminal and did nothing the GUI showed."""
+    gui = experiment_gui
+    experiment_with_subject(gui, 'subject_button', 'fly1')
+
+    gui.subject_id_input.setText('fly1')          # a subject that exists
+    assert gui.subject_button.text() == 'Update subject'
+    assert gui.subject_button.isEnabled()
+
+    gui.subject_id_input.setText('fly2')          # one that does not
+    assert gui.subject_button.text() == 'Create subject'
+    assert gui.subject_button.isEnabled()
+
+
+def test_the_subject_button_is_disabled_when_it_cannot_do_either(experiment_gui):
+    gui = experiment_gui
+
+    gui.subject_id_input.setText('fly1')          # no experiment file yet
+    assert not gui.subject_button.isEnabled()
+    assert 'create or load' in gui.subject_button.toolTip().lower()
+
+    experiment_with_subject(gui, 'nothing_typed', 'fly1')
+    gui.subject_id_input.setText('   ')           # whitespace is not an id
+    assert not gui.subject_button.isEnabled()
+
+
+def test_the_subject_button_creates_then_updates_the_same_id(experiment_gui):
+    """The label has to follow the file: creating a subject makes the next press an update."""
+    gui = experiment_gui
+    gui.data.experiment_file_name = 'create_then_update'
+    gui.data.initialize_experiment_file()
+
+    gui.subject_id_input.setText('fly_new')
+    assert gui.subject_button.text() == 'Create subject'
+    gui.subject_button.click()
+
+    assert gui.data.current_subject == 'fly_new'
+    assert gui.subject_button.text() == 'Update subject', 'still offering to create what exists'
+
+    gui.subject_notes_input.setPlainText('looked healthy')
+    gui.subject_button.click()                     # must not create a second one
+    assert [s['subject_id'] for s in gui.data.get_existing_subject_data()] == ['fly_new']
+
+
+def test_the_action_is_decided_by_state_not_by_the_label(experiment_gui, monkeypatch):
+    """Reading the label back would make a rename a behaviour change -- which is exactly how the
+    Note button nearly broke when it was shortened."""
+    gui = experiment_gui
+    experiment_with_subject(gui, 'by_state', 'fly1')
+    gui.subject_id_input.setText('fly1')
+
+    created, updated = [], []
+    monkeypatch.setattr(gui, 'on_created_subject', lambda: created.append(1))
+    monkeypatch.setattr(gui, 'on_update_subject', lambda: updated.append(1))
+
+    gui.subject_button.setText('Create subject')   # lie about what it does
+    gui.subject_button.click()
+
+    assert updated == [1] and created == [], 'followed the label rather than the file'

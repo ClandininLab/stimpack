@@ -613,15 +613,15 @@ class ExperimentGUI(QWidget):
 
             self.subject_metadata_inputs[key] = new_input
 
-        # Create subject button
-        create_subject_button = QPushButton("Create subject", self)
-        create_subject_button.clicked.connect(self.on_created_subject)
-        self.data_form.addRow(create_subject_button)
-
-        # Update subject button
-        update_subject_button = QPushButton("Update subject", self)
-        update_subject_button.clicked.connect(self.on_update_subject)
-        self.data_form.addRow(update_subject_button)
+        # One button, saying which of the two things it will do. Two always-enabled buttons meant
+        # Update subject on an unknown ID printed "No subject with this ID is currently selected!"
+        # to the terminal and did nothing the GUI showed -- so the only feedback for pressing the
+        # wrong one was its absence.
+        self.subject_button = QPushButton("Create subject", self)
+        self.subject_button.clicked.connect(self.on_pressed_subject_button)
+        self.data_form.addRow(self.subject_button)
+        self.subject_id_input.textChanged.connect(self.refresh_subject_button)
+        self.refresh_subject_button()
 
         # # # TAB 4: FILE tab - init, load, close etc. h5 file # # #
 
@@ -1056,6 +1056,50 @@ class ExperimentGUI(QWidget):
 
         self.send_run(save_metadata_flag=save_metadata_flag)
 
+    def typed_subject_is_new(self):
+        """Whether the ID in the field names a subject this experiment does not have yet.
+
+        None when the question cannot be answered -- no experiment file, or nothing typed -- which
+        is what disables the button rather than letting it claim to do either thing.
+        """
+        typed = self.subject_id_input.text().strip() if hasattr(self, 'subject_id_input') else ''
+        if not typed or not self.data.experiment_file_exists():
+            return None
+        existing = {s.get('subject_id') for s in self.data.get_existing_subject_data()}
+        return typed not in existing
+
+    def refresh_subject_button(self):
+        """Label the button with what pressing it will do, and disable it when that is nothing.
+
+        Also called from update_existing_subject_input, which runs during initUI before the field
+        and the button exist -- the subject dropdown is built first.
+        """
+        if not hasattr(self, 'subject_button'):
+            return
+        is_new = self.typed_subject_is_new()
+        self.subject_button.setEnabled(is_new is not None)
+        self.subject_button.setText('Create subject' if is_new is not False else 'Update subject')
+        if is_new is None:
+            self.subject_button.setToolTip(
+                f'Type a subject ID, and create or load a {self.data.output_noun} first.')
+        else:
+            self.subject_button.setToolTip('')
+
+    def on_pressed_subject_button(self):
+        """Create or update, decided by the same question the label was written from.
+
+        Not by reading the label back: the two would then have to agree, and a label is a thing
+        somebody renames.
+        """
+        is_new = self.typed_subject_is_new()
+        if is_new is None:
+            return
+        if is_new:
+            self.on_created_subject()
+        else:
+            self.on_update_subject()
+        self.refresh_subject_button()
+
     def on_created_subject(self):
         # Populate subject metadata from subject data fields
         subject_metadata = {}
@@ -1213,6 +1257,7 @@ class ExperimentGUI(QWidget):
             self.existing_subject_input.addItem(subject_id)
 
         self.show_current_subject(self.data.current_subject or '')
+        self.refresh_subject_button()
 
     def show_current_subject(self, subject_id):
         """Reflect the current subject in both places it appears -- the Subject tab's dropdown and
