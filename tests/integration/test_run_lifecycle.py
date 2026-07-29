@@ -287,7 +287,7 @@ class SlowProtocol(TinyProtocol):
         return {'pre_time': 0.0, 'stim_time': 30.0, 'tail_time': 0.0}
 
 
-def test_stop_ends_the_epoch_in_progress(client, data, fake_manager, qapp):
+def test_stop_ends_the_trial_in_progress(client, data, fake_manager, qapp):
     """Stop used to be noticed only at the top of the next epoch, so stopping a run with long
     epochs meant watching the current one finish -- no use when the reason for stopping is what is
     on the screen right now."""
@@ -308,7 +308,7 @@ def test_stop_ends_the_epoch_in_progress(client, data, fake_manager, qapp):
     assert series_attrs(data)[0]['run_status'] == 'stopped'
 
 
-def test_a_server_error_mid_epoch_aborts_without_waiting(client, data, fake_manager):
+def test_a_server_error_mid_trial_aborts_without_waiting(client, data, fake_manager):
     """Same latency problem for an error the server reports during an epoch."""
     import threading
     import time
@@ -328,7 +328,7 @@ def test_a_server_error_mid_epoch_aborts_without_waiting(client, data, fake_mana
     assert 'screen died' in attrs['abort_reason']
 
 
-def test_an_uninterrupted_epoch_still_lasts_its_full_duration(client, data, fake_manager):
+def test_an_uninterrupted_trial_still_lasts_its_full_duration(client, data, fake_manager):
     """The interruptible wait must still wait: an epoch nobody stops has to take its stim_time."""
     import time
 
@@ -364,7 +364,7 @@ def test_waiting_does_not_spin_the_cpu(client, data, fake_manager):
 
 # --- trials the animal ends ------------------------------------------------------------------------
 
-def test_the_server_can_end_an_epoch_early(client, data, fake_manager):
+def test_the_server_can_end_an_trial_early(client, data, fake_manager):
     """The point of the whole mechanism: a trial that lasts until the animal does something.
 
     The condition can only be evaluated on the server -- the client never receives subject state,
@@ -392,7 +392,7 @@ def test_the_server_can_end_an_epoch_early(client, data, fake_manager):
     assert elapsed < 10, f'{elapsed:.1f}s: epochs were not cut short'
 
 
-def test_an_epoch_ended_early_records_why_and_how_long(client, data, fake_manager):
+def test_an_trial_ended_early_records_why_and_how_long(client, data, fake_manager):
     import threading
 
     protocol = SlowProtocol(cfg={})
@@ -411,7 +411,7 @@ def test_an_epoch_ended_early_records_why_and_how_long(client, data, fake_manage
         assert 0 < epoch.attrs['trial_duration'] < 5      # not the 30 s the protocol asked for
 
 
-def test_an_epoch_that_runs_its_course_is_not_marked_early(client, data, fake_manager):
+def test_an_trial_that_runs_its_course_is_not_marked_early(client, data, fake_manager):
     protocol = TinyProtocol(cfg={})
     client.start_run(protocol, data, save_metadata_flag=True)
 
@@ -422,7 +422,7 @@ def test_an_epoch_that_runs_its_course_is_not_marked_early(client, data, fake_ma
         assert 'trial_end_reason' not in epoch.attrs
 
 
-def test_a_late_request_does_not_cut_short_the_following_epoch(client, data, fake_manager):
+def test_a_late_request_does_not_cut_short_the_following_trial(client, data, fake_manager):
     """A criterion met just as an epoch ends would otherwise arrive during the next one and end
     it too -- a truncated trial with no visible cause."""
     protocol = TinyProtocol(cfg={})
@@ -443,7 +443,7 @@ def test_a_late_request_does_not_cut_short_the_following_epoch(client, data, fak
     assert client.trial_end_reason == 'in time', 'a late request overwrote the reason'
 
 
-def test_the_server_does_nothing_between_epochs(fake_manager):
+def test_the_server_does_nothing_between_trials(fake_manager):
     """end_trial outside an epoch would otherwise end whichever one starts next."""
     from stimpack.experiment.server import BaseServer
 
@@ -681,7 +681,7 @@ class VectorParamProtocol(TinyProtocol):
                 'width_height': [[10, 30]], 'center': [[0, 0]]}
 
 
-def test_nwb_records_epochs_whose_parameters_are_pairs(client, nwb_data):
+def test_nwb_records_trials_whose_parameters_are_pairs(client, nwb_data):
     """#nwb: the trials table wrote a 2-element value as a (1, 2) dataset while declaring a
     rank-1 maxshape, so h5py refused it and the run aborted on the first epoch."""
     protocol = VectorParamProtocol(cfg={})

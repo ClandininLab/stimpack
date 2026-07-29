@@ -447,7 +447,7 @@ def test_a_visual_stim_module_that_will_not_load_is_an_error(tmp_path):
     assert 'visual-stim-will-not-load' in codes(findings, level='error')
 
 
-def test_every_stimulus_in_a_multi_stimulus_epoch_is_checked(tmp_path):
+def test_every_stimulus_in_a_multi_stimulus_trial_is_checked(tmp_path):
     """trial_stim_parameters may be a list; a bad name later in it must not be missed."""
     labpack_with_protocol(tmp_path, "        pass")
     path = tmp_path / 'pack' / 'protocol' / 'my_protocol.py'

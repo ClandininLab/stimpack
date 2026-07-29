@@ -230,7 +230,7 @@ def _epochs_table(data):
         return io.read().epochs.to_dataframe()
 
 
-def test_end_epoch_run_records_status_and_reason(tmp_path):
+def test_end_series_records_status_and_reason(tmp_path):
     data = _make_data(tmp_path)
     data.prepare_series()
     proto = _Protocol()
@@ -243,7 +243,7 @@ def test_end_epoch_run_records_status_and_reason(tmp_path):
     assert row['stop_time'] >= row['start_time']
 
 
-def test_end_epoch_run_defaults_to_completed(tmp_path):
+def test_end_series_defaults_to_completed(tmp_path):
     data = _make_data(tmp_path)
     data.prepare_series()
     proto = _Protocol()
@@ -255,18 +255,18 @@ def test_end_epoch_run_defaults_to_completed(tmp_path):
     assert row['run_status_reason'] == ''
 
 
-def test_end_epoch_run_without_an_epoch_run_does_not_raise(tmp_path):
+def test_end_series_without_a_series_does_not_raise(tmp_path):
     """The client calls this from a finally block, so it runs even when the run failed before
     create_series stored anything. Popping epoch_start_time then raised KeyError from inside
     the error handler, hiding whatever actually went wrong."""
     data = _make_data(tmp_path, subject=None)      # no subject -> create_series bails out
     proto = _Protocol()
     data.create_series(proto)
-    with pytest.warns(UserWarning, match='No epoch run to close out'):
+    with pytest.warns(UserWarning, match='No series to close out'):
         data.end_series(proto, status='error', reason='boom')
 
 
-def test_end_epoch_run_without_a_series_file_does_not_raise(tmp_path):
+def test_end_series_without_a_series_file_does_not_raise(tmp_path):
     """A run that failed before prepare_series has no file to append to."""
     data = _make_data(tmp_path)
     proto = _Protocol()
@@ -307,7 +307,7 @@ def test_notes_go_to_a_csv_beside_the_series_files(tmp_path):
     assert 'a note' in notes.read_text()
 
 
-def test_create_epoch_without_a_subject_does_not_collect_parameters(tmp_path):
+def test_create_trial_without_a_subject_does_not_collect_parameters(tmp_path):
     """Warning and carrying on only defers the failure to end_trial, which then reports a missing
     file instead of the missing subject that caused it."""
     data = _make_data(tmp_path, subject=None)
@@ -316,7 +316,7 @@ def test_create_epoch_without_a_subject_does_not_collect_parameters(tmp_path):
     assert data.trial_parameters == {}
 
 
-def test_end_epoch_without_a_series_file_does_not_raise(tmp_path):
+def test_end_trial_without_a_series_file_does_not_raise(tmp_path):
     """Called once per epoch during a run; a run not saving metadata must not raise every epoch."""
     data = _make_data(tmp_path)
     data.create_trial(_Protocol())                        # parameters collected...
@@ -325,7 +325,7 @@ def test_end_epoch_without_a_series_file_does_not_raise(tmp_path):
         data.end_trial(_Protocol())
 
 
-def test_end_epoch_with_nothing_collected_is_silent(tmp_path):
+def test_end_trial_with_nothing_collected_is_silent(tmp_path):
     """Not merely non-raising: with no epoch collected there is nothing wrong, so it must not
     complain about a missing file either. During a View run this is called every epoch."""
     data = _make_data(tmp_path, subject=None)

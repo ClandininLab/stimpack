@@ -56,7 +56,7 @@ def test_list_valued_stim_parameters_are_saved(tmp_path):
         assert epoch.attrs["stim1_name"] == "StimB"
 
 
-def test_end_epoch_guard_does_not_raise_without_file(tmp_path):
+def test_end_trial_guard_does_not_raise_without_file(tmp_path):
     # Regression (#16): end_trial must degrade gracefully like its siblings, not open 'r+' blindly.
     data = BaseData(cfg={})
     data.data_directory = str(tmp_path)
@@ -64,7 +64,7 @@ def test_end_epoch_guard_does_not_raise_without_file(tmp_path):
     data.end_trial(_Protocol(stim_params={}))  # must not raise
 
 
-def test_end_epoch_run_records_status_and_reason(tmp_path):
+def test_end_series_records_status_and_reason(tmp_path):
     data = _make_data(tmp_path)
     proto = _Protocol(stim_params={"name": "StimA"})
     proto.num_trials_completed = 3
@@ -79,7 +79,7 @@ def test_end_epoch_run_records_status_and_reason(tmp_path):
         assert "run_end_unix_time" in series.attrs
 
 
-def test_end_epoch_run_completed_has_no_reason(tmp_path):
+def test_end_series_completed_has_no_reason(tmp_path):
     data = _make_data(tmp_path)
     proto = _Protocol(stim_params={"name": "StimA"})
     data.create_series(proto)
@@ -91,7 +91,7 @@ def test_end_epoch_run_completed_has_no_reason(tmp_path):
         assert "abort_reason" not in series.attrs
 
 
-def test_end_epoch_run_missing_series_group_is_safe(tmp_path):
+def test_end_series_missing_series_group_is_safe(tmp_path):
     # If the run never created its series group, annotating the outcome must not raise.
     data = _make_data(tmp_path)
     data.series_count = 999  # a series that was never created

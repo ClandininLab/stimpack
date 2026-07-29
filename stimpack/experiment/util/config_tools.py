@@ -134,8 +134,8 @@ def set_labpack_directory(path):
 BUILTIN_DATA_FORMATS = {
     'hdf5': ('stimpack.experiment.data', 'BaseData'),
     'nwb':  ('stimpack.experiment.data_nwb', 'NWBData'),
-    # The layout stimpack wrote before it renamed epoch -> trial and epoch run -> series. Same
-    # code, old names, so analysis that walks epoch_runs/.../epochs keeps working.
+    # The layout stimpack wrote before it renamed trial -> trial and series -> series. Same
+    # code, old names, so analysis that walks epoch_runs/.../trials keeps working.
     'legacy_hdf5': ('stimpack.experiment.data_legacy', 'LegacyHdf5Data'),
 }
 

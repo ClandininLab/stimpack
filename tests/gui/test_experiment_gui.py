@@ -290,7 +290,7 @@ def test_resume_does_not_claim_a_recording_run_is_only_viewing(experiment_gui):
     gui.pause_button.click()                       # Pause
     gui.client.paused_since = None                 # the epoch is still running: pause is pending
     gui.update_run_progress()
-    assert gui.status_label.text() == 'Pausing after this epoch finishes...'
+    assert gui.status_label.text() == 'Pausing after this trial finishes...'
 
     gui.pause_button.click()                       # Resume
     assert gui.status_label.text() == 'Recording series 12'
@@ -306,7 +306,7 @@ def test_the_status_line_separates_pausing_from_paused(experiment_gui):
 
     gui.client.pause_run()
     gui.update_run_progress()
-    assert gui.status_label.text() == 'Pausing after this epoch finishes...'
+    assert gui.status_label.text() == 'Pausing after this trial finishes...'
 
     gui.client.paused_since = time.monotonic()     # the run loop reached the epoch boundary
     gui.update_run_progress()
@@ -363,7 +363,7 @@ def test_pause_is_disabled_until_a_run_is_in_progress(experiment_gui):
     assert gui.pause_button.text() == 'Pause'
 
 
-def test_an_ensemble_holds_for_a_pause_requested_in_the_final_epoch(experiment_gui, monkeypatch):
+def test_an_ensemble_holds_for_a_pause_requested_in_the_final_trial(experiment_gui, monkeypatch):
     """The run loop's condition fails before the pause branch is reached on the last epoch, and the
     next start_run clears the flag -- so the next protocol used to start regardless."""
     gui = experiment_gui
@@ -748,7 +748,7 @@ def test_the_notes_row_sits_below_the_tabs(experiment_gui):
     assert gui.notes_edit.parent() is gui
 
 
-def test_the_ensemble_tab_counts_protocols_not_epochs(experiment_gui):
+def test_the_ensemble_tab_counts_protocols_not_trials(experiment_gui):
     gui = experiment_gui
     gui.ensemble_list.append_item('DriftingSquareGrating', 'Default')
     gui.ensemble_list.append_item('MovingPatch', 'Default')
@@ -823,7 +823,7 @@ def test_neither_tab_can_start_while_the_other_is_running(experiment_gui):
 
 # --- the current epoch's parameters ------------------------------------------------------------
 
-def test_the_epoch_readout_shows_only_the_parameters_that_vary(experiment_gui):
+def test_the_trial_readout_shows_only_the_parameters_that_vary(experiment_gui):
     """A protocol's varying parameters are chosen per epoch on the client and printed by the
     server; the GUI never showed them, so the only way to see what was on screen was the server's
     terminal. The unvarying ones stay out: they are in the fields above, and repeating them would
@@ -844,7 +844,7 @@ def test_the_epoch_readout_shows_only_the_parameters_that_vary(experiment_gui):
     assert 'rate' not in text, 'a parameter that never changes was reported as this epoch\'s'
 
 
-def test_the_epoch_readout_prefers_what_the_protocol_recorded(experiment_gui):
+def test_the_trial_readout_prefers_what_the_protocol_recorded(experiment_gui):
     """process_input_parameters names the varying parameters; the fallback is only for protocols
     that override it without calling super()."""
     from stimpack.experiment.gui import Status
@@ -858,13 +858,13 @@ def test_the_epoch_readout_prefers_what_the_protocol_recorded(experiment_gui):
     assert gui.epoch_parameters_text() == 'contrast: 0.25'
 
 
-def test_the_epoch_readout_is_blank_between_runs(experiment_gui):
+def test_the_trial_readout_is_blank_between_runs(experiment_gui):
     gui = experiment_gui
     select_protocol(gui, 'DriftingSquareGrating')
     assert gui.epoch_parameters_text() == ''
 
 
-def test_the_epoch_readout_says_so_when_nothing_varies(experiment_gui):
+def test_the_trial_readout_says_so_when_nothing_varies(experiment_gui):
     from stimpack.experiment.gui import Status
 
     gui = experiment_gui
@@ -873,10 +873,10 @@ def test_the_epoch_readout_says_so_when_nothing_varies(experiment_gui):
     protocol.persistent_parameters = {'variable_protocol_parameter_names': []}
     protocol.trial_protocol_parameters = {'angle': 45}
 
-    assert gui.epoch_parameters_text() == '(no parameters vary across epochs)'
+    assert gui.epoch_parameters_text() == '(no parameters vary across trials)'
 
 
-def test_a_long_epoch_readout_does_not_reshape_the_window(experiment_gui, qapp):
+def test_a_long_trial_readout_does_not_reshape_the_window(experiment_gui, qapp):
     gui = experiment_gui
     qapp.processEvents()
     before = (gui.width(), gui.height())
@@ -888,7 +888,7 @@ def test_a_long_epoch_readout_does_not_reshape_the_window(experiment_gui, qapp):
     assert gui.epoch_parameters_label.toolTip().startswith('some_parameter')
 
 
-def test_the_epoch_readout_follows_a_real_protocol_epoch_by_epoch(experiment_gui):
+def test_the_trial_readout_follows_a_real_protocol_trial_by_trial(experiment_gui):
     """Drives the actual parameter-selection machinery rather than setting the dict by hand: the
     readout is only useful if trial_protocol_parameters holds the value chosen for this epoch and
     not the list it was chosen from."""

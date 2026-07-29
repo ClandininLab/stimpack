@@ -41,7 +41,7 @@ def test_single_list_is_used_directly():
     assert seq == [0, 90, 180, 270]
 
 
-def test_sequence_repeats_to_fill_num_epochs():
+def test_sequence_repeats_to_fill_num_trials():
     p = make_protocol(num_trials=5)
     p.get_parameter_sequence([0, 1], all_combinations=True, randomize_order=False)
     inds = p.persistent_parameters["protocol_parameter_sequence_epoch_inds"]

@@ -186,7 +186,7 @@ def test_root_function_names_match_a_live_server(live_server):
 
 
 
-def test_a_live_server_can_end_an_epoch_early(live_server, live_manager, live_client):
+def test_a_live_server_can_end_an_trial_early(live_server, live_manager, live_client):
     """The whole path for real: a state update reaches the server, the labpack's closed-loop
     function decides the trial is over, and the client's epoch wait returns early.
 

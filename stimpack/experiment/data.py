@@ -11,8 +11,8 @@ The file is laid out as::
                 epoch_runs
                     series_00n           (attrs: protocol + run parameters, run outcome)
                         acquisition
-                        epochs
-                            epoch_001    (attrs: this epoch's stimulus parameters)
+                        trials
+                            epoch_001    (attrs: this trial's stimulus parameters)
                             epoch_002
                         stimulus_timing
         Notes                            (attrs: timestamp -> note text)
@@ -53,10 +53,10 @@ class BaseData():
     #
     # Held here rather than inline, so LegacyHdf5Data can write the pre-0.3 layout by overriding
     # five strings instead of reimplementing every method that touches the file. stimpack renamed
-    # an epoch to a trial and an epoch run to a series; the layout follows the code, and a lab
+    # an trial to a trial and an series to a series; the layout follows the code, and a lab
     # whose analysis reads the old names keeps writing them by choosing the legacy backend.
     SERIES_GROUP = 'series'         # was 'epoch_runs'
-    TRIALS_GROUP = 'trials'         # was 'epochs'
+    TRIALS_GROUP = 'trials'         # was 'trials'
     TRIAL_PREFIX = 'trial_'         # was 'epoch_'
     # Attributes whose spelling changed with the rename. Anything not named here is written the
     # same by both backends.
@@ -123,7 +123,7 @@ class BaseData():
             for key in rig_config:
                 experiment_file.attrs[key] = str(rig_config.get(key))
 
-            # Create a top-level group for epoch runs and user-entered notes
+            # Create a top-level group for series and user-entered notes
             experiment_file.create_group('Subjects')
             experiment_file.create_group('Notes')
 
@@ -216,7 +216,7 @@ class BaseData():
     def create_series(self, protocol_object):
         """"
         """
-        # create a new epoch run group in the data file
+        # create a new series group in the data file
         if (self.current_subject_exists() and self.experiment_file_exists()):
             with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
                 run_start_unix_time = datetime.now().timestamp()
@@ -271,13 +271,13 @@ class BaseData():
 
     def end_trial(self, protocol_object, reason=None):
         """
-        Record when the epoch ended, and why.
+        Record when the trial ended, and why.
 
         :param reason: None if it ran its full length, otherwise why it was cut short -- the
             string a labpack passed to BaseServer.end_trial, for a trial ended by the animal's
             behaviour.
 
-        Also stores the epoch's actual duration. With a fixed stim_time that is redundant, but a
+        Also stores the trial's actual duration. With a fixed stim_time that is redundant, but a
         behaviour-ended trial is as long as the animal made it, and the protocol parameters then
         describe the intent rather than what happened.
         """
@@ -300,15 +300,15 @@ class BaseData():
 
     def end_series(self, protocol_object, status='completed', reason=None, paused_seconds=0.0):
         """
-        Record the outcome of an epoch run as attributes on its series group.
+        Record the outcome of an series as attributes on its series group.
 
         There is otherwise no run-completion marker in the file (create_series only writes a start
         time), so this also gives every run an end timestamp and a completion status.
 
         :param status: 'completed' | 'stopped' | 'aborted' | 'error'
         :param reason: optional short string, saved as 'abort_reason' when the run did not complete normally
-        :param paused_seconds: seconds the run spent paused between epochs. Written every time,
-            including as 0.0: a pause leaves an otherwise unexplained gap between one epoch's end
+        :param paused_seconds: seconds the run spent paused between trials. Written every time,
+            including as 0.0: a pause leaves an otherwise unexplained gap between one trial's end
             and the next one's start, and during it the subject sat in the rig with no stimulus.
             Recording zero explicitly says nothing was paused, rather than leaving it ambiguous.
         """

@@ -22,14 +22,14 @@ client, where the protocol runs.
 that could be patched around in a protocol; it is what the transport is.
 
 So the condition has to be evaluated on the server, next to the data, and the server has to tell
-the client. That is what :meth:`~stimpack.experiment.server.BaseServer.end_epoch` does.
+the client. That is what :meth:`~stimpack.experiment.server.BaseServer.end_trial` does.
 
 Where your condition runs
 =========================
 
 A labpack supplies a **server-side closed-loop function**, which stimpack calls on every subject
 state update -- that is, at whatever rate the tracker reports, not once per frame or once per
-epoch. It is defined on the protocol class and loaded onto the server when the run starts:
+trial. It is defined on the protocol class and loaded onto the server when the run starts:
 
 .. code-block:: python
 
@@ -43,11 +43,11 @@ epoch. It is defined on the protocol class and loaded onto the server when the r
             # runs ON THE SERVER, on every tracker update
             x = state_update.get('x', subject_state.get('x', 0))
             if x > 0.5:
-                server.end_epoch(reason='reached_goal')
+                server.end_trial(reason='reached_goal')
             return state_update
 
 The function's usual job is to modify the state update -- that is the closed-loop part -- and it
-must return one. Ending the epoch is an extra thing it may do along the way.
+must return one. Ending the trial is an extra thing it may do along the way.
 
 .. important::
 
@@ -71,21 +71,21 @@ object, which lives on the client.
 What happens next
 =================
 
-``end_epoch()`` sends the client a request to cut short the epoch in progress. The client's
+``end_trial()`` sends the client a request to cut short the trial in progress. The client's
 current wait -- the pre, stimulus or tail interval, which are interruptible
-(:doc:`run_outcomes`) -- returns immediately, and the epoch ends as if its timer had elapsed.
+(:doc:`run_outcomes`) -- returns immediately, and the trial ends as if its timer had elapsed.
 
-**The run continues.** The next epoch starts normally. To stop the whole run instead, report an
+**The run continues.** The next trial starts normally. To stop the whole run instead, report an
 error, which aborts it and records why.
 
-Ending an epoch is not instantaneous: the request travels over the socket and is acted on when the
+Ending an trial is not instantaneous: the request travels over the socket and is acted on when the
 client next polls, every couple of milliseconds. That is well inside a frame, but it is not a
 hardware trigger, and it is the slowest of the ways a stimulus can respond to an animal.
 
 Which of these you want
 -----------------------
 
-``end_epoch`` is for one thing: ending the trial. Making the *stimulus* respond to the animal is a
+``end_trial`` is for one thing: ending the trial. Making the *stimulus* respond to the animal is a
 different job, done elsewhere, and much faster -- the client is not involved at all.
 
 .. list-table::
@@ -105,13 +105,13 @@ different job, done elsewhere, and much faster -- the client is not involved at 
       - A custom stimulus. ``paintGL`` passes ``subject_position`` into every stimulus's
         ``eval_at``, so it can rebuild its geometry each frame from the animal's current state.
     * - The trial ends
-      - ``end_epoch`` -- this page.
+      - ``end_trial`` -- this page.
 
 The first three never leave the server, which is why they are fast: a tracker update reaches the
 screens and is drawn on the next frame. Only ending a trial is a once-per-trial decision that the
-client has to hear about, because the client is what runs the epoch loop.
+client has to hear about, because the client is what runs the trial loop.
 
-So if a stimulus is not responding quickly enough to the animal, ``end_epoch`` is not the tool that
+So if a stimulus is not responding quickly enough to the animal, ``end_trial`` is not the tool that
 was missing -- one of the first three rows is.
 
 What this does to your data
@@ -120,17 +120,17 @@ What this does to your data
 Once trials end on behaviour, the protocol's ``stim_time`` describes what you asked for, not what
 happened. Analysis that assumes every trial is the same length will be quietly wrong.
 
-stimpack therefore records, per epoch:
+stimpack therefore records, per trial:
 
-``epoch_duration``
+``trial_duration``
     how long it actually lasted, in seconds (HDF5). The NWB trials table carries start and stop
     times, so the duration is there by construction.
 
 ``ended_early``
     ``True`` if it was cut short, ``False`` if it ran its full length.
 
-``epoch_end_reason``
-    the string passed to ``end_epoch``, present only when it ended early.
+``trial_end_reason``
+    the string passed to ``end_trial``, present only when it ended early.
 
 Set a meaningful ``reason``. It costs nothing and it is the difference between "this trial was
 1.4 s" and "this trial was 1.4 s because the animal reached the goal", which is usually the thing
@@ -139,15 +139,15 @@ you want to condition the analysis on.
 Late requests
 =============
 
-A criterion met just as an epoch was ending would, naively, arrive during the *next* epoch and cut
+A criterion met just as an trial was ending would, naively, arrive during the *next* trial and cut
 that one short too -- a truncated trial with nothing in the data to explain it.
 
-To prevent that, the client tells the server which epoch it is running, the server stamps each
-request with it, and the client ignores a request for an epoch that has already ended. Between
-epochs the server has nothing to end and ``end_epoch()`` does nothing at all.
+To prevent that, the client tells the server which trial it is running, the server stamps each
+request with it, and the client ignores a request for an trial that has already ended. Between
+trials the server has nothing to end and ``end_trial()`` does nothing at all.
 
-This is handled for you. It matters only if you are writing something that calls ``end_epoch``
-from outside the closed-loop function, where you may be further from the epoch boundary than you
+This is handled for you. It matters only if you are writing something that calls ``end_trial``
+from outside the closed-loop function, where you may be further from the trial boundary than you
 think.
 
 A worked example
@@ -175,7 +175,7 @@ Ending a trial once the animal has held its heading within 10 degrees for half a
                 server._fixation_held_since = time.time()
             elif time.time() - held > 0.5:
                 server._fixation_held_since = None
-                server.end_epoch(reason='fixated')
+                server.end_trial(reason='fixated')
 
             return state_update
 

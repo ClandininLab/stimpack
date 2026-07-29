@@ -28,7 +28,7 @@ class Hdf5DataBrowser(QWidget):
     Tree of groups plus a table of the selected group's attributes, read with util.h5io.
 
     Attribute values are editable and written straight back to the file, except under a series,
-    where epoch parameters are a record of what was actually presented.
+    where trial parameters are a record of what was actually presented.
     """
 
     def __init__(self, data, parent=None):
@@ -130,7 +130,7 @@ class Hdf5DataBrowser(QWidget):
         if group_path != '':
             attr_dict = h5io.get_attributes_from_group(self.file_path, group_path)
             if 'series' in group_path.split('/')[-1]:
-                editable_values = False  # don't let user edit epoch parameters
+                editable_values = False  # don't let user edit trial parameters
             else:
                 editable_values = True
             self.populate_attrs(attr_dict = attr_dict, editable_values = editable_values)

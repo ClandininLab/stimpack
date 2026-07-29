@@ -135,9 +135,9 @@ class BaseServer(MySocketServer):
         # Custom state-dependent control function, initialized to None        
         self.loaded_custom_state_dependent_control = None
 
-        # Which epoch the client is running, set by the client as each one starts. Used to stamp
-        # end_trial() so a request cannot arrive late and cut short the epoch after the one it was
-        # meant for. None between epochs, when there is nothing to end.
+        # Which trial the client is running, set by the client as each one starts. Used to stamp
+        # end_trial() so a request cannot arrive late and cut short the trial after the one it was
+        # meant for. None between trials, when there is nothing to end.
         self.current_trial_index = None
 
         # set the subject position parameters
@@ -332,16 +332,16 @@ class BaseServer(MySocketServer):
         
     def set_current_trial(self, trial_index):
         """
-        Told by the client as each epoch begins, and set to None when it ends.
+        Told by the client as each trial begins, and set to None when it ends.
 
-        Only used to stamp :meth:`end_trial`; the server does not otherwise care which epoch is
+        Only used to stamp :meth:`end_trial`; the server does not otherwise care which trial is
         running.
         """
         self.current_trial_index = trial_index
 
     def end_trial(self, reason=None):
         """
-        Ask the client to end the epoch in progress early, and go on to the next one.
+        Ask the client to end the trial in progress early, and go on to the next one.
 
         For trials whose length is decided by what the animal does rather than by the clock: a
         fixation held long enough, a virtual goal reached, a choice made. The condition has to be
@@ -356,14 +356,14 @@ class BaseServer(MySocketServer):
                     server.end_trial(reason='reached_goal')
                 return state_update
 
-        :param reason: recorded with the epoch, so a trial that ended early can be told apart
+        :param reason: recorded with the trial, so a trial that ended early can be told apart
             from one that ran its full length. Worth setting: once duration depends on behaviour,
             the protocol's stim_time describes the intent rather than the trial.
 
-        Does nothing between epochs -- there is nothing to end, and ending the next one because a
+        Does nothing between trials -- there is nothing to end, and ending the next one because a
         criterion was met just after the last is a bug that would be hard to see in the data.
 
-        This ends one epoch. To stop the whole run, report an error instead
+        This ends one trial. To stop the whole run, report an error instead
         (:meth:`report_to_client`), which aborts it and records why.
         """
         if self.current_trial_index is None:

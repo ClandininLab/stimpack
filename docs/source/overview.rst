@@ -13,7 +13,7 @@ An experiment runs as several processes:
                                                         ├── locomotion  ── tracker subprocess
                                                         └── voltage_out ── DAQ
 
-The **client** runs the protocol: it decides what each epoch contains and writes the data file. The
+The **client** runs the protocol: it decides what each trial contains and writes the data file. The
 **server** owns the hardware, and usually runs on the rig machine while the client runs wherever the
 experimenter is sitting. Each **screen** is its own subprocess with its own GL context, so one
 display stalling cannot stall another.
@@ -22,6 +22,19 @@ They talk over a small JSON protocol. Calls are addressed to a module::
 
     manager.target('visual').load_stim(name='MovingPatch', width=10, height=30)
     manager.target('voltage_out').output_step(output_channels='DAC0', pre_time=0, step_time=1)
+
+Trials and series
+=================
+
+A **trial** is one stimulus presentation. A **series** is a run of them under one protocol, and is
+what the Record button produces: one series, numbered, with its parameters and outcome recorded
+alongside.
+
+Before 0.3 stimpack called these an *epoch* and an *epoch run*. Its NWB files never did -- NWB
+calls a presentation a trial -- so the same thing had two names depending on where you looked.
+Code written for the old names still works: ``get_epoch_parameters``, ``num_epochs`` and the rest
+are accepted, each warning once and naming its replacement. ``stimpack --check-labpack`` lists the
+ones a labpack still uses, and :doc:`labpack_configs` covers reading data files written either way.
 
 Two things follow from that design and are worth knowing early.
 

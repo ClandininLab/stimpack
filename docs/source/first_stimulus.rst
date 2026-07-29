@@ -37,7 +37,7 @@ Run it::
     python examples/1-hello_world.py
 
 A window opens and a checkerboard appears five times. On exit, ``print_profile=True`` prints the
-frame-time distribution for the epoch, which is the first thing to look at when timing matters.
+frame-time distribution for the trial, which is the first thing to look at when timing matters.
 
 What just happened
 ==================

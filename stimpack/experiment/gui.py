@@ -146,7 +146,7 @@ class ExperimentGUI(QWidget):
         self.current_ensemble_idx = 0
 
         self.ensemble_running = False
-        # An ensemble held between items because Pause was pressed during the final epoch of one of
+        # An ensemble held between items because Pause was pressed during the final trial of one of
         # them, and the flag needed to resume it. See run_finished.
         self.ensemble_paused = False
         self.ensemble_save_metadata_flag = False
@@ -218,7 +218,7 @@ class ExperimentGUI(QWidget):
             self.protocol_action_grid.setColumnStretch(button_column, 1)
 
         # Captions sized to their text sit right against the field they name. Widen the gap
-        # between columns, and widen it again before the second caption ('Subject:', 'Epochs run:')
+        # between columns, and widen it again before the second caption ('Subject:', 'Trials run:')
         # so the two pairs on a row read as two pairs rather than as four things in a line.
         self.protocol_status_grid.setHorizontalSpacing(10)
         self.protocol_status_grid.setColumnMinimumWidth(2, 24)
@@ -312,7 +312,7 @@ class ExperimentGUI(QWidget):
         self.current_subject_main_label.setFrameShadow(QFrame.Shadow(1))
         self.protocol_status_grid.addWidget(self.current_subject_main_label, 0, 3)
 
-        # Elapsed time and epoch count share a row: both say how far through the run we are, and
+        # Elapsed time and trial count share a row: both say how far through the run we are, and
         # neither needs a third of the window to show "0 / 240".
         new_label = QLabel('Elapsed / Est:')
         self.protocol_status_grid.addWidget(new_label, 1, 0)
@@ -321,15 +321,15 @@ class ExperimentGUI(QWidget):
         self.protocol_status_grid.addWidget(self.elapsed_time_label, 1, 1)
         self.elapsed_time_label.setText('')
 
-        new_label = QLabel('Epochs run:')
+        new_label = QLabel('Trials run:')
         self.protocol_status_grid.addWidget(new_label, 1, 2)
         self.trial_count_label = QLabel()
         self.trial_count_label.setFrameShadow(QFrame.Shadow(1))
         self.protocol_status_grid.addWidget(self.trial_count_label, 1, 3)
         self.trial_count_label.setText('')
 
-        # What this epoch drew: the parameters that vary from epoch to epoch, at their values for
-        # the epoch running now. Those values are chosen on the client and sent to the server,
+        # What this trial drew: the parameters that vary from trial to trial, at their values for
+        # the trial running now. Those values are chosen on the client and sent to the server,
         # which prints them; until now the GUI never showed them, so the only way to see what was
         # on screen was the server's terminal.
         #
@@ -350,7 +350,7 @@ class ExperimentGUI(QWidget):
             self.epoch_parameters_label.fontMetrics().height()
             + 2 * self.epoch_parameters_scroll_area.frameWidth())
 
-        self.protocol_status_grid.addWidget(QLabel('This epoch:'), 2, 0)
+        self.protocol_status_grid.addWidget(QLabel('This trial:'), 2, 0)
         self.protocol_status_grid.addWidget(self.epoch_parameters_scroll_area, 2, 1, 1, 3)
 
         # Elapsed timer for protocol
@@ -417,7 +417,7 @@ class ExperimentGUI(QWidget):
         # The Ensemble tab's own readouts and run buttons. Its own, rather than the Main tab's
         # section moved across: the two tabs run different things, and the numbers that describe
         # them are different numbers. One shared section meant buttons that changed meaning with
-        # the tab, and readouts ('Elapsed / Est', 'Epochs run') that only ever described a series.
+        # the tab, and readouts ('Elapsed / Est', 'Trials run') that only ever described a series.
         self.ensemble_control_box = QWidget()
         self.ensemble_control_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
                                                             QSizePolicy.Policy.Fixed))
@@ -500,9 +500,9 @@ class ExperimentGUI(QWidget):
         self.ensemble_list_grid.addWidget(self.ensemble_clear_button, 4, 1)
 
         # Ensemble readouts. 'Protocols run' is the ensemble's equivalent of the Main tab's
-        # 'Epochs run'; elapsed is measured from the start of the ensemble rather than of the item
+        # 'Trials run'; elapsed is measured from the start of the ensemble rather than of the item
         # in progress. No estimate to measure it against: that would mean precomputing every
-        # item's epoch parameters up front, which is what makes est_run_time available for a
+        # item's trial parameters up front, which is what makes est_run_time available for a
         # single protocol.
         self.ensemble_status_grid.addWidget(QLabel('Protocols run:'), 0, 0)
         self.ensemble_progress_label = QLabel()
@@ -687,7 +687,7 @@ class ExperimentGUI(QWidget):
                 pass                              # that one had no connections; keep going
 
         if thread.isRunning():
-            self.client.stop_run()                # BaseClient.start_run checks this between epochs
+            self.client.stop_run()                # BaseClient.start_run checks this between trials
             if not thread.wait(timeout_ms):
                 warnings.warn("The run thread did not finish; closing anyway.")
 
@@ -801,8 +801,8 @@ class ExperimentGUI(QWidget):
         elif sender.text() == 'Pause':
             self.client.pause_run()
             self.set_pause_button_label('Resume')
-            # Don't announce "Paused" here: the run is still presenting and recording the epoch it
-            # was in. update_run_progress reports 'Pausing after this epoch finishes...' now, and
+            # Don't announce "Paused" here: the run is still presenting and recording the trial it
+            # was in. update_run_progress reports 'Pausing after this trial finishes...' now, and
             # switches to 'Paused' when the run loop has actually gone idle. Called directly rather
             # than waiting up to a second for the timer, so the button press feels immediate.
             self.update_run_progress()
@@ -1338,7 +1338,7 @@ class ExperimentGUI(QWidget):
                 self.status_label.setText(f'Cannot record: {e}')
                 return
 
-        # start the epoch run thread:
+        # start the series thread:
         self.run_series_thread = runSeriesThread(self.protocol_object,
                                                  self.data,
                                                  self.client,
@@ -1393,7 +1393,7 @@ class ExperimentGUI(QWidget):
             self.populate_groups()
 
         if self.ensemble_running:
-            # A pause asked for during the final epoch never took effect: the run loop's condition
+            # A pause asked for during the final trial never took effect: the run loop's condition
             # fails before the pause branch is reached, and the next start_run clears the flag. In
             # an ensemble that meant pressing Pause, watching the button say 'Resume', and having
             # the next protocol start anyway. Hold here instead, and let Resume release it.
@@ -1574,7 +1574,7 @@ class ExperimentGUI(QWidget):
         return text
 
     def varying_epoch_parameter_names(self):
-        """Protocol parameters that take a different value from epoch to epoch.
+        """Protocol parameters that take a different value from trial to trial.
 
         process_input_parameters records these in persistent_parameters, but a protocol is free to
         override that method, and a labpack one that does not call super() leaves the list unset.
@@ -1589,7 +1589,7 @@ class ExperimentGUI(QWidget):
         return names
 
     def epoch_parameters_text(self):
-        """This epoch's values for the parameters that vary, as one line.
+        """This trial's values for the parameters that vary, as one line.
 
         Only the varying ones: the rest are on show in the parameter fields above, unchanged for
         the whole run, and repeating them here would bury the two or three that actually differ.
@@ -1600,7 +1600,7 @@ class ExperimentGUI(QWidget):
         values = self.protocol_object.trial_protocol_parameters or {}
         names = [name for name in self.varying_epoch_parameter_names() if name in values]
         if not names:
-            return '(no parameters vary across epochs)'
+            return '(no parameters vary across trials)'
         return ',   '.join(f'{name}: {values[name]}' for name in names)
 
     def update_ensemble_progress(self):
@@ -1609,7 +1609,7 @@ class ExperimentGUI(QWidget):
         Measured from the start of the ensemble, not of the item in progress, and it keeps
         counting between items -- the gap between one protocol finishing and the next starting is
         time the ensemble is taking. There is no estimate to show it against: est_run_time comes
-        from precomputing a protocol's epoch parameters, and doing that for every item up front is
+        from precomputing a protocol's trial parameters, and doing that for every item up front is
         the expensive part.
         """
         total = len(self.ensemble_list)
@@ -1636,7 +1636,7 @@ class ExperimentGUI(QWidget):
             elapsed_time = int(time.time() - self.run_start_time) - paused_seconds
             epoch_count = self.protocol_object.num_trials_completed
 
-        # est_run_time is only set once prepare_run has precomputed the epochs, and this method is
+        # est_run_time is only set once prepare_run has precomputed the trials, and this method is
         # now reached from the Pause/Resume slots as well as the timer. An exception raised in a Qt
         # slot takes the whole application down, which is far too high a price for a label.
         est_run_time = getattr(self.protocol_object, 'est_run_time', None)
@@ -1646,9 +1646,9 @@ class ExperimentGUI(QWidget):
             elapsed_text += f'  (+{paused_seconds})'
         self.elapsed_time_label.setText(elapsed_text)
         self.trial_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_trials", "?")}')
-        # Read straight off the protocol object, like the epoch count above it. The run loop owns
+        # Read straight off the protocol object, like the trial count above it. The run loop owns
         # that object on another thread, but these are plain attribute reads of values it replaces
-        # wholesale at the start of each epoch, so the worst case is showing the previous epoch's
+        # wholesale at the start of each trial, so the worst case is showing the previous trial's
         # values for one tick of the timer.
         self.epoch_parameters_label.setText(self.epoch_parameters_text())
         self.update_ensemble_progress()
@@ -1660,9 +1660,9 @@ class ExperimentGUI(QWidget):
         if pause_state != self._pause_state_shown:
             self._pause_state_shown = pause_state
             if pause_state == 'pending':
-                self.status_label.setText('Pausing after this epoch finishes...')
+                self.status_label.setText('Pausing after this trial finishes...')
             elif pause_state == 'paused':
-                self.status_label.setText(f'Paused after {epoch_count} epochs')
+                self.status_label.setText(f'Paused after {epoch_count} trials')
             else:
                 self.status_label.setText(self.run_status_text())
 

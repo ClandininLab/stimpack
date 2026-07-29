@@ -41,7 +41,7 @@ One protocol, several rigs
 Rigs differ, and a protocol that assumes hardware will fail on the rig that lacks it. The server
 tells the client which modules it has when the connection opens, so a protocol can ask::
 
-    if self.has_module('voltage_out') and self.epoch_protocol_parameters['opto_amp'] > 0:
+    if self.has_module('voltage_out') and self.trial_protocol_parameters['opto_amp'] > 0:
         multicall.target('voltage_out').setup_pulse_wave_stream_out(
             channels_config={'name': 'DAC0', 'high': amp, 'low': 0.0},
             frequency_hz=50, pulse_width_s=0.01)

@@ -59,7 +59,7 @@ ExperimentGUI ── BaseClient ──socket── BaseServer ──┬── vi
                                                     └── voltage_out ── DAQ
 ```
 
-The **client** runs the protocol, decides what each epoch contains, and writes the data file. The
+The **client** runs the protocol, decides what each trial contains, and writes the data file. The
 **server** owns the hardware and usually runs on the rig machine while the client runs wherever the
 experimenter is sitting. Each **screen** is its own subprocess with its own GL context, so one
 display stalling cannot stall another.

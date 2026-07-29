@@ -13,7 +13,7 @@ class ServerErrorDemo(BaseProtocol):
     """
     Deliberately triggers a server-side error, to demonstrate server -> client error reporting.
 
-    Each epoch asks the display server to load a stimulus class that does not exist, so load_stim
+    Each trial asks the display server to load a stimulus class that does not exist, so load_stim
     raises on the server. The error bubbles back to the client: it shows up in the GUI status label
     (tagged [screen], since it originates in a screen subprocess), the run aborts instead of running
     to completion, and — when recording — the series group is written with run_status='error' and
@@ -168,7 +168,7 @@ class MovingPatch(BaseProtocol):
     def get_trial_parameters(self):
         super().get_trial_parameters()
 
-        # Create stimpack.visual_stim epoch parameters dictionary
+        # Create stimpack.visual_stim trial parameters dictionary
         self.trial_stim_parameters = self.get_moving_patch_parameters(center=self.trial_protocol_parameters['center'],
                                                                 angle=self.trial_protocol_parameters['angle'],
                                                                 speed=self.trial_protocol_parameters['speed'],
@@ -299,7 +299,7 @@ class LinearTrackWithTowers(BaseProtocol):
         tower_x_pos_l = -track_width/2 - tower_radius
         tower_x_pos_r = +track_width/2 + tower_radius
 
-        # Create stimpack.visual_stim epoch parameters dictionary
+        # Create stimpack.visual_stim trial parameters dictionary
 
         track = {'name':  'CheckerboardFloor',
                 'mean': self.trial_protocol_parameters['track_color_mean'],
