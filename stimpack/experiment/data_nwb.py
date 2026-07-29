@@ -31,6 +31,19 @@ from stimpack.experiment.data import BaseData, hdf5ify_parameter
 from stimpack.experiment.util import config_tools
 
 
+def _row_shape(value):
+    """Shape of a single row of a column holding ``value``, for declaring the column's maxshape.
+
+    ``()`` for a scalar, ``(2,)`` for a pair, and ``()`` again for anything numpy cannot measure
+    (a ragged nested list, say) -- in which case the write fails on its own terms rather than on a
+    shape computed here.
+    """
+    try:
+        return tuple(np.shape(value))
+    except ValueError:
+        return ()
+
+
 def _days_from_iso8601_duration(age):
     """
     Invert the day-valued ISO 8601 duration NWB stores an age as: 'P3D' -> 3.
@@ -470,8 +483,12 @@ class NWBData(BaseData):
             start_time = start_time - session_start_time.timestamp()
             stop_time = datetime.now(self.timezone).timestamp() - session_start_time.timestamp()
             
-            # Create the table if it doesn't exist
-            maxshape = 1000
+            # Create the table if it doesn't exist.
+            #
+            # None, not a number: this was 1000, which is a hard ceiling on the number of trials a
+            # series can hold -- epoch 1001 would have failed to write, and only then. The epochs
+            # table alongside it already declares its columns unlimited.
+            maxshape = None
             if subject_nwbfile.trials is None:
                 ids = ElementIdentifiers(
                     name='id',
@@ -487,7 +504,15 @@ class NWBData(BaseData):
                 columns_to_add.append(stop_time)
                 for column in self.trial_parameters:
                     value = self.trial_parameters[column]
-                    vector_column = VectorData(name=column, description=column, data=H5DataIO(data=[value], maxshape=(maxshape,)))
+                    # maxshape has to have the same rank as the data, and a parameter is not
+                    # always a scalar: width_height and center are pairs, and MovingPatch and
+                    # MovingEllipse both have them. One row of a pair is shape (1, 2), so a
+                    # rank-1 maxshape made h5py refuse the dataset and aborted the run on its
+                    # first epoch. Growing along rows only -- the width of a row is fixed by the
+                    # first epoch, which is what a table column means.
+                    vector_column = VectorData(name=column, description=column,
+                                               data=H5DataIO(data=[value],
+                                                             maxshape=(maxshape,) + _row_shape(value)))
                     columns_to_add.append(vector_column)
 
                 trials_table = TimeIntervals(

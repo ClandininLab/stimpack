@@ -396,9 +396,20 @@ class BaseClient():
                     print(f"[server:{level}] (occurred {count}x this run) {text}")
 
             # Record the outcome of this run in the data file.
+            #
+            # Isolated because this is a finally block: an exception raised here replaces whatever
+            # actually went wrong with a failure from the cleanup, and -- since start_run is called
+            # on a QThread, where an exception out of run() aborts the process -- takes the GUI
+            # down with it. That is exactly what happened when a bad epoch write left an NWB file
+            # that end_epoch_run could not then read: the real error was reported, and then the
+            # application core-dumped while trying to record that it had failed.
             if save_metadata_flag:
-                data.end_epoch_run(protocol_object, status=run_status, reason=run_status_reason,
-                                   paused_seconds=self.paused_seconds)
+                try:
+                    data.end_epoch_run(protocol_object, status=run_status, reason=run_status_reason,
+                                       paused_seconds=self.paused_seconds)
+                except Exception:
+                    warnings.warn(f"Could not record how this run ended (it ended '{run_status}'):"
+                                  f"\n{traceback.format_exc()}")
 
             if not broken:
                 self.manager.print_on_server('Run ended.')

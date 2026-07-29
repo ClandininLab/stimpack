@@ -663,3 +663,82 @@ def test_nwb_deletes_the_series_file(client, nwb_data):
     # and prepare_series, which refuses to overwrite, is happy to write it again
     nwb_data.prepare_series()
     assert path.is_file()
+
+
+# --- NWB: parameters that are not scalars --------------------------------------------------------
+
+class VectorParamProtocol(TinyProtocol):
+    """A protocol whose epoch parameters include a multi-element value.
+
+    Utterly ordinary -- MovingPatch and MovingEllipse both have width_height, and centre is a
+    coordinate pair -- which is what makes it worth a test.
+    """
+    def get_run_parameter_defaults(self):
+        return {'num_epochs': 2, 'idle_color': 0.5, 'do_loco': False}
+
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 0.0, 'stim_time': 0.0, 'tail_time': 0.0,
+                'width_height': [[10, 30]], 'center': [[0, 0]]}
+
+
+def test_nwb_records_epochs_whose_parameters_are_pairs(client, nwb_data):
+    """#nwb: the trials table wrote a 2-element value as a (1, 2) dataset while declaring a
+    rank-1 maxshape, so h5py refused it and the run aborted on the first epoch."""
+    protocol = VectorParamProtocol(cfg={})
+
+    client.start_run(protocol, nwb_data, save_metadata_flag=True)
+
+    assert protocol.num_epochs_completed == 2, 'the run did not survive its first epoch'
+
+    from pynwb import NWBHDF5IO
+    with NWBHDF5IO(nwb_data.get_nwb_file_path(), 'r') as io:
+        trials = io.read().trials.to_dataframe()
+
+    assert len(trials) == 2
+    assert list(trials['width_height'].iloc[0]) == [10, 30], 'the pair was not recorded'
+
+
+def test_a_failure_to_record_the_outcome_does_not_take_the_process_down(client, data, monkeypatch):
+    """start_run is called on a QThread, where an exception out of run() aborts the process. This
+    one is raised from a finally block, so it also replaced the real error with the cleanup's --
+    which is how a bad NWB epoch write ended with the GUI core-dumping while trying to record that
+    the run had failed, reporting a read error instead of the write that caused it."""
+    protocol = TinyProtocol(cfg={})
+
+    def explode(*args, **kwargs):
+        raise ValueError('No data_type found for builder root/intervals/trials')
+    monkeypatch.setattr(data, 'end_epoch_run', explode)
+
+    with pytest.warns(UserWarning, match='Could not record how this run ended'):
+        client.start_run(protocol, data, save_metadata_flag=True)   # must not raise
+
+    assert protocol.num_epochs_completed == 3, 'the run itself should have finished normally'
+
+
+def test_the_original_error_survives_a_failing_cleanup(client, data, monkeypatch):
+    """The run's own failure is what the experimenter needs to see, not the cleanup's."""
+    protocol = TinyProtocol(cfg={})
+    protocol.on_epoch = lambda p: (_ for _ in ()).throw(RuntimeError('the screen fell over'))
+    monkeypatch.setattr(data, 'end_epoch_run',
+                        lambda *a, **k: (_ for _ in ()).throw(ValueError('cleanup also failed')))
+
+    with pytest.warns(UserWarning) as warnings_raised:
+        client.start_run(protocol, data, save_metadata_flag=True)
+
+    messages = [str(w.message) for w in warnings_raised]
+    assert any('the screen fell over' in m for m in messages), 'the real error was lost'
+    assert any('Could not record how this run ended' in m for m in messages)
+
+
+def test_nwb_trials_columns_can_grow_without_limit(client, nwb_data):
+    """The trials table declared maxshape=1000, a hard ceiling that would have failed on epoch
+    1001 and not before. Checked by reading the declared shape rather than by writing 1001 rows."""
+    import h5py
+
+    client.start_run(VectorParamProtocol(cfg={}), nwb_data, save_metadata_flag=True)
+
+    with h5py.File(nwb_data.get_nwb_file_path(), 'r') as f:
+        trials = f['/intervals/trials']
+        assert trials['start_time'].maxshape == (None,)
+        # a pair keeps its width and grows only in rows
+        assert trials['width_height'].maxshape == (None, 2)
