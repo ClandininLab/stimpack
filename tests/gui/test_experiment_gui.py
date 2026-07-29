@@ -24,9 +24,9 @@ def select_protocol(gui, name):
 def test_gui_constructs_with_expected_widgets(experiment_gui):
     gui = experiment_gui
     assert gui.cfg_initialized is True
-    assert gui.view_button.isEnabled()
-    assert not gui.record_button.isEnabled()                # no subject to record onto yet
-    assert gui.status_label.text() == 'Select a protocol'   # nothing selected yet
+    assert not gui.view_button.isEnabled()                  # nothing selected to run yet
+    assert not gui.record_button.isEnabled()                # nor a subject to record onto
+    assert gui.status_label.text() == 'Select a protocol'   # which the status line says
 
 
 def test_protocols_are_discovered(experiment_gui):
@@ -1580,3 +1580,79 @@ def test_deselecting_does_not_claim_to_be_ready(experiment_gui):
     gui.on_selected_protocol_ID(0)
 
     assert gui.status_label.text() == 'Select a protocol'
+
+
+def _select_protocol(gui, name='DriftingSquareGrating'):
+    index = [c.__name__ for c in gui.available_protocols].index(name) + 1
+    gui.protocol_selection_combo_box.setCurrentIndex(index)
+    gui.on_selected_protocol_ID(index)
+
+
+def test_running_needs_something_to_run(experiment_gui):
+    """Neither pair of run buttons checked that there was anything to act on: Main would have run a
+    bare BaseProtocol with no protocol selected, and an empty ensemble ran its way straight back to
+    standby. What 'something' is differs per tab -- the selected protocol, or the list."""
+    gui = experiment_gui
+
+    assert not gui.view_button.isEnabled()
+    assert not gui.ensemble_view_button.isEnabled()
+
+    _select_protocol(gui)
+    assert gui.view_button.isEnabled()
+    assert not gui.ensemble_view_button.isEnabled(), 'the Main selection is not an ensemble'
+
+    gui.ensemble_list.append_item('DriftingSquareGrating', 'Default')
+    assert gui.ensemble_view_button.isEnabled()
+
+    gui.protocol_selection_combo_box.setCurrentIndex(0)
+    gui.on_selected_protocol_ID(0)
+    assert not gui.view_button.isEnabled(), 'deselecting left Main runnable'
+    assert gui.ensemble_view_button.isEnabled(), 'the ensemble does not depend on Main'
+
+
+@pytest.mark.parametrize('mutate, still_runnable', [
+    (lambda lst: lst.append_item('DriftingSquareGrating', 'Default'), True),
+    (lambda lst: lst.remove_item(0), False),
+    (lambda lst: lst.clear(), False),
+])
+def test_every_way_of_changing_the_ensemble_updates_its_buttons(experiment_gui, mutate,
+                                                                still_runnable):
+    """Taken from the model's own signals rather than from each of Append / Remove / Clear /
+    load-a-file, so a fifth way to change the list cannot silently skip the refresh."""
+    gui = experiment_gui
+    gui.ensemble_list.append_item('DriftingSquareGrating', 'Default')
+
+    mutate(gui.ensemble_list)
+
+    assert gui.ensemble_view_button.isEnabled() is still_runnable
+
+
+def test_the_ensemble_list_keeps_its_two_halves_in_step_during_a_change(experiment_gui):
+    """The rows and the (protocol, preset) pairs behind them must agree, which EnsembleList.__len__
+    asserts. Listening to the model's signals means running inside the announcement of a change, so
+    the pairs are updated before the rows -- with the rows first, a listener saw them out of step by
+    one and tripped the assert."""
+    gui = experiment_gui
+    seen = []
+    gui.ensemble_list.model().rowsInserted.connect(lambda *a: seen.append(len(gui.ensemble_list)))
+    gui.ensemble_list.model().rowsRemoved.connect(lambda *a: seen.append(len(gui.ensemble_list)))
+
+    gui.ensemble_list.append_item('DriftingSquareGrating', 'Default')
+    gui.ensemble_list.append_item('DriftingSquareGrating', 'Default')
+    gui.ensemble_list.remove_item(0)
+
+    assert seen == [1, 2, 1]
+
+
+def test_a_disabled_run_button_says_what_is_missing(experiment_gui):
+    """A greyed button says nothing on its own. Only for prerequisites the user can act on -- that
+    something else is already running is plain from the rest of the window."""
+    gui = experiment_gui
+
+    assert gui.view_button.toolTip() == 'Select a protocol first.'
+    assert gui.ensemble_view_button.toolTip() == 'Add a protocol to the ensemble first.'
+
+    _select_protocol(gui)
+
+    assert gui.view_button.toolTip() == ''
+    assert gui.record_button.toolTip() == 'Specify a subject to record.'

@@ -142,6 +142,11 @@ class ExperimentGUI(QWidget):
 
         # start a protocol object
         self.protocol_object =  protocol.BaseProtocol(self.cfg)
+        # Whether protocol_object is one the user chose, rather than the placeholder standing in
+        # for none. Set by the two methods that know, not read off the dropdown's index: the
+        # dropdown is also driven programmatically (run_ensemble_item, deselecting), and reading it
+        # meant on_selected_protocol_ID(0) left the run buttons live when the index had not moved.
+        self.protocol_selected = False
         self.available_protocols =  [x for x in get_all_subclasses(protocol.BaseProtocol) if x.__name__ not in ['BaseProtocol', 'SharedPixMapProtocol']]
 
         # start a data object
@@ -763,6 +768,15 @@ class ExperimentGUI(QWidget):
         self.layout.addWidget(self.tabs)
         self.layout.addLayout(bottom_row)
 
+        # The ensemble run buttons need to know whether there is anything in the list. Taken from
+        # the model's own signals rather than by calling the refresh at each of Append / Remove /
+        # Clear / load-a-file: those are four places to remember, and a fifth way to change the
+        # list would silently not be one of them.
+        for signal in (self.ensemble_list.model().rowsInserted,
+                       self.ensemble_list.model().rowsRemoved,
+                       self.ensemble_list.model().modelReset):
+            signal.connect(self.update_run_button_states)
+
         self.update_run_button_states()
 
         # Resize window based on protocol tab
@@ -814,6 +828,7 @@ class ExperimentGUI(QWidget):
 
         # initialize the selected protocol object
         self.protocol_object = self.available_protocols[protocol_dropdown_idx-1](self.cfg)
+        self.protocol_selected = True
 
         # update display lists of run & protocol parameters
         self.protocol_object.load_parameter_presets()
@@ -837,6 +852,7 @@ class ExperimentGUI(QWidget):
         # re-enabled View and Record, which update_run_button_states reads status to decide.
         if self.status == Status.STANDBY:
             self.status_label.setText('Ready')
+        self.update_run_button_states()
 
     def deselect_protocol(self):
         """Put the Main tab back the way it starts, on '(select a protocol to run)'.
@@ -851,11 +867,13 @@ class ExperimentGUI(QWidget):
         """
         self.reset_layout()
         self.protocol_object = protocol.BaseProtocol(self.cfg)
+        self.protocol_selected = False
         self.update_parameter_preset_selector()
         self.trial_parameters_label.setText(self.trial_parameters_text())
         self.update_window_width()
         if self.status == Status.STANDBY:
             self.status_label.setText('Select a protocol')
+        self.update_run_button_states()
 
     def on_server_message_received(self, level, text):
         '''Runs on the GUI thread (via server_message_signal): surface a message the server pushed back.
@@ -1424,14 +1442,30 @@ class ExperimentGUI(QWidget):
         running = self.status != Status.STANDBY
         busy = running or self.ensemble_running
         can_record = bool(self.data.current_subject)
+        # Something to run, which is a different thing on each tab: the Main buttons run the
+        # selected protocol, the Ensemble buttons run the list. Neither was checked, so both pairs
+        # were live with nothing to act on -- Main would have run a bare BaseProtocol, and an empty
+        # ensemble ran its way straight back to standby.
+        has_protocol = self.protocol_selected
+        has_ensemble = len(self.ensemble_list) > 0
 
-        self.view_button.setEnabled(not busy)
-        self.record_button.setEnabled(not busy and can_record)
+        self.view_button.setEnabled(not busy and has_protocol)
+        self.record_button.setEnabled(not busy and has_protocol and can_record)
         self.stop_button.setEnabled(running)
 
-        self.ensemble_view_button.setEnabled(not busy)
-        self.ensemble_record_button.setEnabled(not busy and can_record)
+        self.ensemble_view_button.setEnabled(not busy and has_ensemble)
+        self.ensemble_record_button.setEnabled(not busy and has_ensemble and can_record)
         self.ensemble_stop_button.setEnabled(self.ensemble_running)
+
+        # A greyed button says nothing about why. Only for prerequisites the user can act on --
+        # that something else is already running is plain from the rest of the window.
+        protocol_hint = '' if has_protocol else 'Select a protocol first.'
+        ensemble_hint = '' if has_ensemble else 'Add a protocol to the ensemble first.'
+        subject_hint = '' if can_record else 'Specify a subject to record.'
+        self.view_button.setToolTip(protocol_hint)
+        self.record_button.setToolTip(protocol_hint or subject_hint)
+        self.ensemble_view_button.setToolTip(ensemble_hint)
+        self.ensemble_record_button.setToolTip(ensemble_hint or subject_hint)
 
         # One run loop, so both Pause buttons reflect the one piece of client state.
         for button in (self.pause_button, self.ensemble_pause_button):
@@ -2323,18 +2357,23 @@ class EnsembleList(QListWidget):
         assert len(self.protocol_preset_list) == self.count()
         return self.count()
 
+    # The rows and the (protocol, preset) pairs behind them are two structures that have to agree,
+    # which __len__ above asserts. Each mutator below updates the pairs BEFORE the rows, so they
+    # already agree by the time the widget's model announces the change -- anything listening to
+    # rowsInserted / rowsRemoved / modelReset runs inside that announcement, and with the rows
+    # changed first it would see the two out of step by one and trip the assert.
     def append_item(self, protocol_name, preset_name):
-        super().addItem(protocol_name + ' (' + preset_name + ')')
         self.protocol_preset_list.append((protocol_name, preset_name))
-    
+        super().addItem(protocol_name + ' (' + preset_name + ')')
+
     def clear(self):
-        super().clear()
         self.protocol_preset_list = []
         self.current_ensemble_idx = -1
+        super().clear()
 
     def remove_item(self, row):
-        super().takeItem(row)
         self.protocol_preset_list.pop(row)
+        super().takeItem(row)
 
     def increment_current_ensemble_idx(self):
         self.current_ensemble_idx += 1
