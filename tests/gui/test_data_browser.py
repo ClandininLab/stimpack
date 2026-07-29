@@ -177,3 +177,116 @@ def test_populating_the_table_does_not_write_to_the_file(browser):
         after = dict(f['/Subjects/fly1'].attrs)
     assert after == before
     assert type(after['age']) is type(before['age'])     # and not turned into a string
+
+
+# --- one browser, three backends -------------------------------------------------------------
+
+def labels_under(browser):
+    """Every label in the tree, depth first."""
+    found = []
+
+    def walk(item):
+        for i in range(item.childCount()):
+            child = item.child(i)
+            found.append(child.text(0))
+            walk(child)
+
+    walk(browser.group_tree.invisibleRootItem())
+    return found
+
+
+def build(data_class, tmp_path, name, trials=2):
+    """Record one series of `trials` trials with the given backend."""
+    class Proto:
+        run_parameters = {'num_trials': trials, 'idle_color': 0.0}
+        protocol_parameters = {'angle': [0, 90]}
+        trial_stim_parameters = {'name': 'DriftingSquareGrating'}
+        trial_protocol_parameters = {'pre_time': 1.0, 'stim_time': 2.0, 'tail_time': 1.0}
+        num_trials_completed = 0
+        save_stringified_params = False
+
+    data = data_class(cfg={'experimenter': 't', 'lab': 'L', 'institution': 'I',
+                           'current_rig_name': 'r', 'rig_config': {'r': {'screen_center': [0, 0]}}})
+    data.data_directory = str(tmp_path)
+    data.experiment_file_name = name
+    data.initialize_experiment_file()
+    data.create_subject({'subject_id': 'fly1', 'age': 3, 'notes': ''})
+    data.prepare_series()
+    proto = Proto()
+    data.create_series(proto)
+    for i in range(trials):
+        proto.num_trials_completed = i
+        data.create_trial(proto)
+        data.end_trial(proto)
+    data.end_series(proto)
+    return data
+
+
+def test_the_browser_reads_the_legacy_hdf5_layout(qapp, tmp_path):
+    """A lab pinned to legacy_hdf5 must still be able to open its own files."""
+    from stimpack.experiment.data_legacy import LegacyHdf5Data
+
+    data = build(LegacyHdf5Data, tmp_path, 'legacy')
+    browser = data.make_data_browser()
+    browser.refresh()
+    try:
+        labels = labels_under(browser)
+        assert 'epoch_runs' in labels and 'series_001' in labels
+        assert 'trials' not in labels, 'the new layout leaked into the legacy file'
+    finally:
+        browser.close()
+
+
+def test_the_browser_reads_the_current_hdf5_layout(qapp, tmp_path):
+    from stimpack.experiment.data import BaseData
+
+    data = build(BaseData, tmp_path, 'current')
+    browser = data.make_data_browser()
+    browser.refresh()
+    try:
+        labels = labels_under(browser)
+        assert 'series' in labels and 'series_001' in labels
+        assert 'epoch_runs' not in labels
+    finally:
+        browser.close()
+
+
+def test_the_browser_shows_one_node_per_nwb_series_file(qapp, tmp_path):
+    """An NWB experiment is a directory of files, so the tree gains a level the single-file
+    formats do not have -- which is why the backend supplies the file list."""
+    pytest.importorskip('pynwb')
+    from stimpack.experiment.data_nwb import NWBData
+
+    data = build(NWBData, tmp_path, 'nwbdir')
+    data.advance_series_count()
+    data.prepare_series()                       # a second series file
+    browser = data.make_data_browser()
+    browser.refresh()
+    try:
+        labels = labels_under(browser)
+        files = [name for name in labels if name.endswith('.nwb')]
+        assert len(files) == 2, f'expected one node per series file, got {files}'
+        assert any('intervals' in name or 'acquisition' in name or 'general' in name
+                   for name in labels), 'the nwb file contents were not walked'
+    finally:
+        browser.close()
+
+
+def test_nwb_attributes_are_not_editable(qapp, tmp_path):
+    """pynwb validates a schema; a hand-edited attribute can make a file unreadable."""
+    pytest.importorskip('pynwb')
+    from stimpack.experiment.data_nwb import NWBData
+
+    data = build(NWBData, tmp_path, 'readonly')
+    assert data.browser_is_editable is False
+
+    browser = data.make_data_browser()
+    browser.refresh()
+    try:
+        # the write path must refuse even if something reaches it directly
+        before = sorted(p.read_bytes() for p in data.get_series_files())
+        browser.update_attrs_to_file(browser.table_attributes.item(0, 0))
+        after = sorted(p.read_bytes() for p in data.get_series_files())
+        assert before == after, 'an NWB file was written to through the browser'
+    finally:
+        browser.close()

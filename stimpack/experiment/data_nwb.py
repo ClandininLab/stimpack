@@ -72,8 +72,12 @@ class NWBData(BaseData):
     either name keep working.
     """
     output_is_directory = True
-    supports_data_browser = False   # h5io's tree browser cannot read a directory of nwb files
+    supports_data_browser = True
     output_noun = 'NWB directory'
+
+    # An .nwb file is HDF5, so the same tree browser reads it; what differs is that an experiment
+    # is a directory of them rather than one file, which browsable_files expresses.
+    browser_is_editable = False
 
     def __init__(self, cfg):
         super().__init__(cfg)
@@ -586,6 +590,10 @@ class NWBData(BaseData):
 
     # current_subject_exists() is inherited: BaseData already tests current_subject, which is what
     # current_subject_id now aliases.
+
+    def browsable_files(self):
+        """One entry per series file, newest last, labelled by file name."""
+        return [(os.path.basename(path), str(path)) for path in self.get_series_files()]
 
     def get_series_files(self):
         """The .nwb files in this experiment's directory, or none if it has not been made yet."""

@@ -96,6 +96,11 @@ backend.
     is a community standard for neurophysiology data, so this is the format to choose if you
     intend to share or archive data in it.
 
+    The File tab browses these too: an ``.nwb`` file is HDF5 underneath, so the same tree reads
+    it, with one node per series file since an NWB experiment is a directory rather than one file.
+    Attributes are shown read-only -- pynwb validates a schema that a hand-edited attribute can
+    break, where an HDF5 experiment is stimpack's own layout and editing one is a supported repair.
+
     Two extra config keys are written into every NWB file as top-level metadata:
 
     .. code-block:: yaml

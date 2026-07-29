@@ -71,9 +71,14 @@ def test_is_a_basedata():
 
 def test_declares_itself_as_directory_backed():
     assert NWBData.output_is_directory is True
-    assert NWBData.supports_data_browser is False
     assert BaseData.output_is_directory is False
+
+    # Both are browsable: an .nwb file is HDF5 underneath, so the same tree reads it. What NWB
+    # declines is *editing* -- pynwb validates a schema a hand-edited attribute can break.
+    assert NWBData.supports_data_browser is True
     assert BaseData.supports_data_browser is True
+    assert NWBData.browser_is_editable is False
+    assert BaseData.browser_is_editable is True
 
 
 def test_nwb_names_alias_the_generic_ones(tmp_path):

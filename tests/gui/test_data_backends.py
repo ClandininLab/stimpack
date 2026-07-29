@@ -89,12 +89,13 @@ def test_a_labpack_data_module_still_wins_over_data_format(test_cfg):
 # --- the GUI adapts to the backend rather than being forked per backend --------------------------
 
 def test_the_backend_supplies_the_browser(experiment_gui, nwb_experiment_gui):
-    """HDF5 can be walked as a tree of groups; a directory of nwb files cannot. The GUI places
-    whatever the backend hands it rather than keeping one browser per format."""
+    """Both formats get one. An .nwb file is HDF5 underneath, so the same tree reads it; what
+    differs is that an NWB experiment is a directory of files, which the backend expresses through
+    browsable_files() rather than the browser knowing the format."""
     from stimpack.experiment.gui_data_browser import Hdf5DataBrowser
 
     assert isinstance(experiment_gui.data_browser, Hdf5DataBrowser)
-    assert nwb_experiment_gui.data_browser is None
+    assert isinstance(nwb_experiment_gui.data_browser, Hdf5DataBrowser)
 
     # and it is actually on the File tab, not merely constructed
     assert experiment_gui.data_browser.parent() is not None

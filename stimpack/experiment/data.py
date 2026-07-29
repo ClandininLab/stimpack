@@ -143,6 +143,21 @@ class BaseData():
         # directory, whose name is already the name and may legitimately contain a dot.
         self.experiment_file_name = name if self.output_is_directory else os.path.splitext(name)[0]
 
+    def browsable_files(self):
+        """The files the File tab's browser should show, as ``[(label, path)]``.
+
+        One entry for a format that keeps an experiment in a single file, one per series for a
+        format that writes a directory of them. Asking the backend, rather than having the browser
+        work out where the data is, is what lets one browser serve all three backends.
+        """
+        return [(self.experiment_file_name,
+                 os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'))]
+
+    # Whether the browser may write edited attributes back. HDF5 experiments are stimpack's own
+    # layout and editing one is a supported repair; an NWB file has a schema that pynwb validates,
+    # and a hand-edited attribute can make it unreadable.
+    browser_is_editable = True
+
     def make_data_browser(self, parent=None):
         """
         Widget for browsing this experiment's contents on the GUI's File tab, or None.
