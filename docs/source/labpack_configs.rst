@@ -33,7 +33,8 @@ An example may look like:
     module_paths:
       protocol:                                  # may be a list of modules
         - template_labpack/protocol/JBM_protocol.py
-      data: template_labpack/data.py             # class must be named "Data"
+      # data: template_labpack/data.py           # class must be named "Data"
+      #   Only once it overrides something: naming it here means data_format is ignored.
       client: template_labpack/client.py         # class must be named "Client"
       daq: template_labpack/device/daq.py
       visual_stim:                               # may be a list of directories
@@ -108,15 +109,22 @@ backend.
         lab: Clandinin
         institution: Stanford University
 
-The same GUI handles both; it adapts to whichever backend the config names. The interface differs
-only where the formats genuinely do — loading an experiment asks for a directory rather than a
-file, and the File tab's data browser is HDF5-only, because a directory of NWB files is not one
-walkable tree.
+The same GUI handles all three; it adapts to whichever backend the config names. The interface
+differs only where the formats genuinely do — loading an NWB experiment asks for a directory
+rather than a file, and its attributes are shown read-only.
 
 To try a format without editing a config, pass ``stimpack --data-format nwb``.
 
-If a config names a data module of its own under ``module_paths.data``, that class is used and
-``data_format`` is ignored — your own backend takes precedence over both built-ins.
+.. warning::
+
+    A config naming its own data module under ``module_paths.data`` uses that class and
+    ``data_format`` is **not consulted at all** — not the config's, not the startup dialog's, not
+    ``--data-format``. The dialog disables the choice and names the responsible module when this
+    is the case, and startup prints the class actually writing the file.
+
+    So a labpack whose ``data.py`` subclasses ``BaseData`` writes ``hdf5`` however the config or
+    dialog is set. If you want the setting to decide, do not name a data module; point
+    ``module_paths.data`` at your own class only once it overrides something.
 
 .. note::
 
