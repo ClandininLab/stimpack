@@ -769,3 +769,40 @@ def test_a_broken_data_error_callback_cannot_take_the_run_with_it(client, data, 
 
     with pytest.warns(UserWarning, match='on_data_error callback failed'):
         client.start_run(TinyProtocol(cfg={}), data, save_metadata_flag=True)   # must not raise
+
+
+class NestedParamProtocol(TinyProtocol):
+    """A parameter whose per-epoch value is itself a list of pairs -- N positions, say, or a
+    colour per element. MHT builds cylinder_locations this way."""
+    def get_run_parameter_defaults(self):
+        return {'num_epochs': 2, 'idle_color': 0.5, 'do_loco': False}
+
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 0.0, 'stim_time': 0.0, 'tail_time': 0.0,
+                'locations': [[[1, 2], [3, 4]]],
+                'width_height': [[10, 30], [20, 40]]}
+
+
+def test_nwb_handles_a_parameter_nested_two_deep(client, nwb_data):
+    """The epochs table holds the parameters as entered, so a per-epoch value that is a list of
+    pairs is three deep there. Declaring a rank-1 maxshape over what was left after one flatten
+    wrote an epochs group with no neurodata_type -- and pynwb could then not open the file at all,
+    including the correctly-written trials data underneath it."""
+    import numpy as np
+    from pynwb import NWBHDF5IO
+
+    client.start_run(NestedParamProtocol(cfg={}), nwb_data, save_metadata_flag=True)
+
+    with NWBHDF5IO(nwb_data.get_nwb_file_path(), 'r') as io:   # must open at all
+        f = io.read()
+        epochs = f.epochs.to_dataframe()
+        trials = f.trials.to_dataframe()
+
+    # the run-level row keeps the parameters as they were entered
+    assert np.asarray(epochs['locations'].iloc[0]).tolist() == [[[1, 2], [3, 4]]]
+    assert np.asarray(epochs['width_height'].iloc[0]).tolist() == [[10, 30], [20, 40]]
+
+    # and each epoch keeps the value it actually used
+    assert np.asarray(trials['locations'].iloc[0]).tolist() == [[1, 2], [3, 4]]
+    assert sorted(np.asarray(trials['width_height'].iloc[i]).tolist() for i in range(2)) \
+        == [[10, 30], [20, 40]]

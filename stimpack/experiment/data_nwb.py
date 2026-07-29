@@ -374,7 +374,16 @@ class NWBData(BaseData):
                             # Flatten the value
                             data = [item for sublist in value for item in sublist]
                             lengths = [len(x) for x in value]
-                            vector_column = VectorData(name=column, description=column, data=H5DataIO(data=data, maxshape=(None, )))
+                            # Flattening one level leaves rows that may themselves be lists -- a
+                            # parameter whose per-epoch value is a list of pairs is three deep at
+                            # run level, since this table holds the whole list of choices. So the
+                            # maxshape needs the rank of what is left, exactly as in the trials
+                            # table: declaring rank 1 over 2-D data wrote an epochs group with no
+                            # neurodata_type at all, and pynwb could then not open the file --
+                            # including the trials data underneath it, which was written correctly.
+                            vector_column = VectorData(name=column, description=column,
+                                                       data=H5DataIO(data=data,
+                                                                     maxshape=(None,) + _row_shape(data[0] if data else None)))
                             # Cumulative value of the lengths
                             data_index = np.cumsum(lengths).tolist()
                             vector_index = VectorIndex(name=column + "_index", target=vector_column, data=H5DataIO(data=data_index, maxshape=(None,)))
