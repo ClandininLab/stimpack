@@ -81,7 +81,10 @@ class NWBData(BaseData):
         # Set here rather than only in create_series / create_trial, so the end_* methods can
         # ask whether there is anything to write without tripping over a missing attribute --
         # they run from the client's finally block, after failures that never got that far.
-        self.series_parameters = {}
+        # What gets written as this series' row: its identity, every run and protocol parameter,
+        # and how the run ended. Not 'parameters' -- run_status and paused_duration are outcomes,
+        # and stimpack already uses that word for two specific things (see BaseProtocol).
+        self.series_record = {}
         self.trial_parameters = {}
 
     # # # NWB-flavored aliases for BaseData's storage-neutral attribute names # # #
@@ -267,28 +270,28 @@ class NWBData(BaseData):
         Store the protocol parameters and the protocol ID.
         """
         
-        self.series_parameters = {}
+        self.series_record = {}
                 
         if (self.current_subject_exists() and self.experiment_file_exists()):
             
-            self.series_parameters = {}
-            self.series_parameters["series"] = f"series_{str(self.series_count).zfill(3)}"
-            self.series_parameters['protocol_id'] = protocol_object.__class__.__name__
+            self.series_record = {}
+            self.series_record["series"] = f"series_{str(self.series_count).zfill(3)}"
+            self.series_record['protocol_id'] = protocol_object.__class__.__name__
             
-            # Add the protocol parameters to the series_parameters
+            # Add the protocol parameters to the series_record
             for key in protocol_object.run_parameters:  # add run parameter attributes
-                self.series_parameters[key] = hdf5ify_parameter(protocol_object.run_parameters[key])
+                self.series_record[key] = hdf5ify_parameter(protocol_object.run_parameters[key])
                 
             for key in protocol_object.protocol_parameters:  # add user-entered protocol params
-                self.series_parameters[key] = hdf5ify_parameter(protocol_object.protocol_parameters[key])
+                self.series_record[key] = hdf5ify_parameter(protocol_object.protocol_parameters[key])
                 
             # Add the series start time
-            self.series_parameters['series_start_time'] = datetime.now(self.timezone).timestamp()
+            self.series_record['series_start_time'] = datetime.now(self.timezone).timestamp()
             
             # NWB's two interval tables map onto stimpack's two levels: a stimpack series is one
             # row of NWB's `epochs` table, and each stimpack trial a row of its `trials` table.
             # I am going to shift the nomencalture to be consistent with nwb
-            self.series_parameters["num_trials"] = self.series_parameters.get("num_trials", "")
+            self.series_record["num_trials"] = self.series_record.get("num_trials", "")
             
         else:
             print('Create an nwb file directory and/or define a subject first')
@@ -307,11 +310,11 @@ class NWBData(BaseData):
         runs that finished. Everything below therefore has to cope with a run that never got as
         far as creating its series parameters or its file.
         """
-        # create_series bails out (leaving series_parameters empty) when there is no subject or
+        # create_series bails out (leaving series_record empty) when there is no subject or
         # no directory, and the client still reaches its finally block. Popping a key that was
         # never set would then raise from inside the error handler, replacing whatever actually
         # went wrong with a bare KeyError.
-        if not self.series_parameters or 'series_start_time' not in self.series_parameters:
+        if not self.series_record or 'series_start_time' not in self.series_record:
             warnings.warn(f'No series to close out (run ended {status}); nothing written to NWB.')
             return
 
@@ -324,11 +327,11 @@ class NWBData(BaseData):
 
         # Record how the run ended alongside its parameters, so a partial run is identifiable in
         # the data rather than looking like a short but successful one.
-        self.series_parameters['run_status'] = str(status)
-        self.series_parameters['run_status_reason'] = str(reason) if reason is not None else ''
+        self.series_record['run_status'] = str(status)
+        self.series_record['run_status_reason'] = str(reason) if reason is not None else ''
         # A pause sits between trials, so it is otherwise an unexplained gap in the timeline --
         # during which the subject was in the rig with nothing being presented.
-        self.series_parameters['paused_duration'] = float(paused_seconds)
+        self.series_record['paused_duration'] = float(paused_seconds)
 
         # Open the nwbfile in append mode
         with NWBHDF5IO(nwbfile_path, 'r+') as io:
@@ -336,7 +339,7 @@ class NWBData(BaseData):
 
             # Shift the time to be relative to the session start time
             session_start_time = subject_nwbfile.session_start_time
-            start_time = self.series_parameters.pop('series_start_time')
+            start_time = self.series_record.pop('series_start_time')
             start_time = start_time - session_start_time.timestamp()
             stop_time = datetime.now(self.timezone).timestamp() - session_start_time.timestamp()
         
@@ -355,8 +358,8 @@ class NWBData(BaseData):
                                              data=H5DataIO(data=[stop_time], maxshape=(None,)))
                 columns_to_add.append(stop_time)
 
-                for column in self.series_parameters:
-                    value = self.series_parameters[column]
+                for column in self.series_record:
+                    value = self.series_record[column]
                     value_is_list_tuple_or_array = isinstance(value, (tuple, list, np.ndarray))
                     if not value_is_list_tuple_or_array:
                         vector_column = VectorData(name=column, description=column, data=H5DataIO(data=[value], maxshape=(None,)))
@@ -405,7 +408,7 @@ class NWBData(BaseData):
                 subject_nwbfile.epochs = epochs_table
             
             else: # If the table exists just add a row
-                series_row_kargs = self.series_parameters
+                series_row_kargs = self.series_record
                 series_row_kargs["start_time"] = start_time
                 series_row_kargs["stop_time"] = stop_time
                 subject_nwbfile.add_epoch(**series_row_kargs)
