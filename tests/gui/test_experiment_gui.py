@@ -226,11 +226,12 @@ def test_the_status_window_sits_below_the_tabs_with_no_caption(experiment_gui):
     gui = experiment_gui
     layout = gui.layout
 
-    last = layout.itemAt(layout.count() - 1)
-    assert last.widget() is gui.status_scroll_area, 'the status window is not the bottom row'
+    bottom = layout.itemAt(layout.count() - 1).layout()
+    assert bottom is not None and bottom.indexOf(gui.status_scroll_area) >= 0, \
+        'the status window is not on the bottom row'
     assert layout.itemAt(0).widget() is gui.tabs, 'it is not below the tabs'
 
-    # nothing shares its row, and no caption was left behind anywhere in the tab
+    # it shares that row only with the Enter note button, and no caption was left behind
     from PyQt6.QtWidgets import QLabel
     captions = [w.text() for w in gui.protocol_control_box.findChildren(QLabel)]
     assert 'Status:' not in captions
@@ -740,12 +741,75 @@ def QLabel_type():
     return QLabel
 
 
-def test_the_notes_row_sits_below_the_tabs(experiment_gui):
-    """A note is about the experiment, not about whichever tab is showing."""
+def test_notes_cost_no_permanent_row(experiment_gui):
+    """The box to type in appears on demand. A note is written a few times a session, and a field
+    that is almost always empty was spending a row of the window on being empty."""
+    from PyQt6.QtWidgets import QTextEdit
+
     gui = experiment_gui
-    in_main = gui.protocol_tab.findChildren(type(gui.notes_edit))
-    assert gui.notes_edit not in in_main
-    assert gui.notes_edit.parent() is gui
+    assert not hasattr(gui, 'notes_edit'), 'the always-present notes field is back'
+
+    # the button is below the tabs -- a note is about the experiment, not one tab -- and shares
+    # the bottom row with the status line rather than having one of its own
+    assert gui.note_button.parent() is gui
+    assert gui.note_button not in gui.protocol_tab.findChildren(type(gui.note_button))
+    bottom = gui.layout.itemAt(gui.layout.count() - 1).layout()
+    assert bottom.indexOf(gui.note_button) >= 0 and bottom.indexOf(gui.status_scroll_area) >= 0
+    # the Subject tab keeps its own notes field; what must be gone is one outside the tabs,
+    # where it costs a row of the window whichever tab is showing
+    outside = [w for w in gui.findChildren(QTextEdit) if not gui.tabs.isAncestorOf(w)]
+    assert outside == [], 'a text edit outside the tabs is still taking up a row'
+
+
+def test_a_note_is_typed_into_a_dialog_and_saved(experiment_gui, monkeypatch, tmp_path):
+    import stimpack.experiment.gui as gui_mod
+
+    gui = experiment_gui
+    gui.data.experiment_file_name = 'noted'
+    gui.data.initialize_experiment_file()
+
+    monkeypatch.setattr(gui_mod.QInputDialog, 'getMultiLineText',
+                        lambda *a, **k: ('stimulus looked dim', True))
+    gui.note_button.click()
+
+    import h5py
+    with h5py.File(f'{gui.data.data_directory}/noted.hdf5', 'r') as f:
+        assert 'stimulus looked dim' in list(f['/Notes'].attrs.values())
+    assert 'Note saved' in gui.status_label.text()
+
+
+def test_a_cancelled_or_empty_note_writes_nothing(experiment_gui, monkeypatch):
+    import stimpack.experiment.gui as gui_mod
+
+    gui = experiment_gui
+    gui.data.experiment_file_name = 'nothing_written'
+    gui.data.initialize_experiment_file()
+
+    for reply in [('a note', False), ('', True), ('   ', True)]:
+        monkeypatch.setattr(gui_mod.QInputDialog, 'getMultiLineText', lambda *a, **k: reply)
+        gui.note_button.click()
+
+    import h5py
+    with h5py.File(f'{gui.data.data_directory}/nothing_written.hdf5', 'r') as f:
+        assert list(f['/Notes'].attrs) == []
+
+
+def test_the_note_dialog_is_refused_before_it_opens_without_a_file(experiment_gui, monkeypatch):
+    """Checked before asking, not after: with no field to leave the text in, somebody who types a
+    paragraph and then learns there is nowhere to put it has lost it."""
+    import stimpack.experiment.gui as gui_mod
+
+    gui = experiment_gui
+    alerts, asked = [], []
+    monkeypatch.setattr(gui_mod, 'open_message_window',
+                        lambda title="", text="": alerts.append((title, text)))
+    monkeypatch.setattr(gui_mod.QInputDialog, 'getMultiLineText',
+                        lambda *a, **k: asked.append(1) or ('', False))
+
+    gui.note_button.click()
+
+    assert asked == [], 'asked for a note it had nowhere to save'
+    assert alerts and 'before writing a note' in alerts[0][1]
 
 
 def test_the_ensemble_tab_counts_protocols_not_trials(experiment_gui):

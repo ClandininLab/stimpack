@@ -93,12 +93,12 @@ def test_enter_note_writes_to_the_file(experiment_gui, tmp_path, monkeypatch):
     monkeypatch.setattr(gui_mod.QFileDialog, 'getOpenFileName', lambda *a, **k: (path, ''))
     button(gui, 'Load experiment').click()
 
-    gui.notes_edit.setPlainText('stimulus looked dim')
+    monkeypatch.setattr(gui_mod.QInputDialog, 'getMultiLineText',
+                        lambda *a, **k: ('stimulus looked dim', True))
     button(gui, 'Enter note').click()
 
     with h5py.File(path, 'r') as f:
         assert 'stimulus looked dim' in list(f['/Notes'].attrs.values())
-    assert gui.notes_edit.toPlainText() == ''         # the box is cleared after saving
 
 
 # --- parameter presets ------------------------------------------------------------------------

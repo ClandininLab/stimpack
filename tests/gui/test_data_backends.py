@@ -256,17 +256,27 @@ def test_selecting_from_the_dropdown_selects_that_subject(nwb_experiment_gui):
     assert 'flyA' in str(gui.data.get_nwb_file_path())
 
 
-def test_note_before_initialization_is_flagged_not_written(nwb_experiment_gui):
+def test_note_before_initialization_is_refused(nwb_experiment_gui, monkeypatch):
+    """Refused before the dialog opens -- there is nowhere to leave typed text now."""
+    import stimpack.experiment.gui as gui_mod
+
     gui = nwb_experiment_gui
-    gui.notes_edit.setPlainText('too early')
+    asked = []
+    monkeypatch.setattr(gui_mod, 'open_message_window', lambda title="", text="": None)
+    monkeypatch.setattr(gui_mod.QInputDialog, 'getMultiLineText',
+                        lambda *a, **k: asked.append(1) or ('', False))
+
     button(gui, 'Enter note').click()
-    assert gui.notes_edit.toPlainText() == 'too early'      # not cleared -> not saved
+
+    assert asked == [], 'asked for a note with no NWB directory to save it in'
 
 
-def test_note_is_written_beside_the_nwb_files(nwb_experiment_gui, tmp_path):
+def test_note_is_written_beside_the_nwb_files(nwb_experiment_gui, tmp_path, monkeypatch):
     gui = nwb_experiment_gui
     initialize(gui, 'noted')
-    gui.notes_edit.setPlainText('stimulus looked dim')
+    import stimpack.experiment.gui as gui_mod
+    monkeypatch.setattr(gui_mod.QInputDialog, 'getMultiLineText',
+                        lambda *a, **k: ('stimulus looked dim', True))
     button(gui, 'Enter note').click()
 
     notes = tmp_path / 'noted' / 'notes.csv'

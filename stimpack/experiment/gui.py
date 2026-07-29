@@ -384,13 +384,11 @@ class ExperimentGUI(QWidget):
         self.stop_button.clicked.connect(self.on_pressed_button)
         self.protocol_action_grid.addWidget(self.stop_button, 0, 3)
 
-        # Enter note button:
+        # Enter note button. The box to type in appears when it is pressed, rather than sitting
+        # in the window: a note is written a few times a session, and an always-present field was
+        # spending a permanent row on something almost always empty.
         self.note_button = QPushButton("Enter note", self)
         self.note_button.clicked.connect(self.on_pressed_button)
-
-        # Notes field:
-        self.notes_edit = QTextEdit()
-        self.notes_edit.setFixedHeight(30)
 
 
         # # # TAB 2: ENSEMBLE tab # # #
@@ -646,14 +644,13 @@ class ExperimentGUI(QWidget):
         # Below the tabs, so both are there whichever tab is showing: a note is about the
         # experiment rather than about one tab, and a server error aborts the run wherever you
         # happen to be looking when it arrives.
-        notes_row = QHBoxLayout()
-        notes_row.addWidget(self.note_button)
-        notes_row.addWidget(self.notes_edit)
+        bottom_row = QHBoxLayout()
+        bottom_row.addWidget(self.note_button)
+        bottom_row.addWidget(self.status_scroll_area)
 
         self.layout = QVBoxLayout(self)
         self.layout.addWidget(self.tabs)
-        self.layout.addLayout(notes_row)
-        self.layout.addWidget(self.status_scroll_area)
+        self.layout.addLayout(bottom_row)
 
         self.update_run_button_states()
 
@@ -829,12 +826,7 @@ class ExperimentGUI(QWidget):
                 self.release_paused_ensemble()
 
         elif sender.text() == 'Enter note':
-            self.note_text = self.notes_edit.toPlainText()
-            if self.data.experiment_file_exists() is True:
-                self.data.create_note(self.note_text)  # save note to expt file
-                self.notes_edit.clear()  # clear notes box
-            else:
-                self.notes_edit.setTextColor(QtGui.QColor("Red"))
+            self.prompt_for_note()
 
         elif sender.text() == 'Save preset':
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=False)  # get the state of the param input from GUI
@@ -1538,6 +1530,26 @@ class ExperimentGUI(QWidget):
         self.update_run_progress()
 
         self.mid_parameter_edit = False
+
+    def prompt_for_note(self):
+        """Ask for a note and write it to the experiment.
+
+        Checked before asking rather than after: with the field gone there is nowhere to leave
+        rejected text, so somebody who types a paragraph into a dialog and then learns there is no
+        experiment to put it in has lost it. Refusing up front costs one modal instead.
+        """
+        if not self.data.experiment_file_exists():
+            open_message_window(title=f'No {self.data.output_noun}',
+                                text=f'Create or load a {self.data.output_noun} before writing a note.')
+            return
+
+        text, accepted = QInputDialog.getMultiLineText(self, 'Enter note', 'Note:')
+        if not accepted or not text.strip():
+            return
+
+        self.note_text = text
+        self.data.create_note(text)
+        self.status_label.setText('Note saved: ' + text.strip().replace('\n', ' ')[:60])
 
     def release_paused_ensemble(self):
         """Abandon an ensemble that was holding between items, and return the GUI to standby.
