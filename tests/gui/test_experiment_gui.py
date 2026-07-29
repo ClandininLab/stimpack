@@ -1392,3 +1392,47 @@ def test_the_tooltip_follows_the_selection(experiment_gui, qapp):
     gui.protocol_selection_combo_box.setCurrentText('AnotherOneEntirely')
     qapp.processEvents()
     assert gui.protocol_selection_combo_box.toolTip() == 'AnotherOneEntirely'
+
+
+def test_the_trial_readout_sits_with_the_parameters_it_comes_from(experiment_gui):
+    """Inside the Main tab, between the protocol parameters and the control box, so the two read
+    together -- and off the Subject and File tabs, where it means nothing.
+
+    It lived below the tabs to protect the match between the two control boxes. It does not have
+    to: each control box is the last widget in its tab's layout with an expanding widget above, so
+    it sits against the bottom of its tab whatever precedes it. test_the_two_control_boxes_line_up
+    is what actually holds that.
+    """
+    gui = experiment_gui
+    layout = gui.protocol_tab_layout
+
+    assert gui.protocol_tab.isAncestorOf(gui.trial_parameters_scroll_area)
+    positions = {layout.itemAt(i): i for i in range(layout.count())}
+    trial_index = next(i for item, i in positions.items()
+                       if item.layout() is not None
+                       and item.layout().indexOf(gui.trial_parameters_scroll_area) >= 0)
+    assert positions[layout.itemAt(layout.indexOf(gui.parameters_scroll_area))] < trial_index
+    assert trial_index < layout.indexOf(gui.protocol_control_box)
+
+
+def test_the_two_control_boxes_line_up(experiment_gui):
+    """Switching tabs mid-run must not move anything under the eye. Main sets its series number
+    with a QSpinBox where the Ensemble tab only reports one, and a spin box is taller than a label,
+    so the boxes differed by exactly that -- every button under them shifted 7 px on a tab change.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    gui = experiment_gui
+    gui.resize(600, 750)
+    gui.show()
+
+    tops = []
+    for index, box in [(0, gui.protocol_control_box), (1, gui.ensemble_control_box)]:
+        gui.tabs.setCurrentIndex(index)
+        QApplication.processEvents()
+        tops.append(box.mapTo(gui, box.rect().topLeft()).y())
+
+    assert tops[0] == tops[1], f'control boxes {abs(tops[0] - tops[1])} px apart'
+    assert gui.protocol_control_box.height() == gui.ensemble_control_box.height()
+    assert (gui.protocol_status_grid.sizeHint().height()
+            == gui.ensemble_status_grid.sizeHint().height())

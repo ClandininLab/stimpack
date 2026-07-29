@@ -262,10 +262,47 @@ class ExperimentGUI(QWidget):
         self.protocol_status_grid.setHorizontalSpacing(10)
         self.protocol_status_grid.setColumnMinimumWidth(2, 24)
 
+        # What this trial drew: the parameters that vary from trial to trial, at their values for
+        # the trial running now. Those values are chosen on the client and sent to the server,
+        # which prints them; until now the GUI never showed them, so the only way to see what was
+        # on screen was the server's terminal.
+        #
+        # Same treatment as the status line, and for the same reason: a protocol varying several
+        # parameters produces a long line, and a bare QLabel's size hint grows with its text until
+        # it reshapes the window. One line tall, scrolls if longer, whole text in the tooltip.
+        self.trial_parameters_label = _StatusLabel('')
+        self.trial_parameters_label.setWordWrap(True)
+        self.trial_parameters_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.trial_parameters_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        self.trial_parameters_scroll_area = QScrollArea()
+        self.trial_parameters_scroll_area.setWidget(self.trial_parameters_label)
+        self.trial_parameters_scroll_area.setWidgetResizable(True)
+        self.trial_parameters_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.trial_parameters_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.trial_parameters_scroll_area.setFixedHeight(
+            self.trial_parameters_label.fontMetrics().height()
+            + 2 * self.trial_parameters_scroll_area.frameWidth())
+
         self.protocol_tab = QWidget()
         self.protocol_tab_layout = QVBoxLayout()
         self.protocol_tab_layout.addWidget(self.protocol_selector_box)
         self.protocol_tab_layout.addWidget(self.parameters_scroll_area)
+        # Directly above the control box, and directly below the protocol parameters it is derived
+        # from, so the two read together. This costs nothing in the consistency it was moved out of
+        # the tabs to protect: both control boxes are the LAST widget in their tab's layout with an
+        # expanding widget above, so each sits against the bottom of its tab whatever precedes it
+        # -- measured, the offset between the two is the same with this row as without it.
+        #
+        # In here rather than below the tabs because the Main tab is a live view of whatever is
+        # running, ensembles included: run_ensemble_item drives this tab's protocol and preset
+        # selectors and repopulates its parameter fields for each item as it starts. So this is
+        # never showing one protocol's trial beside another protocol's parameters -- which was the
+        # thing that argued for keeping it outside.
+        trial_row = QHBoxLayout()
+        trial_row.addWidget(QLabel('This trial:'))
+        trial_row.addWidget(self.trial_parameters_scroll_area)
+        self.protocol_tab_layout.addLayout(trial_row)
         self.protocol_tab_layout.addWidget(self.protocol_control_box)
         self.protocol_tab.setLayout(self.protocol_tab_layout)
 
@@ -372,28 +409,6 @@ class ExperimentGUI(QWidget):
         self.trial_count_label.setFrameShadow(QFrame.Shadow(1))
         self.protocol_status_grid.addWidget(self.trial_count_label, 1, 3)
         self.trial_count_label.setText('')
-
-        # What this trial drew: the parameters that vary from trial to trial, at their values for
-        # the trial running now. Those values are chosen on the client and sent to the server,
-        # which prints them; until now the GUI never showed them, so the only way to see what was
-        # on screen was the server's terminal.
-        #
-        # Same treatment as the status line, and for the same reason: a protocol varying several
-        # parameters produces a long line, and a bare QLabel's size hint grows with its text until
-        # it reshapes the window. One line tall, scrolls if longer, whole text in the tooltip.
-        self.trial_parameters_label = _StatusLabel('')
-        self.trial_parameters_label.setWordWrap(True)
-        self.trial_parameters_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self.trial_parameters_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-
-        self.trial_parameters_scroll_area = QScrollArea()
-        self.trial_parameters_scroll_area.setWidget(self.trial_parameters_label)
-        self.trial_parameters_scroll_area.setWidgetResizable(True)
-        self.trial_parameters_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.trial_parameters_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.trial_parameters_scroll_area.setFixedHeight(
-            self.trial_parameters_label.fontMetrics().height()
-            + 2 * self.trial_parameters_scroll_area.frameWidth())
 
 
         # Elapsed timer for protocol
@@ -556,6 +571,11 @@ class ExperimentGUI(QWidget):
         self.ensemble_status_grid.addWidget(QLabel('Series #'), 0, 0)
         self.ensemble_series_label = QLabel()
         self.ensemble_series_label.setFrameShadow(QFrame.Shadow(1))
+        # Reserves the height an editable field takes. The Main tab sets its series number with a
+        # QSpinBox and this only reports one, and a spin box is taller than a label -- so with
+        # nothing here the two control boxes differed by exactly that, and switching tabs during a
+        # run shifted every button under them by 7 px.
+        self.ensemble_series_label.setMinimumHeight(self.series_counter_input.sizeHint().height())
         self.ensemble_status_grid.addWidget(self.ensemble_series_label, 0, 1)
 
         self.ensemble_status_grid.addWidget(QLabel('Subject:'), 0, 2)
@@ -713,20 +733,12 @@ class ExperimentGUI(QWidget):
         # Below the tabs, so both are there whichever tab is showing: a note is about the
         # experiment rather than about one tab, and a server error aborts the run wherever you
         # happen to be looking when it arrives.
-        # Below the tabs rather than inside one: trials run during an ensemble too, so this is as
-        # useful there as on the Main tab, and keeping it out of both grids is what lets the two
-        # tabs have the same shape.
-        trial_row = QHBoxLayout()
-        trial_row.addWidget(QLabel('This trial:'))
-        trial_row.addWidget(self.trial_parameters_scroll_area)
-
         bottom_row = QHBoxLayout()
         bottom_row.addWidget(self.status_scroll_area)
         bottom_row.addWidget(self.note_button)
 
         self.layout = QVBoxLayout(self)
         self.layout.addWidget(self.tabs)
-        self.layout.addLayout(trial_row)
         self.layout.addLayout(bottom_row)
 
         self.update_run_button_states()
