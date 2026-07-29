@@ -72,6 +72,11 @@ class NWBData(BaseData):
     either name keep working.
     """
     output_is_directory = True
+
+    # An .nwb file identifies itself -- its extension, and a schema version pynwb writes -- so it
+    # needs no marker of stimpack's. Named here only so every backend answers the same question.
+    DATA_FORMAT = 'nwb'
+    WRITES_FORMAT_MARKER = False
     supports_data_browser = True
     output_noun = 'NWB directory'
 

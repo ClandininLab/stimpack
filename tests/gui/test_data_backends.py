@@ -93,9 +93,7 @@ def test_one_labpack_data_module_still_wins_over_data_format(tmp_path, test_cfg)
     path = _write_data_module(tmp_path, 'data.py', 'stimpack.experiment.data', 'BaseData')
     cfg = dict(test_cfg, data_format='nwb', module_paths={'data': path})
 
-    module = config_tools.load_user_data_module(cfg)
-    assert module.Data.lab_marker == 'data.py'
-    assert config_tools.get_available_data_formats(cfg) == sorted(config_tools.BUILTIN_DATA_FORMATS)
+    assert config_tools.load_user_data_class(cfg).lab_marker == 'data.py'
 
 
 @pytest.mark.parametrize('data_format, expected', [('hdf5', 'data.py'), ('nwb', 'data_nwb.py')])
@@ -110,19 +108,53 @@ def test_a_module_per_format_lets_data_format_choose_among_them(tmp_path, test_c
         'nwb': _write_data_module(tmp_path, 'data_nwb.py', 'stimpack.experiment.data_nwb', 'NWBData'),
     }})
 
-    assert config_tools.load_user_data_module(cfg).Data.lab_marker == expected
+    assert config_tools.load_user_data_class(cfg).lab_marker == expected
 
 
-def test_the_dialog_offers_only_the_formats_a_mapping_supplies(tmp_path, test_cfg):
-    """Offering a format the labpack has no class for would be offering a choice that cannot be
-    honoured -- the fault this mapping exists to remove."""
+def test_a_mapping_does_not_narrow_what_can_be_written(tmp_path, test_cfg):
+    """Which formats stimpack can write and which ones the labpack has customized are different
+    questions. Filtering the first by the second left a lab that customized HDF5 unable to reach
+    NWB from the dialog, though --data-format could still do it."""
     from stimpack.experiment.util import config_tools
 
     cfg = dict(test_cfg, module_paths={'data': {
         'hdf5': _write_data_module(tmp_path, 'data.py', 'stimpack.experiment.data', 'BaseData'),
     }})
 
-    assert config_tools.get_available_data_formats(cfg) == ['hdf5']
+    assert config_tools.get_available_data_formats(cfg) == sorted(config_tools.BUILTIN_DATA_FORMATS)
+
+
+def test_a_mapping_can_add_a_format_stimpack_does_not_have(tmp_path, test_cfg):
+    """The class is loaded by path and only ever duck-typed, so a labpack can supply a backend of
+    its own. Validating data_format against the built-ins alone made that unreachable."""
+    from stimpack.experiment.util import config_tools
+
+    path = _write_data_module(tmp_path, 'data.py', 'stimpack.experiment.data', 'BaseData')
+    cfg = dict(test_cfg, data_format='parquet', module_paths={'data': {'parquet': path}})
+
+    assert 'parquet' in config_tools.get_available_data_formats(cfg)
+    assert config_tools.get_data_format(cfg) == 'parquet'
+    assert config_tools.load_user_data_class(cfg).lab_marker == 'data.py'
+
+
+def test_one_module_can_hold_a_class_per_format(tmp_path, test_cfg):
+    """The two HDF5 layouts differ by five strings, so a labpack supporting both would otherwise
+    put its overrides in a mixin and write two three-line modules importing it."""
+    from stimpack.experiment.util import config_tools
+
+    path = tmp_path / 'data.py'
+    path.write_text('from stimpack.experiment.data import BaseData\n'
+                    'from stimpack.experiment.data_legacy import LegacyHdf5Data\n\n'
+                    'class _Lab:\n    lab_marker = "shared"\n\n'
+                    'class Data(_Lab, BaseData): pass\n'
+                    'class DataLegacy(_Lab, LegacyHdf5Data): pass\n')
+    cfg = dict(test_cfg, module_paths={'data': {
+        'hdf5': str(path), 'legacy_hdf5': f'{path}:DataLegacy'}})
+
+    for data_format, expected_group in [('hdf5', 'series'), ('legacy_hdf5', 'epoch_runs')]:
+        data_class = config_tools.load_user_data_class(dict(cfg, data_format=data_format))
+        assert data_class.lab_marker == 'shared'
+        assert data_class.SERIES_GROUP == expected_group
 
 
 def test_a_mapping_without_the_requested_format_falls_back_to_the_builtin(tmp_path, test_cfg):
@@ -135,7 +167,7 @@ def test_a_mapping_without_the_requested_format_falls_back_to_the_builtin(tmp_pa
     }})
 
     with pytest.warns(UserWarning, match='has none for'):
-        assert config_tools.load_user_data_module(cfg) is None
+        assert config_tools.load_user_data_class(cfg) is None
 
 
 # --- the GUI adapts to the backend rather than being forked per backend --------------------------
@@ -516,5 +548,5 @@ def test_naming_no_data_module_is_not_worth_a_warning(test_cfg):
     cfg = dict(test_cfg, module_paths={'protocol': []})
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter('always')
-        assert config_tools.load_user_data_module(cfg) is None
+        assert config_tools.load_user_data_class(cfg) is None
     assert [str(w.message) for w in caught] == []

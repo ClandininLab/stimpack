@@ -498,6 +498,7 @@ def test_a_data_module_mapped_per_format_checks_out(tmp_path):
     """module_paths.data may map a class per format. That reached os.path as a dict, so the
     checker raised TypeError on exactly the configs it exists to check."""
     cfg = good_cfg()
+    cfg['data_format'] = 'nwb'
     cfg['module_paths']['data'] = {'hdf5': 'pack/data.py', 'nwb': 'pack/data_nwb.py'}
     root = make_labpack(tmp_path, cfg)
     (root / 'pack' / 'data_nwb.py').write_text('')
@@ -511,6 +512,7 @@ def test_a_data_module_mapped_per_format_checks_out(tmp_path):
 def test_a_missing_module_is_still_found_inside_a_mapping(tmp_path):
     """Flattening the mapping must not cost the existence check that the flat form gets."""
     cfg = good_cfg()
+    cfg['data_format'] = 'hdf5'
     cfg['module_paths']['data'] = {'hdf5': 'pack/data.py', 'nwb': 'pack/nonexistent.py'}
     make_labpack(tmp_path, cfg)
 
@@ -518,3 +520,44 @@ def test_a_missing_module_is_still_found_inside_a_mapping(tmp_path):
 
     assert codes(findings, level='error') == ['missing-module-path']
     assert 'nonexistent.py' in findings[0].message
+
+
+def test_a_mapping_with_no_data_format_is_a_warning(tmp_path):
+    """The lab supplied classes; which one runs is then decided by a default rather than by them.
+    Unambiguous when they mapped one format, a coin toss when they mapped several."""
+    cfg = good_cfg()
+    cfg.pop('data_format', None)
+    cfg['module_paths']['data'] = {'hdf5': 'pack/data.py', 'nwb': 'pack/data_nwb.py'}
+    root = make_labpack(tmp_path, cfg)
+    (root / 'pack' / 'data_nwb.py').write_text('')
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+
+    assert codes(findings, level='warning') == ['no-data-format-with-mapping']
+
+
+def test_a_data_format_outside_the_mapping_is_a_warning(tmp_path):
+    """Legitimate -- custom HDF5 and stock NWB is a reasonable thing to want -- but it means every
+    launch bypasses the labpack's classes, which is worth knowing on purpose rather than at 2am."""
+    cfg = good_cfg()
+    cfg['data_format'] = 'nwb'
+    cfg['module_paths']['data'] = {'hdf5': 'pack/data.py'}
+    make_labpack(tmp_path, cfg)
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+
+    assert codes(findings, level='warning') == ['data-format-outside-mapping']
+    assert "built-in" in findings[0].message
+
+
+def test_a_labpack_defined_format_is_not_an_unknown_one(tmp_path):
+    """A mapping may name a format stimpack has never heard of -- the class is loaded by path and
+    only ever duck-typed. Validating against the built-ins alone rejected it."""
+    cfg = good_cfg()
+    cfg['data_format'] = 'parquet'
+    cfg['module_paths']['data'] = {'parquet': 'pack/data.py'}
+    make_labpack(tmp_path, cfg)
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+
+    assert findings == []

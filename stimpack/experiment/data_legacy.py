@@ -41,6 +41,12 @@ class LegacyHdf5Data(BaseData):
 
     output_noun = 'data file (legacy layout)'
 
+    # No data_format / stimpack_version attributes: a file this backend writes must stay
+    # indistinguishable from one stimpack 0.2 wrote, which a marker would end. Readers tell the
+    # layouts apart by the marker's ABSENCE, which means exactly 'legacy, or pre-0.3'.
+    DATA_FORMAT = 'legacy_hdf5'
+    WRITES_FORMAT_MARKER = False
+
     # Run parameters reach the file as attributes named after their keys, so the rename shows up
     # in the data as well as in the code: a series group would carry num_trials where analysis
     # looks for num_epochs. Renamed rather than written under both names -- a file this backend

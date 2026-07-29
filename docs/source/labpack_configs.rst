@@ -78,6 +78,9 @@ backend.
 
         /Subjects/<id>/series/series_001/trials/trial_001
 
+    The file's root attributes record ``data_format`` and ``stimpack_version``, so a reader can
+    tell which layout it is holding without probing for group names.
+
 ``legacy_hdf5``
     The same file, with the names stimpack used before 0.3, when a trial was called an epoch and a
     series an epoch run::
@@ -91,6 +94,10 @@ backend.
 
     Put it in a labpack's ``lab_config.yaml`` to apply it to every rig at once, and set
     ``data_format: hdf5`` in one rig's own config to move that rig over when its analysis is ready.
+
+    It writes no ``data_format`` root attribute, deliberately — a file it writes must stay
+    indistinguishable from one stimpack 0.2 wrote. So *absence* of that attribute is how a reader
+    recognises this layout, which means exactly "legacy, or written before 0.3".
 
 ``nwb``
     A *directory* per experiment, holding one `NWB <https://www.nwb.org/>`_ file per series. NWB
@@ -144,13 +151,42 @@ To keep both, give the key **one module per format**:
         nwb:  labpack/data_nwb.py
 
 Now ``data_format``, the startup dialog and ``--data-format`` select among *your* classes exactly
-as they select among the built-ins, and the dialog offers precisely the formats you supplied a
-class for. A format not in the mapping falls back to stimpack's built-in with a warning, so a
-labpack that customizes HDF5 and not NWB can still write NWB.
+as they select among the built-ins.
+
+The dialog still offers **every** format, not only the ones you supplied a class for — what
+stimpack can write and what your labpack has customized are different questions. Each entry says
+which class will write it, and choosing one you have no class for says what that costs:
+
+.. code-block:: text
+
+    Data format:  hdf5 — labpack/data.py            ▾
+                  legacy_hdf5 — stimpack built-in
+                  nwb — labpack/data_nwb.py
+
+Two classes in one module are named with a ``:ClassName`` suffix, which is worth knowing for the
+two HDF5 layouts — they differ by five strings, so a labpack supporting both would otherwise put
+its overrides in a mixin and write two three-line modules importing it:
+
+.. code-block:: yaml
+
+    module_paths:
+      data:
+        hdf5:        labpack/data.py:Data
+        legacy_hdf5: labpack/data.py:DataLegacy
+        nwb:         labpack/data_nwb.py
+
+A mapping may also name a format stimpack has never heard of (``parquet: labpack/data_parquet.py``).
+The class is loaded by path and only ever duck-typed, so that works.
 
 With a single module the dialog disables the choice and shows the module's name rather than a
-format, since claiming a format without importing the class to check would be the same lie in a
-quieter form. Either way, startup prints the class actually writing the file.
+format: the path does not say which format the class writes, and finding out means importing it.
+A one-entry mapping is the same class with the format stated. Either way, startup prints the class
+actually writing the file.
+
+``--check-labpack`` reports a config that maps data modules but sets no ``data_format`` (which one
+runs is then decided by a default rather than by you), and one whose ``data_format`` is outside its
+own mapping (legitimate — custom HDF5 and stock NWB is reasonable — but it means every launch
+bypasses your classes).
 
 .. note::
 

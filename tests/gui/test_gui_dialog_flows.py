@@ -344,19 +344,51 @@ def test_the_format_choice_is_offered_when_nothing_overrides_it(qapp, tmp_path):
     assert dialog.label_data_format.text() == 'Data format'
 
 
-def test_a_module_per_format_keeps_the_choice_live(qapp, tmp_path):
-    """A config mapping a data module per format has a real choice to offer, so the combo stays
-    enabled and lists exactly the formats that config can write -- not every built-in, since a
-    format it has no class for could not be honoured."""
-    dialog, _ = make_startup_dialog(qapp, tmp_path, {
-        'data_format': 'nwb',
-        'module_paths': {'data': {'hdf5': 'labpack/data.py', 'nwb': 'labpack/data_nwb.py'}}})
+MAPPED_CFG = {'data_format': 'nwb',
+              'module_paths': {'data': {'hdf5': 'labpack/data.py',
+                                        'nwb': 'labpack/data_nwb.py'}}}
 
-    assert dialog.data_format_combobox.isEnabled()
+
+def test_a_module_per_format_labels_who_writes_each(qapp, tmp_path):
+    """Every format stays on offer -- what stimpack can write and what the labpack has customized
+    are different questions, and filtering the first by the second left a lab that customized
+    HDF5 unable to reach NWB at all. The second question is answered by the label."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path, MAPPED_CFG)
+    combo = dialog.data_format_combobox
+
+    assert combo.isEnabled()
+    assert [combo.itemText(i) for i in range(combo.count())] == [
+        'hdf5 — labpack/data.py',
+        'legacy_hdf5 — stimpack built-in',
+        'nwb — labpack/data_nwb.py']
+    assert combo.currentData() == 'nwb'
+
+
+def test_choosing_a_format_the_labpack_skipped_says_what_is_missing(qapp, tmp_path):
+    """The risk is not the format -- a wrong extension is obvious in seconds -- but the overrides
+    that will not be in the file, which surface much later, in analysis. So the note names them
+    rather than just reporting which class is used."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path, MAPPED_CFG)
+
+    assert not dialog.data_format_note.isVisible()   # nwb is one the labpack supplies
+
+    dialog.data_format_combobox.setCurrentIndex(
+        dialog.data_format_combobox.findData('legacy_hdf5'))
+
+    assert dialog.data_format_note.isVisible()
+    note = dialog.data_format_note.text()
+    assert 'legacy_hdf5' in note and 'labpack/data.py' in note
+    assert 'missing' in note
+
+
+def test_no_note_when_the_labpack_customizes_nothing(qapp, tmp_path):
+    """Every format is a built-in then, so there is nothing to warn about -- the common case, and
+    it must stay quiet."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {'data_format': 'nwb', 'module_paths': {}})
+
+    assert not dialog.data_format_note.isVisible()
     assert [dialog.data_format_combobox.itemText(i)
-            for i in range(dialog.data_format_combobox.count())] == ['hdf5', 'nwb']
-    assert dialog.data_format_combobox.currentText() == 'nwb'
-    assert 'labpack/data_nwb.py' in dialog.data_format_combobox.toolTip()
+            for i in range(dialog.data_format_combobox.count())] == ['hdf5', 'legacy_hdf5', 'nwb']
 
 
 def test_one_data_module_names_itself_rather_than_claiming_a_format(qapp, tmp_path):

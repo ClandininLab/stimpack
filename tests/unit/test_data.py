@@ -147,3 +147,33 @@ def test_additional_exclusions_still_accepts_a_bare_string(tmp_path):
 
     hierarchy = h5io.get_hierarchy(str(path), additional_exclusions='drop_a')
     assert 'keep' in hierarchy and 'drop_a' not in hierarchy
+
+
+def test_the_file_records_which_layout_and_version_wrote_it(tmp_path):
+    """Both HDF5 backends produce a .hdf5 whose root attributes were otherwise identical, so
+    analysis had to probe for a group name to know which reader to use, and nothing recorded which
+    stimpack wrote the file. That matters for a lab running both layouts through a migration."""
+    from stimpack.experiment.data import stimpack_version
+
+    data = _make_data(tmp_path)
+
+    with h5py.File(data.data_directory + '/test_experiment.hdf5', 'r') as f:
+        assert f.attrs['data_format'] == 'hdf5'
+        assert f.attrs['stimpack_version'] == stimpack_version()
+
+
+def test_the_legacy_layout_writes_no_marker(tmp_path):
+    """Its contract is that its output is indistinguishable from stimpack 0.2's, which a marker
+    would end. Readers tell the layouts apart by the marker's ABSENCE, which means exactly
+    'legacy, or written before 0.3' -- any later layout declares itself, so that stays unambiguous.
+    """
+    from stimpack.experiment.data_legacy import LegacyHdf5Data
+
+    data = LegacyHdf5Data(cfg={})
+    data.data_directory = str(tmp_path)
+    data.experiment_file_name = 'legacy'
+    data.initialize_experiment_file()
+
+    with h5py.File(str(tmp_path / 'legacy.hdf5'), 'r') as f:
+        assert 'data_format' not in f.attrs
+        assert 'stimpack_version' not in f.attrs

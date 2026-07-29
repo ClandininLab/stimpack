@@ -326,7 +326,7 @@ def get_module_paths(cfg, module_name: str) -> list[str]:
         # here down asks only "which files does this config name", and the values are the answer.
         # Without this the mapping reached os.path as a dict, so --check-labpack crashed on the
         # configs it exists to check.
-        module_paths = list(module_paths.values())
+        module_paths = [split_data_module_spec(spec)[0] for spec in module_paths.values()]
     if not isinstance(module_paths, list):
         module_paths = [module_paths]
     return module_paths
@@ -514,11 +514,19 @@ def get_data_format(cfg):
     Ignored when the config points to a labpack's own data module, which takes precedence over
     both built-ins. See stimpack.experiment.data / data_nwb.
     """
-    data_format = str(cfg.get('data_format', 'hdf5')).lower()
-    if data_format not in BUILTIN_DATA_FORMATS:
+    if cfg.get('data_format') is None:
+        return get_default_data_format(cfg)
+
+    data_format = str(cfg['data_format']).lower()
+    # Validated against what THIS config can write, not against the built-ins alone. Checking only
+    # the built-ins made a labpack-defined format unreachable, and left the dialog offering a
+    # format this function then refused to resolve -- one config, two answers.
+    available = get_available_data_formats(cfg)
+    if data_format not in available:
+        fallback = get_default_data_format(cfg)
         warnings.warn(f"Unknown data_format '{data_format}' in config; expected one of "
-                      f"{sorted(BUILTIN_DATA_FORMATS)}. Falling back to 'hdf5'.")
-        return 'hdf5'
+                      f"{available}. Falling back to '{fallback}'.")
+        return fallback
     return data_format
 
 
@@ -547,23 +555,59 @@ def get_data_module_paths_by_format(cfg) -> dict[str, str]:
     entry = (cfg.get('module_paths') or {}).get('data')
     if not isinstance(entry, dict):
         return {}
-    return {str(fmt).lower(): path for fmt, path in entry.items()}
+    return {str(fmt).lower(): spec for fmt, spec in entry.items()}
+
+
+def split_data_module_spec(spec: str) -> tuple[str, str]:
+    """
+    ``'labpack/data.py:DataLegacy'`` -> ``('labpack/data.py', 'DataLegacy')``; the class defaults
+    to ``Data``.
+
+    Without this a mapping needs one module per format, and the two HDF5 layouts differ only in
+    five strings -- so a labpack supporting both would put its overrides in a mixin and write two
+    three-line modules importing it. Naming the class lets one module hold all of them.
+
+    Split on the last colon and only when what follows is an identifier, so a path containing one
+    (a Windows drive letter, say) is not mistaken for a class name.
+    """
+    path, sep, class_name = str(spec).rpartition(':')
+    if sep and class_name.isidentifier():
+        return path, class_name
+    return str(spec), 'Data' 
 
 
 def get_available_data_formats(cfg) -> list[str]:
     """
-    Which formats this config can actually write, for the startup dialog to offer.
+    Every format this config can write: stimpack's built-ins, plus any the labpack adds.
 
-    A config that maps its data modules by format can write those and no others: offering a
-    built-in it has no class for would be offering a choice that cannot be honoured.
+    This used to return the mapping's keys alone, which conflated two different things -- which
+    formats stimpack can write (always all the built-ins) and which ones the labpack has
+    *customized*. A lab that customized HDF5 could then not reach NWB from the dialog at all,
+    though nothing stopped stimpack writing it, and the same choice was still available through
+    ``--data-format``. Offering a built-in where the labpack has no class is fine as long as it
+    is labelled, which is what the dialog does.
+
+    A mapping may also name a format stimpack has never heard of. The class is loaded by path and
+    only ever duck-typed, so a labpack can add its own backend this way.
+    """
+    return sorted(set(BUILTIN_DATA_FORMATS) | set(get_data_module_paths_by_format(cfg)))
+
+
+def get_default_data_format(cfg) -> str:
+    """What ``data_format`` means when a config does not set one.
+
+    ``hdf5`` as it always has -- except for a config that maps data modules, where defaulting to a
+    format the labpack did not customize would quietly bypass every class it supplied.
     """
     mapped = get_data_module_paths_by_format(cfg)
-    return sorted(mapped) if mapped else sorted(BUILTIN_DATA_FORMATS)
+    if not mapped:
+        return 'hdf5'
+    return 'hdf5' if 'hdf5' in mapped else sorted(mapped)[0]
 
 
-def load_user_data_module(cfg):
+def load_user_data_class(cfg):
     """
-    The labpack's data module for this config, or ``None`` if it names none usable.
+    The labpack's data class for this config, or ``None`` if it names none usable.
 
     ``None`` means "use the built-in for ``data_format``", which is also the answer when a config
     maps its modules by format and the requested format is not among them -- a labpack that
@@ -578,15 +622,23 @@ def load_user_data_module(cfg):
 
     mapped = get_data_module_paths_by_format(cfg)
     if not mapped:
-        return next(iter(load_user_module(cfg, 'data')), None)
+        module = next(iter(load_user_module(cfg, 'data')), None)
+        return getattr(module, 'Data', None) if module is not None else None
 
     data_format = get_data_format(cfg)
-    path = mapped.get(data_format)
-    if path is None:
+    spec = mapped.get(data_format)
+    if spec is None:
         warnings.warn(f"This config maps its data modules by format and has none for "
                       f"'{data_format}' (it has {sorted(mapped)}). Using stimpack's built-in.")
         return None
-    return load_user_module_from_path(convert_labpack_relative_path_to_full_path(path), 'data')
+
+    path, class_name = split_data_module_spec(spec)
+    module = load_user_module_from_path(convert_labpack_relative_path_to_full_path(path), 'data')
+    data_class = getattr(module, class_name, None)
+    if data_class is None:
+        raise AttributeError(f"module_paths.data maps '{data_format}' to {spec}, but {path} "
+                             f"defines no class named '{class_name}'.")
+    return data_class
 
 
 def get_builtin_data_class(cfg):

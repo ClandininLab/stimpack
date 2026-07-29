@@ -149,11 +149,11 @@ class ExperimentGUI(QWidget):
         # this did, would leave the flag unable to reach a labpack's own classes.
         if self.data_format_override is not None:
             self.cfg['data_format'] = self.data_format_override
-        user_data_module = config_tools.load_user_data_module(self.cfg)
-        if user_data_module is not None:
+        user_data_class = config_tools.load_user_data_class(self.cfg)
+        if user_data_class is not None:
             # Named so it is obvious which class is writing the file. Without this the only
             # startup line about the data module was the one printed when a built-in was used.
-            self.data = user_data_module.Data(self.cfg)
+            self.data = user_data_class(self.cfg)
             if config_tools.get_data_module_paths_by_format(self.cfg):
                 print(f"!!! Using labpack data module for format "
                       f"'{config_tools.get_data_format(self.cfg)}' ({type(self.data).__name__}) !!!")
@@ -1966,18 +1966,23 @@ class InitializeRigGUI(QWidget):
         self.init_grid.addWidget(self.label_data_format, 3, 0)
 
         self.data_format_combobox = QComboBox()
-        for format_name in sorted(config_tools.BUILTIN_DATA_FORMATS):
-            self.data_format_combobox.addItem(format_name)
-        self.data_format_combobox.setToolTip(
-            "Which format to write. Defaults to the selected config's data_format.\n"
-            "Ignored if the labpack supplies its own data module, which takes precedence.")
+        self.data_format_combobox.currentIndexChanged.connect(self.update_data_format_note)
         self.init_grid.addWidget(self.data_format_combobox, 3, 1, 1, 2)
+
+        # Says, at the moment of choosing, when the selection means stimpack's own class rather
+        # than the labpack's. What is at stake is not the format -- a wrong extension is obvious
+        # within seconds -- but the overrides that will be missing from the file, which surface
+        # much later, in analysis.
+        self.data_format_note = QLabel('')
+        self.data_format_note.setWordWrap(True)
+        self.data_format_note.setVisible(False)
+        self.init_grid.addWidget(self.data_format_note, 4, 1, 1, 2)
 
         self.update_available_rigs()
 
         self.pb_enter = QPushButton('Enter')
         self.pb_enter.clicked.connect(self.on_pressed_enter_button)
-        self.init_grid.addWidget(self.pb_enter, 4, 0, 1, 3)
+        self.init_grid.addWidget(self.pb_enter, 5, 0, 1, 3)
 
         self.setLayout(self.init_grid)
 
@@ -2022,66 +2027,84 @@ class InitializeRigGUI(QWidget):
         self.show()
 
     def update_data_format_selection(self):
-        """Show the format this config would use, so the default is the config's own answer.
+        """Offer every format this config can write, defaulting to the one it asks for.
 
-        Follows the config selection above it: picking a different config re-reads its
-        data_format rather than leaving the previous config's answer showing. A --data-format on
-        the command line wins over both, so it is shown here too -- the flag is applied after this
-        dialog either way, and a dialog displaying something other than what will be used is worse
-        than no dialog.
+        Follows the config selection above it, so picking a different config re-reads its answer
+        rather than leaving the previous one showing. --data-format wins over both and is shown
+        here too: a dialog displaying something other than what will be used is worse than none.
+
+        The menu lists all available formats even when the labpack supplies classes for only some.
+        Those are two different questions -- what stimpack can write, and what this labpack has
+        customized -- and filtering the first by the second left a lab that customized HDF5 unable
+        to reach NWB at all, while --data-format could still do it. The second question is
+        answered by labelling each entry instead.
         """
         labpack_entry = (self.cfg.get('module_paths') or {}).get('data')
         mapped = config_tools.get_data_module_paths_by_format(self.cfg)
         override = getattr(self.experiment_gui_object, 'data_format_override', None)
 
-        # A config naming ONE data class has its format decided by that class's base, so there is
-        # no choice left to offer -- it did offer one anyway, and answered a request for NWB with
-        # an .hdf5 file. Show the module instead of a format, since claiming a format we have not
-        # imported the class to check would be the same lie in a quieter form.
+        # A config naming ONE data class has its format decided by that class's base, and the path
+        # alone does not say which -- finding out means importing it. So there is no choice to
+        # offer and nothing to label; show the module rather than assert a format we have not
+        # checked. A one-entry mapping is the same class with the format stated, hence the tooltip.
         if labpack_entry and not mapped:
             self.data_format_combobox.clear()
-            self.data_format_combobox.addItem(f'(from {labpack_entry})')
+            self.data_format_combobox.addItem(f'(from {labpack_entry})', None)
             self.data_format_combobox.setEnabled(False)
             self.data_format_combobox.setToolTip(
                 f'This config supplies one data module ({labpack_entry}), whose class fixes the '
-                f'format. To choose here, either drop module_paths.data or give it one module '
-                f'per format:\n\n  data:\n    hdf5: labpack/data.py\n    nwb: labpack/data_nwb.py')
+                f'format. To choose here, say which format that class writes:\n\n  data:\n'
+                f'    hdf5: {labpack_entry}\n    nwb: labpack/data_nwb.py')
             self.label_data_format.setText('Data format (set by labpack)')
+            self.data_format_note.setVisible(False)
             return
 
-        # Only the formats this config can actually write: its own classes when it maps them,
-        # every built-in otherwise.
-        available = config_tools.get_available_data_formats(self.cfg)
-        if [self.data_format_combobox.itemText(i)
-                for i in range(self.data_format_combobox.count())] != available:
-            self.data_format_combobox.clear()
-            self.data_format_combobox.addItems(available)
-
-        self.label_data_format.setText('Data format (labpack)' if mapped else 'Data format')
+        self.label_data_format.setText('Data format')
         data_format = override if override is not None else config_tools.get_data_format(self.cfg)
-        index = self.data_format_combobox.findText(data_format)
+
+        self.data_format_combobox.blockSignals(True)
+        self.data_format_combobox.clear()
+        for name in config_tools.get_available_data_formats(self.cfg):
+            spec = mapped.get(name)
+            label = name if not mapped else f'{name} — {spec or "stimpack built-in"}'
+            self.data_format_combobox.addItem(label, name)
+        index = self.data_format_combobox.findData(data_format)
         if index >= 0:
             self.data_format_combobox.setCurrentIndex(index)
-        self.data_format_combobox.setEnabled(override is None)
+        self.data_format_combobox.blockSignals(False)
 
-        if override is not None:
-            tip = 'Set by --data-format on the command line, which wins over the config.'
-        elif mapped:
-            tip = ('Which format to write, using this labpack\'s own class for each:\n  '
-                   + '\n  '.join(f'{fmt}: {path}' for fmt, path in sorted(mapped.items())))
-        else:
-            tip = "Which format to write. Defaults to the selected config's data_format."
-        self.data_format_combobox.setToolTip(tip)
+        self.data_format_combobox.setEnabled(override is None)
+        self.data_format_combobox.setToolTip(
+            'Set by --data-format on the command line, which wins over the config.'
+            if override is not None else
+            "Which format to write. Defaults to the selected config's data_format.")
+        self.update_data_format_note()
+
+    def update_data_format_note(self):
+        """Flag a selection that will use stimpack's class where the labpack customizes others."""
+        mapped = config_tools.get_data_module_paths_by_format(self.cfg)
+        selected = self.data_format_combobox.currentData()
+
+        if not mapped or selected is None or selected in mapped:
+            self.data_format_note.setVisible(False)
+            return
+
+        customized = ', '.join(f'{fmt} ({spec})' for fmt, spec in sorted(mapped.items()))
+        self.data_format_note.setText(
+            f"Using stimpack's built-in {selected} class. This labpack customizes {customized} "
+            f"but supplies none for {selected}, so anything those classes add — extra metadata, "
+            f"device hooks — will be missing from this experiment.")
+        self.data_format_note.setVisible(True)
 
     def on_pressed_enter_button(self):
         # Store the rig and cfg names in the cfg dict
         self.cfg['current_rig_name'] = self.rig_combobox.currentText()
         self.cfg['current_cfg_name'] = self.cfg_name
-        # Only when it is a format. With one labpack data class the combo names that module
-        # instead, and writing '(from labpack/data.py)' here would put a value in data_format that
-        # nothing can resolve.
-        chosen_format = self.data_format_combobox.currentText()
-        if chosen_format in config_tools.get_available_data_formats(self.cfg):
+        # From the item's data, not its text: entries are labelled with the class that will write
+        # them ('nwb — labpack/data_nwb.py'), and with one labpack data class the combo names that
+        # module and carries no format at all.
+        chosen_format = self.data_format_combobox.currentData()
+        if chosen_format is not None:
             self.cfg['data_format'] = chosen_format
 
         self.warn_about_labpack_problems()
@@ -2225,7 +2248,10 @@ def main(argv=None):
                         choices=sorted(config_tools.BUILTIN_DATA_FORMATS),
                         help="storage backend for this session, overriding the config's "
                              "data_format. For trying a format without editing a config; set "
-                             "data_format in the config file to make it the default.")
+                             "data_format in the config file to make it the default. Limited to "
+                             "the built-ins: this is parsed before a config is chosen, so a "
+                             "format a labpack defines itself is reachable only from the config "
+                             "or the startup dialog.")
     args = parser.parse_args(argv)
 
     if args.check_labpack:
