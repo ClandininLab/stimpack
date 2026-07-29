@@ -36,7 +36,6 @@ from time import sleep
 import os.path
 import os
 import math
-import yaml
 import itertools
 import warnings
 
@@ -229,7 +228,10 @@ class BaseProtocol():
                       'protocol_parameters': self.protocol_parameters}
         self.parameter_presets[name] = new_preset
         with open(os.path.join(self.parameter_preset_directory, self.__class__.__name__ + '.yaml'), 'w+') as ymlfile:
-            yaml.dump(self.parameter_presets, ymlfile, default_flow_style=False, sort_keys=False)
+            # The dumper that matches load_parameter_presets' loader: plain YAML plus
+            # !!python/tuple, and an error on anything else rather than a file we cannot read back.
+            config_tools.safe_dump_yaml_with_tuples(
+                self.parameter_presets, ymlfile, default_flow_style=False, sort_keys=False)
 
     def select_protocol_preset(self, name='Default'):
         '''

@@ -162,8 +162,14 @@ def _represent_run_parameters(dumper, data):
     return dumper.represent_dict(data)
 
 
+def _register_run_parameters_representer(dumper):
+    """add_representer copies the base class's table on first call, so a Dumper subclass defined
+    before this runs would not inherit it. Registered explicitly on each."""
+    yaml.add_representer(RunParameters, _represent_run_parameters, Dumper=dumper)
+
+
 for _dumper in (yaml.Dumper, yaml.SafeDumper):
-    yaml.add_representer(RunParameters, _represent_run_parameters, Dumper=_dumper)
+    _register_run_parameters_representer(_dumper)
 
 
 def normalize_run_parameters(run_parameters):

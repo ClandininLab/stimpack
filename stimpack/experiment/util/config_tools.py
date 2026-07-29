@@ -49,6 +49,44 @@ def safe_load_yaml_with_tuples(stream):
     return yaml.load(stream, Loader=TupleSafeLoader)
 
 
+class TupleSafeDumper(yaml.SafeDumper):
+    """Writes exactly what TupleSafeLoader can read: plain YAML, plus ``!!python/tuple``.
+
+    These files used to be written with the default yaml.Dumper, which serializes whatever Python
+    type it is handed. That made the writer and the reader disagree: anything beyond plain data and
+    tuples produced a file stimpack could write and then refuse to load. It happened -- run
+    parameters became a dict subclass in 0.3, the dumper tagged it
+    ``!!python/object/new:...RunParameters``, and selecting a protocol with a saved preset aborted
+    the GUI.
+
+    Basing this on SafeDumper makes that a RepresenterError at save time, in front of whoever
+    introduced the type, rather than a file that fails later on a rig.
+
+    The tuple tag stays, and is not decoration: a protocol parameter given as a *list* of more than
+    one value is one that varies from trial to trial (see BaseProtocol.process_input_parameters),
+    while a tuple is a single value with components. Writing ``center: (5, -5)`` as ``[5, -5]``
+    would not lose a type, it would turn one centred stimulus into two trials at different
+    positions.
+    """
+
+
+TupleSafeDumper.add_representer(
+    tuple,
+    lambda dumper, data: dumper.represent_sequence('tag:yaml.org,2002:python/tuple', data))
+
+# RunParameters is a mapping and is written as one. Registered here rather than left to
+# inheritance: add_representer snapshots the base class's table on its first call, so whichever of
+# the two modules imports second would otherwise not be seen by the other.
+from stimpack.experiment.deprecated_names import _register_run_parameters_representer  # noqa: E402
+
+_register_run_parameters_representer(TupleSafeDumper)
+
+
+def safe_dump_yaml_with_tuples(data, stream=None, **kwargs):
+    """Counterpart to safe_load_yaml_with_tuples. Raises on any type neither can round-trip."""
+    return yaml.dump(data, stream, Dumper=TupleSafeDumper, **kwargs)
+
+
 # Prefix for every labpack module registered in sys.modules.
 #
 # Deliberately a fixed name owned by stimpack, rather than the labpack's own package name. A labpack

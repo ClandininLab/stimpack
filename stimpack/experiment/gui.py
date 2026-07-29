@@ -14,7 +14,6 @@ import traceback
 from enum import Enum
 import warnings
 from typing import Any
-import yaml
 
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
@@ -1091,7 +1090,11 @@ class ExperimentGUI(QWidget):
             file_path += '.spens'
 
         with open(file_path, 'w') as ymlfile:
-            yaml.dump(self.ensemble_list.protocol_preset_list, ymlfile, default_flow_style=False, sort_keys=False)
+            # Matches the loader used to read it back: an ensemble item is a (protocol, preset)
+            # tuple, and the tag is what keeps it one.
+            config_tools.safe_dump_yaml_with_tuples(
+                self.ensemble_list.protocol_preset_list, ymlfile,
+                default_flow_style=False, sort_keys=False)
 
         print('Saved ensemble preset to {}'.format(file_path))
         self.ensemble_file_label.setText(file_path)
