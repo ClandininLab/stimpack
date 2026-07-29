@@ -95,7 +95,7 @@ def test_enter_note_writes_to_the_file(experiment_gui, tmp_path, monkeypatch):
 
     monkeypatch.setattr(gui_mod.QInputDialog, 'getMultiLineText',
                         lambda *a, **k: ('stimulus looked dim', True))
-    button(gui, 'Enter note').click()
+    button(gui, 'Note').click()
 
     with h5py.File(path, 'r') as f:
         assert 'stimulus looked dim' in list(f['/Notes'].attrs.values())

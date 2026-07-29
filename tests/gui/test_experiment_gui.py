@@ -754,7 +754,9 @@ def test_notes_cost_no_permanent_row(experiment_gui):
     assert gui.note_button.parent() is gui
     assert gui.note_button not in gui.protocol_tab.findChildren(type(gui.note_button))
     bottom = gui.layout.itemAt(gui.layout.count() - 1).layout()
-    assert bottom.indexOf(gui.note_button) >= 0 and bottom.indexOf(gui.status_scroll_area) >= 0
+    assert bottom.indexOf(gui.status_scroll_area) == 0, 'the status line should lead the row'
+    assert bottom.indexOf(gui.note_button) == 1, 'the button belongs on the right'
+    assert gui.note_button.text() == 'Note'
     # the Subject tab keeps its own notes field; what must be gone is one outside the tabs,
     # where it costs a row of the window whichever tab is showing
     outside = [w for w in gui.findChildren(QTextEdit) if not gui.tabs.isAncestorOf(w)]

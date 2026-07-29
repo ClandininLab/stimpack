@@ -387,7 +387,7 @@ class ExperimentGUI(QWidget):
         # Enter note button. The box to type in appears when it is pressed, rather than sitting
         # in the window: a note is written a few times a session, and an always-present field was
         # spending a permanent row on something almost always empty.
-        self.note_button = QPushButton("Enter note", self)
+        self.note_button = QPushButton("Note", self)
         self.note_button.clicked.connect(self.on_pressed_button)
 
 
@@ -645,8 +645,8 @@ class ExperimentGUI(QWidget):
         # experiment rather than about one tab, and a server error aborts the run wherever you
         # happen to be looking when it arrives.
         bottom_row = QHBoxLayout()
-        bottom_row.addWidget(self.note_button)
         bottom_row.addWidget(self.status_scroll_area)
+        bottom_row.addWidget(self.note_button)
 
         self.layout = QVBoxLayout(self)
         self.layout.addWidget(self.tabs)
@@ -825,7 +825,7 @@ class ExperimentGUI(QWidget):
                 # release the hold here or the ensemble would sit there forever.
                 self.release_paused_ensemble()
 
-        elif sender.text() == 'Enter note':
+        elif sender.text() == 'Note':
             self.prompt_for_note()
 
         elif sender.text() == 'Save preset':
