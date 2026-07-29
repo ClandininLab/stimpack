@@ -503,3 +503,18 @@ def test_selecting_an_existing_subject_updates_both_displays(nwb_experiment_gui)
 
     assert gui.current_subject_main_label.text() == 'flyA'
     assert gui.existing_subject_input.currentText() == 'flyA'
+
+
+def test_naming_no_data_module_is_not_worth_a_warning(test_cfg):
+    """Using a built-in is the normal configuration. load_user_module warns for any unspecified
+    module, so routing through it made every correct config print 'No user module specified for
+    data' at launch -- a warning that suggests a mistake where there is none."""
+    import warnings
+
+    from stimpack.experiment.util import config_tools
+
+    cfg = dict(test_cfg, module_paths={'protocol': []})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        assert config_tools.load_user_data_module(cfg) is None
+    assert [str(w.message) for w in caught] == []

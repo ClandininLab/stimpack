@@ -570,6 +570,12 @@ def load_user_data_module(cfg):
     customizes HDF5 and not NWB should still be able to write NWB, using stimpack's own class,
     rather than being refused or silently handed the HDF5 one.
     """
+    # Naming no data module is the normal case -- stimpack has built-ins -- so it is not worth a
+    # warning. load_user_module warns for every unspecified module, which made a correct config
+    # print 'No user module specified for data' at every launch.
+    if not user_module_specified(cfg, 'data'):
+        return None
+
     mapped = get_data_module_paths_by_format(cfg)
     if not mapped:
         return next(iter(load_user_module(cfg, 'data')), None)
