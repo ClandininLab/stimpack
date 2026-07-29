@@ -1035,3 +1035,20 @@ def test_the_series_warning_follows_the_number_that_is_entered(experiment_gui, t
     gui.series_counter_input.setValue(2)     # free
     gui.on_entered_series_count()
     assert gui.series_counter_input.styleSheet() == ''
+
+
+def test_both_tabs_put_elapsed_left_and_the_count_right(experiment_gui):
+    """The Ensemble tab had them the other way round, so switching tabs mid-run moved the numbers
+    around under the eye. Asserted as a shared convention rather than per tab, since that is the
+    property that matters."""
+    gui = experiment_gui
+
+    def column_of(grid, widget):
+        index = grid.indexOf(widget)
+        return grid.getItemPosition(index)[1]
+
+    assert column_of(gui.protocol_status_grid, gui.elapsed_time_label) == 1
+    assert column_of(gui.protocol_status_grid, gui.trial_count_label) == 3
+
+    assert column_of(gui.ensemble_status_grid, gui.ensemble_elapsed_label) == 1
+    assert column_of(gui.ensemble_status_grid, gui.ensemble_progress_label) == 3

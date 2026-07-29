@@ -502,15 +502,17 @@ class ExperimentGUI(QWidget):
         # in progress. No estimate to measure it against: that would mean precomputing every
         # item's trial parameters up front, which is what makes est_run_time available for a
         # single protocol.
-        self.ensemble_status_grid.addWidget(QLabel('Protocols run:'), 0, 0)
-        self.ensemble_progress_label = QLabel()
-        self.ensemble_progress_label.setFrameShadow(QFrame.Shadow(1))
-        self.ensemble_status_grid.addWidget(self.ensemble_progress_label, 0, 1)
-
-        self.ensemble_status_grid.addWidget(QLabel('Elapsed:'), 0, 2)
+        # Same order as the Main tab's readout row -- elapsed on the left, the count on the right.
+        # Switching tabs mid-run should not move the numbers around under the eye.
+        self.ensemble_status_grid.addWidget(QLabel('Elapsed:'), 0, 0)
         self.ensemble_elapsed_label = QLabel()
         self.ensemble_elapsed_label.setFrameShadow(QFrame.Shadow(1))
-        self.ensemble_status_grid.addWidget(self.ensemble_elapsed_label, 0, 3)
+        self.ensemble_status_grid.addWidget(self.ensemble_elapsed_label, 0, 1)
+
+        self.ensemble_status_grid.addWidget(QLabel('Protocols run:'), 0, 2)
+        self.ensemble_progress_label = QLabel()
+        self.ensemble_progress_label.setFrameShadow(QFrame.Shadow(1))
+        self.ensemble_status_grid.addWidget(self.ensemble_progress_label, 0, 3)
 
         # Ensemble run buttons. Separate widgets from the Main tab's, so each tab's buttons act on
         # that tab's subject and nothing has to be relabelled or routed by label.
