@@ -149,7 +149,11 @@ class NWBData(BaseData):
         self.timezone = timezone.utc  # This could be changed if desired
         session_start_time = datetime.now(self.timezone)
 
-        rig_config = self.cfg.get('rig_config').get(self.cfg.get('current_rig_name'))        
+        # Guarded the way BaseData reads the same thing: a config with no rig_config section, or
+        # one whose current_rig_name names no rig, is a config that can still write a file. This
+        # raised instead -- AttributeError on the missing section, TypeError iterating the None
+        # from an unmatched name -- so an experiment could not be initialized at all.
+        rig_config = (self.cfg.get('rig_config') or {}).get(self.cfg.get('current_rig_name')) or {}
         self.rig_config_parameters = dict()
         for key in rig_config:
             self.rig_config_parameters[key] = str(rig_config.get(key, ""))

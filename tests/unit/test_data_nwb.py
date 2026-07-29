@@ -337,3 +337,26 @@ def test_end_trial_with_nothing_collected_is_silent(tmp_path):
     with warnings.catch_warnings():
         warnings.simplefilter('error')
         data.end_trial(_Protocol())
+
+
+@pytest.mark.parametrize('cfg, why', [
+    ({'experimenter': 'x'}, 'no rig_config section at all'),
+    ({'experimenter': 'x', 'rig_config': None}, 'an empty rig_config section'),
+    ({'experimenter': 'x', 'rig_config': {'rig1': {}}, 'current_rig_name': 'other'},
+     'a current_rig_name matching no rig'),
+])
+def test_a_config_without_a_matching_rig_still_writes(tmp_path, cfg, why):
+    """A config that names no usable rig is still a config that can record.
+
+    This read the rig section unguarded, so it raised before creating anything -- AttributeError
+    on the missing section, TypeError iterating the None from an unmatched name. BaseData has
+    always tolerated the same configs, and the two backends are chosen by a config key, so one
+    refusing what the other accepts makes that key unsafe to change.
+    """
+    data = NWBData(cfg=dict(cfg))
+    data.data_directory = str(tmp_path)
+    data.experiment_file_name = 'expt'
+    data.initialize_experiment_file()
+
+    assert os.path.isdir(os.path.join(str(tmp_path), 'expt')), why
+    assert data.rig_config_parameters == {}

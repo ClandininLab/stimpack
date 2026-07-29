@@ -440,7 +440,8 @@ def load_trigger_device(cfg):
     daq_module_list = load_user_module(cfg, 'daq')
 
     # fetch the trigger device definition from the config
-    trigger_device_definition = cfg.get('rig_config')[cfg.get('current_rig_name')].get('trigger', None)
+    rig_config = (cfg.get('rig_config') or {}).get(cfg.get('current_rig_name')) or {}
+    trigger_device_definition = rig_config.get('trigger', None)
 
     if not daq_module_list or trigger_device_definition is None:
         print('No trigger device defined')
