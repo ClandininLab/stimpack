@@ -370,23 +370,38 @@ def test_choosing_a_format_the_labpack_skipped_says_what_is_missing(qapp, tmp_pa
     rather than just reporting which class is used."""
     dialog, _ = make_startup_dialog(qapp, tmp_path, MAPPED_CFG)
 
-    assert not dialog.data_format_note.isVisible()   # nwb is one the labpack supplies
-
     dialog.data_format_combobox.setCurrentIndex(
         dialog.data_format_combobox.findData('legacy_hdf5'))
 
-    assert dialog.data_format_note.isVisible()
     note = dialog.data_format_note.text()
-    assert 'legacy_hdf5' in note and 'labpack/data.py' in note
-    assert 'missing' in note
+    assert dialog.data_format_note.isVisible()
+    assert 'legacy_hdf5' not in note.split('.')[0]    # first sentence names the class, not the format
+    assert 'labpack/data.py' in note and 'missing' in note
 
 
-def test_no_note_when_the_labpack_customizes_nothing(qapp, tmp_path):
-    """Every format is a built-in then, so there is nothing to warn about -- the common case, and
-    it must stay quiet."""
-    dialog, _ = make_startup_dialog(qapp, tmp_path, {'data_format': 'nwb', 'module_paths': {}})
+def test_the_note_names_the_labpack_class_when_there_is_one(qapp, tmp_path):
+    """No warning then -- the labpack's own class is writing the file, which is what it asked
+    for -- but still an answer to 'what is writing this'."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path, MAPPED_CFG)
 
-    assert not dialog.data_format_note.isVisible()
+    assert dialog.data_format_note.isVisible()
+    assert dialog.data_format_note.text() == 'Written by labpack/data_nwb.py.'
+
+
+@pytest.mark.parametrize('data_format, expected', [
+    ('nwb', "Written by stimpack's built-in NWBData."),
+    ('legacy_hdf5', "Written by stimpack's built-in LegacyHdf5Data."),
+])
+def test_which_class_writes_the_file_is_stated_even_with_no_labpack_module(
+        qapp, tmp_path, data_format, expected):
+    """The common case, and it said nothing at all: the note only appeared when something was
+    wrong, so a config with no data module of its own left 'what is writing this' answered only
+    by a line printed to the terminal at start-up, which nobody reads during a session."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path,
+                                    {'data_format': data_format, 'module_paths': {}})
+
+    assert dialog.data_format_note.isVisible()
+    assert dialog.data_format_note.text() == expected
     assert [dialog.data_format_combobox.itemText(i)
             for i in range(dialog.data_format_combobox.count())] == ['hdf5', 'legacy_hdf5', 'nwb']
 

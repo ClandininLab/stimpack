@@ -153,9 +153,13 @@ To keep both, give the key **one module per format**:
 Now ``data_format``, the startup dialog and ``--data-format`` select among *your* classes exactly
 as they select among the built-ins.
 
-The dialog still offers **every** format, not only the ones you supplied a class for — what
-stimpack can write and what your labpack has customized are different questions. Each entry says
-which class will write it, and choosing one you have no class for says what that costs:
+The dialog states which class will write the file whatever you choose — ``Written by
+labpack/data_nwb.py.`` or ``Written by stimpack's built-in NWBData.`` — so the question is
+answered even for a config with no data module of its own.
+
+It also offers **every** format, not only the ones you supplied a class for: what stimpack can
+write and what your labpack has customized are different questions. Each entry says which class
+will write it, and choosing one you have no class for adds what that costs:
 
 .. code-block:: text
 

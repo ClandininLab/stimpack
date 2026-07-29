@@ -2081,19 +2081,38 @@ class InitializeRigGUI(QWidget):
         self.update_data_format_note()
 
     def update_data_format_note(self):
-        """Flag a selection that will use stimpack's class where the labpack customizes others."""
+        """Say which class will write the file, and what it costs when that is not the labpack's.
+
+        Stated always, not only when something is wrong. Making it conditional meant a config with
+        no data module of its own -- the common case -- said nothing at all about what was writing
+        its files, and the only mention was a line printed to the terminal at start-up, which
+        nobody reads during a session.
+
+        The second sentence is the warning, and stays conditional: it appears when this labpack
+        customizes some formats and not the selected one. What is at stake there is not the format
+        but the overrides that will be absent from the file, so it names them.
+        """
         mapped = config_tools.get_data_module_paths_by_format(self.cfg)
         selected = self.data_format_combobox.currentData()
 
-        if not mapped or selected is None or selected in mapped:
+        if selected is None:            # a single labpack module: the combo names it already
             self.data_format_note.setVisible(False)
             return
 
-        customized = ', '.join(f'{fmt} ({spec})' for fmt, spec in sorted(mapped.items()))
-        self.data_format_note.setText(
-            f"Using stimpack's built-in {selected} class. This labpack customizes {customized} "
-            f"but supplies none for {selected}, so anything those classes add — extra metadata, "
-            f"device hooks — will be missing from this experiment.")
+        spec = mapped.get(selected)
+        if spec is not None:
+            note = f'Written by {spec}.'
+        else:
+            builtin = config_tools.BUILTIN_DATA_FORMATS.get(selected)
+            note = f"Written by stimpack's built-in {builtin[1]}." if builtin else \
+                   f"Written by stimpack's built-in {selected} class."
+            if mapped:
+                customized = ', '.join(f'{fmt} ({path})' for fmt, path in sorted(mapped.items()))
+                note += (f' This labpack customizes {customized} but supplies no {selected} class, '
+                         f'so anything those classes add — extra metadata, device hooks — will be '
+                         f'missing from this experiment.')
+
+        self.data_format_note.setText(note)
         self.data_format_note.setVisible(True)
 
     def on_pressed_enter_button(self):
