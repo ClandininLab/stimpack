@@ -27,7 +27,7 @@ from hdmf.common import VectorData, VectorIndex
 from hdmf.backends.hdf5.h5_utils import H5DataIO
 from hdmf.common.table import ElementIdentifiers
 
-from stimpack.experiment.data import BaseData, hdf5ify_parameter
+from stimpack.experiment.data import BaseData, stimpack_version, hdf5ify_parameter
 from stimpack.experiment.util import config_tools
 
 
@@ -73,10 +73,11 @@ class NWBData(BaseData):
     """
     output_is_directory = True
 
-    # An .nwb file identifies itself -- its extension, and a schema version pynwb writes -- so it
-    # needs no marker of stimpack's. Named here only so every backend answers the same question.
+    # An .nwb file identifies its format itself -- its extension, and a schema version pynwb
+    # writes -- so it needs no data_format attribute. Which stimpack wrote it goes in the schema's
+    # own field for that, source_script; see initialize_session.
     DATA_FORMAT = 'nwb'
-    WRITES_FORMAT_MARKER = False
+    DECLARES_DATA_FORMAT = False
     supports_data_browser = True
     output_noun = 'NWB directory'
 
@@ -172,7 +173,12 @@ class NWBData(BaseData):
             experimenter=self.experimenter,
             lab=config_tools.get_lab(self.cfg),
             institution=config_tools.get_institution(self.cfg),
-            experiment_description=experiment_description, 
+            experiment_description=experiment_description,
+            # The schema's own field for 'what software wrote this'. source_script_file_name is
+            # required alongside it -- without it pynwb writes the file but warns
+            # MissingRequiredBuildWarning, leaving a technically invalid file.
+            source_script=f'stimpack {stimpack_version()}',
+            source_script_file_name='stimpack',
         )
 
 

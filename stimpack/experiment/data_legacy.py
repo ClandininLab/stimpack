@@ -41,11 +41,13 @@ class LegacyHdf5Data(BaseData):
 
     output_noun = 'data file (legacy layout)'
 
-    # No data_format / stimpack_version attributes: a file this backend writes must stay
-    # indistinguishable from one stimpack 0.2 wrote, which a marker would end. Readers tell the
-    # layouts apart by the marker's ABSENCE, which means exactly 'legacy, or pre-0.3'.
+    # No data_format attribute, so that its ABSENCE identifies this layout -- which means exactly
+    # 'legacy, or written before 0.3'. stimpack_version IS written: the guarantee this backend
+    # makes is about the group and attribute names analysis reads (asserted in
+    # tests/integration/test_data_legacy.py), and recording which version wrote a file costs none
+    # of that while answering a question no stimpack file could answer before.
     DATA_FORMAT = 'legacy_hdf5'
-    WRITES_FORMAT_MARKER = False
+    DECLARES_DATA_FORMAT = False
 
     # Run parameters reach the file as attributes named after their keys, so the rename shows up
     # in the data as well as in the code: a series group would carry num_trials where analysis

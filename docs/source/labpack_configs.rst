@@ -79,7 +79,7 @@ backend.
         /Subjects/<id>/series/series_001/trials/trial_001
 
     The file's root attributes record ``data_format`` and ``stimpack_version``, so a reader can
-    tell which layout it is holding without probing for group names.
+    tell which layout it is holding, and which stimpack wrote it, without probing for group names.
 
 ``legacy_hdf5``
     The same file, with the names stimpack used before 0.3, when a trial was called an epoch and a
@@ -88,16 +88,17 @@ backend.
         /Subjects/<id>/epoch_runs/series_001/epochs/epoch_001
 
     Choose it if analysis code reads the old layout. It is the same backend as ``hdf5`` with those
-    names overridden -- not a copy frozen at 0.2 -- so it keeps every fix the current one gets. A
-    test asserts that a file it writes is indistinguishable from one stimpack wrote before the
-    rename.
+    names overridden — not a copy frozen at 0.2 — so it keeps every fix the current one gets.
+    Tests assert that the group and attribute names it writes are the pre-rename ones, and that
+    the two backends hold the same things under their two sets of names.
 
     Put it in a labpack's ``lab_config.yaml`` to apply it to every rig at once, and set
     ``data_format: hdf5`` in one rig's own config to move that rig over when its analysis is ready.
 
-    It writes no ``data_format`` root attribute, deliberately — a file it writes must stay
-    indistinguishable from one stimpack 0.2 wrote. So *absence* of that attribute is how a reader
-    recognises this layout, which means exactly "legacy, or written before 0.3".
+    It writes no ``data_format`` root attribute, deliberately: *absence* is how a reader
+    recognises this layout, and means exactly "legacy, or written before 0.3". It does write
+    ``stimpack_version``, since what this backend guarantees is the names analysis reads, and an
+    added root attribute costs none of that.
 
 ``nwb``
     A *directory* per experiment, holding one `NWB <https://www.nwb.org/>`_ file per series. NWB
@@ -109,7 +110,8 @@ backend.
     Attributes are shown read-only -- pynwb validates a schema that a hand-edited attribute can
     break, where an HDF5 experiment is stimpack's own layout and editing one is a supported repair.
 
-    Two extra config keys are written into every NWB file as top-level metadata:
+    Every NWB file records which stimpack wrote it in ``source_script``, the schema's own field
+    for that. Two extra config keys are written in as top-level metadata:
 
     .. code-block:: yaml
 

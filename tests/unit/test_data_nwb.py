@@ -360,3 +360,22 @@ def test_a_config_without_a_matching_rig_still_writes(tmp_path, cfg, why):
 
     assert os.path.isdir(os.path.join(str(tmp_path), 'expt')), why
     assert data.rig_config_parameters == {}
+
+
+def test_the_nwb_file_records_which_stimpack_wrote_it(tmp_path):
+    """source_script is the schema's own field for 'what software wrote this', so provenance goes
+    there rather than in an attribute of stimpack's invention. source_script_file_name is required
+    alongside it -- without it pynwb writes the file but warns, leaving it technically invalid."""
+    from stimpack.experiment.data import stimpack_version
+
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    data.create_series(_Protocol())
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with NWBHDF5IO(data.get_nwb_file_path(), 'r') as io:
+            nwbfile = io.read()
+            assert nwbfile.source_script == f'stimpack {stimpack_version()}'
+            assert nwbfile.source_script_file_name == 'stimpack'
+    assert not [w for w in caught if 'MissingRequired' in type(w.message).__name__]

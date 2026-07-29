@@ -162,11 +162,14 @@ def test_the_file_records_which_layout_and_version_wrote_it(tmp_path):
         assert f.attrs['stimpack_version'] == stimpack_version()
 
 
-def test_the_legacy_layout_writes_no_marker(tmp_path):
-    """Its contract is that its output is indistinguishable from stimpack 0.2's, which a marker
-    would end. Readers tell the layouts apart by the marker's ABSENCE, which means exactly
-    'legacy, or written before 0.3' -- any later layout declares itself, so that stays unambiguous.
+def test_the_legacy_layout_is_identified_by_the_absence_of_data_format(tmp_path):
+    """Readers tell the layouts apart by that attribute's ABSENCE, which means exactly 'legacy, or
+    written before 0.3' -- any later layout declares itself, so absence stays unambiguous.
+
+    The version IS recorded: what this backend guarantees is the group and attribute names
+    analysis reads, and an added root attribute costs none of that.
     """
+    from stimpack.experiment.data import stimpack_version
     from stimpack.experiment.data_legacy import LegacyHdf5Data
 
     data = LegacyHdf5Data(cfg={})
@@ -176,4 +179,4 @@ def test_the_legacy_layout_writes_no_marker(tmp_path):
 
     with h5py.File(str(tmp_path / 'legacy.hdf5'), 'r') as f:
         assert 'data_format' not in f.attrs
-        assert 'stimpack_version' not in f.attrs
+        assert f.attrs['stimpack_version'] == stimpack_version()

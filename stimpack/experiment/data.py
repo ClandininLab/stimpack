@@ -68,16 +68,17 @@ class BaseData():
     TRIALS_GROUP = 'trials'         # was 'epochs'
     TRIAL_PREFIX = 'trial_'         # was 'epoch_'
 
-    # Written into the file so a reader can tell the layouts apart. Both HDF5 backends produce a
-    # .hdf5 whose root attributes were otherwise identical, so analysis had to probe for a group
-    # name to know which reader to use -- and nothing recorded which stimpack wrote the file.
+    # Written into the file so a reader can tell the layouts apart: both HDF5 backends produce a
+    # .hdf5 whose root attributes were otherwise identical, leaving analysis to probe for a group
+    # name to know which reader to use.
     #
-    # The legacy backend deliberately writes neither (see WRITES_FORMAT_MARKER): its contract is
-    # that its output is indistinguishable from stimpack 0.2's, and a test asserts exactly that.
-    # Absence therefore means 'legacy layout, or written before 0.3', which is what a reader needs
-    # to know -- any later layout declares itself, so absence stays unambiguous.
+    # The legacy backend sets DECLARES_DATA_FORMAT False, so absence of the attribute means
+    # 'legacy layout, or written before 0.3' -- any later layout declares itself, so absence stays
+    # unambiguous. It writes stimpack_version all the same: which version produced a file is worth
+    # knowing whatever its layout, and an added root attribute does not disturb analysis that
+    # walks groups or reads named attributes.
     DATA_FORMAT = 'hdf5'
-    WRITES_FORMAT_MARKER = True
+    DECLARES_DATA_FORMAT = True
     # Attributes whose spelling changed with the rename. Anything not named here is written the
     # same by both backends.
     ATTRIBUTE_NAMES = {'num_trials_completed': 'num_trials_completed',
@@ -139,9 +140,9 @@ class BaseData():
             experiment_file.attrs['data_directory'] = self.data_directory
             experiment_file.attrs['experimenter'] = self.experimenter
             experiment_file.attrs['rig_config'] = self.cfg.get('current_rig_name', '')
-            if self.WRITES_FORMAT_MARKER:
+            experiment_file.attrs['stimpack_version'] = stimpack_version()
+            if self.DECLARES_DATA_FORMAT:
                 experiment_file.attrs['data_format'] = self.DATA_FORMAT
-                experiment_file.attrs['stimpack_version'] = stimpack_version()
             rig_config = (self.cfg.get('rig_config') or {}).get(self.cfg.get('current_rig_name')) or {}
             for key in rig_config:
                 experiment_file.attrs[key] = str(rig_config.get(key))
