@@ -287,7 +287,7 @@ class ScreenMesh:
     :param positions: (N, 3) the points themselves, in meters -- kept for visualisation and checking
     """
 
-    def __init__(self, ndc, directions, triangles, positions, lit=None):
+    def __init__(self, ndc, directions, triangles, positions, lit=None, gain=None):
         self.ndc = np.asarray(ndc, dtype=np.float32)
         self.directions = np.asarray(directions, dtype=np.float32)
         self.triangles = np.asarray(triangles, dtype=np.int32)
@@ -296,18 +296,27 @@ class ScreenMesh:
         # the image and that the surface faces the projector at all.
         self.lit = (np.ones(len(self.ndc), dtype=bool) if lit is None
                     else np.asarray(lit, dtype=bool))
+        # Per vertex: what the fragment shader multiplies the sampled colour by, to even out an
+        # uneven projector. Kept separate from `lit` rather than folded into one weight -- they
+        # answer different questions, and coverage() reports the fraction of the screen the
+        # projector *reaches*, which a float would quietly turn into a mean attenuation. It also
+        # keeps "unreachable" distinct from "corrected to nearly nothing", which is a distinction
+        # anyone debugging a dark rig wants.
+        self.gain = (np.ones(len(self.ndc), dtype=np.float32) if gain is None
+                     else np.asarray(gain, dtype=np.float32))
 
     @property
     def n_triangles(self):
         return len(self.triangles)
 
     def interleaved(self):
-        """(ndc_x, ndc_y, dir_x, dir_y, dir_z) per vertex, expanded per triangle.
+        """(ndc_x, ndc_y, dir_x, dir_y, dir_z, gain) per vertex, expanded per triangle.
 
         The layout a vertex buffer wants: one draw call renders the whole screen.
         """
         flat = self.triangles.reshape(-1)
-        return np.hstack([self.ndc[flat], self.directions[flat]]).astype(np.float32)
+        return np.hstack([self.ndc[flat], self.directions[flat],
+                          self.gain[flat, None]]).astype(np.float32)
 
     def coverage(self, radius=None):
         """What part of the screen this projector actually lights, as a dict.
@@ -331,7 +340,96 @@ class ScreenMesh:
         return result | {'azimuth': _circular_range(azimuth),
                          'elevation': (float(elevation.min()), float(elevation.max()))}
 
-def build_screen_mesh(surface, projector, subject_position=(0, 0, 0)):
+def projector_irradiance(surface, projector, positions):
+    """How brightly the projector lights each point, relative to the brightest one.
+
+    Three factors, and the third is the one that is easy to leave out::
+
+        E  ~  cos(alpha) / ( L^2 * cos^3(theta) )
+
+        alpha   between the arriving beam and the surface normal -- an oblique beam spreads
+        L       projector to that point -- inverse square
+        theta   that point off the projector's optical axis
+
+    The first two say brightness falls off away from the centre, which is the intuition. The third
+    says the opposite: a DMD pixel at angle theta subtends LESS solid angle from the pinhole
+    (foreshortening x distance squared), so its fixed flux is packed into a narrower cone.
+
+    For a flat screen square-on to the projector these cancel exactly, and the screen is evenly lit
+    -- which has to be so, because a pinhole projection of a flat DMD onto a parallel plane is a
+    pure magnification, and every pixel therefore lights an equal area. Any falloff a rig sees on
+    such a screen is optical (lens vignetting, lamp non-uniformity) and no geometry predicts it.
+    Geometry only bites when the screen is tilted, off-axis, or curved.
+
+    Checked against the Clandinin hemisphere rig's own measured curve: this reproduces it to within
+    about 15% out to 64 degrees off the axis, with no fitting. It diverges at the limb, where
+    incidence reaches 90 degrees and this goes to zero while a real diffusing screen still passes
+    some light, and it cannot know about deliberate optics -- that rig has an apodizing filter,
+    which changes the edge by a factor of 20.
+
+    So this is the computable half. The rest has to be measured per rig, and multiplied in.
+
+    :return: (N,) relative irradiance in [0, 1], zero where the projector does not reach
+    """
+    positions = np.atleast_2d(np.asarray(positions, dtype=float))
+    _, _, forward = projector._basis()
+
+    ray = positions - np.asarray(projector.position, dtype=float)
+    distance = np.linalg.norm(ray, axis=1)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        towards = ray / distance[:, None]
+
+    cos_theta = towards @ forward
+    cos_alpha = -np.einsum('ij,ij->i', towards, surface.outward_normals(positions))
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        irradiance = cos_alpha / (distance ** 2 * cos_theta ** 3)
+
+    # Behind the projector, edge-on, or facing away: no light, rather than a negative or infinite
+    # amount. Points facing away are the far wall of a bowl, which the caller drops anyway.
+    irradiance = np.where((cos_theta > 0) & (cos_alpha > 0) & np.isfinite(irradiance),
+                          irradiance, 0.0)
+    peak = irradiance.max()
+    return irradiance / peak if peak > 0 else irradiance
+
+
+def brightness_gain(irradiance, target, gamma=1.0):
+    """Per-vertex multiplier that flattens `irradiance` to `target` x its peak.
+
+    A correction can only ever scale *down*, so flattening means bringing everything to the level of
+    the dimmest point being corrected. On a bowl the dimmest lit point is at the limb, where
+    irradiance goes to zero -- so "flatten everything" means "black screen". `target` is what stops
+    that: it names the fraction of peak brightness to flatten to, and points already dimmer than
+    that are left alone rather than driven to zero.
+
+    Lower target, flatter screen, less light. The Clandinin rig faces the same trade in MATLAB and
+    answers it by keeping two curves, one for the full screen and one for a restricted region.
+
+    `gamma` is the display's transfer function: light ~ commanded^gamma. The gain above is a ratio
+    of *light*, but what the shader multiplies is a *commanded value*, so it has to be converted.
+    The default of 1.0 assumes a linear projector, which is almost certainly wrong and is what a rig
+    gets until someone measures it -- see the note in CurvedScreen.
+
+    :param irradiance: (N,) relative, as projector_irradiance returns
+    :param target: fraction of peak brightness to flatten to, in (0, 1]
+    :param gamma: exponent of the display's response
+    :return: (N,) multipliers in [0, 1]
+    """
+    if not 0 < target <= 1:
+        raise ValueError(f'target must be a fraction of peak brightness in (0, 1], not {target}')
+    if gamma <= 0:
+        raise ValueError(f'gamma must be positive, not {gamma}')
+
+    irradiance = np.asarray(irradiance, dtype=float)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        gain = np.where(irradiance > 0, target / irradiance, 1.0)
+    # Above 1 means this point is already dimmer than the target and would need amplifying, which a
+    # projector cannot do. Left at 1: dimmer than the rest, but visible.
+    return np.clip(gain, 0.0, 1.0) ** (1.0 / gamma)
+
+
+def build_screen_mesh(surface, projector, subject_position=(0, 0, 0),
+                      brightness_correction=None, gamma=1.0):
     """Tessellate `surface` and work out, for each vertex, where it projects and where it lies.
 
     Two different things are worked out here and it is worth not conflating them.
@@ -373,8 +471,14 @@ def build_screen_mesh(surface, projector, subject_position=(0, 0, 0)):
             f'aimed at the screen (look_at=) and on the side the screen is projected from.')
 
     lit = visible & (np.abs(np.nan_to_num(ndc, nan=np.inf)) <= 1).all(axis=1)
+
+    gain = None
+    if brightness_correction is not None:
+        gain = brightness_gain(projector_irradiance(surface, projector, positions),
+                               target=brightness_correction, gamma=gamma)
+
     return ScreenMesh(ndc=ndc, directions=directions, triangles=triangles, positions=positions,
-                      lit=lit)
+                      lit=lit, gain=gain)
 
 
 def _circular_range(angles_deg):
@@ -465,13 +569,25 @@ class CurvedScreen(Screen):
     :param surface: a CurvedSurface -- the shape of the screen
     :param projector: a PinholeProjector -- where its light lands
     :param cube_resolution: pixels per cube face. 512 is already well under what a fly resolves.
+    :param brightness_correction: None for none, or the fraction of peak brightness to flatten the
+        screen to. A projector does not light a curved screen evenly, and the gradient is a
+        confound in any experiment where the stimulus moves across it. Correcting costs light --
+        see brightness_gain -- so the level is yours to choose rather than implied.
+    :param gamma: exponent of the display's response, light ~ commanded^gamma. Only used when
+        correcting. The default of 1.0 says the projector is linear, which is very likely wrong:
+        nothing in stimpack measures this, and until a rig does, its correction is directionally
+        right and quantitatively off. Measuring it is one photometer and eight levels.
     """
 
-    def __init__(self, surface=None, projector=None, cube_resolution=1024, **kwargs):
+    def __init__(self, surface=None, projector=None, cube_resolution=1024,
+                 brightness_correction=None, gamma=1.0, **kwargs):
         super().__init__(**kwargs)
         self.surface = surface if surface is not None else SphericalSurface()
         self.projector = projector if projector is not None else PinholeProjector()
         self.cube_resolution = int(cube_resolution)
+        self.brightness_correction = (None if brightness_correction is None
+                                      else float(brightness_correction))
+        self.gamma = float(gamma)
 
     def build_mesh(self, subject_position=(0, 0, 0)):
         """The screen mesh. subject_position is where the subject physically sits, not where it is
@@ -484,7 +600,10 @@ class CurvedScreen(Screen):
         translates the world instead). Passing the virtual position here as well applies the
         translation twice; a test comparing the two paths caught that at 14 px on a 192 px screen.
         """
-        return build_screen_mesh(self.surface, self.projector, subject_position=subject_position)
+        return build_screen_mesh(self.surface, self.projector,
+                                subject_position=subject_position,
+                                brightness_correction=self.brightness_correction,
+                                gamma=self.gamma)
 
     def serialize(self):
         data = super().serialize()
@@ -492,11 +611,17 @@ class CurvedScreen(Screen):
         data['surface'] = self.surface.serialize()
         data['projector'] = self.projector.serialize()
         data['cube_resolution'] = self.cube_resolution
+        data['brightness_correction'] = self.brightness_correction
+        data['gamma'] = self.gamma
         return data
 
     @classmethod
     def deserialize_curved(cls, data):
         kwargs = dict(data)
+        # Screen.deserialize strips this before delegating here, so production never carries it --
+        # but serialize() emits it, and a pair that cannot round-trip its own output is a trap for
+        # anyone who calls these directly.
+        kwargs.pop('kind', None)
         kwargs['subscreens'] = [SubScreen.deserialize(sub) for sub in kwargs.get('subscreens', [])]
         kwargs['surface'] = deserialize_surface(kwargs['surface'])
         kwargs['projector'] = PinholeProjector.deserialize(kwargs['projector'])

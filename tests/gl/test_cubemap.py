@@ -335,3 +335,72 @@ def test_a_real_screen_shape_renders_through_the_whole_path(headless_gl, surface
         assert 0 < coverage['fraction'] <= 1
     finally:
         renderer.release()
+
+
+# --- brightness correction reaches the GPU --------------------------------------------------------
+
+def test_the_per_vertex_gain_attenuates_on_the_gpu(headless_gl):
+    """The correction is computed in numpy but applied in the fragment shader, so the vertex
+    attribute has to survive the buffer layout, the VAO format string and the varying. Getting the
+    format string wrong misreads the whole buffer, which shows up as a scrambled screen rather than
+    a wrong brightness -- but only once something actually varies across vertices."""
+    ctx = headless_gl
+    size = 32
+
+    def render_with_gain(gain):
+        mesh = flat_mesh([(1, 0, 0)])
+        mesh.gain = np.full(len(mesh.ndc), gain, dtype=np.float32)
+        renderer = CubeMapRenderer(ctx, mesh, resolution=16)
+        try:
+            fill_faces(renderer, colors=[(1.0, 1.0, 1.0, 1.0)] * 6)   # white everywhere
+            target = ctx.simple_framebuffer((size, size))
+            target.use()
+            target.clear(0.0, 0.0, 0.0, 1.0)
+            renderer.render_warp(viewport=(0, 0, size, size))
+            ctx.finish()
+            image = np.frombuffer(target.read(components=3, alignment=1),
+                                  dtype=np.uint8).reshape(size, size, 3)
+        finally:
+            renderer.release()
+        return int(image[size // 2, size // 2, 0])
+
+    full = render_with_gain(1.0)
+    half = render_with_gain(0.5)
+    dark = render_with_gain(0.0)
+
+    assert full > 250, f'an uncorrected mesh should pass white through, got {full}'
+    assert 120 <= half <= 136, f'a gain of 0.5 should halve it, got {half}'
+    assert dark < 5, f'a gain of 0 should black it out, got {dark}'
+
+
+def test_a_gain_that_varies_across_the_screen_is_interpolated(headless_gl):
+    """Per-vertex, interpolated per fragment -- so a mesh whose vertices disagree produces a
+    gradient rather than a flat value or a hard step."""
+    ctx = headless_gl
+    size = 64
+
+    # One full-screen triangle whose three vertices carry different gains.
+    mesh = flat_mesh([(1, 0, 0)])
+    mesh.gain = np.array([0.0, 1.0, 0.5], dtype=np.float32)
+
+    renderer = CubeMapRenderer(ctx, mesh, resolution=16)
+    try:
+        fill_faces(renderer, colors=[(1.0, 1.0, 1.0, 1.0)] * 6)
+        target = ctx.simple_framebuffer((size, size))
+        target.use()
+        target.clear(0.0, 0.0, 0.0, 1.0)
+        renderer.render_warp(viewport=(0, 0, size, size))
+        ctx.finish()
+        image = np.frombuffer(target.read(components=3, alignment=1),
+                              dtype=np.uint8).reshape(size, size, 3)
+    finally:
+        renderer.release()
+
+    # The vertices carrying 0.0 and 1.0 sit outside NDC and are clipped away, so the visible span
+    # is an interior slice of the ramp -- what matters is that it IS a ramp.
+    row = image[size // 2, :, 0].astype(int)
+    assert row.max() - row.min() > 50, f'expected a gradient across the row, got {row.min()}..{row.max()}'
+    assert len(np.unique(row)) > 8, f'expected many levels, got {np.unique(row)[:10]}'
+    assert np.all(np.diff(row) >= 0) or np.all(np.diff(row) <= 0), \
+        'the ramp should be monotonic across a single triangle'
+    assert row.max() < 255, 'a mesh with attenuating vertices should not render at full brightness'

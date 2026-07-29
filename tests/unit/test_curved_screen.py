@@ -169,11 +169,13 @@ def test_interleaved_buffer_layout():
     mesh = build_screen_mesh(SphericalSurface(n_azimuth=6, n_elevation=3), flystim_projector())
     data = mesh.interleaved()
 
-    assert data.shape == (mesh.n_triangles * 3, 5)     # ndc_x, ndc_y, dir_x, dir_y, dir_z
+    # ndc_x, ndc_y, dir_x, dir_y, dir_z, gain
+    assert data.shape == (mesh.n_triangles * 3, 6)
     assert data.dtype == np.float32
     first = mesh.triangles[0, 0]
     assert np.allclose(data[0, :2], mesh.ndc[first])
-    assert np.allclose(data[0, 2:], mesh.directions[first])
+    assert np.allclose(data[0, 2:5], mesh.directions[first])
+    assert np.allclose(data[0, 5], mesh.gain[first])
 
 
 def test_coverage_reports_how_much_of_the_screen_is_lit():
@@ -233,7 +235,8 @@ def test_mesh_accepts_plain_arrays():
                       directions=[[0, 1, 0], [1, 0, 0], [0, 0, 1]],
                       triangles=[[0, 1, 2]], positions=[[0, 1, 0], [1, 0, 0], [0, 0, 1]])
     assert mesh.n_triangles == 1
-    assert mesh.interleaved().shape == (3, 5)
+    assert mesh.interleaved().shape == (3, 6)
+    assert np.allclose(mesh.gain, 1.0), 'an uncorrected mesh should not attenuate'
 
 
 # --- the actual projector ------------------------------------------------------------------------
@@ -401,3 +404,168 @@ def test_a_tilted_bowl_lit_along_its_own_axis_stays_inside_its_rim():
     assert angle.max() <= tangent_limit + 1e-6
     assert np.isclose(angle.max(), tangent_limit, atol=6.0), 'should reach nearly to the limb'
     assert 0.6 < mesh.lit.mean() < 0.95
+
+
+# --- brightness correction -----------------------------------------------------------------------
+
+def flat_surface_perpendicular(distance=0.3, half_width=0.2, n=9):
+    """A flat screen square-on to a projector at (0, 0, distance), as a CurvedSurface."""
+    from stimpack.visual_stim.curved_screen import CurvedSurface
+
+    class Flat(CurvedSurface):
+        def vertices_and_triangles(self):
+            xs = np.linspace(-half_width, half_width, n)
+            x, y = np.meshgrid(xs, xs, indexing='ij')
+            verts = np.stack([x.ravel(), y.ravel(), np.zeros(x.size)], axis=-1)
+            return verts, np.zeros((0, 3), dtype=int)
+
+        def outward_normals(self, vertices):
+            return np.tile([0.0, 0.0, 1.0], (len(vertices), 1))
+
+    return Flat()
+
+
+def test_a_flat_screen_square_on_is_evenly_lit():
+    """The result that makes the third term worth having. Distance and obliquity both say the edges
+    should be dimmer; the shrinking solid angle of an off-axis DMD pixel says brighter; they cancel
+    exactly. A model with only the first two would 'correct' a screen that needs no correcting."""
+    from stimpack.visual_stim.curved_screen import PinholeProjector, projector_irradiance
+
+    surface = flat_surface_perpendicular(distance=0.3)
+    projector = PinholeProjector(position=(0, 0, 0.3), look_at=(0, 0, 0), throw_ratio=1.0)
+    positions, _ = surface.vertices_and_triangles()
+
+    irradiance = projector_irradiance(surface, projector, positions)
+    assert np.allclose(irradiance, 1.0), f'spread {irradiance.min():.6f}..{irradiance.max():.6f}'
+
+
+def test_the_geometric_model_reproduces_the_rig_s_measured_falloff():
+    """The claim the whole design rests on: enough of the falloff is geometry that it is worth
+    computing, and the rest has to be measured. Measured on the Clandinin hemisphere rig, 7 points
+    across the projected cap, normalised to the centre."""
+    from stimpack.visual_stim.curved_screen import (SphericalSurface, PinholeProjector,
+                                                    projector_irradiance)
+
+    radius, distance = 0.0715, 0.302067
+    measured = np.array([33, 32.5, 29.5, 21, 12, 6.5, 3.5], dtype=float)
+    measured /= measured[0]
+    phi = np.linspace(0, np.radians(76.31), len(measured))
+
+    surface = SphericalSurface(radius=radius, elevation_range=(-90, 90))
+    projector = PinholeProjector(position=(0, 0, distance), look_at=(0, 0, 0),
+                                 throw_ratio=1.57523511, aspect_ratio=1.6)
+    positions = radius * np.stack([np.sin(phi), np.zeros_like(phi), np.cos(phi)], axis=-1)
+    predicted = projector_irradiance(surface, projector, positions)
+
+    # Out to 64 degrees, geometry alone lands within 20% with nothing fitted.
+    ratio = predicted[:-1] / measured[:-1]
+    assert np.all(np.abs(ratio - 1) < 0.2), np.round(ratio, 3)
+
+    # The last point is the limb, where incidence reaches 90 degrees. The model says zero; the real
+    # screen still passes light. That gap is why the residual has to be measured per rig.
+    assert predicted[-1] < 1e-6 < measured[-1]
+
+
+def test_correction_flattens_the_screen_to_the_chosen_level():
+    from stimpack.visual_stim.curved_screen import (SphericalSurface, PinholeProjector,
+                                                    projector_irradiance, brightness_gain)
+
+    surface = SphericalSurface(radius=0.0715, elevation_range=(0, 90), n_azimuth=36, n_elevation=12)
+    projector = PinholeProjector(position=(0, 0, 0.302067), look_at=(0, 0, 0),
+                                 throw_ratio=1.57523511, aspect_ratio=1.6)
+    positions, _ = surface.vertices_and_triangles()
+    irradiance = projector_irradiance(surface, projector, positions)
+
+    target = 0.25
+    gain = brightness_gain(irradiance, target=target)
+    corrected = irradiance * gain
+
+    bright_enough = irradiance >= target
+    assert bright_enough.any(), 'the test is not exercising the corrected region'
+    assert np.allclose(corrected[bright_enough], target), 'the corrected region is not flat'
+    assert np.all(gain <= 1.0), 'a projector cannot amplify'
+
+
+def test_points_dimmer_than_the_target_are_left_alone_not_blacked_out():
+    """The trap in the obvious implementation: the dimmest lit point on a bowl is at the limb, where
+    irradiance goes to zero, so flattening to the true minimum turns the whole screen off."""
+    from stimpack.visual_stim.curved_screen import brightness_gain
+
+    irradiance = np.array([1.0, 0.5, 0.2, 0.05, 0.0])
+    gain = brightness_gain(irradiance, target=0.25)
+
+    assert np.allclose(gain[:2], [0.25, 0.5])          # brighter than target: attenuated onto it
+    assert np.allclose(gain[2:], 1.0)                  # dimmer: untouched, not driven to zero
+    assert gain.max() <= 1.0
+
+
+def test_gamma_converts_a_light_ratio_into_a_commanded_one():
+    """The gain is a ratio of light; the shader multiplies a commanded value. On a display with
+    response light ~ commanded^gamma, applying the light ratio directly overcorrects."""
+    from stimpack.visual_stim.curved_screen import brightness_gain
+
+    irradiance = np.array([1.0, 0.5])
+    linear = brightness_gain(irradiance, target=0.5, gamma=1.0)
+    encoded = brightness_gain(irradiance, target=0.5, gamma=2.2)
+
+    assert np.isclose(linear[0], 0.5)
+    assert np.isclose(encoded[0], 0.5 ** (1 / 2.2))
+    # and the light it produces is the same either way
+    assert np.isclose(encoded[0] ** 2.2, linear[0])
+    assert encoded[0] > linear[0], 'encoding for a gamma display asks for a larger commanded value'
+
+
+def test_no_correction_leaves_the_mesh_exactly_as_it_was():
+    from stimpack.visual_stim.curved_screen import SphericalSurface, build_screen_mesh
+
+    surface = SphericalSurface(radius=0.0715, n_azimuth=12, n_elevation=6)
+    projector = flystim_projector()
+
+    plain = build_screen_mesh(surface, projector)
+    explicit = build_screen_mesh(surface, projector, brightness_correction=None)
+
+    assert np.allclose(plain.gain, 1.0)
+    assert np.array_equal(plain.interleaved(), explicit.interleaved())
+
+
+def test_the_correction_reaches_the_vertex_buffer():
+    from stimpack.visual_stim.curved_screen import SphericalSurface, build_screen_mesh
+
+    surface = SphericalSurface(radius=0.0715, elevation_range=(0, 90), n_azimuth=24, n_elevation=8)
+    projector = PinholeProjector(position=(0, 0, 0.302067), look_at=(0, 0, 0),
+                                 throw_ratio=1.57523511, aspect_ratio=1.6)
+    mesh = build_screen_mesh(surface, projector, brightness_correction=0.25)
+
+    assert mesh.gain.min() < 0.9, 'nothing was attenuated'
+    assert mesh.gain.max() <= 1.0
+    flat = mesh.triangles.reshape(-1)
+    assert np.allclose(mesh.interleaved()[:, 5], mesh.gain[flat])
+
+
+def test_a_nonsensical_target_is_refused():
+    from stimpack.visual_stim.curved_screen import brightness_gain
+
+    for bad in (0.0, -0.5, 1.5):
+        with pytest.raises(ValueError, match='fraction of peak'):
+            brightness_gain(np.array([1.0]), target=bad)
+    with pytest.raises(ValueError, match='gamma'):
+        brightness_gain(np.array([1.0]), target=0.5, gamma=0)
+
+
+def test_the_correction_survives_serialization():
+    """It is set in a config and used in the screen subprocess, so a value that did not round-trip
+    would correct in the parent and not on the rig."""
+    from stimpack.visual_stim.curved_screen import CurvedScreen
+
+    from stimpack.visual_stim.screen import Screen
+
+    screen = CurvedScreen(brightness_correction=0.3, gamma=2.2)
+    # Through Screen.deserialize, which is the path the screen subprocess actually takes
+    restored = Screen.deserialize(screen.serialize())
+    assert isinstance(restored, CurvedScreen)
+    # ...and directly, which is what anyone reading the class would try
+    assert CurvedScreen.deserialize_curved(screen.serialize()).gamma == 2.2
+
+    assert restored.brightness_correction == 0.3
+    assert restored.gamma == 2.2
+    assert np.allclose(restored.build_mesh().gain, screen.build_mesh().gain)

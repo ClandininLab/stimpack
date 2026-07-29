@@ -38,9 +38,12 @@ WARP_VERTEX_SHADER = '''
     #version 330
     in vec2 in_ndc;
     in vec3 in_direction;
+    in float in_gain;
     out vec3 v_direction;
+    out float v_gain;
     void main() {
         v_direction = in_direction;
+        v_gain = in_gain;
         gl_Position = vec4(in_ndc, 0.0, 1.0);
     }
 '''
@@ -49,9 +52,13 @@ WARP_FRAGMENT_SHADER = '''
     #version 330
     uniform samplerCube cube;
     in vec3 v_direction;
+    in float v_gain;
     out vec4 f_color;
     void main() {
-        f_color = texture(cube, normalize(v_direction));
+        vec4 sampled = texture(cube, normalize(v_direction));
+        // Evens out an uneven projector. rgb only: alpha says how to composite, not how bright
+        // this is, and scaling it would make the correction depend on the blend mode.
+        f_color = vec4(sampled.rgb * v_gain, sampled.a);
     }
 '''
 
@@ -186,7 +193,7 @@ class CubeMapRenderer:
                                    fragment_shader=WARP_FRAGMENT_SHADER)
         self._vbo = ctx.buffer(mesh.interleaved().tobytes())
         self.vao = ctx.vertex_array(
-            self.program, [(self._vbo, '2f 3f', 'in_ndc', 'in_direction')])
+            self.program, [(self._vbo, '2f 3f 1f', 'in_ndc', 'in_direction', 'in_gain')])
         self.n_vertices = mesh.n_triangles * 3
 
     def _attach_face(self, index):
