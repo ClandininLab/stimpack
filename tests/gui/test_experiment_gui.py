@@ -1404,15 +1404,15 @@ def test_the_trial_readout_sits_with_the_parameters_it_comes_from(experiment_gui
     is what actually holds that.
     """
     gui = experiment_gui
-    layout = gui.protocol_tab_layout
+    splitter = gui.protocol_trial_splitter
 
     assert gui.protocol_tab.isAncestorOf(gui.trial_parameters_scroll_area)
-    positions = {layout.itemAt(i): i for i in range(layout.count())}
-    trial_index = next(i for item, i in positions.items()
-                       if item.layout() is not None
-                       and item.layout().indexOf(gui.trial_parameters_scroll_area) >= 0)
-    assert positions[layout.itemAt(layout.indexOf(gui.parameters_scroll_area))] < trial_index
-    assert trial_index < layout.indexOf(gui.protocol_control_box)
+    # parameters above, trial readout below, sharing a draggable divider
+    assert splitter.indexOf(gui.parameters_scroll_area) == 0
+    assert splitter.widget(1).isAncestorOf(gui.trial_parameters_scroll_area)
+    # and the control box after both, so it stays against the bottom of the tab
+    layout = gui.protocol_tab_layout
+    assert layout.indexOf(splitter) < layout.indexOf(gui.protocol_control_box)
 
 
 def test_the_two_control_boxes_line_up(experiment_gui):
@@ -1436,3 +1436,65 @@ def test_the_two_control_boxes_line_up(experiment_gui):
     assert gui.protocol_control_box.height() == gui.ensemble_control_box.height()
     assert (gui.protocol_status_grid.sizeHint().height()
             == gui.ensemble_status_grid.sizeHint().height())
+
+
+def test_the_trial_readout_can_be_dragged_taller(experiment_gui):
+    """One line is right for a protocol varying one parameter and not for one varying ten, and
+    which it is changes with the protocol selected -- so no fixed height is correct for long.
+
+    It opens at one line, which is the height it had when it was fixed: a QScrollArea's own size
+    hint is several lines, so without an explicit starting size the readout would open taller than
+    it has ever been and take the space from the parameters above it.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    gui = experiment_gui
+    gui.resize(600, 750)
+    gui.show()
+    QApplication.processEvents()
+
+    splitter = gui.protocol_trial_splitter
+    assert gui.trial_parameters_scroll_area.height() == gui.trial_parameters_one_line_height
+
+    total = sum(splitter.sizes())
+    splitter.setSizes([total - 200, 200])
+    QApplication.processEvents()
+
+    assert gui.trial_parameters_scroll_area.height() == 200
+    # and the parameters above are what yielded the space, since they are the ones that scroll
+    assert gui.parameters_scroll_area.height() < total - 100
+
+
+def test_dragging_the_trial_readout_does_not_move_the_control_boxes(experiment_gui):
+    """The splitter takes its space from the parameters above it, not from the control box below,
+    which stays against the bottom of its tab -- so a drag on the Main tab cannot pull the two
+    tabs' buttons out of line with each other."""
+    from PyQt6.QtWidgets import QApplication
+
+    gui = experiment_gui
+    gui.resize(600, 750)
+    gui.show()
+    QApplication.processEvents()
+
+    total = sum(gui.protocol_trial_splitter.sizes())
+    gui.protocol_trial_splitter.setSizes([total - 250, 250])
+    QApplication.processEvents()
+
+    tops = []
+    for index, box in [(0, gui.protocol_control_box), (1, gui.ensemble_control_box)]:
+        gui.tabs.setCurrentIndex(index)
+        QApplication.processEvents()
+        tops.append(box.mapTo(gui, box.rect().topLeft()).y())
+
+    assert tops[0] == tops[1], f'control boxes {abs(tops[0] - tops[1])} px apart after a drag'
+
+
+def test_both_series_captions_read_the_same(experiment_gui):
+    """Punctuated like every other caption in the grid -- 'Subject:', 'Elapsed / Est:', 'Trials
+    run:' -- and identical between the tabs, which is the point of having it on both."""
+    gui = experiment_gui
+
+    main = gui.protocol_status_grid.itemAtPosition(0, 0).widget().text()
+    ensemble = gui.ensemble_status_grid.itemAtPosition(0, 0).widget().text()
+
+    assert main == ensemble == 'Series #:'

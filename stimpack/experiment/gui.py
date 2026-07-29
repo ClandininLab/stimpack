@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayou
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
                              QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QHBoxLayout, QFrame,
                              QScrollArea, QListWidget, QSizePolicy, QAbstractItemView,
-                             QCompleter)
+                             QCompleter, QSplitter)
 import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, QUrl
 import PyQt6.QtGui as QtGui
@@ -280,14 +280,16 @@ class ExperimentGUI(QWidget):
         self.trial_parameters_scroll_area.setWidgetResizable(True)
         self.trial_parameters_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.trial_parameters_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.trial_parameters_scroll_area.setFixedHeight(
-            self.trial_parameters_label.fontMetrics().height()
-            + 2 * self.trial_parameters_scroll_area.frameWidth())
+        one_line = (self.trial_parameters_label.fontMetrics().height()
+                    + 2 * self.trial_parameters_scroll_area.frameWidth())
+        self.trial_parameters_scroll_area.setMinimumHeight(one_line)
+        # Starts at one line, as it was when its height was fixed. A minimum rather than a fixed
+        # height is what lets the splitter above it give it more.
+        self.trial_parameters_one_line_height = one_line
 
         self.protocol_tab = QWidget()
         self.protocol_tab_layout = QVBoxLayout()
         self.protocol_tab_layout.addWidget(self.protocol_selector_box)
-        self.protocol_tab_layout.addWidget(self.parameters_scroll_area)
         # Directly above the control box, and directly below the protocol parameters it is derived
         # from, so the two read together. This costs nothing in the consistency it was moved out of
         # the tabs to protect: both control boxes are the LAST widget in their tab's layout with an
@@ -299,10 +301,30 @@ class ExperimentGUI(QWidget):
         # selectors and repopulates its parameter fields for each item as it starts. So this is
         # never showing one protocol's trial beside another protocol's parameters -- which was the
         # thing that argued for keeping it outside.
-        trial_row = QHBoxLayout()
-        trial_row.addWidget(QLabel('This trial:'))
+        trial_widget = QWidget()
+        trial_row = QHBoxLayout(trial_widget)
+        trial_row.setContentsMargins(0, 0, 0, 0)
+        trial_caption = QLabel('This trial:')
+        # Top-aligned, so the caption stays beside the first line when the box is dragged taller
+        # rather than drifting to the middle of it.
+        trial_caption.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        trial_row.addWidget(trial_caption)
         trial_row.addWidget(self.trial_parameters_scroll_area)
-        self.protocol_tab_layout.addLayout(trial_row)
+
+        # Draggable, because one line is right for a protocol varying one parameter and not for one
+        # varying ten -- and which it is changes with the protocol selected, so no fixed height is
+        # correct for long. The parameters above yield the space, as they are the ones that scroll.
+        self.protocol_trial_splitter = QSplitter(QtCore.Qt.Orientation.Vertical)
+        self.protocol_trial_splitter.addWidget(self.parameters_scroll_area)
+        self.protocol_trial_splitter.addWidget(trial_widget)
+        self.protocol_trial_splitter.setStretchFactor(0, 1)
+        self.protocol_trial_splitter.setStretchFactor(1, 0)
+        # Opens at one line, which is what it was when its height was fixed -- a QScrollArea's own
+        # size hint is several lines, so without this the readout would start taller than it has
+        # ever been and take the space from the parameters above it. Anything past the first line
+        # is the user's to ask for.
+        self.protocol_trial_splitter.setSizes([10_000, self.trial_parameters_one_line_height])
+        self.protocol_tab_layout.addWidget(self.protocol_trial_splitter)
         self.protocol_tab_layout.addWidget(self.protocol_control_box)
         self.protocol_tab.setLayout(self.protocol_tab_layout)
 
@@ -371,7 +393,7 @@ class ExperimentGUI(QWidget):
         # looking at. See the end of initUI, where the window layout is assembled.
 
         # Current series counter
-        new_label = QLabel('Series #')
+        new_label = QLabel('Series #:')
         self.protocol_status_grid.addWidget(new_label, 0, 0)
         self.series_counter_input = QSpinBox()
         self.series_counter_input.setMinimum(1)
@@ -568,7 +590,7 @@ class ExperimentGUI(QWidget):
         # on the top row, how far along it is on the second. Switching tabs mid-run should move
         # nothing under the eye -- which is also why the series number and subject appear here at
         # all, read-only, rather than only where they are set.
-        self.ensemble_status_grid.addWidget(QLabel('Series #'), 0, 0)
+        self.ensemble_status_grid.addWidget(QLabel('Series #:'), 0, 0)
         self.ensemble_series_label = QLabel()
         self.ensemble_series_label.setFrameShadow(QFrame.Shadow(1))
         # Reserves the height an editable field takes. The Main tab sets its series number with a
