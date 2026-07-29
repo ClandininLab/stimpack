@@ -52,7 +52,7 @@ class BaseProgram:
 
     def configure(self, *args, **kwargs):
         """
-        Set this stimulus's parameters. Called once, before the epoch starts.
+        Set this stimulus's parameters. Called once, before the trial starts.
 
         Subclasses override this. Anything expensive -- building geometry that does not change,
         generating and uploading a texture -- belongs here rather than in :meth:`eval_at`, which
@@ -62,7 +62,7 @@ class BaseProgram:
         pass
 
     def update(self, *args, **kwargs):
-        """Update parameters mid-epoch, in response to a ``update_stim`` call from the client."""
+        """Update parameters mid-trial, in response to a ``update_stim`` call from the client."""
         pass
 
     def destroy(self):
@@ -95,7 +95,7 @@ class BaseProgram:
             # Each stimulus owns its own shader program and draws on its own, so no draw call ever
             # needs more than one texture bound -- one unit is enough for any number of stimuli.
             # Binding once at load instead gave every stimulus a permanent unit of its own, which
-            # capped an epoch at GL_MAX_TEXTURE_IMAGE_UNITS textured stimuli (32 on the development
+            # capped an trial at GL_MAX_TEXTURE_IMAGE_UNITS textured stimuli (32 on the development
             # GPU, 16 on some). Past that, drivers observed here bind and render with no GL error at
             # all, so the stimulus is simply wrong on screen with nothing to say so.
             #

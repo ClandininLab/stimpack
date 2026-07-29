@@ -242,7 +242,6 @@ def test_dynamic_texture_update_accepts_non_contiguous_arrays(headless_gl):
     A non-contiguous array (a slice, a transpose) has no usable buffer, so it must still go through
     .tobytes(). Both paths have to produce the same texture.
     """
-    import moderngl
     from stimpack.visual_stim.base import BaseProgram
 
     ctx = headless_gl

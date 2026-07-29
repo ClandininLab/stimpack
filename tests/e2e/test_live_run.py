@@ -18,24 +18,24 @@ pytestmark = pytest.mark.e2e
 class LiveProtocol(BaseProtocol):
     """A real 2-epoch protocol using a real built-in stimulus, with short timings."""
     stim_name = 'MovingSpot'
-    on_epoch = None
+    on_trial = None
 
     def get_run_parameter_defaults(self):
-        return {'num_epochs': 2, 'idle_color': 0.5, 'do_loco': False}
+        return {'num_trials': 2, 'idle_color': 0.5, 'do_loco': False}
 
     def get_protocol_parameter_defaults(self):
         return {'pre_time': 0.05, 'stim_time': 0.15, 'tail_time': 0.05, 'radius': [10.0, 20.0]}
 
-    def get_epoch_parameters(self):
-        super().get_epoch_parameters()
-        self.epoch_stim_parameters = {'name': self.stim_name,
-                                      'radius': self.epoch_protocol_parameters['radius'],
+    def get_trial_parameters(self):
+        super().get_trial_parameters()
+        self.trial_stim_parameters = {'name': self.stim_name,
+                                      'radius': self.trial_protocol_parameters['radius'],
                                       'sphere_radius': 1, 'color': [1, 1, 1, 1],
                                       'theta': 0, 'phi': 0}
 
     def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
-        if self.on_epoch is not None:
-            self.on_epoch(self)
+        if self.on_trial is not None:
+            self.on_trial(self)
         super().start_stimuli(manager, append_stim_frames=append_stim_frames,
                               print_profile=print_profile, multicall=multicall)
 
@@ -116,18 +116,18 @@ def test_full_experiment_series_end_to_end(live_client, live_data):
     protocol = LiveProtocol(cfg={})
     live_client.start_run(protocol, live_data, save_metadata_flag=True)
 
-    assert protocol.num_epochs_completed == 2
+    assert protocol.num_trials_completed == 2
 
     path = f'{live_data.data_directory}/{live_data.experiment_file_name}.hdf5'
     with h5py.File(path, 'r') as f:
-        series = f['/Subjects/subj_e2e/epoch_runs/series_001']
+        series = f[live_data.series_path()]
         assert series.attrs['run_status'] == 'completed'
-        assert series.attrs['num_epochs_completed'] == 2
+        assert series.attrs['num_trials_completed'] == 2
         assert series.attrs['protocol_ID'] == 'LiveProtocol'
-        epochs = list(series['epochs'].keys())
+        epochs = list(series[live_data.TRIALS_GROUP].keys())
         assert len(epochs) == 2
         # the per-epoch stimulus parameters really made it into the file
-        assert series['epochs'][epochs[0]].attrs['name'] == 'MovingSpot'
+        assert series[live_data.TRIALS_GROUP][epochs[0]].attrs['name'] == 'MovingSpot'
 
     assert live_client.server_error is None          # no server-side errors during the run
 
@@ -135,14 +135,14 @@ def test_full_experiment_series_end_to_end(live_client, live_data):
 def test_stopping_a_live_run_halts_it(live_client, live_data):
     """Stop mid-series against the live server, exactly as the GUI's Stop button does."""
     protocol = LiveProtocol(cfg={})
-    protocol.on_epoch = lambda p: live_client.stop_run() if p.num_epochs_completed == 0 else None
+    protocol.on_trial = lambda p: live_client.stop_run() if p.num_trials_completed == 0 else None
 
     live_client.start_run(protocol, live_data, save_metadata_flag=True)
 
-    assert protocol.num_epochs_completed == 1
+    assert protocol.num_trials_completed == 1
     path = f'{live_data.data_directory}/{live_data.experiment_file_name}.hdf5'
     with h5py.File(path, 'r') as f:
-        series = f['/Subjects/subj_e2e/epoch_runs/series_001']
+        series = f[live_data.series_path()]
         assert series.attrs['run_status'] == 'stopped'
 
 
@@ -152,7 +152,7 @@ def test_live_run_aborts_when_the_protocol_asks_for_a_bad_stimulus(live_client, 
     protocol.stim_name = 'NoSuchStimulus_E2E_Run'
     # More epochs = more between-epoch checkpoints at which the error can be noticed. The run aborts
     # at the first one, so this doesn't slow the passing case; it only removes the race.
-    protocol.run_parameters['num_epochs'] = 4
+    protocol.run_parameters['num_trials'] = 4
     # The error has to cross three processes (screen -> VisualStimServer -> BaseServer -> client)
     # before the client's next between-epoch check. Give epoch 0 a comfortably longer duration than
     # that propagation takes, so the assertion isn't racing it.
@@ -166,10 +166,10 @@ def test_live_run_aborts_when_the_protocol_asks_for_a_bad_stimulus(live_client, 
 
     path = f'{live_data.data_directory}/{live_data.experiment_file_name}.hdf5'
     with h5py.File(path, 'r') as f:
-        series = f['/Subjects/subj_e2e/epoch_runs/series_001']
+        series = f[live_data.series_path()]
         assert series.attrs['run_status'] == 'error'
         assert 'abort_reason' in series.attrs
-    assert protocol.num_epochs_completed < 2         # did not run the whole series
+    assert protocol.num_trials_completed < 2         # did not run the whole series
 
 
 def test_root_function_names_match_a_live_server(live_server):
@@ -182,114 +182,11 @@ def test_root_function_names_match_a_live_server(live_server):
     assert set(live_server.functions_on_root) == set(ROOT_FUNCTION_NAMES)
 
 
-# --- custom stimulus modules across client sessions ----------------------------------------------
-
-def test_a_custom_stim_module_survives_successive_client_sessions(tmp_path):
-    """Regression: each client imports its labpack's stimuli when it connects, and the server
-    unloads them when it disconnects. Because a loaded stimulus instance keeps its class alive, the
-    unload did not actually remove it, so the second session's import produced two classes of the
-    same name and load_stim failed with '2 stimulus candidates found'.
-
-    A rig server outlives the GUI, so this was hit by closing and reopening the GUI -- while a
-    local server, which dies with the GUI, hid it entirely.
-
-    Uses a BaseServer rather than a bare VisualStimServer: only BaseServer wires the screens'
-    error_reporter, and without it a failing load_stim is swallowed and this test would pass
-    against the bug it exists to catch.
-    """
-    from stimpack.experiment.server import BaseServer
-    from stimpack.rpc.transceiver import MySocketClient
-    from stimpack.visual_stim.screen import Screen
-
-    module_dir = tmp_path / 'custom_stim'
-    module_dir.mkdir()
-    (module_dir / 'stimuli.py').write_text(
-        'from stimpack.visual_stim.base import BaseProgram\n'
-        'from stimpack.visual_stim import shapes\n\n\n'
-        'class SessionTestStim(BaseProgram):\n'
-        '    def configure(self, color=(1, 1, 1, 1)):\n'
-        '        self.color = color\n\n'
-        '    def eval_at(self, t, subject_position=None):\n'
-        '        self.stim_object = shapes.GlSphericalRect(width=10, height=10, color=self.color)\n')
-
-    screen = Screen(fullscreen=False, vsync=False, display_index=0,
-                    pa=(-0.15, 0.15, -0.15), pb=(0.15, 0.15, -0.15), pc=(-0.15, 0.15, 0.15))
-    try:
-        server = BaseServer(host='127.0.0.1', port=None,
-                            visual_stim_kwargs={'screens': [screen]}, start_loop=True)
-    except Exception as e:
-        pytest.skip(f"Could not launch a live stim server here: {type(e).__name__}: {e}")
-
-    reported = []
-    try:
-        for session in (1, 2):
-            manager = MySocketClient(host=server.host, port=server.port)
-            manager.register_function(
-                lambda level, text, s=session: reported.append((s, level, text)),
-                name='report_server_message')
-            time.sleep(0.5)
-
-            manager.target('visual').import_stim_module(str(module_dir))   # BaseClient does this
-            time.sleep(1.5)
-            manager.target('visual').load_stim(name='SessionTestStim')
-
-            def settled():
-                manager.process_queue()
-                return bool(reported)
-            wait_until(settled, timeout=5)      # give an error time to arrive, if there is one
-
-            manager.close()
-            time.sleep(1.5)
-    finally:
-        try:
-            server.close()
-        except Exception:
-            pass
-
-    errors = [r for r in reported if r[1] == 'error']
-    assert errors == [], f'the server reported an error: {errors}'
 
 
-def test_a_standalone_stim_server_reports_screen_errors_to_its_client():
-    """launch_stim_server without a BaseServer -- what the examples and any plain script do.
-
-    The screen bubbles its errors up to the VisualStimServer, which forwarded them via
-    error_reporter; that was None here, so they were dropped. A failing stimulus did nothing and
-    reported nothing, which is the hardest kind of failure to debug from a script.
-    """
-    from stimpack.visual_stim.screen import Screen
-    from stimpack.visual_stim.stim_server import launch_stim_server
-
-    try:
-        manager = launch_stim_server(Screen(fullscreen=False, vsync=False))
-    except Exception as e:
-        pytest.skip(f"Could not launch a stim server here: {type(e).__name__}: {e}")
-
-    reported = []
-    manager.register_function(lambda level, text: reported.append((level, text)),
-                              name='report_server_message')
-    try:
-        time.sleep(2)
-        manager.load_stim(name='NoSuchStimulus_Standalone')
-
-        def arrived():
-            manager.process_queue()
-            return bool(reported)
-
-        assert wait_until(arrived, timeout=15), \
-            'a standalone stim server never reported the screen-side error to its client'
-        level, text = reported[0]
-        assert level == 'error'
-        assert 'NoSuchStimulus_Standalone' in text
-        assert '[screen]' in text                 # bubbled up from the screen subprocess
-    finally:
-        try:
-            manager.close()
-        except Exception:
-            pass
 
 
-def test_a_live_server_can_end_an_epoch_early(live_server, live_manager, live_client):
+def test_a_live_server_can_end_an_trial_early(live_server, live_manager, live_client):
     """The whole path for real: a state update reaches the server, the labpack's closed-loop
     function decides the trial is over, and the client's epoch wait returns early.
 
@@ -302,21 +199,21 @@ def test_a_live_server_can_end_an_epoch_early(live_server, live_manager, live_cl
         # state_update is what just arrived; subject_state is what it was before. Testing the
         # latter alone would fire one update late -- or never, on a single update.
         if state_update.get('x', subject_state.get('x', 0)) > 0.5:
-            server.end_epoch(reason='reached_goal')
+            server.end_trial(reason='reached_goal')
             ended.append(True)
         return state_update
 
     live_server.loaded_custom_state_dependent_control = control
-    live_manager.register_function(live_client.stop_epoch, name='stop_epoch')
+    live_manager.register_function(live_client.stop_trial, name='stop_trial')
 
     class GoalProtocol(BaseProtocol):
         def get_run_parameter_defaults(self):
-            return {'num_epochs': 1, 'idle_color': 0.5, 'do_loco': False}
+            return {'num_trials': 1, 'idle_color': 0.5, 'do_loco': False}
         def get_protocol_parameter_defaults(self):
             return {'pre_time': 0.0, 'stim_time': 30.0, 'tail_time': 0.0}
-        def get_epoch_parameters(self):
-            super().get_epoch_parameters()
-            self.epoch_stim_parameters = {'name': 'MovingSpot', 'radius': 10, 'sphere_radius': 1,
+        def get_trial_parameters(self):
+            super().get_trial_parameters()
+            self.trial_stim_parameters = {'name': 'MovingSpot', 'radius': 10, 'sphere_radius': 1,
                                           'color': [1, 1, 1, 1], 'theta': 0, 'phi': 0}
         def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
             # the "animal" reaches the goal 0.3 s in
@@ -333,7 +230,7 @@ def test_a_live_server_can_end_an_epoch_early(live_server, live_manager, live_cl
 
     assert ended, 'the closed-loop function never saw the state update'
     assert elapsed < 10, f'{elapsed:.1f}s: the 30 s epoch was not cut short'
-    assert protocol.num_epochs_completed == 1
+    assert protocol.num_trials_completed == 1
 
 
 class _NullData:

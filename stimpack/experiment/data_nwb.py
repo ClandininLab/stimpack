@@ -7,7 +7,7 @@ Where BaseData writes one HDF5 file per experiment, this writes a DIRECTORY per 
 holding one .nwb file per series. That difference is the only thing the GUI needs to know, and
 it reads it from the output_is_directory trait rather than from this class's name.
 
-Requires pynwb, which is an optional dependency:  pip install stimpack[nwb]
+Requires pynwb, which stimpack installs as a dependency.
 """
 from copy import deepcopy
 from csv import writer
@@ -20,22 +20,28 @@ import re
 import warnings
 from datetime import datetime, timezone
 
-try:
-    from pynwb.file import Subject
-    from pynwb import NWBFile, NWBHDF5IO
-    from pynwb.epoch import TimeIntervals
-    from hdmf.common import VectorData, VectorIndex
-    from hdmf.backends.hdf5.h5_utils import H5DataIO
-    from hdmf.common.table import ElementIdentifiers
-except ImportError as e:  # pragma: no cover - depends on how stimpack was installed
-    # Raised on use rather than on import, so that merely importing stimpack.experiment.data_nwb
-    # (which gui.py does when listing the available backends) does not break an HDF5-only install.
-    raise ImportError(
-        "The NWB data backend requires pynwb. Install it with:  pip install stimpack[nwb]"
-    ) from e
+from pynwb.file import Subject
+from pynwb import NWBFile, NWBHDF5IO
+from pynwb.epoch import TimeIntervals
+from hdmf.common import VectorData, VectorIndex
+from hdmf.backends.hdf5.h5_utils import H5DataIO
+from hdmf.common.table import ElementIdentifiers
 
 from stimpack.experiment.data import BaseData, hdf5ify_parameter
 from stimpack.experiment.util import config_tools
+
+
+def _row_shape(value):
+    """Shape of a single row of a column holding ``value``, for declaring the column's maxshape.
+
+    ``()`` for a scalar, ``(2,)`` for a pair, and ``()`` again for anything numpy cannot measure
+    (a ragged nested list, say) -- in which case the write fails on its own terms rather than on a
+    shape computed here.
+    """
+    try:
+        return tuple(np.shape(value))
+    except ValueError:
+        return ()
 
 
 def _days_from_iso8601_duration(age):
@@ -66,16 +72,23 @@ class NWBData(BaseData):
     either name keep working.
     """
     output_is_directory = True
-    supports_data_browser = False   # h5io's tree browser cannot read a directory of nwb files
+    supports_data_browser = True
     output_noun = 'NWB directory'
+
+    # An .nwb file is HDF5, so the same tree browser reads it; what differs is that an experiment
+    # is a directory of them rather than one file, which browsable_files expresses.
+    browser_is_editable = False
 
     def __init__(self, cfg):
         super().__init__(cfg)
         self.subject = None
-        # Set here rather than only in create_epoch_run / create_epoch, so the end_* methods can
+        # Set here rather than only in create_series / create_trial, so the end_* methods can
         # ask whether there is anything to write without tripping over a missing attribute --
         # they run from the client's finally block, after failures that never got that far.
-        self.epoch_parameters = {}
+        # What gets written as this series' row: its identity, every run and protocol parameter,
+        # and how the run ended. Not 'parameters' -- run_status and paused_duration are outcomes,
+        # and stimpack already uses that word for two specific things (see BaseProtocol).
+        self.series_record = {}
         self.trial_parameters = {}
 
     # # # NWB-flavored aliases for BaseData's storage-neutral attribute names # # #
@@ -256,55 +269,57 @@ class NWBData(BaseData):
     create_data_file = prepare_series
 
 
-    def create_epoch_run(self, protocol_object):
+    def create_series(self, protocol_object):
         """
         Store the protocol parameters and the protocol ID.
         """
         
-        self.epoch_parameters = {}
+        self.series_record = {}
                 
         if (self.current_subject_exists() and self.experiment_file_exists()):
             
-            self.epoch_parameters = {}
-            self.epoch_parameters["series"] = f"series_{str(self.series_count).zfill(3)}"
-            self.epoch_parameters['protocol_id'] = protocol_object.__class__.__name__
+            self.series_record = {}
+            self.series_record["series"] = f"series_{str(self.series_count).zfill(3)}"
+            self.series_record['protocol_id'] = protocol_object.__class__.__name__
             
-            # Add the protocol parameters to the epoch_parameters
+            # Add the protocol parameters to the series_record
             for key in protocol_object.run_parameters:  # add run parameter attributes
-                self.epoch_parameters[key] = hdf5ify_parameter(protocol_object.run_parameters[key])
+                self.series_record[key] = hdf5ify_parameter(protocol_object.run_parameters[key])
                 
             for key in protocol_object.protocol_parameters:  # add user-entered protocol params
-                self.epoch_parameters[key] = hdf5ify_parameter(protocol_object.protocol_parameters[key])
+                self.series_record[key] = hdf5ify_parameter(protocol_object.protocol_parameters[key])
                 
-            # Add the epoch start time
-            self.epoch_parameters['epoch_start_time'] = datetime.now(self.timezone).timestamp()
+            # Add the series start time
+            self.series_record['series_start_time'] = datetime.now(self.timezone).timestamp()
             
-            # Given that we are using epochs, epochs in nwb for your "epochs runs" and "trials " for your "epochs" 
+            # NWB's two interval tables map onto stimpack's two levels: a stimpack series is one
+            # row of NWB's `epochs` table, and each stimpack trial a row of its `trials` table.
             # I am going to shift the nomencalture to be consistent with nwb
-            self.epoch_parameters["num_trials"] = self.epoch_parameters.get("num_epochs", "")
+            self.series_record["num_trials"] = self.series_record.get("num_trials", "")
             
         else:
             print('Create an nwb file directory and/or define a subject first')
 
-    def end_epoch_run(self, protocol_object, status='completed', reason=None):
+    def end_series(self, protocol_object, status='completed', reason=None, paused_seconds=0.0):
         """
-        NWB requires the stop time to be set when the epoch is created
-        So this function is called after an epoch run is concluded and this adds an entry
-        to the epochs table that corresponds to the whole epoch run
+        NWB requires the stop time to be set when the interval is created, so this runs after the
+        series is finished and adds the row of NWB's `epochs` table that covers the whole series.
+        (NWB's `epochs` are coarse blocks of time, which is why a stimpack series goes there and
+        each of its trials goes in `trials`.)
 
         :param status: how the run ended -- 'completed', 'stopped', 'aborted' or 'error'
         :param reason: detail for a run that did not complete, e.g. the exception text
 
         The client calls this from a finally block, so it runs for runs that failed as well as
         runs that finished. Everything below therefore has to cope with a run that never got as
-        far as creating its epoch parameters or its file.
+        far as creating its series parameters or its file.
         """
-        # create_epoch_run bails out (leaving epoch_parameters empty) when there is no subject or
+        # create_series bails out (leaving series_record empty) when there is no subject or
         # no directory, and the client still reaches its finally block. Popping a key that was
         # never set would then raise from inside the error handler, replacing whatever actually
         # went wrong with a bare KeyError.
-        if not self.epoch_parameters or 'epoch_start_time' not in self.epoch_parameters:
-            warnings.warn(f'No epoch run to close out (run ended {status}); nothing written to NWB.')
+        if not self.series_record or 'series_start_time' not in self.series_record:
+            warnings.warn(f'No series to close out (run ended {status}); nothing written to NWB.')
             return
 
         # Likewise, the per-series file is written by prepare_series; a run that failed before
@@ -316,8 +331,11 @@ class NWBData(BaseData):
 
         # Record how the run ended alongside its parameters, so a partial run is identifiable in
         # the data rather than looking like a short but successful one.
-        self.epoch_parameters['run_status'] = str(status)
-        self.epoch_parameters['run_status_reason'] = str(reason) if reason is not None else ''
+        self.series_record['run_status'] = str(status)
+        self.series_record['run_status_reason'] = str(reason) if reason is not None else ''
+        # A pause sits between trials, so it is otherwise an unexplained gap in the timeline --
+        # during which the subject was in the rig with nothing being presented.
+        self.series_record['paused_duration'] = float(paused_seconds)
 
         # Open the nwbfile in append mode
         with NWBHDF5IO(nwbfile_path, 'r+') as io:
@@ -325,7 +343,7 @@ class NWBData(BaseData):
 
             # Shift the time to be relative to the session start time
             session_start_time = subject_nwbfile.session_start_time
-            start_time = self.epoch_parameters.pop('epoch_start_time')
+            start_time = self.series_record.pop('series_start_time')
             start_time = start_time - session_start_time.timestamp()
             stop_time = datetime.now(self.timezone).timestamp() - session_start_time.timestamp()
         
@@ -344,8 +362,8 @@ class NWBData(BaseData):
                                              data=H5DataIO(data=[stop_time], maxshape=(None,)))
                 columns_to_add.append(stop_time)
 
-                for column in self.epoch_parameters:
-                    value = self.epoch_parameters[column]
+                for column in self.series_record:
+                    value = self.series_record[column]
                     value_is_list_tuple_or_array = isinstance(value, (tuple, list, np.ndarray))
                     if not value_is_list_tuple_or_array:
                         vector_column = VectorData(name=column, description=column, data=H5DataIO(data=[value], maxshape=(None,)))
@@ -365,7 +383,16 @@ class NWBData(BaseData):
                             # Flatten the value
                             data = [item for sublist in value for item in sublist]
                             lengths = [len(x) for x in value]
-                            vector_column = VectorData(name=column, description=column, data=H5DataIO(data=data, maxshape=(None, )))
+                            # Flattening one level leaves rows that may themselves be lists -- a
+                            # parameter whose per-trial value is a list of pairs is three deep at
+                            # run level, since this table holds the whole list of choices. So the
+                            # maxshape needs the rank of what is left, exactly as in the trials
+                            # table: declaring rank 1 over 2-D data wrote an epochs group with no
+                            # neurodata_type at all, and pynwb could then not open the file --
+                            # including the trials data underneath it, which was written correctly.
+                            vector_column = VectorData(name=column, description=column,
+                                                       data=H5DataIO(data=data,
+                                                                     maxshape=(None,) + _row_shape(data[0] if data else None)))
                             # Cumulative value of the lengths
                             data_index = np.cumsum(lengths).tolist()
                             vector_index = VectorIndex(name=column + "_index", target=vector_column, data=H5DataIO(data=data_index, maxshape=(None,)))
@@ -385,84 +412,84 @@ class NWBData(BaseData):
                 subject_nwbfile.epochs = epochs_table
             
             else: # If the table exists just add a row
-                epoch_row_kargs = self.epoch_parameters
-                epoch_row_kargs["start_time"] = start_time
-                epoch_row_kargs["stop_time"] = stop_time
-                subject_nwbfile.add_epoch(**epoch_row_kargs)
+                series_row_kargs = self.series_record
+                series_row_kargs["start_time"] = start_time
+                series_row_kargs["stop_time"] = stop_time
+                subject_nwbfile.add_epoch(**series_row_kargs)
             
             # Write the nwbfile to disk
             io.write(subject_nwbfile)
             
-    def create_epoch(self, protocol_object):
+    def create_trial(self, protocol_object):
         """
         This loads the data from the protocol object stim parameters.
-        Then, when the epoch is concluded, we add the data as a row of the trials table.
+        Then, when the trial is concluded, we add the data as a row of the trials table.
         """
                 
         self.trial_parameters = {}
         if not (self.current_subject_exists() and self.experiment_file_exists()):
-            # Return, rather than warning and carrying on: collecting parameters for an epoch
-            # that has nowhere to go only defers the failure to end_epoch, which then reports a
+            # Return, rather than warning and carrying on: collecting parameters for a trial
+            # that has nowhere to go only defers the failure to end_trial, which then reports a
             # missing file instead of the missing subject that actually caused it.
             warnings.warn(f'Create an {self.output_noun} and/or define a subject first; '
-                          f'this epoch will not be saved.')
+                          f'this trial will not be saved.')
             return
 
         self.trial_parameters['trial_start_time'] = datetime.now(self.timezone).timestamp()
 
         if protocol_object.save_stringified_params:
-            assert hasattr(protocol_object, 'all_epoch_stim_parameter_keys'), 'must specify a list of all_epoch_stim_parameter_keys within protocol object to use save_stringified_params flag'
-            for key in protocol_object.all_epoch_stim_parameter_keys:
-                if key in protocol_object.epoch_stim_parameters:
+            assert hasattr(protocol_object, 'all_trial_stim_parameter_keys'), 'must specify a list of all_trial_stim_parameter_keys within protocol object to use save_stringified_params flag'
+            for key in protocol_object.all_trial_stim_parameter_keys:
+                if key in protocol_object.trial_stim_parameters:
                     # Note string-ifying everything so we can build a big trial matrix with potentially different data types across trials within a column
-                    self.trial_parameters[key] = str(protocol_object.epoch_stim_parameters[key])
+                    self.trial_parameters[key] = str(protocol_object.trial_stim_parameters[key])
                 else:  # store a dummy value
                     self.trial_parameters[key] = str(None)
 
         else:
-            # Extract epoch stim parameters
-            if type(protocol_object.epoch_stim_parameters) is tuple:  # stimulus is tuple of multiple stims layered on top of one another
-                num_stims = len(protocol_object.epoch_stim_parameters)
+            # Extract trial stim parameters
+            if type(protocol_object.trial_stim_parameters) is tuple:  # stimulus is tuple of multiple stims layered on top of one another
+                num_stims = len(protocol_object.trial_stim_parameters)
                 for stim_ind in range(num_stims):
                     
                     prefix = f"stim{stim_ind}_"
-                    for key in protocol_object.epoch_stim_parameters[stim_ind]:
-                        value = protocol_object.epoch_stim_parameters[stim_ind][key]
+                    for key in protocol_object.trial_stim_parameters[stim_ind]:
+                        value = protocol_object.trial_stim_parameters[stim_ind][key]
                         self.trial_parameters[prefix + key] = hdf5ify_parameter(value)
 
-            elif type(protocol_object.epoch_stim_parameters) is dict:  # single stim class
-                for key, value in protocol_object.epoch_stim_parameters.items():
+            elif type(protocol_object.trial_stim_parameters) is dict:  # single stim class
+                for key, value in protocol_object.trial_stim_parameters.items():
                     self.trial_parameters[key] = hdf5ify_parameter(value)
             
         # Extract and store protocol parameters
-        for key, value in protocol_object.epoch_protocol_parameters.items():
+        for key, value in protocol_object.trial_protocol_parameters.items():
             self.trial_parameters[key] = hdf5ify_parameter(value)
 
         # In NWB the name is reserved so I am adding a prefix
         self.trial_parameters["protocol"] = self.trial_parameters.pop("name", "")
 
-    def end_epoch(self, protocol_object, reason=None):
+    def end_trial(self, protocol_object, reason=None):
         """
         Finalize the trial information and add the trial to the trials table.
 
-        :param reason: None if the epoch ran its full length, otherwise why it was cut short --
-            see BaseData.end_epoch. Recorded as trial columns, so a behaviour-ended trial can be
+        :param reason: None if the trial ran its full length, otherwise why it was cut short --
+            see BaseData.end_trial. Recorded as trial columns, so a behaviour-ended trial can be
             told from one that ran to time. The trials table already carries start and stop times,
             so the duration is there by construction.
 
-        Degrades quietly when there is nothing to write to, the same way create_epoch and
-        end_epoch_run do: this is called once per epoch during a run, and a run that is not
-        saving metadata should not raise on every epoch.
+        Degrades quietly when there is nothing to write to, the same way create_trial and
+        end_series do: this is called once per trial during a run, and a run that is not
+        saving metadata should not raise on every trial.
         """
         if not self.trial_parameters or 'trial_start_time' not in self.trial_parameters:
             return
 
         self.trial_parameters['ended_early'] = reason is not None
-        self.trial_parameters['epoch_end_reason'] = str(reason) if reason is not None else ''
+        self.trial_parameters['trial_end_reason'] = str(reason) if reason is not None else ''
 
         nwbfile_path = self.get_nwb_file_path()
         if not os.path.isfile(nwbfile_path):
-            warnings.warn(f'No NWB file at {nwbfile_path}; this epoch was not saved.')
+            warnings.warn(f'No NWB file at {nwbfile_path}; this trial was not saved.')
             return
 
         with NWBHDF5IO(nwbfile_path, 'r+') as io:
@@ -474,8 +501,12 @@ class NWBData(BaseData):
             start_time = start_time - session_start_time.timestamp()
             stop_time = datetime.now(self.timezone).timestamp() - session_start_time.timestamp()
             
-            # Create the table if it doesn't exist
-            maxshape = 1000
+            # Create the table if it doesn't exist.
+            #
+            # None, not a number: this was 1000, which is a hard ceiling on the number of trials a
+            # series can hold -- trial 1001 would have failed to write, and only then. The epochs
+            # table alongside it already declares its columns unlimited.
+            maxshape = None
             if subject_nwbfile.trials is None:
                 ids = ElementIdentifiers(
                     name='id',
@@ -491,7 +522,15 @@ class NWBData(BaseData):
                 columns_to_add.append(stop_time)
                 for column in self.trial_parameters:
                     value = self.trial_parameters[column]
-                    vector_column = VectorData(name=column, description=column, data=H5DataIO(data=[value], maxshape=(maxshape,)))
+                    # maxshape has to have the same rank as the data, and a parameter is not
+                    # always a scalar: width_height and center are pairs, and MovingPatch and
+                    # MovingEllipse both have them. One row of a pair is shape (1, 2), so a
+                    # rank-1 maxshape made h5py refuse the dataset and aborted the run on its
+                    # first trial. Growing along rows only -- the width of a row is fixed by the
+                    # first trial, which is what a table column means.
+                    vector_column = VectorData(name=column, description=column,
+                                               data=H5DataIO(data=[value],
+                                                             maxshape=(maxshape,) + _row_shape(value)))
                     columns_to_add.append(vector_column)
 
                 trials_table = TimeIntervals(
@@ -552,11 +591,33 @@ class NWBData(BaseData):
     # current_subject_exists() is inherited: BaseData already tests current_subject, which is what
     # current_subject_id now aliases.
 
+    def browsable_files(self):
+        """One entry per series file, newest last, labelled by file name."""
+        return [(os.path.basename(path), str(path)) for path in self.get_series_files()]
+
     def get_series_files(self):
         """The .nwb files in this experiment's directory, or none if it has not been made yet."""
         if not self.experiment_file_exists():
             return []
         return sorted(path for path in self.nwb_directory_path.iterdir() if path.suffix == '.nwb')
+
+    def delete_series(self, series_number=None):
+        """Remove a recorded series so its number can be recorded onto again.
+
+        One file per series here, so this deletes that file rather than a group inside one. Only
+        the file for the current subject and date is named by get_nwb_file_path, which is the same
+        file prepare_series would refuse to overwrite -- so this removes exactly what is in the way.
+        """
+        series_number = self.series_count if series_number is None else series_number
+        original, self.series_count = self.series_count, series_number
+        try:
+            path = self.get_nwb_file_path()
+        finally:
+            self.series_count = original
+        if os.path.isfile(path):
+            os.remove(path)
+            return True
+        return False
 
     def get_existing_series(self):
         series_numbers = []

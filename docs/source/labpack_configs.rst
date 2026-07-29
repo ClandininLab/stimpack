@@ -65,18 +65,41 @@ Choosing where data goes
     # or
     data_format: nwb
 
+This sets the default. The startup dialog offers the same choice, showing whatever the selected
+config asks for, so a format can be tried without editing the config; ``stimpack --data-format``
+overrides both. The choice is made there rather than in the main window because an experiment
+cannot change format part-way through -- its file, subject and series number all belong to one
+backend.
+
 ``hdf5``
     One ``.hdf5`` file per experiment, with each subject and series a group inside it. This is
-    stimpack's original format and what everything else in these docs assumes.
+    stimpack's original format and what everything else in these docs assumes::
+
+        /Subjects/<id>/series/series_001/trials/trial_001
+
+``legacy_hdf5``
+    The same file, with the names stimpack used before 0.3, when a trial was called an epoch and a
+    series an epoch run::
+
+        /Subjects/<id>/epoch_runs/series_001/epochs/epoch_001
+
+    Choose it if analysis code reads the old layout. It is the same backend as ``hdf5`` with those
+    names overridden -- not a copy frozen at 0.2 -- so it keeps every fix the current one gets. A
+    test asserts that a file it writes is indistinguishable from one stimpack wrote before the
+    rename.
+
+    Put it in a labpack's ``lab_config.yaml`` to apply it to every rig at once, and set
+    ``data_format: hdf5`` in one rig's own config to move that rig over when its analysis is ready.
 
 ``nwb``
     A *directory* per experiment, holding one `NWB <https://www.nwb.org/>`_ file per series. NWB
     is a community standard for neurophysiology data, so this is the format to choose if you
     intend to share or archive data in it.
 
-    Requires ``pynwb``, which is not installed by default::
-
-        pip install stimpack[nwb]
+    The File tab browses these too: an ``.nwb`` file is HDF5 underneath, so the same tree reads
+    it, with one node per series file since an NWB experiment is a directory rather than one file.
+    Attributes are shown read-only -- pynwb validates a schema that a hand-edited attribute can
+    break, where an HDF5 experiment is stimpack's own layout and editing one is a supported repair.
 
     Two extra config keys are written into every NWB file as top-level metadata:
 

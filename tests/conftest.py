@@ -18,10 +18,29 @@ ExperimentGUI.closeEvent never disconnected or waited for that thread, so its fi
 fire into a destroyed window. MySocketClient also had no way to stop its reader thread. Keep the
 whole-suite run in CI -- it is what catches this class of bug.)
 
-The e2e tier launches real screen subprocesses, so stimulus windows appear briefly unless you run
-under a virtual display (`xvfb-run -a pytest -m e2e`). They are torn down when the server closes.
+Running the suite must not take over the desktop it runs on. Two things are done about that, below:
+the process itself renders offscreen, and the screen subprocesses -- which need a real GL context,
+so they cannot be offscreen -- open without taking focus. Both are overridable, so you can still
+watch a run. For a run that is invisible as well as unfocused, use a virtual display:
+`xvfb-run -a pytest`.
+
+The e2e tier launches real screen subprocesses, so stimulus windows still appear briefly (they are
+torn down when the server closes); they just no longer steal your keyboard.
 """
+import os
+
 import pytest
+
+# The GUI tier's own docstring calls itself offscreen, but nothing here made it so: locally the
+# ExperimentGUI, its modal dialogs and the KeyTrac subprocess all opened real windows and took
+# focus. CI has always set this; now a workstation run behaves the same way.
+#
+# setdefault, not assignment: `QT_QPA_PLATFORM=wayland pytest -m gui` still shows you the GUI.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+# Screen subprocesses cannot use the offscreen platform -- they need a real GL context -- so they
+# stay visible, and instead open without activating. See framework.main() and unobtrusive_screen().
+os.environ.setdefault("STIMPACK_NO_FOCUS", "1")
 
 
 def pytest_addoption(parser):

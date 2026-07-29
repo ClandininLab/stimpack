@@ -337,7 +337,6 @@ def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
     """Tiers 3 and 5 for one config. Returns a list of Findings."""
     from stimpack.experiment.protocol import BaseProtocol
     from stimpack.experiment.server import KNOWN_TARGETS, ROOT_FUNCTION_NAMES
-    from stimpack.util import get_all_subclasses
 
     if labpack_dir is None:
         labpack_dir = config_tools.get_labpack_directory()
@@ -432,11 +431,11 @@ def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
     # it is what fills in persistent_parameters (variable_protocol_parameter_names) and est_run_time,
     # and it precomputes each epoch's parameters. Skipping it makes every protocol look broken.
     #
-    # Shorten the run first: precompute calls get_epoch_parameters once per epoch, and a protocol
+    # Shorten the run first: precompute calls get_trial_parameters once per epoch, and a protocol
     # with hundreds of epochs would otherwise take real time to check. This is why the check covers
     # the first few epochs rather than the whole series.
-    epochs = min(int(protocol.run_parameters.get('num_epochs', 1) or 1), max_epochs)
-    protocol.run_parameters['num_epochs'] = epochs
+    epochs = min(int(protocol.run_parameters.get('num_trials', 1) or 1), max_epochs)
+    protocol.run_parameters['num_trials'] = epochs
 
     # Supply the run parameters a preset would. On a rig with locomotion, do_loco is required but
     # most protocol classes do not default it -- they expect the preset to. Without this, nearly
@@ -457,18 +456,18 @@ def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
             return findings, f'{name}: {type(e).__name__}: {e}'
 
         for epoch in range(epochs):
-            protocol.num_epochs_completed = epoch
+            protocol.num_trials_completed = epoch
             try:
-                if protocol.use_precomputed_epoch_parameters:
-                    protocol.load_precomputed_epoch_parameters()
+                if protocol.use_precomputed_trial_parameters:
+                    protocol.load_precomputed_trial_parameters()
                 else:
-                    protocol.get_epoch_parameters()
+                    protocol.get_trial_parameters()
             except Exception as e:
                 add('error', 'get-epoch-parameters-failed', f'{type(e).__name__}: {e}')
                 return findings, skipped
 
             # --- tier 4: would load_stim resolve the names this epoch asks for? -----------------
-            for stimulus in _stimulus_names_in(protocol.epoch_stim_parameters):
+            for stimulus in _stimulus_names_in(protocol.trial_stim_parameters):
                 if stimulus not in stimulus_names:
                     add('error', 'unknown-stimulus',
                         f"loads a stimulus named '{stimulus}', which is not among the stimuli this "
@@ -549,10 +548,10 @@ def _available_stimulus_names(cfg, labpack_dir, cfg_name):
     return names, findings
 
 
-def _stimulus_names_in(epoch_stim_parameters):
+def _stimulus_names_in(trial_stim_parameters):
     """The stimulus names one epoch would load. May be a single dict, a list of them, or None."""
-    entries = (epoch_stim_parameters if isinstance(epoch_stim_parameters, list)
-               else [epoch_stim_parameters])
+    entries = (trial_stim_parameters if isinstance(trial_stim_parameters, list)
+               else [trial_stim_parameters])
     return [entry['name'] for entry in entries
             if isinstance(entry, dict) and isinstance(entry.get('name'), str)]
 

@@ -58,6 +58,8 @@ class ExperimentGUI(QWidget):
     # Emitted when the server pushes a message. report_server_message runs on the run thread, so this
     # signal (a queued cross-thread connection) marshals the update onto the GUI thread.
     server_message_signal = pyqtSignal(str, str)
+    # A failure to write the data file, raised on the run thread and surfaced on the GUI thread.
+    data_error_signal = pyqtSignal(str)
 
     def __init__(self, data_format=None):
         """
@@ -75,6 +77,9 @@ class ExperimentGUI(QWidget):
         self.protocol_parameter_input = {}
         self.mid_parameter_edit = False
         self.status = Status.STANDBY
+        # Last pause state written to the status line, so update_run_progress can write only on a
+        # change and leave server messages alone the rest of the time.
+        self._pause_state_shown = 'running'
 
         # user input to select configuration file and rig name
         # sets self.cfg
@@ -134,11 +139,21 @@ class ExperimentGUI(QWidget):
         # Route server-pushed messages to the GUI thread (see server_message_signal above).
         self.server_message_signal.connect(self.on_server_message_received)
         self.client.on_server_message = self.server_message_signal.emit
+        self.data_error_signal.connect(self.on_data_error_received)
+        self.client.on_data_error = self.data_error_signal.emit
         self._server_error_dialog_open = False  # guards against stacking error dialogs
 
         self.current_ensemble_idx = 0
 
         self.ensemble_running = False
+        # An ensemble held between items because Pause was pressed during the final trial of one of
+        # them, and the flag needed to resume it. See run_finished.
+        self.ensemble_paused = False
+        self.ensemble_save_metadata_flag = False
+        # Whether the protocol/preset selectors and parameter fields accept edits. Off mid-ensemble.
+        self.parameter_editing_enabled = True
+        # When the ensemble began, for the Ensemble tab's elapsed readout. None when none is running.
+        self.ensemble_start_time = None
 
         print('# # # # # # # # # # # # # # # #')
         
@@ -159,6 +174,13 @@ class ExperimentGUI(QWidget):
                                                              QSizePolicy.Policy.Fixed))
         self.protocol_selector_grid = QGridLayout()
         self.protocol_selector_box.setLayout(self.protocol_selector_grid)
+        # Give the whole row's slack to the dropdowns. Left at stretch 0 the grid divides itself
+        # into three equal columns, so a third of the width went to the caption and another third
+        # to a button, leaving the dropdowns -- which hold the longest text on the tab, a protocol
+        # name plus its module -- elliding in the middle third.
+        self.protocol_selector_grid.setColumnStretch(0, 0)   # captions: as wide as their text
+        self.protocol_selector_grid.setColumnStretch(1, 1)   # dropdowns: everything left over
+        self.protocol_selector_grid.setColumnStretch(2, 0)   # Save preset: as wide as the button
 
         self.parameters_box = QWidget()
         self.parameters_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
@@ -173,8 +195,33 @@ class ExperimentGUI(QWidget):
         self.protocol_control_box = QWidget()
         self.protocol_control_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
                                                             QSizePolicy.Policy.Fixed))
-        self.protocol_control_grid = QGridLayout()
-        self.protocol_control_box.setLayout(self.protocol_control_grid)
+        # Two grids, stacked, rather than one. A QGridLayout sizes each column to its widest
+        # member, so while the readouts and the buttons shared a grid, the width of 'Elapsed /
+        # Est:' set the width of the View button under it and every column was a compromise
+        # between a label and a button. Separate layouts size independently.
+        self.protocol_control_layout = QVBoxLayout()
+        self.protocol_control_box.setLayout(self.protocol_control_layout)
+        self.protocol_status_grid = QGridLayout()      # status line and run readouts
+        self.protocol_action_grid = QGridLayout()      # View / Record / Pause / Stop, and notes
+        self.protocol_control_layout.addLayout(self.protocol_status_grid)
+        self.protocol_control_layout.addLayout(self.protocol_action_grid)
+
+        # Splitting the grids is not enough on its own: with every column at stretch 0 a grid
+        # shares its slack out equally, so both ended up with four equal columns and the buttons
+        # still lined up under the readouts. Give the slack to the value columns only, so the
+        # captions take the width of their text and the buttons divide the row on their own terms.
+        for caption_column in (0, 2):
+            self.protocol_status_grid.setColumnStretch(caption_column, 0)
+        for value_column in (1, 3):
+            self.protocol_status_grid.setColumnStretch(value_column, 1)
+        for button_column in range(4):
+            self.protocol_action_grid.setColumnStretch(button_column, 1)
+
+        # Captions sized to their text sit right against the field they name. Widen the gap
+        # between columns, and widen it again before the second caption ('Subject:', 'Trials run:')
+        # so the two pairs on a row read as two pairs rather than as four things in a line.
+        self.protocol_status_grid.setHorizontalSpacing(10)
+        self.protocol_status_grid.setColumnMinimumWidth(2, 24)
 
         self.protocol_tab = QWidget()
         self.protocol_tab_layout = QVBoxLayout()
@@ -195,10 +242,13 @@ class ExperimentGUI(QWidget):
         protocol_label = QLabel('Protocol:')
         self.protocol_selection_combo_box.activated.connect(self.on_selected_protocol_ID)
         self.protocol_selector_grid.addWidget(protocol_label, 1, 0)
-        self.protocol_selector_grid.addWidget(self.protocol_selection_combo_box, 1, 1, 1, 1)
+        # Spans the preset column too: protocol names are the longest text in this box (a labpack
+        # with several protocol modules appends the module name to each), and the dropdown was
+        # elliding them into one column while the column beside it held a button.
+        self.protocol_selector_grid.addWidget(self.protocol_selection_combo_box, 1, 1, 1, 2)
 
         # Parameter preset drop-down:
-        parameter_preset_label = QLabel('Parameter preset:')
+        parameter_preset_label = QLabel('Param preset:')
         self.protocol_selector_grid.addWidget(parameter_preset_label, 2, 0)
         self.parameter_preset_comboBox = None
         self.update_parameter_preset_selector()
@@ -208,7 +258,11 @@ class ExperimentGUI(QWidget):
         save_preset_button.clicked.connect(self.on_pressed_button)
         self.protocol_selector_grid.addWidget(save_preset_button, 2, 2)
 
-        # Status window: its own row, spanning the grid.
+        # Status window: its own row at the bottom of the tab, below the buttons.
+        #
+        # No caption. 'Status:' was one, but the line only ever holds status -- 'Ready', 'Recording
+        # series 12', a server error -- so the word was restating what the content already said,
+        # in space the message itself could use.
         #
         # Inside a scroll area rather than bare, because a QLabel's size hint grows with its text:
         # a long message -- a server warning naming every registered function, say -- used to widen
@@ -233,48 +287,71 @@ class ExperimentGUI(QWidget):
         # No size policy needed: a scroll area's size hint comes from its own frame, not from the
         # widget inside it, so the message length cannot reach the window width from here. Measured
         # -- a 5000-character label gives the same hint as an empty one.
-        # 'Status:' sits in the row rather than in column 0, so it takes only the width of the
-        # word instead of the width of that column -- which is set by the widest label under it
-        # ('Elapsed time [s]:') and would otherwise be margin the message could not use.
-        status_row = QHBoxLayout()
-        status_row.addWidget(QLabel('Status:'))
-        status_row.addWidget(self.status_scroll_area)
-        self.protocol_control_grid.addLayout(status_row, 0, 0, 1, 4)
+        #
+        # Added to the window's layout, below the tab widget, rather than to a tab: a server error
+        # can arrive while you are on the Subject or File tab, and the run aborts whichever tab you
+        # happen to be looking at. Inside a tab, the only notice of it would be on one you are not
+        # looking at. See the end of initUI, where the window layout is assembled.
 
         # Current series counter
-        new_label = QLabel('Series counter:')
-        self.protocol_control_grid.addWidget(new_label, 1, 0)
+        new_label = QLabel('Series #')
+        self.protocol_status_grid.addWidget(new_label, 0, 0)
         self.series_counter_input = QSpinBox()
         self.series_counter_input.setMinimum(1)
         self.series_counter_input.setMaximum(1000)
         self.series_counter_input.setValue(1)
         self.series_counter_input.valueChanged.connect(self.on_entered_series_count)
-        self.protocol_control_grid.addWidget(self.series_counter_input, 1, 1)
+        self.protocol_status_grid.addWidget(self.series_counter_input, 0, 1)
 
         # Current subject, next to the series counter: together they say what the next run will
         # be recorded as. Otherwise the only place to see the subject is the Subject tab, and
         # recording onto the wrong one is a mistake worth making hard.
         new_label = QLabel('Subject:')
-        self.protocol_control_grid.addWidget(new_label, 1, 2)
+        self.protocol_status_grid.addWidget(new_label, 0, 2)
         self.current_subject_main_label = QLabel()
         self.current_subject_main_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.current_subject_main_label, 1, 3)
+        self.protocol_status_grid.addWidget(self.current_subject_main_label, 0, 3)
 
-        # Elapsed time and epoch count share a row: both say how far through the run we are, and
+        # Elapsed time and trial count share a row: both say how far through the run we are, and
         # neither needs a third of the window to show "0 / 240".
-        new_label = QLabel('Elapsed time [s]:')
-        self.protocol_control_grid.addWidget(new_label, 2, 0)
+        new_label = QLabel('Elapsed / Est:')
+        self.protocol_status_grid.addWidget(new_label, 1, 0)
         self.elapsed_time_label = QLabel()
         self.elapsed_time_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.elapsed_time_label, 2, 1)
+        self.protocol_status_grid.addWidget(self.elapsed_time_label, 1, 1)
         self.elapsed_time_label.setText('')
 
-        new_label = QLabel('Epoch count:')
-        self.protocol_control_grid.addWidget(new_label, 2, 2)
-        self.epoch_count_label = QLabel()
-        self.epoch_count_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_control_grid.addWidget(self.epoch_count_label, 2, 3)
-        self.epoch_count_label.setText('')
+        new_label = QLabel('Trials run:')
+        self.protocol_status_grid.addWidget(new_label, 1, 2)
+        self.trial_count_label = QLabel()
+        self.trial_count_label.setFrameShadow(QFrame.Shadow(1))
+        self.protocol_status_grid.addWidget(self.trial_count_label, 1, 3)
+        self.trial_count_label.setText('')
+
+        # What this trial drew: the parameters that vary from trial to trial, at their values for
+        # the trial running now. Those values are chosen on the client and sent to the server,
+        # which prints them; until now the GUI never showed them, so the only way to see what was
+        # on screen was the server's terminal.
+        #
+        # Same treatment as the status line, and for the same reason: a protocol varying several
+        # parameters produces a long line, and a bare QLabel's size hint grows with its text until
+        # it reshapes the window. One line tall, scrolls if longer, whole text in the tooltip.
+        self.epoch_parameters_label = _StatusLabel('')
+        self.epoch_parameters_label.setWordWrap(True)
+        self.epoch_parameters_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.epoch_parameters_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        self.epoch_parameters_scroll_area = QScrollArea()
+        self.epoch_parameters_scroll_area.setWidget(self.epoch_parameters_label)
+        self.epoch_parameters_scroll_area.setWidgetResizable(True)
+        self.epoch_parameters_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.epoch_parameters_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.epoch_parameters_scroll_area.setFixedHeight(
+            self.epoch_parameters_label.fontMetrics().height()
+            + 2 * self.epoch_parameters_scroll_area.frameWidth())
+
+        self.protocol_status_grid.addWidget(QLabel('This trial:'), 2, 0)
+        self.protocol_status_grid.addWidget(self.epoch_parameters_scroll_area, 2, 1, 1, 3)
 
         # Elapsed timer for protocol
         self.progress_timer = QTimer()
@@ -285,32 +362,35 @@ class ExperimentGUI(QWidget):
         # View button:
         self.view_button = QPushButton("View", self)
         self.view_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(self.view_button, 3, 0)
+        self.protocol_action_grid.addWidget(self.view_button, 0, 0)
 
-        # Record button:
+        # Record button. Disabled until a subject is selected: recording without one is refused
+        # anyway, but by a modal raised after the click, which is a worse way to learn it.
         self.record_button = QPushButton("Record", self)
+        self.record_button.setEnabled(False)
         self.record_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(self.record_button, 3, 1)
+        self.protocol_action_grid.addWidget(self.record_button, 0, 1)
 
-        # Pause/resume button:
+        # Pause/resume button. Disabled until a run is in progress: pressing it in standby used to
+        # set the client's pause flag and relabel itself 'Resume' with nothing running, so the GUI
+        # sat there claiming to be paused.
         self.pause_button = QPushButton("Pause", self)
+        self.pause_button.setEnabled(False)
         self.pause_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(self.pause_button, 3, 2)
+        self.protocol_action_grid.addWidget(self.pause_button, 0, 2)
 
         # Stop button:
-        stop_button = QPushButton("Stop", self)
-        stop_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(stop_button, 3, 3)
+        self.stop_button = QPushButton("Stop", self)
+        self.stop_button.clicked.connect(self.on_pressed_button)
+        self.protocol_action_grid.addWidget(self.stop_button, 0, 3)
 
         # Enter note button:
-        note_button = QPushButton("Enter note", self)
-        note_button.clicked.connect(self.on_pressed_button)
-        self.protocol_control_grid.addWidget(note_button, 4, 0)
+        self.note_button = QPushButton("Enter note", self)
+        self.note_button.clicked.connect(self.on_pressed_button)
 
         # Notes field:
         self.notes_edit = QTextEdit()
         self.notes_edit.setFixedHeight(30)
-        self.protocol_control_grid.addWidget(self.notes_edit, 4, 1, 1, 3)
 
 
         # # # TAB 2: ENSEMBLE tab # # #
@@ -322,6 +402,11 @@ class ExperimentGUI(QWidget):
                                                              QSizePolicy.Policy.Fixed))
         self.ensemble_protocol_selector_grid = QGridLayout()
         self.ensemble_selector_box.setLayout(self.ensemble_protocol_selector_grid)
+        # Same as the Main tab's selector: the slack goes to the dropdowns, not to the caption
+        # beside them or the button next to the preset.
+        self.ensemble_protocol_selector_grid.setColumnStretch(0, 0)   # captions
+        self.ensemble_protocol_selector_grid.setColumnStretch(1, 1)   # dropdowns
+        self.ensemble_protocol_selector_grid.setColumnStretch(2, 0)   # Append button
 
         self.ensemble_list_box = QWidget()
         self.ensemble_list_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
@@ -329,11 +414,27 @@ class ExperimentGUI(QWidget):
         self.ensemble_list_grid = QGridLayout()
         self.ensemble_list_box.setLayout(self.ensemble_list_grid)
 
+        # The Ensemble tab's own readouts and run buttons. Its own, rather than the Main tab's
+        # section moved across: the two tabs run different things, and the numbers that describe
+        # them are different numbers. One shared section meant buttons that changed meaning with
+        # the tab, and readouts ('Elapsed / Est', 'Trials run') that only ever described a series.
         self.ensemble_control_box = QWidget()
         self.ensemble_control_box.setSizePolicy(QSizePolicy(QSizePolicy.Policy.MinimumExpanding,
                                                             QSizePolicy.Policy.Fixed))
-        self.ensemble_control_grid = QGridLayout()
-        self.ensemble_control_box.setLayout(self.ensemble_control_grid)
+        self.ensemble_control_layout = QVBoxLayout()
+        self.ensemble_control_box.setLayout(self.ensemble_control_layout)
+        self.ensemble_status_grid = QGridLayout()      # what the ensemble is doing
+        self.ensemble_action_grid = QGridLayout()      # the buttons that act on it
+        self.ensemble_control_layout.addLayout(self.ensemble_status_grid)
+        self.ensemble_control_layout.addLayout(self.ensemble_action_grid)
+        for caption_column in (0, 2):
+            self.ensemble_status_grid.setColumnStretch(caption_column, 0)
+        for value_column in (1, 3):
+            self.ensemble_status_grid.setColumnStretch(value_column, 1)
+        for button_column in range(4):
+            self.ensemble_action_grid.setColumnStretch(button_column, 1)
+        self.ensemble_status_grid.setHorizontalSpacing(10)
+        self.ensemble_status_grid.setColumnMinimumWidth(2, 24)
 
         self.ensemble_tab = QWidget()
         self.ensemble_tab_layout = QVBoxLayout()
@@ -350,10 +451,10 @@ class ExperimentGUI(QWidget):
         protocol_label = QLabel('Protocol:')
         self.ensemble_protocol_selection_combo_box.textActivated.connect(self.on_selected_ensemble_protocol_ID)
         self.ensemble_protocol_selector_grid.addWidget(protocol_label, 0, 0)
-        self.ensemble_protocol_selector_grid.addWidget(self.ensemble_protocol_selection_combo_box, 0, 1, 1, 1)
+        self.ensemble_protocol_selector_grid.addWidget(self.ensemble_protocol_selection_combo_box, 0, 1, 1, 2)
 
         # Parameter preset drop-down:
-        parameter_preset_label = QLabel('Parameter preset:')
+        parameter_preset_label = QLabel('Param preset:')
         self.ensemble_parameter_preset_comboBox = QComboBox(self)
         self.ensemble_parameter_preset_comboBox.addItem("Default")
         self.ensemble_protocol_selector_grid.addWidget(parameter_preset_label, 1, 0)
@@ -398,19 +499,44 @@ class ExperimentGUI(QWidget):
         self.ensemble_clear_button.clicked.connect(self.on_pressed_button_ensemble)
         self.ensemble_list_grid.addWidget(self.ensemble_clear_button, 4, 1)
 
-        # Ensemble control buttons
+        # Ensemble readouts. 'Protocols run' is the ensemble's equivalent of the Main tab's
+        # 'Trials run'; elapsed is measured from the start of the ensemble rather than of the item
+        # in progress. No estimate to measure it against: that would mean precomputing every
+        # item's trial parameters up front, which is what makes est_run_time available for a
+        # single protocol.
+        self.ensemble_status_grid.addWidget(QLabel('Protocols run:'), 0, 0)
+        self.ensemble_progress_label = QLabel()
+        self.ensemble_progress_label.setFrameShadow(QFrame.Shadow(1))
+        self.ensemble_status_grid.addWidget(self.ensemble_progress_label, 0, 1)
+
+        self.ensemble_status_grid.addWidget(QLabel('Elapsed:'), 0, 2)
+        self.ensemble_elapsed_label = QLabel()
+        self.ensemble_elapsed_label.setFrameShadow(QFrame.Shadow(1))
+        self.ensemble_status_grid.addWidget(self.ensemble_elapsed_label, 0, 3)
+
+        # Ensemble run buttons. Separate widgets from the Main tab's, so each tab's buttons act on
+        # that tab's subject and nothing has to be relabelled or routed by label.
         self.ensemble_view_button = QPushButton("View ensemble", self)
         self.ensemble_view_button.clicked.connect(self.on_pressed_button_ensemble)
-        self.ensemble_control_grid.addWidget(self.ensemble_view_button, 0,0)
+        self.ensemble_action_grid.addWidget(self.ensemble_view_button, 0, 0)
 
         self.ensemble_record_button = QPushButton("Record ensemble", self)
+        self.ensemble_record_button.setEnabled(False)
         self.ensemble_record_button.clicked.connect(self.on_pressed_button_ensemble)
-        self.ensemble_control_grid.addWidget(self.ensemble_record_button, 0,1)
+        self.ensemble_action_grid.addWidget(self.ensemble_record_button, 0, 1)
+
+        # Pause is the exception to "each tab's buttons act on that tab's subject": there is one
+        # run loop, and pausing it is the same act either way. Two buttons onto one piece of
+        # client state, so both are relabelled together -- see set_pause_button_label.
+        self.ensemble_pause_button = QPushButton("Pause", self)
+        self.ensemble_pause_button.setEnabled(False)
+        self.ensemble_pause_button.clicked.connect(self.on_pressed_button)
+        self.ensemble_action_grid.addWidget(self.ensemble_pause_button, 0, 2)
 
         self.ensemble_stop_button = QPushButton("Stop ensemble", self)
-        self.ensemble_stop_button.clicked.connect(self.on_pressed_button_ensemble)
         self.ensemble_stop_button.setEnabled(False)
-        self.ensemble_control_grid.addWidget(self.ensemble_stop_button, 0,2)
+        self.ensemble_stop_button.clicked.connect(self.on_pressed_button_ensemble)
+        self.ensemble_action_grid.addWidget(self.ensemble_stop_button, 0, 3)
 
         # # # TAB 3: Current subject metadata information # # #
 
@@ -418,25 +544,29 @@ class ExperimentGUI(QWidget):
         self.data_tab = QWidget()
         self.data_form = QFormLayout()
         self.data_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self.data_form.setLabelAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Left, not centred: centring ragged-length captions puts every one of them at a different
+        # x, so the eye has no edge to run down.
+        self.data_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.data_tab.setLayout(self.data_form)
 
         # # subject info:
-        new_label = QLabel('Load existing subject')
+        #
+        # One row, not three. This was 'Load existing subject' (a dropdown), 'Current subject:' (a
+        # read-only label) and 'subject ID:' (a line edit) stacked together, all showing the same
+        # string once a subject was loaded. The dropdown is the one that both shows the current
+        # subject and changes it, so it is the one that stays; the read-only label said nothing it
+        # did not, and the Main tab now carries the at-a-glance readout anyway.
+        new_label = QLabel('Current subject:')
         self.existing_subject_input = QComboBox()
         self.existing_subject_input.activated.connect(self.on_selected_existing_subject)
         self.data_form.addRow(new_label, self.existing_subject_input)
 
-        new_label = QLabel('Current subject:')
-        self.current_subject_display = QLabel('')
-        self.data_form.addRow(new_label, self.current_subject_display)
-
-        # After current_subject_display exists: this populates it.
         self.update_existing_subject_input()
 
         # Only built-ins are "subject_id," "age" and "notes"
-        # subject ID:
-        new_label = QLabel('subject ID:')
+        # The editable identity, which the dropdown is not: what Create subject names a new subject,
+        # and what Update subject looks up. Distinct from the row above, so it keeps its own field.
+        new_label = QLabel('Subject ID:')
         self.subject_id_input = QLineEdit()
         self.data_form.addRow(new_label, self.subject_id_input)
 
@@ -513,8 +643,19 @@ class ExperimentGUI(QWidget):
         self.tabs.addTab(self.data_tab, "Subject")
         self.tabs.addTab(self.file_tab, "File")
 
+        # Below the tabs, so both are there whichever tab is showing: a note is about the
+        # experiment rather than about one tab, and a server error aborts the run wherever you
+        # happen to be looking when it arrives.
+        notes_row = QHBoxLayout()
+        notes_row.addWidget(self.note_button)
+        notes_row.addWidget(self.notes_edit)
+
         self.layout = QVBoxLayout(self)
         self.layout.addWidget(self.tabs)
+        self.layout.addLayout(notes_row)
+        self.layout.addWidget(self.status_scroll_area)
+
+        self.update_run_button_states()
 
         # Resize window based on protocol tab
         self.update_window_width()
@@ -546,7 +687,7 @@ class ExperimentGUI(QWidget):
                 pass                              # that one had no connections; keep going
 
         if thread.isRunning():
-            self.client.stop_run()                # BaseClient.start_run checks this between epochs
+            self.client.stop_run()                # BaseClient.start_run checks this between trials
             if not thread.wait(timeout_ms):
                 warnings.warn("The run thread did not finish; closing anyway.")
 
@@ -576,8 +717,17 @@ class ExperimentGUI(QWidget):
         self.show()
 
         self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
-        self.status = Status.STANDBY
-        self.status_label.setText('Ready')
+
+        # No need to re-apply the parameter lock after rebuilding the inputs: Qt disables a widget
+        # added to a disabled parent, and these all go into parameters_box / protocol_selector_box.
+        # Verified by removing the call and watching the test below still pass -- which is why the
+        # test asserts the behaviour rather than the mechanism.
+
+        # Only announce readiness if that is true. This is also how an ensemble loads its next
+        # item, and declaring STANDBY there both said 'Ready' in the middle of an ensemble and
+        # re-enabled View and Record, which update_run_button_states reads status to decide.
+        if self.status == Status.STANDBY:
+            self.status_label.setText('Ready')
 
     def on_server_message_received(self, level, text):
         '''Runs on the GUI thread (via server_message_signal): surface a message the server pushed back.
@@ -591,6 +741,21 @@ class ExperimentGUI(QWidget):
             self._server_error_dialog_open = True
             try:
                 open_message_window(title='Server error', text=text)
+            finally:
+                self._server_error_dialog_open = False
+
+    def on_data_error_received(self, text):
+        """Surface a failed data write. Named for what it is, not as a server error.
+
+        Modal rather than the status line alone, for the same reason a server error is: this
+        arrives as the run ends, and run_finished overwrites the status line with 'Ready' straight
+        afterwards. Shares the dialog guard so a data error and a server error cannot stack.
+        """
+        self.status_label.setText(f'[data error] {text.splitlines()[0]}')
+        if not self._server_error_dialog_open:
+            self._server_error_dialog_open = True
+            try:
+                open_message_window(title='Data file error', text=text)
             finally:
                 self._server_error_dialog_open = False
 
@@ -615,6 +780,7 @@ class ExperimentGUI(QWidget):
 
     def on_pressed_button(self):
         sender = self.sender()
+
         if sender.text() == 'Record':
             if (self.data.experiment_file_exists() and self.data.current_subject_exists()):
                 self.send_run(save_metadata_flag=True)
@@ -630,23 +796,37 @@ class ExperimentGUI(QWidget):
 
         elif sender.text() == 'View':
             self.send_run(save_metadata_flag=False)
-            self.pause_button.setText('Pause')
+            self.set_pause_button_label('Pause')
 
         elif sender.text() == 'Pause':
             self.client.pause_run()
-            self.pause_button.setText('Resume')
-            self.status_label.setText('Paused...')
+            self.set_pause_button_label('Resume')
+            # Don't announce "Paused" here: the run is still presenting and recording the trial it
+            # was in. update_run_progress reports 'Pausing after this trial finishes...' now, and
+            # switches to 'Paused' when the run loop has actually gone idle. Called directly rather
+            # than waiting up to a second for the timer, so the button press feels immediate.
+            self.update_run_progress()
             self.show()
 
         elif sender.text() == 'Resume':
             self.client.resume_run()
-            self.pause_button.setText('Pause')
-            self.status_label.setText('Viewing...')
+            self.set_pause_button_label('Pause')
+            if self.ensemble_paused:
+                # Held between ensemble items rather than inside a run; releasing it starts the
+                # next protocol, which is what the pause deferred.
+                self.ensemble_paused = False
+                self.run_ensemble_item(save_metadata_flag=self.ensemble_save_metadata_flag)
+            else:
+                self.update_run_progress()
             self.show()
 
         elif sender.text() == 'Stop':
             self.client.stop_run()
-            self.pause_button.setText('Pause')
+            self.set_pause_button_label('Pause')
+            if self.ensemble_paused:
+                # Stopping out of a held ensemble: no run is in progress for stop_run to end, so
+                # release the hold here or the ensemble would sit there forever.
+                self.release_paused_ensemble()
 
         elif sender.text() == 'Enter note':
             self.note_text = self.notes_edit.toPlainText()
@@ -704,8 +884,14 @@ class ExperimentGUI(QWidget):
         # # # Buttons for ensemble tab # # #
 
     def on_pressed_button_ensemble(self):
-        sender = self.sender()
-        if sender.text() == 'Append':
+        """Slot for the Ensemble tab's own buttons. Takes no arguments -- clicked() passes its
+        `checked` flag to any slot that will accept one, which is not what a label lookup wants."""
+        self.handle_ensemble_action(self.sender().text())
+
+    def handle_ensemble_action(self, label):
+        """The ensemble actions, keyed by label rather than by widget, so the shared run buttons
+        can forward to them (see on_pressed_button) without pretending to be the sender."""
+        if label == 'Append':
             if self.ensemble_protocol_selection_combo_box.currentIndex() == 0:
                 return
 
@@ -716,25 +902,26 @@ class ExperimentGUI(QWidget):
             if not self.ensemble_file_label.text().endswith('(changes unsaved)'):
                 self.ensemble_file_label.setText(f'{self.ensemble_file_label.text()} (changes unsaved)')
 
-        elif sender.text() == 'View ensemble':
+        elif label == 'View ensemble':
             self.run_ensemble(save_metadata_flag=False)
 
-        elif sender.text() == 'Record ensemble':
+        elif label == 'Record ensemble':
             self.run_ensemble(save_metadata_flag=True)
 
-        elif sender.text() == 'Stop ensemble':
+        elif label == 'Stop ensemble':
             self.client.stop_run()
-            self.pause_button.setText('Pause')
-            self.ensemble_running = False
-            self.ensemble_list.update_UI(self.ensemble_running)
+            self.set_pause_button_label('Pause')
+            if self.ensemble_paused:
+                self.release_paused_ensemble()
+            self.set_ensemble_running(False)
 
-        elif sender.text() == 'Save ensemble':
+        elif label == 'Save ensemble':
             self.save_ensemble_preset()
         
-        elif sender.text() == 'Load ensemble':
+        elif label == 'Load ensemble':
             self.load_ensemble_preset()
             
-        elif sender.text() == 'Remove item':
+        elif label == 'Remove item':
             # Reversing order of selected rows so that removing each doesn't mess up the indices
             selected_row_idxes = sorted([x.row() for x in self.ensemble_list.selectionModel().selectedRows()])[::-1]
             for row_idx in selected_row_idxes:
@@ -743,7 +930,7 @@ class ExperimentGUI(QWidget):
             if not self.ensemble_file_label.text().endswith('(changes unsaved)'):
                 self.ensemble_file_label.setText(f'{self.ensemble_file_label.text()} (changes unsaved)')
 
-        elif sender.text() == 'Clear':
+        elif label == 'Clear':
             self.ensemble_list.clear()
 
             # Set label with filename
@@ -807,8 +994,24 @@ class ExperimentGUI(QWidget):
         # Set label with filename
         self.ensemble_file_label.setText(fname)
 
+    def set_ensemble_running(self, running):
+        """Flip the ensemble flag and bring everything that depends on it into step.
+
+        The list widget locks while an ensemble runs, and the run buttons' availability depends on
+        whether there is an ensemble to stop. Keeping the three together here is what stops them
+        disagreeing -- 'Stop ensemble' stayed enabled through a single-series run because the flag
+        moved without the buttons being asked again.
+        """
+        self.ensemble_running = running
+        # Timed from here rather than from the first item's run_started, so the readout covers the
+        # whole ensemble including the gaps between its protocols.
+        self.ensemble_start_time = time.time() if running else None
+        self.ensemble_list.update_UI(self.ensemble_running)
+        self.update_run_button_states()
+        self.update_ensemble_progress()
+
     def run_ensemble(self, save_metadata_flag=False):
-        self.ensemble_running =True
+        self.set_ensemble_running(True)
         self.ensemble_list.reset_current_ensemble_idx()
 
         self.run_ensemble_item(save_metadata_flag=save_metadata_flag)
@@ -817,9 +1020,8 @@ class ExperimentGUI(QWidget):
         self.ensemble_list.increment_current_ensemble_idx()
 
         if self.ensemble_list.get_current_ensemble_idx() >= len(self.ensemble_list):
-            self.ensemble_running = False
             self.ensemble_list.reset_current_ensemble_idx()
-            self.ensemble_list.update_UI(self.ensemble_running)
+            self.set_ensemble_running(False)
             return
 
         print(f'Running ensemble item {self.ensemble_list.get_current_ensemble_idx()+1} / {len(self.ensemble_list)}')
@@ -986,18 +1188,78 @@ class ExperimentGUI(QWidget):
         # backend that keeps subject metadata in each series file (data_nwb) reports the same
         # subject once per series, which otherwise fills the dropdown with duplicates.
         seen = dict.fromkeys(s['subject_id'] for s in self.data.get_existing_subject_data())
+        # The current subject belongs in the list whether or not the backend reports it yet. NWB
+        # keeps subject metadata inside each series file, so a subject that has been created but
+        # not yet recorded is not in get_existing_subject_data() -- it would be missing from its
+        # own dropdown, and now that the dropdown is the only thing naming the current subject on
+        # this tab, it would be named nowhere.
+        if self.data.current_subject and self.data.current_subject not in seen:
+            seen[self.data.current_subject] = None
         for subject_id in seen:
             self.existing_subject_input.addItem(subject_id)
 
-        index = self.existing_subject_input.findText(self.data.current_subject)
-        if index >= 0:
-            self.existing_subject_input.setCurrentIndex(index)
         self.show_current_subject(self.data.current_subject or '')
 
     def show_current_subject(self, subject_id):
-        """Update both places the current subject is shown -- the Subject tab and the Main tab."""
-        self.current_subject_display.setText(subject_id)
+        """Reflect the current subject in both places it appears -- the Subject tab's dropdown and
+        the Main tab's readout.
+
+        The dropdown's index is cleared when there is no current subject. Left alone it would sit
+        on whichever subject happens to be first in the list, showing one as selected when none is
+        -- which matters more now that the dropdown is the only thing on that tab naming the
+        current subject, and that Record keys off whether there is one.
+        """
+        index = self.existing_subject_input.findText(subject_id) if subject_id else -1
+        self.existing_subject_input.setCurrentIndex(index)
         self.current_subject_main_label.setText(subject_id)
+        self.update_run_button_states()
+
+    def set_parameter_editing_enabled(self, enabled):
+        """Lock or unlock the protocol/preset selectors and the parameter fields.
+
+        Locked mid-ensemble: the values on show belong to the item the ensemble is running, and
+        editing them would say something the run will not do. Only the inputs are locked -- the
+        scroll area around them is not -- so the parameters stay readable and scrollable, which
+        disabling the whole tab prevented.
+        """
+        self.parameter_editing_enabled = enabled
+        self.protocol_selector_box.setEnabled(enabled)
+        self.parameters_box.setEnabled(enabled)
+
+    def update_run_button_states(self):
+        """Enable each run button only when its action is available right now.
+
+        Each tab owns its buttons and each set acts on that tab's subject -- a series on Main, the
+        ensemble on Ensemble -- so nothing here depends on which tab is showing. Starting needs
+        nothing running at all (an ensemble runs series of its own, so neither set may start while
+        one is going); Record additionally needs a subject to record onto, which View does not.
+
+        Stopping needs the thing named on the button to be going: a series for 'Stop', the
+        ensemble for 'Stop ensemble'. They are genuinely different acts -- 'Stop' ends the item in
+        progress and the ensemble moves on to the next one, 'Stop ensemble' ends the lot. An
+        ensemble held between items for a pause has nothing running, so only 'Stop ensemble' is
+        offered there, which is also the way out of the hold.
+        """
+        running = self.status != Status.STANDBY
+        busy = running or self.ensemble_running
+        can_record = bool(self.data.current_subject)
+
+        self.view_button.setEnabled(not busy)
+        self.record_button.setEnabled(not busy and can_record)
+        self.stop_button.setEnabled(running)
+
+        self.ensemble_view_button.setEnabled(not busy)
+        self.ensemble_record_button.setEnabled(not busy and can_record)
+        self.ensemble_stop_button.setEnabled(self.ensemble_running)
+
+        # One run loop, so both Pause buttons reflect the one piece of client state.
+        for button in (self.pause_button, self.ensemble_pause_button):
+            button.setEnabled(busy)
+
+    def set_pause_button_label(self, text):
+        """Both Pause buttons drive the same run loop, so they say the same thing."""
+        self.pause_button.setText(text)
+        self.ensemble_pause_button.setText(text)
 
     def populate_subject_metadata_fields(self, subject_data_dict):
         self.subject_id_input.setText(subject_data_dict['subject_id'])
@@ -1021,6 +1283,22 @@ class ExperimentGUI(QWidget):
             else:
                 self.series_counter_input.setStyleSheet("background-color: rgb(255, 255, 255);")
 
+    def confirm_series_overwrite(self, series_number):
+        """Ask before recording onto a series number that already holds data. True to go ahead.
+
+        Its own method so a test can answer it without a human, and so the wording lives in one
+        place: what is about to be destroyed, named, with No as the default button.
+        """
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle('Overwrite series?')
+        msg.setText(f'Series {series_number} already exists for subject {self.data.current_subject}.')
+        msg.setInformativeText('Recording will delete the existing series and everything in it. '
+                               'This cannot be undone.')
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg.setDefaultButton(QMessageBox.StandardButton.No)
+        return msg.exec() == QMessageBox.StandardButton.Yes
+
     def send_run(self, save_metadata_flag=True):
         # check to make sure a protocol has been selected
         if self.protocol_object.__class__.__name__ == 'BaseProtocol':
@@ -1031,11 +1309,16 @@ class ExperimentGUI(QWidget):
         if save_metadata_flag:
             self.data.update_series_count(self.series_counter_input.value())
             if (self.data.get_series_count() in self.data.get_existing_series()):
-                self.series_counter_input.setStyleSheet("background-color: rgb(255, 0, 0);")
-                self.status_label.setText('Select an unused series number')
-                return  # group already exists, don't send anything
-            else:
-                self.series_counter_input.setStyleSheet("background-color: rgb(255, 255, 255);")
+                # Ask rather than refuse. A series that exists is usually a false start somebody
+                # wants to redo under the same number, and refusing outright left renumbering
+                # around it as the only option -- so the file grew a gap and the numbering stopped
+                # matching the notebook. Destructive, so it is opt-in and defaults to No.
+                if not self.confirm_series_overwrite(self.data.get_series_count()):
+                    self.series_counter_input.setStyleSheet("background-color: rgb(255, 0, 0);")
+                    self.status_label.setText('Select an unused series number')
+                    return
+                self.data.delete_series()
+            self.series_counter_input.setStyleSheet("background-color: rgb(255, 255, 255);")
 
         # Populate parameters from filled fields
         if self.mid_parameter_edit:
@@ -1055,7 +1338,7 @@ class ExperimentGUI(QWidget):
                 self.status_label.setText(f'Cannot record: {e}')
                 return
 
-        # start the epoch run thread:
+        # start the series thread:
         self.run_series_thread = runSeriesThread(self.protocol_object,
                                                  self.data,
                                                  self.client,
@@ -1067,16 +1350,17 @@ class ExperimentGUI(QWidget):
         self.run_series_thread.start()
 
     def run_started(self, save_metadata_flag):
-        # Lock the view and run buttons to prevent spinning up multiple threads
-        self.view_button.setEnabled(False)
-        self.record_button.setEnabled(False)
         if save_metadata_flag:
-            self.status_label.setText('Recording series ' + str(self.data.get_series_count()))
             self.status = Status.RECORDING
         else:
-            self.status_label.setText('Viewing...')
             self.status = Status.VIEWING
-        
+        self.status_label.setText(self.run_status_text())
+
+        # Status first: it is what update_run_button_states reads to lock View and Record, which
+        # is what stops a second run thread being spun up on top of this one, and to offer Pause.
+        self.update_run_button_states()
+
+        self._pause_state_shown = 'running'   # so the first pause registers as a change
         self.run_start_time = time.time()
         self.progress_timer.start()
 
@@ -1088,22 +1372,16 @@ class ExperimentGUI(QWidget):
         self.ensemble_remove_item_button.setEnabled(False)
         self.ensemble_clear_button.setEnabled(False)
 
-        self.ensemble_view_button.setEnabled(False)
-        self.ensemble_record_button.setEnabled(False)
         if self.ensemble_running:
-            self.ensemble_stop_button.setEnabled(True)
-            self.protocol_tab.setEnabled(False)
-        else:
-            self.ensemble_stop_button.setEnabled(False)
+            self.set_parameter_editing_enabled(False)
 
     def run_finished(self, save_metadata_flag):
-        # re-enable view/record buttons
-        self.view_button.setEnabled(True)
-        self.record_button.setEnabled(True)
-
         self.status_label.setText('Ready')
         self.status = Status.STANDBY
-        self.pause_button.setText('Pause')
+        self.set_pause_button_label('Pause')
+        self._pause_state_shown = 'running'
+        # After self.status is back to STANDBY, so this is allowed to touch the button again.
+        self.update_run_button_states()
 
         self.progress_timer.stop()
 
@@ -1113,9 +1391,19 @@ class ExperimentGUI(QWidget):
             self.data.advance_series_count()
             self.series_counter_input.setValue(self.data.get_series_count())
             self.populate_groups()
-        
+
         if self.ensemble_running:
-            self.run_ensemble_item(save_metadata_flag=save_metadata_flag)
+            # A pause asked for during the final trial never took effect: the run loop's condition
+            # fails before the pause branch is reached, and the next start_run clears the flag. In
+            # an ensemble that meant pressing Pause, watching the button say 'Resume', and having
+            # the next protocol start anyway. Hold here instead, and let Resume release it.
+            if self.client.pause:
+                self.ensemble_paused = True
+                self.ensemble_save_metadata_flag = save_metadata_flag
+                self.set_pause_button_label('Resume')
+                self.status_label.setText('Paused before the next ensemble item')
+            else:
+                self.run_ensemble_item(save_metadata_flag=save_metadata_flag)
 
         if not self.ensemble_running: # if ensemble still running, no need to edit buttons or update parameters from fillable fields
             # Enable/disable buttons on ensemble tab
@@ -1126,11 +1414,7 @@ class ExperimentGUI(QWidget):
             self.ensemble_remove_item_button.setEnabled(True)
             self.ensemble_clear_button.setEnabled(True)
 
-            self.ensemble_view_button.setEnabled(True)
-            self.ensemble_record_button.setEnabled(True)
-            self.ensemble_stop_button.setEnabled(False)
-
-            self.protocol_tab.setEnabled(True)
+            self.set_parameter_editing_enabled(True)
 
             # Prepare for next run
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
@@ -1255,16 +1539,132 @@ class ExperimentGUI(QWidget):
 
         self.mid_parameter_edit = False
 
+    def release_paused_ensemble(self):
+        """Abandon an ensemble that was holding between items, and return the GUI to standby.
+
+        The hold is not a run, so nothing else brings the GUI back out of it: run_finished has
+        already been and gone, and stop_run has no run loop left to stop.
+        """
+        self.ensemble_paused = False
+        self.client.pause = False
+        self.status_label.setText('Ready')
+        self.set_ensemble_running(False)
+
+    def run_status_text(self):
+        """What the status line should say about a run that is neither pausing nor paused.
+
+        Derived from self.status rather than remembered, because Resume has to restore it: it used
+        to hardcode 'Viewing...', so resuming a recording run announced that it was only viewing --
+        while it went on recording. Losing the series number is bad enough; claiming a recording
+        run is not recording invites somebody to stop and restart a series that was fine.
+        """
+        if self.status == Status.RECORDING:
+            text = 'Recording series ' + str(self.data.get_series_count())
+        elif self.status == Status.VIEWING:
+            text = 'Viewing...'
+        else:
+            return 'Ready'
+
+        # Say when this series is one item of an ensemble. Otherwise a recorded series looks
+        # exactly like a single run, and the difference matters: an ensemble carries on to the
+        # next protocol by itself, so 'this will end shortly' is the wrong thing to assume.
+        if self.ensemble_running:
+            item = self.ensemble_list.get_current_ensemble_idx() + 1
+            text += f'   [ensemble: protocol {item} of {len(self.ensemble_list)}]'
+        return text
+
+    def varying_epoch_parameter_names(self):
+        """Protocol parameters that take a different value from trial to trial.
+
+        process_input_parameters records these in persistent_parameters, but a protocol is free to
+        override that method, and a labpack one that does not call super() leaves the list unset.
+        Recomputed from the parameters themselves in that case, using the same rule: a parameter
+        given as a list of more than one value is one that varies.
+        """
+        protocol = self.protocol_object
+        names = (protocol.persistent_parameters or {}).get('variable_protocol_parameter_names')
+        if names is None:
+            names = [key for key, value in protocol.protocol_parameters.items()
+                     if isinstance(value, list) and len(value) > 1]
+        return names
+
+    def epoch_parameters_text(self):
+        """This trial's values for the parameters that vary, as one line.
+
+        Only the varying ones: the rest are on show in the parameter fields above, unchanged for
+        the whole run, and repeating them here would bury the two or three that actually differ.
+        """
+        if self.status == Status.STANDBY:
+            return ''
+
+        values = self.protocol_object.trial_protocol_parameters or {}
+        names = [name for name in self.varying_epoch_parameter_names() if name in values]
+        if not names:
+            return '(no parameters vary across trials)'
+        return ',   '.join(f'{name}: {values[name]}' for name in names)
+
+    def update_ensemble_progress(self):
+        """The Ensemble tab's readouts: how many of its protocols have run, and for how long.
+
+        Measured from the start of the ensemble, not of the item in progress, and it keeps
+        counting between items -- the gap between one protocol finishing and the next starting is
+        time the ensemble is taking. There is no estimate to show it against: est_run_time comes
+        from precomputing a protocol's trial parameters, and doing that for every item up front is
+        the expensive part.
+        """
+        total = len(self.ensemble_list)
+        if not self.ensemble_running:
+            self.ensemble_progress_label.setText(f'0 / {total}' if total else '')
+            self.ensemble_elapsed_label.setText('')
+            return
+
+        # The index is of the item running now, so the count completed is that index.
+        self.ensemble_progress_label.setText(f'{self.ensemble_list.get_current_ensemble_idx()} / {total}')
+        if self.ensemble_start_time is not None:
+            self.ensemble_elapsed_label.setText(f'{int(time.time() - self.ensemble_start_time)}s')
+
     def update_run_progress(self):
         if self.status == Status.STANDBY:
             elapsed_time = 0
             epoch_count = 0
+            paused_seconds = 0
         else:
-            elapsed_time = int(time.time() - self.run_start_time)
-            epoch_count = self.protocol_object.num_epochs_completed
+            # Elapsed excludes time spent paused, so it stays comparable to est_run_time, which is
+            # a sum of stimulus durations and knows nothing about pauses. The pause total is shown
+            # alongside instead of being folded in and silently inflating progress.
+            paused_seconds = int(self.client.paused_seconds)
+            elapsed_time = int(time.time() - self.run_start_time) - paused_seconds
+            epoch_count = self.protocol_object.num_trials_completed
 
-        self.elapsed_time_label.setText(f'{elapsed_time} / {self.protocol_object.est_run_time:.0f}')
-        self.epoch_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_epochs", "?")}')
+        # est_run_time is only set once prepare_run has precomputed the trials, and this method is
+        # now reached from the Pause/Resume slots as well as the timer. An exception raised in a Qt
+        # slot takes the whole application down, which is far too high a price for a label.
+        est_run_time = getattr(self.protocol_object, 'est_run_time', None)
+        est_text = f'{est_run_time:.0f}s' if est_run_time is not None else '?'
+        elapsed_text = f'{elapsed_time} / {est_text}'
+        if paused_seconds > 0:
+            elapsed_text += f'  (+{paused_seconds})'
+        self.elapsed_time_label.setText(elapsed_text)
+        self.trial_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_trials", "?")}')
+        # Read straight off the protocol object, like the trial count above it. The run loop owns
+        # that object on another thread, but these are plain attribute reads of values it replaces
+        # wholesale at the start of each trial, so the worst case is showing the previous trial's
+        # values for one tick of the timer.
+        self.epoch_parameters_label.setText(self.epoch_parameters_text())
+        self.update_ensemble_progress()
+
+        # Announce pause transitions only, rather than rewriting the status every tick: the same
+        # label carries server messages (see report_server_message), and a once-a-second overwrite
+        # would wipe out an error report a second after it arrived.
+        pause_state = self.client.pause_state if self.status != Status.STANDBY else 'running'
+        if pause_state != self._pause_state_shown:
+            self._pause_state_shown = pause_state
+            if pause_state == 'pending':
+                self.status_label.setText('Pausing after this trial finishes...')
+            elif pause_state == 'paused':
+                self.status_label.setText(f'Paused after {epoch_count} trials')
+            else:
+                self.status_label.setText(self.run_status_text())
 
     def populate_groups(self):
         # Called after anything that changes the experiment's contents. Delegates to whatever
@@ -1395,6 +1795,22 @@ class InitializeRigGUI(QWidget):
         self.rig_combobox = QComboBox()
         self.init_grid.addWidget(self.rig_combobox, 2, 1, 1, 2)
 
+        # Which storage backend to write. Chosen here rather than in the main window because this
+        # dialog runs to completion before the data object -- or the File tab's browser, or the
+        # labels naming it -- is built, so there is nothing yet to swap out and no open experiment
+        # to invalidate. An experiment cannot change format part-way through in any case.
+        label_data_format = QLabel('Data format')
+        label_data_format.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        self.init_grid.addWidget(label_data_format, 3, 0)
+
+        self.data_format_combobox = QComboBox()
+        for format_name in sorted(config_tools.BUILTIN_DATA_FORMATS):
+            self.data_format_combobox.addItem(format_name)
+        self.data_format_combobox.setToolTip(
+            "Which format to write. Defaults to the selected config's data_format.\n"
+            "Ignored if the labpack supplies its own data module, which takes precedence.")
+        self.init_grid.addWidget(self.data_format_combobox, 3, 1, 1, 2)
+
         self.update_available_rigs()
 
         self.pb_enter = QPushButton('Enter')
@@ -1440,12 +1856,30 @@ class InitializeRigGUI(QWidget):
         self.cfg = config_tools.get_configuration_file(self.cfg_name, self.labpack_dir)
         self.available_rig_configs = config_tools.get_available_rig_configs(self.cfg)
         self.update_available_rigs()
+        self.update_data_format_selection()
         self.show()
+
+    def update_data_format_selection(self):
+        """Show the format this config would use, so the default is the config's own answer.
+
+        Follows the config selection above it: picking a different config re-reads its
+        data_format rather than leaving the previous config's answer showing. A --data-format on
+        the command line wins over both, so it is shown here too -- the flag is applied after this
+        dialog either way, and a dialog displaying something other than what will be used is worse
+        than no dialog.
+        """
+        override = getattr(self.experiment_gui_object, 'data_format_override', None)
+        data_format = override if override is not None else config_tools.get_data_format(self.cfg)
+        index = self.data_format_combobox.findText(data_format)
+        if index >= 0:
+            self.data_format_combobox.setCurrentIndex(index)
+        self.data_format_combobox.setEnabled(override is None)
 
     def on_pressed_enter_button(self):
         # Store the rig and cfg names in the cfg dict
         self.cfg['current_rig_name'] = self.rig_combobox.currentText()
         self.cfg['current_cfg_name'] = self.cfg_name
+        self.cfg['data_format'] = self.data_format_combobox.currentText()
 
         self.warn_about_labpack_problems()
 

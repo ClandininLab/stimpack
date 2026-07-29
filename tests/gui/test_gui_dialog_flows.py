@@ -109,12 +109,12 @@ def test_save_preset_via_input_dialog(experiment_gui, tmp_path, monkeypatch):
     select_protocol(gui)
     gui.protocol_object.parameter_preset_directory = str(tmp_path)   # don't write into the repo
 
-    gui.run_parameter_input['num_epochs'].setText('11')
+    gui.run_parameter_input['num_trials'].setText('11')
     monkeypatch.setattr(gui_mod.QInputDialog, 'getText', lambda *a, **k: ('my_preset', True))
     button(gui, 'Save preset').click()
 
     assert 'my_preset' in gui.protocol_object.parameter_presets
-    assert gui.protocol_object.parameter_presets['my_preset']['run_parameters']['num_epochs'] == 11
+    assert gui.protocol_object.parameter_presets['my_preset']['run_parameters']['num_trials'] == 11
     assert gui.parameter_preset_comboBox.findText('my_preset') >= 0   # offered in the dropdown
     assert (tmp_path / 'DriftingSquareGrating.yaml').exists()         # persisted to disk
 
@@ -241,3 +241,82 @@ def test_repeatedly_opening_the_experiment_dialog_is_safe(experiment_gui, tmp_pa
         assert dialog_ui.label_status.text() == 'Data entered'
 
     assert experiment_gui.data.experiment_file_name == 'expt_24'
+
+
+# --- choosing the data format at startup ----------------------------------------------------------
+
+def make_startup_dialog(qapp, tmp_path, cfg, data_format_override=None):
+    """An InitializeRigGUI with its UI built, standing in for the startup modal.
+
+    Constructed against a stub 'experiment GUI' rather than a real one: the dialog runs before the
+    real GUI exists, and what it produces (a cfg) is the whole of its contract.
+    """
+    import stimpack.experiment.gui as gui_mod
+
+    class StubGUI:
+        pass
+
+    stub = StubGUI()
+    stub.data_format_override = data_format_override
+    stub.cfg, stub.cfg_initialized = {}, False
+
+    dialog = gui_mod.InitializeRigGUI()
+    dialog.setupUI(stub, parent=None)
+    dialog.cfg = dict(cfg)
+    dialog.cfg_name = 'test_config.yaml'
+    dialog.update_data_format_selection()
+    return dialog, stub
+
+
+def test_the_startup_dialog_defaults_to_the_config_data_format(qapp, tmp_path):
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {'data_format': 'nwb'})
+    assert dialog.data_format_combobox.currentText() == 'nwb'
+
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {'data_format': 'hdf5'})
+    assert dialog.data_format_combobox.currentText() == 'hdf5'
+
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {})      # unset: the documented default
+    assert dialog.data_format_combobox.currentText() == 'hdf5'
+
+
+def test_the_startup_dialog_offers_every_built_in_format(qapp, tmp_path):
+    from stimpack.experiment.util import config_tools
+
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {})
+    offered = [dialog.data_format_combobox.itemText(i)
+               for i in range(dialog.data_format_combobox.count())]
+    assert sorted(offered) == sorted(config_tools.BUILTIN_DATA_FORMATS)
+
+
+def test_the_chosen_format_reaches_the_config(qapp, tmp_path):
+    """What the dialog produces is a cfg; the GUI reads data_format out of it to pick a backend."""
+    dialog, stub = make_startup_dialog(qapp, tmp_path, {'data_format': 'hdf5'})
+    dialog.rig_combobox.addItem('rig_a')
+    dialog.rig_combobox.setCurrentIndex(0)
+
+    index = dialog.data_format_combobox.findText('nwb')
+    dialog.data_format_combobox.setCurrentIndex(index)
+    dialog.on_pressed_enter_button()
+
+    assert stub.cfg['data_format'] == 'nwb'
+    assert stub.cfg_initialized is True
+
+
+def test_a_command_line_override_is_shown_and_locked(qapp, tmp_path):
+    """--data-format is applied after this dialog either way, so a dialog showing something else
+    would be worse than no dialog."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {'data_format': 'hdf5'},
+                                    data_format_override='nwb')
+
+    assert dialog.data_format_combobox.currentText() == 'nwb'
+    assert not dialog.data_format_combobox.isEnabled()
+
+
+def test_the_format_follows_the_selected_config(qapp, tmp_path):
+    """Picking a different config re-reads its data_format rather than leaving the last answer."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {'data_format': 'nwb'})
+    assert dialog.data_format_combobox.currentText() == 'nwb'
+
+    dialog.cfg = {'data_format': 'hdf5'}
+    dialog.update_data_format_selection()
+    assert dialog.data_format_combobox.currentText() == 'hdf5'

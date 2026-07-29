@@ -2,7 +2,11 @@ from setuptools import setup, find_packages
 
 setup(
     name='stimpack',
-    version='0.1.1',
+    # Pre-release marker for the branch, not a released version: PEP 440 orders this after 0.2.0
+    # (the current release) and before 0.3.0, so an install from dev is never mistaken for either.
+    # dev carries breaking changes already named as 0.3.0 in user-facing errors -- see the
+    # other_stim_module_paths TypeError in visual_stim/stim_server.py.
+    version='0.3.0.dev0',
     description='Precise and flexible generation of stimuli for neuroscience experiments.',
     url='https://github.com/ClandininLab/stimpack',
     author='Minseung Choi',
@@ -18,6 +22,7 @@ setup(
         'platformdirs',
         'PyQt6',
         'h5py',
+        'pynwb',          # the NWB data backend; required, so the GUI can offer either format
         'PyYAML',
         'deepmerge',      # merging a lab-wide config with a user's own
 
@@ -26,9 +31,6 @@ setup(
         'scikit-image',
     ],
     extras_require={
-        # NWB output. Not everyone writes NWB, and pynwb pulls in a substantial dependency tree,
-        # so it is opt-in: pip install stimpack[nwb].
-        'nwb': ['pynwb'],
         'test': ['pytest', 'pytest-cov', 'pillow', 'ruff'],  # pillow: GL reference images; ruff: lint
     },
     entry_points={

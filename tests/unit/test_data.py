@@ -25,11 +25,11 @@ class _Protocol:
     """Minimal stand-in with the attributes BaseData reads."""
     def __init__(self, stim_params):
         self.__class__.__name__  # noqa
-        self.run_parameters = {"num_epochs": 1, "idle_color": 0.0}
+        self.run_parameters = {"num_trials": 1, "idle_color": 0.0}
         self.protocol_parameters = {"angle": [0, 90]}
-        self.epoch_stim_parameters = stim_params
-        self.epoch_protocol_parameters = {"pre_time": 1.0, "stim_time": 2.0, "tail_time": 1.0}
-        self.num_epochs_completed = 0
+        self.trial_stim_parameters = stim_params
+        self.trial_protocol_parameters = {"pre_time": 1.0, "stim_time": 2.0, "tail_time": 1.0}
+        self.num_trials_completed = 0
 
 
 def _make_data(tmp_path):
@@ -46,56 +46,56 @@ def test_list_valued_stim_parameters_are_saved(tmp_path):
     # tuple/dict were handled).
     data = _make_data(tmp_path)
     proto = _Protocol(stim_params=[{"name": "StimA", "width": 10}, {"name": "StimB", "width": 20}])
-    data.create_epoch_run(proto)
-    data.create_epoch(proto)
+    data.create_series(proto)
+    data.create_trial(proto)
 
     fpath = tmp_path / "test_experiment.hdf5"
     with h5py.File(fpath, "r") as f:
-        epoch = f["/Subjects/s1/epoch_runs/series_001/epochs/epoch_001"]
+        epoch = f[data.trials_path() + "/trial_001"]
         assert epoch.attrs["stim0_name"] == "StimA"
         assert epoch.attrs["stim1_name"] == "StimB"
 
 
-def test_end_epoch_guard_does_not_raise_without_file(tmp_path):
-    # Regression (#16): end_epoch must degrade gracefully like its siblings, not open 'r+' blindly.
+def test_end_trial_guard_does_not_raise_without_file(tmp_path):
+    # Regression (#16): end_trial must degrade gracefully like its siblings, not open 'r+' blindly.
     data = BaseData(cfg={})
     data.data_directory = str(tmp_path)
     data.experiment_file_name = ""  # no file
-    data.end_epoch(_Protocol(stim_params={}))  # must not raise
+    data.end_trial(_Protocol(stim_params={}))  # must not raise
 
 
-def test_end_epoch_run_records_status_and_reason(tmp_path):
+def test_end_series_records_status_and_reason(tmp_path):
     data = _make_data(tmp_path)
     proto = _Protocol(stim_params={"name": "StimA"})
-    proto.num_epochs_completed = 3
-    data.create_epoch_run(proto)
-    data.end_epoch_run(proto, status="aborted", reason="server_connection_lost")
+    proto.num_trials_completed = 3
+    data.create_series(proto)
+    data.end_series(proto, status="aborted", reason="server_connection_lost")
 
     with h5py.File(tmp_path / "test_experiment.hdf5", "r") as f:
-        series = f["/Subjects/s1/epoch_runs/series_001"]
+        series = f[data.series_path()]
         assert series.attrs["run_status"] == "aborted"
         assert series.attrs["abort_reason"] == "server_connection_lost"
-        assert series.attrs["num_epochs_completed"] == 3
+        assert series.attrs["num_trials_completed"] == 3
         assert "run_end_unix_time" in series.attrs
 
 
-def test_end_epoch_run_completed_has_no_reason(tmp_path):
+def test_end_series_completed_has_no_reason(tmp_path):
     data = _make_data(tmp_path)
     proto = _Protocol(stim_params={"name": "StimA"})
-    data.create_epoch_run(proto)
-    data.end_epoch_run(proto)  # default status='completed'
+    data.create_series(proto)
+    data.end_series(proto)  # default status='completed'
 
     with h5py.File(tmp_path / "test_experiment.hdf5", "r") as f:
-        series = f["/Subjects/s1/epoch_runs/series_001"]
+        series = f[data.series_path()]
         assert series.attrs["run_status"] == "completed"
         assert "abort_reason" not in series.attrs
 
 
-def test_end_epoch_run_missing_series_group_is_safe(tmp_path):
+def test_end_series_missing_series_group_is_safe(tmp_path):
     # If the run never created its series group, annotating the outcome must not raise.
     data = _make_data(tmp_path)
     data.series_count = 999  # a series that was never created
-    data.end_epoch_run(_Protocol(stim_params={}), status="error", reason="x")  # must not raise
+    data.end_series(_Protocol(stim_params={}), status="error", reason="x")  # must not raise
 
 
 # --- h5io reads should not require write access (#41) --------------------------------------------

@@ -24,7 +24,8 @@ source .stimpack/bin/activate     # Windows: .stimpack\Scripts\activate
 pip install stimpack
 ```
 
-For the NWB data backend, `pip install stimpack[nwb]`. To work on stimpack itself, clone the
+Both data backends (HDF5 and NWB) are installed; pick one per config, or in the startup
+dialog. To work on stimpack itself, clone the
 repository and `pip install -e .[test]`.
 
 Running `stimpack` opens the experiment GUI. See the
@@ -58,7 +59,7 @@ ExperimentGUI ── BaseClient ──socket── BaseServer ──┬── vi
                                                     └── voltage_out ── DAQ
 ```
 
-The **client** runs the protocol, decides what each epoch contains, and writes the data file. The
+The **client** runs the protocol, decides what each trial contains, and writes the data file. The
 **server** owns the hardware and usually runs on the rig machine while the client runs wherever the
 experimenter is sitting. Each **screen** is its own subprocess with its own GL context, so one
 display stalling cannot stall another.
@@ -72,9 +73,12 @@ manager.target('voltage_out').output_step(output_channels='DAC0', pre_time=0, st
 
 ![Client-Server Framework](img/client_server_framework.png)
 
-**Calls are one-way.** A request naming something the server doesn't have is accepted, sent, and
-dropped — there is no return value to notice its absence. The server pushes errors back over the
-same link so they reach the GUI, and `stimpack --check-labpack` catches the rest before a run.
+**Calls are one-way.** There is no return value to branch on, and attribute access alone never
+fails — a mistyped name still produces a callable. The failure isn't silent, though: the server
+pushes messages back over the same link, so a name it doesn't have is reported — an **error** that
+aborts the run when the call can only be a mistake, a **warning** when it's a legitimate difference
+between rigs. Use `has_server_function()` to check before calling, and `stimpack --check-labpack`
+to catch the rest before a run.
 
 ### Perspective-corrected rendering
 

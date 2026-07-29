@@ -4,7 +4,7 @@
 Protocol parent class. Override any methods in here in the user protocol subclass
 
 A user-defined protocol class needs to overwrite the following methods, at minimum:
--get_epoch_parameters()
+-get_trial_parameters()
 -get_protocol_parameter_defaults()
 
 And probably also:
@@ -22,12 +22,12 @@ see the simple example protocol classes at the bottom of this module.
 
 The three parameter sets a protocol works with::
 
-    protocol_parameters        user-defined params mapped to stimpack.visual_stim epoch params,
-                               saved as attributes at the epoch run level
-    epoch_protocol_parameters  epoch-specific user-defined params mapped to stimpack.visual_stim
-                               epoch params, saved as attributes at the individual epoch level
-    epoch_stim_parameters      the parameter set defining the stimpack.visual_stim stimulus,
-                               saved as attributes at the individual epoch level
+    protocol_parameters        user-defined params mapped to stimpack.visual_stim trial params,
+                               saved as attributes at the series level
+    trial_protocol_parameters  trial-specific user-defined params mapped to stimpack.visual_stim
+                               trial params, saved as attributes at the individual trial level
+    trial_stim_parameters      the parameter set defining the stimpack.visual_stim stimulus,
+                               saved as attributes at the individual trial level
 """
 import sys
 import numpy as np
@@ -42,6 +42,8 @@ import warnings
 
 from stimpack.rpc.transceiver import MySocketClient
 from stimpack.rpc.multicall import MyMultiCall
+from stimpack.experiment.deprecated_names import (add_deprecated_aliases, calls_legacy_override,
+                                                  normalize_run_parameters)
 from stimpack.visual_stim.util import get_rgba
 from stimpack.experiment.util import config_tools
 from stimpack.util import ROOT_DIR
@@ -58,26 +60,26 @@ class BaseProtocol():
 
         self.parameter_preset_directory = os.path.curdir
         self.trigger_on_epoch_run = True  # Used in control.EpochRun.start_run(), sends a TTL trigger to start acquisition devices
-        self.trigger_on_epoch = False  # Used in control.EpochRun.start_epoch(), sends a TTL trigger to start acquisition devices
+        self.trigger_on_epoch = False  # Used in control.EpochRun.start_trial(), sends a TTL trigger to start acquisition devices
         self.save_metadata_flag = False  # Bool, whether or not to save this series. Set to True by GUI on 'record' but not 'view'.
-        self.use_precomputed_epoch_parameters = True  # Bool, whether or not to precompute epoch parameters
-        self.stop_sleep_flag = False  # set by stop_epoch() to cut a sleep() short
+        self.use_precomputed_trial_parameters = True  # Bool, whether or not to precompute trial parameters
+        self.stop_sleep_flag = False  # set by stop_trial() to cut a sleep() short
         # The client this protocol is running against, set in prepare_run. None when the protocol
         # is driven without one -- the labpack checker does that -- in which case waits are plain
         # and uninterruptible.
         self.manager = None
         self._warned_uninterruptible_sleep = False
-        self.save_stringified_params = False  # Bool, whether to stringify epoch stim params for nwb saving. Helpful for protocols with different param keys across trials. Need to supply all_epoch_stim_parameter_keys
+        self.save_stringified_params = False  # Bool, whether to stringify trial stim params for nwb saving. Helpful for protocols with different param keys across trials. Need to supply all_trial_stim_parameter_keys
 
         self.use_server_side_state_dependent_control = False  # Bool, whether or not to use custom closed-loop control
         
-        self.num_epochs_completed = 0
+        self.num_trials_completed = 0
         self.persistent_parameters = {}
-        self.precomputed_epoch_parameters = {}
+        self.precomputed_trial_parameters = {}
 
-        # epoch_protocol_parameters used to store protocol parameters that will be saved out in an easily accessible place in the data file
-        # Fill this in with desired parameters in get_epoch_parameters(). Can also be used to control other features of the stimulus and used in load_stimuli()
-        self.epoch_protocol_parameters = {}
+        # trial_protocol_parameters used to store protocol parameters that will be saved out in an easily accessible place in the data file
+        # Fill this in with desired parameters in get_trial_parameters(). Can also be used to control other features of the stimulus and used in load_stimuli()
+        self.trial_protocol_parameters = {}
 
         self.run_parameters = self.get_run_parameter_defaults()
         self.protocol_parameters = self.get_protocol_parameter_defaults()
@@ -104,7 +106,7 @@ class BaseProtocol():
 
         Lets one protocol run on rigs with different hardware instead of keeping a copy per rig:
 
-            if self.has_module('voltage_out') and self.epoch_protocol_parameters['opto_amp'] > 0:
+            if self.has_module('voltage_out') and self.trial_protocol_parameters['opto_amp'] > 0:
                 multicall.target('voltage_out').setup_pulse_wave_stream_out(...)
 
         Answers True when the server didn't advertise its modules (an older stimpack), so this is
@@ -158,13 +160,38 @@ class BaseProtocol():
         absolute_center = [sum(x) for x in zip(relative_center, self.screen_center)]
         return absolute_center
 
-    def get_epoch_parameters(self):
-        """ Inherit / overwrite me in the child subclass"""
-        self.epoch_protocol_parameters = {}
-        self.epoch_stim_parameters = {}
+    @property
+    def run_parameters(self):
+        """The run's parameters, with any pre-0.3 keys renamed.
 
-        # Get protocol parameters for this epoch
-        self.epoch_protocol_parameters = self.select_epoch_protocol_parameters(
+        A property rather than a plain attribute so that the rename catches every assignment. The
+        usual labpack protocol sets this itself::
+
+            def __init__(self, cfg):
+                super().__init__(cfg)
+                self.run_parameters = self.get_run_parameter_defaults()
+
+        -- which never passes through stimpack's own code, so normalising there would have missed
+        a protocol declaring num_epochs in 75 protocols of one labpack alone.
+        """
+        try:
+            return self._run_parameters
+        except AttributeError:
+            self._run_parameters = {}
+            return self._run_parameters
+
+    @run_parameters.setter
+    def run_parameters(self, value):
+        self._run_parameters = normalize_run_parameters(value)
+
+    @calls_legacy_override('get_epoch_parameters')
+    def get_trial_parameters(self):
+        """ Inherit / overwrite me in the child subclass"""
+        self.trial_protocol_parameters = {}
+        self.trial_stim_parameters = {}
+
+        # Get protocol parameters for this trial
+        self.trial_protocol_parameters = self.select_trial_protocol_parameters(
                                                 all_combinations=self.run_parameters.get('all_combinations', True), 
                                                 randomize_order =self.run_parameters.get('randomize_order', False))
 
@@ -245,46 +272,46 @@ class BaseProtocol():
                 warnings.warn(f'Warning: protocol parameter {k} not found in current protocol. Skipping preset parameter.', RuntimeWarning)            
 
     def advance_epoch_counter(self):
-        """Record that an epoch finished. Drives which precomputed parameters are used next."""
-        self.num_epochs_completed += 1
+        """Record that an trial finished. Drives which precomputed parameters are used next."""
+        self.num_trials_completed += 1
         
-    def precompute_epoch_parameters(self, refresh=False):
+    def precompute_trial_parameters(self, refresh=False):
         """
-        Precompute epoch parameters for all epochs in advance
-        Can prevent slowdowns during epoch run loop and assists with estimating run time
+        Precompute trial parameters for all trials in advance
+        Can prevent slowdowns during series loop and assists with estimating run time
         """
         if refresh:
-            self.precomputed_epoch_parameters = {}
+            self.precomputed_trial_parameters = {}
 
-        if len(self.precomputed_epoch_parameters) == 0:
+        if len(self.precomputed_trial_parameters) == 0:
             precomputed_epoch_stim_parameters = []
             precomputed_epoch_protocol_parameters = []
-            for e in range(int(self.run_parameters['num_epochs'])):
-                self.num_epochs_completed = e
-                self.get_epoch_parameters()
-                self.check_required_epoch_protocol_parameters()
-                precomputed_epoch_stim_parameters.append(self.epoch_stim_parameters)
-                precomputed_epoch_protocol_parameters.append(self.epoch_protocol_parameters)
-            self.precomputed_epoch_parameters = {'stim': precomputed_epoch_stim_parameters,
+            for e in range(int(self.run_parameters['num_trials'])):
+                self.num_trials_completed = e
+                self.get_trial_parameters()
+                self.check_required_trial_protocol_parameters()
+                precomputed_epoch_stim_parameters.append(self.trial_stim_parameters)
+                precomputed_epoch_protocol_parameters.append(self.trial_protocol_parameters)
+            self.precomputed_trial_parameters = {'stim': precomputed_epoch_stim_parameters,
                                                 'protocol': precomputed_epoch_protocol_parameters}
-            self.num_epochs_completed = 0
+            self.num_trials_completed = 0
 
-    def load_precomputed_epoch_parameters(self):
-        """Take this epoch's parameters from the set computed by :meth:`precompute_epoch_parameters`."""
-        self.epoch_stim_parameters = self.precomputed_epoch_parameters['stim'][self.num_epochs_completed]
-        self.epoch_protocol_parameters = self.precomputed_epoch_parameters['protocol'][self.num_epochs_completed]
+    def load_precomputed_trial_parameters(self):
+        """Take this trial's parameters from the set computed by :meth:`precompute_trial_parameters`."""
+        self.trial_stim_parameters = self.precomputed_trial_parameters['stim'][self.num_trials_completed]
+        self.trial_protocol_parameters = self.precomputed_trial_parameters['protocol'][self.num_trials_completed]
 
     def _estimate_run_time(self):
         '''
         If pre_time, stim_time, and tail_time are specified in the protocol parameters, this method will estimate the total run time.
         '''
-        epoch_protocol_params = self.precomputed_epoch_parameters['protocol']
+        epoch_protocol_params = self.precomputed_trial_parameters['protocol']
         self.est_run_time = np.sum([p.get('pre_time', 0) + p.get('stim_time', 0) + p.get('tail_time', 0) for p in epoch_protocol_params]) + \
                             self.run_parameters.get('pre_run_time', 0) + self.run_parameters.get('post_run_time', 0)
 
     def process_input_parameters(self):
         """
-        Process input parameters and set persistent parameters prior to epoch run loop
+        Process input parameters and set persistent parameters prior to series loop
         Overwrite me in the child subclass as needed
         """
         self.persistent_parameters['variable_protocol_parameter_names'] = [k for k,v in self.protocol_parameters.items() if isinstance(v, list) and len(v) > 1]
@@ -294,7 +321,7 @@ class BaseProtocol():
         required_run_parameters: list of tuples (parameter_name, parameter_dtype)
             parameter is cast to parameter_dtype; if no cast is needed, use None
         """
-        required_run_parameters = [('num_epochs', int), ('idle_color', None)]
+        required_run_parameters = [('num_trials', int), ('idle_color', None)]
         if self.loco_available:
             required_run_parameters.append(('do_loco', bool))
         
@@ -317,7 +344,7 @@ class BaseProtocol():
                     if value_error:
                         raise ValueError(f'Run parameter {p} could not be cast to {dtype}.')
     
-    def check_required_epoch_protocol_parameters(self):
+    def check_required_trial_protocol_parameters(self):
         """
         required_run_parameters: list of tuples (parameter_name, parameter_dtype)
             parameter is cast to parameter_dtype; if no cast is needed, use None
@@ -325,42 +352,42 @@ class BaseProtocol():
         required_protocol_parameters = [('pre_time', float), ('stim_time', float), ('tail_time', float)]
         
         for p, dtype in required_protocol_parameters:
-            if p not in self.epoch_protocol_parameters:
-                raise ValueError(f'Epoch protocol parameter {p} is required but not found in {self.epoch_protocol_parameters}')
+            if p not in self.trial_protocol_parameters:
+                raise ValueError(f'Trial protocol parameter {p} is required but not found in {self.trial_protocol_parameters}')
             else:
                 if dtype is not None:
                     try:
-                        self.epoch_protocol_parameters[p] = dtype(self.epoch_protocol_parameters[p])
+                        self.trial_protocol_parameters[p] = dtype(self.trial_protocol_parameters[p])
                     except:
-                        raise ValueError(f'Epoch protocol parameter {p} could not be cast to {dtype}')
+                        raise ValueError(f'Trial protocol parameter {p} could not be cast to {dtype}')
 
     def prepare_run(self, manager:MySocketClient, recompute_epoch_parameters=True):
         """
         recompute_epoch_parameters: bool
-            If True, precompute epoch parameters even if they have been computed already
-            If False, do not recompute epoch parameters if they have been computed already
+            If True, precompute trial parameters even if they have been computed already
+            If False, do not recompute trial parameters if they have been computed already
         """
         self.manager = manager      # so sleep() can drain the queue and be interrupted
-        self.num_epochs_completed = 0
+        self.num_trials_completed = 0
         self.persistent_parameters = {}
-        self.epoch_protocol_parameters = {}
+        self.trial_protocol_parameters = {}
 
         # Pick up what the server said it can do, so has_module() is usable from here on -- including
-        # inside precompute_epoch_parameters below. Read through __dict__: only a client tracks this,
+        # inside precompute_trial_parameters below. Read through __dict__: only a client tracks this,
         # and a plain attribute access on another transceiver would return an RPC stub via
         # __getattr__ rather than falling back.
         if manager is not None:
             self.available_modules = vars(manager).get('available_modules')
             self.available_server_functions = vars(manager).get('available_server_functions')
 
-        # Process input parameters and set persistent parameters prior to epoch run loop
+        # Process input parameters and set persistent parameters prior to series loop
         self.process_input_parameters()
 
         # Check that all required run parameters are set
         self.check_required_run_parameters()
         
-        # Precompute epoch parameters
-        self.precompute_epoch_parameters(refresh=recompute_epoch_parameters)
+        # Precompute trial parameters
+        self.precompute_trial_parameters(refresh=recompute_epoch_parameters)
 
         # Estimate run time
         self._estimate_run_time()
@@ -407,14 +434,14 @@ class BaseProtocol():
             else:
                 raise ValueError(f'Run parameter pre_run_time must be an int or float, not {type(pre_run_time)}.')
 
-        # Reset the number of epochs completed
-        self.num_epochs_completed = 0
+        # Reset the number of trials completed
+        self.num_trials_completed = 0
 
     def load_stimuli(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         """
-        Send this epoch's stimuli to the server, ready to start.
+        Send this trial's stimuli to the server, ready to start.
 
-        Loads the background first, then each stimulus in ``epoch_stim_parameters``. Batched
+        Loads the background first, then each stimulus in ``trial_stim_parameters``. Batched
         through a :class:`~stimpack.rpc.multicall.MyMultiCall` so they arrive together; pass your
         own to add further calls to the same batch.
         """
@@ -425,34 +452,34 @@ class BaseProtocol():
         multicall.target('visual').set_idle_background(bg)
         multicall.target('visual').load_stim('ConstantBackground', color=bg, hold=True)
 
-        if isinstance(self.epoch_stim_parameters, list):
-            for ep in self.epoch_stim_parameters:
+        if isinstance(self.trial_stim_parameters, list):
+            for ep in self.trial_stim_parameters:
                 if ep is not None:
                     multicall.target('visual').load_stim(**ep.copy(), hold=True)
         else:
-            if self.epoch_stim_parameters is not None:
-                multicall.target('visual').load_stim(**self.epoch_stim_parameters.copy(), hold=True)
+            if self.trial_stim_parameters is not None:
+                multicall.target('visual').load_stim(**self.trial_stim_parameters.copy(), hold=True)
 
         multicall()
 
     def start_stimuli(self, manager:MySocketClient, append_stim_frames=False, print_profile=True, multicall:MyMultiCall|None=None):
         """
-        Run one epoch: start the stimulus, wait out its timing, then stop it.
+        Run one trial: start the stimulus, wait out its timing, then stop it.
 
         Handles the pre / stimulus / tail structure, closed-loop locomotion if the protocol asks
         for it, and the corner square used for photodiode timing.
 
         :param append_stim_frames: keep rendered frames on the server for later retrieval
-        :param print_profile: print the epoch's frame-time distribution when it ends
+        :param print_profile: print the trial's frame-time distribution when it ends
         :param multicall: batch to add the start calls to, rather than sending them alone
         """
         # locomotion setting variables
         do_loco = self.run_parameters.get('do_loco', False)
-        do_loco_closed_loop = do_loco and self.epoch_protocol_parameters.get('loco_pos_closed_loop', False)
+        do_loco_closed_loop = do_loco and self.trial_protocol_parameters.get('loco_pos_closed_loop', False)
         save_pos_history = do_loco_closed_loop and self.save_metadata_flag
         
         ### pre time
-        self.sleep(self.epoch_protocol_parameters['pre_time'])
+        self.sleep(self.trial_protocol_parameters['pre_time'])
         
         if multicall is None:
             multicall = MyMultiCall(manager)
@@ -470,7 +497,7 @@ class BaseProtocol():
         multicall.target('all').start_stim(append_stim_frames=append_stim_frames)
         multicall.target('visual').corner_square_toggle_start()
         multicall()
-        self.sleep(self.epoch_protocol_parameters['stim_time'])
+        self.sleep(self.trial_protocol_parameters['stim_time'])
 
         ### tail time
         multicall = MyMultiCall(manager)
@@ -482,11 +509,11 @@ class BaseProtocol():
         if do_loco_closed_loop:
             multicall.target('locomotion').loop_stop_closed_loop()
         if save_pos_history:
-            multicall.target('all').save_pos_history_to_file(epoch_id=f'{self.num_epochs_completed:03d}')
+            multicall.target('all').save_pos_history_to_file(epoch_id=f'{self.num_trials_completed:03d}')
 
         multicall()
 
-        self.sleep(self.epoch_protocol_parameters['tail_time'])
+        self.sleep(self.trial_protocol_parameters['tail_time'])
 
     def on_run_finish(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         """
@@ -517,13 +544,13 @@ class BaseProtocol():
         """
         Wait, while staying responsive to the client.
 
-        Used for an epoch's pre / stimulus / tail intervals in place of ``time.sleep``, which
-        cannot be interrupted: with a bare sleep, pressing Stop is not noticed until the epoch
+        Used for an trial's pre / stimulus / tail intervals in place of ``time.sleep``, which
+        cannot be interrupted: with a bare sleep, pressing Stop is not noticed until the trial
         ends, so stopping a 240-second run means watching it finish. The same delay applies to an
-        error the server reports mid-epoch.
+        error the server reports mid-trial.
 
         This drains the client's queue as it waits and returns early when
-        :meth:`stop_epoch` is called -- by the Stop button, or by the client when the server
+        :meth:`stop_trial` is called -- by the Stop button, or by the client when the server
         reports an error.
 
         :param duration: seconds to wait
@@ -532,7 +559,7 @@ class BaseProtocol():
         """
         if not process_server_requests or self.manager is None:
             # Once per protocol, not once per wait: a protocol driven without a client -- the
-            # labpack checker does this -- would otherwise say it three times an epoch.
+            # labpack checker does this -- would otherwise say it three times an trial.
             if process_server_requests and not self._warned_uninterruptible_sleep:
                 self._warned_uninterruptible_sleep = True
                 warnings.warn('Protocol: no manager to process the queue during sleep, so waits '
@@ -547,14 +574,14 @@ class BaseProtocol():
             if self.stop_sleep_flag:
                 self.stop_sleep_flag = False
                 return
-            # Yield rather than spin. Without this the wait pegs a core for the whole epoch, on a
+            # Yield rather than spin. Without this the wait pegs a core for the whole trial, on a
             # client that may also be running the closed-loop locomotion updates. A step this
             # small keeps the response to Stop well inside one frame at 120 Hz.
             time.sleep(min(SLEEP_POLL_INTERVAL, max(0.0, end_time - time.time())))
 
-    def stop_epoch(self):
+    def stop_trial(self):
         """
-        Cut the current :meth:`sleep` short, ending the epoch's remaining wait.
+        Cut the current :meth:`sleep` short, ending the trial's remaining wait.
 
         The run itself continues unless the caller also asks for it to stop -- see
         BaseClient.stop_run, which does both.
@@ -621,81 +648,104 @@ class BaseProtocol():
 
         # Get sequence order
         num_epochs_in_sequence = len(parameter_sequence)
-        num_epoch_sequences = math.ceil(self.run_parameters['num_epochs'] / num_epochs_in_sequence)
+        num_epoch_sequences = math.ceil(self.run_parameters['num_trials'] / num_epochs_in_sequence)
         
-        # index in parameter_sequence for each epoch
+        # index in parameter_sequence for each trial
         if randomize_order:
-            parameter_sequence_epoch_inds = np.concatenate([np.random.permutation(num_epochs_in_sequence) for _ in range(num_epoch_sequences)])[:self.run_parameters['num_epochs']]
+            parameter_sequence_epoch_inds = np.concatenate([np.random.permutation(num_epochs_in_sequence) for _ in range(num_epoch_sequences)])[:self.run_parameters['num_trials']]
         else:
-            parameter_sequence_epoch_inds = np.arange(self.run_parameters['num_epochs']) % num_epochs_in_sequence
+            parameter_sequence_epoch_inds = np.arange(self.run_parameters['num_trials']) % num_epochs_in_sequence
 
         self.persistent_parameters['protocol_parameter_sequence'] = parameter_sequence
         self.persistent_parameters['protocol_parameter_sequence_epoch_inds'] = parameter_sequence_epoch_inds
     
-    def select_epoch_protocol_parameters(self, all_combinations=True, randomize_order=False):
+    def select_trial_protocol_parameters(self, all_combinations=True, randomize_order=False):
         """
-        Pick this epoch's value for every protocol parameter.
+        Pick this trial's value for every protocol parameter.
 
-        Called once per epoch. Sequences are built on the first epoch of a run and stored in
+        Called once per trial. Sequences are built on the first trial of a run and stored in
         ``persistent_parameters``, so the order is consistent across the run rather than
         re-drawn each time.
 
         :param all_combinations: ``True`` takes every combination of one value from each
             parameter list; ``False`` keeps the lists associated element by element.
         :param randomize_order: shuffle each sequence at the start of every pass through it.
-        :return: dictionary of protocol parameter names to the value chosen for this epoch.
+        :return: dictionary of protocol parameter names to the value chosen for this trial.
         """
 
         # new run: initialize parameter sequences if not already done
-        if self.num_epochs_completed == 0 and 'protocol_parameter_sequence' not in self.persistent_parameters:
+        if self.num_trials_completed == 0 and 'protocol_parameter_sequence' not in self.persistent_parameters:
             self.get_parameter_sequence(tuple(self.protocol_parameters.values()), all_combinations=all_combinations, randomize_order=randomize_order)
 
-        # get current epoch parameters
+        # get current trial parameters
         parameter_sequence = self.persistent_parameters['protocol_parameter_sequence']
         parameter_sequence_epoch_inds = self.persistent_parameters['protocol_parameter_sequence_epoch_inds']
 
-        epoch_protocol_parameter_values = parameter_sequence[parameter_sequence_epoch_inds[self.num_epochs_completed]]
-        epoch_protocol_parameters = {parameter_name: epoch_protocol_parameter_values[i] for i, parameter_name in enumerate(self.protocol_parameters.keys())}
+        epoch_protocol_parameter_values = parameter_sequence[parameter_sequence_epoch_inds[self.num_trials_completed]]
+        trial_protocol_parameters = {parameter_name: epoch_protocol_parameter_values[i] for i, parameter_name in enumerate(self.protocol_parameters.keys())}
 
-        return epoch_protocol_parameters
+        return trial_protocol_parameters
     
 
 
 #%%
 
+# The pre-0.3 spelling, kept working: an trial is now a trial and an series a series.
+# See stimpack.experiment.deprecated_names.
+add_deprecated_aliases(
+    BaseProtocol,
+    methods=[
+        ('get_epoch_parameters', 'get_trial_parameters'),
+        ('precompute_epoch_parameters', 'precompute_trial_parameters'),
+        ('load_precomputed_epoch_parameters', 'load_precomputed_trial_parameters'),
+        ('select_epoch_protocol_parameters', 'select_trial_protocol_parameters'),
+        ('check_required_epoch_protocol_parameters', 'check_required_trial_protocol_parameters'),
+        ('stop_epoch', 'stop_trial'),
+    ],
+    attributes=[
+        ('epoch_protocol_parameters', 'trial_protocol_parameters'),
+        ('epoch_stim_parameters', 'trial_stim_parameters'),
+        ('num_epochs_completed', 'num_trials_completed'),
+        ('precomputed_epoch_parameters', 'precomputed_trial_parameters'),
+        ('use_precomputed_epoch_parameters', 'use_precomputed_trial_parameters'),
+        ('all_epoch_stim_parameter_keys', 'all_trial_stim_parameter_keys'),
+        ('required_epoch_protocol_parameters', 'required_trial_protocol_parameters'),
+    ],
+)
+
 class SharedPixMapProtocol(BaseProtocol):
     def __init__(self, cfg):
         super().__init__(cfg)
 
-        self.use_precomputed_epoch_parameters = True  # Bool, whether or not to precompute epoch parameters
+        self.use_precomputed_trial_parameters = True  # Bool, whether or not to precompute trial parameters
 
         # Shared pixmap stim parameters
         self.epoch_shared_pixmap_stim_parameters = None
 
-    def precompute_epoch_parameters(self, refresh=False):
+    def precompute_trial_parameters(self, refresh=False):
         if refresh:
-            self.precomputed_epoch_parameters = {}
+            self.precomputed_trial_parameters = {}
 
-        if len(self.precomputed_epoch_parameters) == 0:
+        if len(self.precomputed_trial_parameters) == 0:
             precomputed_epoch_stim_parameters = []
             precomputed_epoch_shared_pixmap_stim_parameters = []
             precomputed_epoch_protocol_parameters = []
-            for e in range(int(self.run_parameters['num_epochs'])):
-                self.num_epochs_completed = e
-                self.get_epoch_parameters()
-                self.check_required_epoch_protocol_parameters()
-                precomputed_epoch_stim_parameters.append(self.epoch_stim_parameters)
-                precomputed_epoch_protocol_parameters.append(self.epoch_protocol_parameters)
+            for e in range(int(self.run_parameters['num_trials'])):
+                self.num_trials_completed = e
+                self.get_trial_parameters()
+                self.check_required_trial_protocol_parameters()
+                precomputed_epoch_stim_parameters.append(self.trial_stim_parameters)
+                precomputed_epoch_protocol_parameters.append(self.trial_protocol_parameters)
                 precomputed_epoch_shared_pixmap_stim_parameters.append(self.epoch_shared_pixmap_stim_parameters)
-            self.precomputed_epoch_parameters = {'stim': precomputed_epoch_stim_parameters,
+            self.precomputed_trial_parameters = {'stim': precomputed_epoch_stim_parameters,
                                                 'protocol': precomputed_epoch_protocol_parameters,
                                                 'pixmap': precomputed_epoch_shared_pixmap_stim_parameters}
-            self.num_epochs_completed = 0
+            self.num_trials_completed = 0
 
-    def load_precomputed_epoch_parameters(self):
-        self.epoch_stim_parameters = self.precomputed_epoch_parameters['stim'][self.num_epochs_completed]
-        self.epoch_shared_pixmap_stim_parameters = self.precomputed_epoch_parameters['pixmap'][self.num_epochs_completed]
-        self.epoch_protocol_parameters = self.precomputed_epoch_parameters['protocol'][self.num_epochs_completed]
+    def load_precomputed_trial_parameters(self):
+        self.trial_stim_parameters = self.precomputed_trial_parameters['stim'][self.num_trials_completed]
+        self.epoch_shared_pixmap_stim_parameters = self.precomputed_trial_parameters['pixmap'][self.num_trials_completed]
+        self.trial_protocol_parameters = self.precomputed_trial_parameters['protocol'][self.num_trials_completed]
 
     def load_stimuli(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         if multicall is None:
@@ -711,11 +761,11 @@ class SharedPixMapProtocol(BaseProtocol):
         bg = self.run_parameters.get('idle_color')
         multicall.target('visual').load_stim('ConstantBackground', color=get_rgba(bg), hold=True)
 
-        if isinstance(self.epoch_stim_parameters, list):
-            for ep in self.epoch_stim_parameters:
+        if isinstance(self.trial_stim_parameters, list):
+            for ep in self.trial_stim_parameters:
                 multicall.target('visual').load_stim(**ep.copy(), hold=True)
         else:
-            multicall.target('visual').load_stim(**self.epoch_stim_parameters.copy(), hold=True)
+            multicall.target('visual').load_stim(**self.trial_stim_parameters.copy(), hold=True)
 
         multicall()
 
@@ -723,11 +773,11 @@ class SharedPixMapProtocol(BaseProtocol):
 
         # locomotion setting variables
         do_loco = self.run_parameters.get('do_loco', False)
-        do_loco_closed_loop = do_loco and self.epoch_protocol_parameters.get('loco_pos_closed_loop', False)
+        do_loco_closed_loop = do_loco and self.trial_protocol_parameters.get('loco_pos_closed_loop', False)
         save_pos_history = do_loco_closed_loop and self.save_metadata_flag
         
         ### pre time
-        self.sleep(self.epoch_protocol_parameters['pre_time'])
+        self.sleep(self.trial_protocol_parameters['pre_time'])
         
         if multicall is None:
             multicall = MyMultiCall(manager)
@@ -748,7 +798,7 @@ class SharedPixMapProtocol(BaseProtocol):
         multicall.target('all').start_stim()
         multicall.target('visual').corner_square_toggle_start()
         multicall()
-        self.sleep(self.epoch_protocol_parameters['stim_time'])
+        self.sleep(self.trial_protocol_parameters['stim_time'])
 
         ### tail time
         multicall = MyMultiCall(manager)
@@ -760,7 +810,7 @@ class SharedPixMapProtocol(BaseProtocol):
         if do_loco_closed_loop:
             multicall.target('locomotion').loop_stop_closed_loop()
         if save_pos_history:
-            multicall.target('all').save_pos_history_to_file(epoch_id=f'{self.num_epochs_completed:03d}')
+            multicall.target('all').save_pos_history_to_file(epoch_id=f'{self.num_trials_completed:03d}')
 
         # shared pixmap clear
         if self.epoch_shared_pixmap_stim_parameters is not None:
@@ -768,7 +818,7 @@ class SharedPixMapProtocol(BaseProtocol):
 
         multicall()
 
-        self.sleep(self.epoch_protocol_parameters['tail_time'])
+        self.sleep(self.trial_protocol_parameters['tail_time'])
 
     def on_run_finish(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         """

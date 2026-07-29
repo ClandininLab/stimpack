@@ -18,7 +18,7 @@ class ConstantBackground(BaseProgram):
     """
     A uniform background filling the whole visual field.
 
-    Drawn behind everything else, and loaded automatically at the start of each epoch from the
+    Drawn behind everything else, and loaded automatically at the start of each trial from the
     protocol's ``idle_color``.
     """
     def __init__(self, screen):

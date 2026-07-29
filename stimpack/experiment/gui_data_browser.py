@@ -8,9 +8,11 @@ and the GUI simply places whatever it gets. That keeps format-specific presentat
 rather than growing a branch in gui.py per backend -- which is the shape that produced a forked
 gui_nwb.py in the first place.
 
-Only Hdf5DataBrowser exists today. NWB has no browser, because an NWB experiment is a directory of
-separate files rather than one walkable tree; NWBData declares supports_data_browser = False and
-the File tab simply omits these widgets.
+One browser serves all three backends. An .nwb file is HDF5 underneath, so the same tree reads it;
+what differs is that an NWB experiment is a directory of files rather than one, and that its
+attributes must not be edited (pynwb validates a schema that a hand-edited attribute can break).
+Both differences are answered by the backend -- browsable_files() and browser_is_editable -- rather
+than by the browser knowing which format it is looking at.
 """
 import os
 
@@ -28,7 +30,7 @@ class Hdf5DataBrowser(QWidget):
     Tree of groups plus a table of the selected group's attributes, read with util.h5io.
 
     Attribute values are editable and written straight back to the file, except under a series,
-    where epoch parameters are a record of what was actually presented.
+    where trial parameters are a record of what was actually presented.
     """
 
     def __init__(self, data, parent=None):
@@ -87,12 +89,42 @@ class Hdf5DataBrowser(QWidget):
 
     @property
     def file_path(self):
-        return os.path.join(self.data.data_directory, self.data.experiment_file_name + '.hdf5')
+        """The single file being browsed, for a backend that has one. None when there are several."""
+        files = self.data.browsable_files()
+        return files[0][1] if len(files) == 1 else None
 
     def refresh(self):
-        """Re-read the experiment file. Called by the GUI after anything that changes it."""
-        group_dset_dict = h5io.get_hierarchy(self.file_path, additional_exclusions='rois')
-        self._populateTree(self.group_tree, group_dset_dict)
+        """Re-read the experiment. Called by the GUI after anything that changes it.
+
+        One file is shown as its own contents, with no wrapper node -- the extra level would be
+        noise when there is only ever one. Several are shown one node each, labelled by file name,
+        which is the only way a directory-per-experiment format can be walked at all.
+        """
+        self._files = {}
+        files = [(label, path) for label, path in self.data.browsable_files() if os.path.exists(path)]
+
+        if len(files) == 1:
+            label, path = files[0]
+            self._files[None] = path
+            hierarchy = h5io.get_hierarchy(path, additional_exclusions='rois')
+        else:
+            hierarchy = {}
+            for label, path in files:
+                self._files[label] = path
+                hierarchy[label] = h5io.get_hierarchy(path, additional_exclusions='rois')
+
+        self._populateTree(self.group_tree, hierarchy)
+
+    def file_and_path_for(self, group_path):
+        """Split a tree path into the file it names and the path within that file.
+
+        With one file the whole tree path is the group path; with several, its first component is
+        the file, which is why the file is resolved here rather than assumed by the caller.
+        """
+        if None in self._files:
+            return self._files[None], group_path
+        head, _, rest = group_path.lstrip('/').partition('/')
+        return self._files.get(head), '/' + rest
 
     def _populateTree(self, widget, dict):
         widget.clear()
@@ -125,15 +157,21 @@ class Hdf5DataBrowser(QWidget):
             item.addChild(child)
 
     def on_tree_item_clicked(self, item, column):
-        group_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
+        tree_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
+        if tree_path == '':
+            return
 
-        if group_path != '':
-            attr_dict = h5io.get_attributes_from_group(self.file_path, group_path)
-            if 'series' in group_path.split('/')[-1]:
-                editable_values = False  # don't let user edit epoch parameters
-            else:
-                editable_values = True
-            self.populate_attrs(attr_dict = attr_dict, editable_values = editable_values)
+        file_path, group_path = self.file_and_path_for(tree_path)
+        if file_path is None or group_path in ('', '/'):
+            self.populate_attrs(attr_dict={}, editable_values=False)   # a file node itself
+            return
+
+        attr_dict = h5io.get_attributes_from_group(file_path, group_path)
+        # A series' attributes record what was actually presented, so they are read-only whatever
+        # the backend allows.
+        editable_values = (self.data.browser_is_editable
+                           and 'series' not in group_path.split('/')[-1])
+        self.populate_attrs(attr_dict=attr_dict, editable_values=editable_values)
 
     def populate_attrs(self, attr_dict=None, editable_values=False):
         """ Populate attribute for currently selected group """
@@ -159,11 +197,19 @@ class Hdf5DataBrowser(QWidget):
         self.table_attributes.blockSignals(False)
 
     def update_attrs_to_file(self, item):
-        group_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
+        # Refuse rather than trust the table's edit flags: this writes to the user's data file, and
+        # a backend that declares itself read-only (NWB, whose schema pynwb validates) must not be
+        # written to through any path that reaches here.
+        if not self.data.browser_is_editable:
+            return
+
+        tree_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
+        file_path, group_path = self.file_and_path_for(tree_path)
+        if file_path is None:
+            return
 
         attr_key = self.table_attributes.item(item.row(), 0).text()
         attr_val = item.text()
 
-        # update attr in file
-        h5io.change_attribute(self.file_path, group_path, attr_key, attr_val)
+        h5io.change_attribute(file_path, group_path, attr_key, attr_val)
         print('Changed attr {} to = {}'.format(attr_key, attr_val))

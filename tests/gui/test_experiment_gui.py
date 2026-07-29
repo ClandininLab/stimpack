@@ -25,7 +25,7 @@ def test_gui_constructs_with_expected_widgets(experiment_gui):
     gui = experiment_gui
     assert gui.cfg_initialized is True
     assert gui.view_button.isEnabled()
-    assert gui.record_button.isEnabled()
+    assert not gui.record_button.isEnabled()                # no subject to record onto yet
     assert gui.status_label.text() == 'Select a protocol'   # nothing selected yet
 
 
@@ -45,19 +45,19 @@ def test_selecting_a_protocol_populates_parameters(experiment_gui):
     assert protocol.__class__.__name__ == 'DriftingSquareGrating'
     assert gui.status_label.text() == 'Ready'
     # the parameter grid is populated from the protocol's defaults
-    assert 'num_epochs' in gui.run_parameter_input
+    assert 'num_trials' in gui.run_parameter_input
     assert 'period' in gui.protocol_parameter_input
-    assert protocol.run_parameters['num_epochs'] == 40
+    assert protocol.run_parameters['num_trials'] == 40
 
 
 def test_editing_a_parameter_field_updates_the_protocol(experiment_gui):
     gui = experiment_gui
     protocol = select_protocol(gui, 'DriftingSquareGrating')
 
-    gui.run_parameter_input['num_epochs'].setText('7')       # type into the field
+    gui.run_parameter_input['num_trials'].setText('7')       # type into the field
     gui.update_parameters_from_fillable_fields(compute_epoch_parameters=False)
 
-    assert gui.protocol_object.run_parameters['num_epochs'] == 7
+    assert gui.protocol_object.run_parameters['num_trials'] == 7
     assert protocol is gui.protocol_object
 
 
@@ -86,6 +86,8 @@ def test_record_without_a_data_file_is_refused(experiment_gui, monkeypatch):
     import stimpack.experiment.gui as gui_mod
     gui = experiment_gui
     select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.current_subject = 'subj1'          # enough to enable the button, but there is no file
+    gui.update_run_button_states()
 
     alerts = []
     monkeypatch.setattr(gui_mod.QMessageBox, 'exec', lambda self: alerts.append(self.text()))
@@ -100,8 +102,11 @@ def test_stop_button_asks_the_client_to_stop(experiment_gui):
     gui = experiment_gui
     select_protocol(gui, 'DriftingSquareGrating')
 
-    stop_button = next(b for b in gui.findChildren(type(gui.view_button)) if b.text() == 'Stop')
-    stop_button.click()
+    assert not gui.stop_button.isEnabled(), 'nothing is running to stop'
+
+    gui.run_started(save_metadata_flag=False)
+    assert gui.stop_button.isEnabled()
+    gui.stop_button.click()
 
     assert gui.client.stop is True
 
@@ -109,6 +114,7 @@ def test_stop_button_asks_the_client_to_stop(experiment_gui):
 def test_pause_button_toggles_pause_and_resume(experiment_gui):
     gui = experiment_gui
     select_protocol(gui, 'DriftingSquareGrating')
+    gui.run_started(save_metadata_flag=False)      # Pause is disabled outside a run
 
     gui.pause_button.click()                       # "Pause" -> pauses
     assert gui.client.pause is True
@@ -213,21 +219,21 @@ def test_an_unbreakable_message_still_does_not_widen_the_window(experiment_gui, 
     assert gui.width() == before
 
 
-def test_the_status_window_has_its_own_row_spanning_the_grid(experiment_gui):
-    """Including column 0: the 'Status:' caption is in the row, so the message gets the width the
-    caption column would otherwise reserve."""
-    grid = experiment_gui.protocol_control_grid
+def test_the_status_window_sits_below_the_tabs_with_no_caption(experiment_gui):
+    """Outside the tab widget, so a server error is visible whichever tab you are on -- the run
+    aborts regardless of where you happen to be looking. Uncaptioned, because the line only ever
+    holds status and the word restated what the content already said."""
+    gui = experiment_gui
+    layout = gui.layout
 
-    position = None
-    for index in range(grid.count()):
-        item = grid.itemAt(index)
-        if item.layout() is not None and item.layout().indexOf(experiment_gui.status_scroll_area) >= 0:
-            position = grid.getItemPosition(index)
-    assert position is not None, 'the status window is not in the control grid'
+    last = layout.itemAt(layout.count() - 1)
+    assert last.widget() is gui.status_scroll_area, 'the status window is not the bottom row'
+    assert layout.itemAt(0).widget() is gui.tabs, 'it is not below the tabs'
 
-    row, column, row_span, column_span = position
-    assert (row, column) == (0, 0)
-    assert column_span == 4          # every column, so nothing shares its row
+    # nothing shares its row, and no caption was left behind anywhere in the tab
+    from PyQt6.QtWidgets import QLabel
+    captions = [w.text() for w in gui.protocol_control_box.findChildren(QLabel)]
+    assert 'Status:' not in captions
 
 
 def test_the_status_window_is_one_line_tall(experiment_gui, qapp):
@@ -255,3 +261,672 @@ def test_the_status_label_still_reads_back_as_text(experiment_gui):
     """Everything that sets status uses setText/text(); keeping a QLabel means those still work."""
     experiment_gui.status_label.setText('Ready')
     assert experiment_gui.status_label.text() == 'Ready'
+
+
+# --- pause -----------------------------------------------------------------------------------
+
+def _recording_run(gui, series=12):
+    """Put the GUI in the state run_started leaves it in for a recorded series."""
+    import time
+    from stimpack.experiment.gui import Status
+
+    gui.status = Status.RECORDING
+    gui.data.series_count = series
+    gui.protocol_object.est_run_time = 300.0       # normally set by prepare_run
+    gui.status_label.setText(gui.run_status_text())
+    gui.pause_button.setEnabled(True)
+    gui._pause_state_shown = 'running'
+    gui.run_start_time = time.time()
+
+
+def test_resume_does_not_claim_a_recording_run_is_only_viewing(experiment_gui):
+    """Resume used to hardcode 'Viewing...', so resuming a recorded series announced that it had
+    stopped recording -- while self.status, and the recording, carried on unchanged. Believing the
+    label means stopping and restarting a series that was fine."""
+    gui = experiment_gui
+    _recording_run(gui, series=12)
+    assert gui.status_label.text() == 'Recording series 12'
+
+    gui.pause_button.click()                       # Pause
+    gui.client.paused_since = None                 # the epoch is still running: pause is pending
+    gui.update_run_progress()
+    assert gui.status_label.text() == 'Pausing after this trial finishes...'
+
+    gui.pause_button.click()                       # Resume
+    assert gui.status_label.text() == 'Recording series 12'
+    assert gui.pause_button.text() == 'Pause'
+
+
+def test_the_status_line_separates_pausing_from_paused(experiment_gui):
+    """Between pressing Pause and the epoch ending, the rig is still presenting and recording."""
+    import time
+
+    gui = experiment_gui
+    _recording_run(gui)
+
+    gui.client.pause_run()
+    gui.update_run_progress()
+    assert gui.status_label.text() == 'Pausing after this trial finishes...'
+
+    gui.client.paused_since = time.monotonic()     # the run loop reached the epoch boundary
+    gui.update_run_progress()
+    assert gui.status_label.text().startswith('Paused')
+
+
+def test_elapsed_time_reports_paused_time_separately(experiment_gui):
+    """est_run_time is a sum of stimulus durations, so folding pause into elapsed would make the
+    ratio overstate progress. The pause is shown alongside instead."""
+    import time
+
+    gui = experiment_gui
+    _recording_run(gui)
+    gui.run_start_time = time.time() - 30          # 30 s ago
+
+    gui.update_run_progress()
+    assert '(+' not in gui.elapsed_time_label.text(), 'no pause yet, so nothing to report'
+    unpaused = gui.elapsed_time_label.text()
+
+    gui.client.paused_duration = 18.0              # 18 of those 30 s were spent paused
+    gui.update_run_progress()
+    text = gui.elapsed_time_label.text()
+
+    assert '(+18)' in text
+    assert text.split()[0] == '12', f'elapsed should exclude the pause, got {text!r}'
+    estimate = lambda s: s.split('/')[1].split()[0]     # noqa: E731 - the denominator alone
+    assert estimate(unpaused) == estimate(text) == '300s', 'the estimate should not change'
+
+
+def test_a_server_message_is_not_wiped_out_a_second_later(experiment_gui):
+    """update_run_progress runs once a second and shares the status line with server messages, so
+    it writes only when the pause state actually changes."""
+    gui = experiment_gui
+    _recording_run(gui)
+
+    gui.status_label.setText('[server error] the screen fell over')
+    gui.update_run_progress()
+    gui.update_run_progress()
+    assert gui.status_label.text() == '[server error] the screen fell over'
+
+
+def test_pause_is_disabled_until_a_run_is_in_progress(experiment_gui):
+    """Pressing Pause in standby used to set the client's flag and relabel the button 'Resume',
+    leaving the GUI claiming to be paused with nothing running."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    assert not gui.pause_button.isEnabled()
+
+    gui.run_started(save_metadata_flag=False)
+    assert gui.pause_button.isEnabled()
+
+    gui.run_finished(save_metadata_flag=False)
+    assert not gui.pause_button.isEnabled()
+    assert gui.pause_button.text() == 'Pause'
+
+
+def test_an_ensemble_holds_for_a_pause_requested_in_the_final_trial(experiment_gui, monkeypatch):
+    """The run loop's condition fails before the pause branch is reached on the last epoch, and the
+    next start_run clears the flag -- so the next protocol used to start regardless."""
+    gui = experiment_gui
+    started = []
+    monkeypatch.setattr(gui, 'run_ensemble_item', lambda save_metadata_flag=False: started.append(save_metadata_flag))
+
+    gui.ensemble_running = True
+    gui.client.pause = True                       # asked for during the final epoch
+    gui.run_finished(save_metadata_flag=False)
+
+    assert started == [], 'the next ensemble item started despite the pause'
+    assert gui.ensemble_paused is True
+    assert gui.pause_button.text() == 'Resume' and gui.pause_button.isEnabled()
+    assert gui.status_label.text() == 'Paused before the next ensemble item'
+
+    gui.pause_button.click()                      # Resume
+    assert started == [False], 'resuming did not start the next ensemble item'
+    assert gui.ensemble_paused is False
+
+
+def test_an_ensemble_without_a_pause_runs_straight_on(experiment_gui, monkeypatch):
+    gui = experiment_gui
+    started = []
+    monkeypatch.setattr(gui, 'run_ensemble_item', lambda save_metadata_flag=False: started.append(save_metadata_flag))
+
+    gui.ensemble_running = True
+    gui.client.pause = False
+    gui.run_finished(save_metadata_flag=False)
+
+    assert started == [False]
+    assert gui.ensemble_paused is False
+
+
+def test_stopping_a_held_ensemble_returns_to_standby(experiment_gui, monkeypatch):
+    """The hold is not a run, so stop_run has no loop to stop and run_finished has already been."""
+    gui = experiment_gui
+    monkeypatch.setattr(gui, 'run_ensemble_item', lambda save_metadata_flag=False: None)
+
+    gui.ensemble_running = True
+    gui.client.pause = True
+    gui.run_finished(save_metadata_flag=False)
+    assert gui.ensemble_paused is True
+
+    gui.ensemble_stop_button.click()
+
+    assert gui.ensemble_paused is False
+    assert gui.ensemble_running is False
+    assert not gui.pause_button.isEnabled()
+    assert gui.status_label.text() == 'Ready'
+
+
+def test_record_waits_for_a_subject_but_view_does_not(experiment_gui):
+    """Recording without a subject is refused anyway -- but by a modal raised after the click,
+    which is a worse way to find out than a button that is plainly not available yet."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+
+    assert not gui.record_button.isEnabled()
+    assert gui.view_button.isEnabled(), 'viewing needs no subject'
+
+    gui.show_current_subject('subj1')            # every path that sets the subject goes through here
+    assert not gui.record_button.isEnabled(), 'the label changed, but no subject was selected'
+
+    gui.data.current_subject = 'subj1'
+    gui.show_current_subject('subj1')
+    assert gui.record_button.isEnabled()
+
+
+def test_a_run_in_progress_keeps_record_disabled(experiment_gui):
+    """update_run_button_states must not undo the lock run_started puts on the run buttons."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.current_subject = 'subj1'
+
+    gui.run_started(save_metadata_flag=False)
+    assert not gui.record_button.isEnabled()
+
+    gui.show_current_subject('subj1')            # e.g. the subject dropdown refreshing mid-run
+    assert not gui.record_button.isEnabled(), 'a run is in progress'
+
+    gui.run_finished(save_metadata_flag=False)
+    assert gui.record_button.isEnabled()
+
+
+def test_the_buttons_do_not_share_column_widths_with_the_readouts(experiment_gui):
+    """One grid sized every column to its widest member, so 'Elapsed / Est:' set the width of the
+    View button beneath it. Separate grids size independently."""
+    gui = experiment_gui
+    status_widgets = {gui.series_counter_input, gui.elapsed_time_label, gui.trial_count_label}
+    action_widgets = {gui.view_button, gui.record_button, gui.pause_button, gui.stop_button}
+
+    def widgets_of(grid):
+        found = set()
+        for index in range(grid.count()):
+            item = grid.itemAt(index)
+            if item.widget() is not None:
+                found.add(item.widget())
+            elif item.layout() is not None:
+                for sub in range(item.layout().count()):
+                    if item.layout().itemAt(sub).widget() is not None:
+                        found.add(item.layout().itemAt(sub).widget())
+        return found
+
+    in_status = widgets_of(gui.protocol_status_grid)
+    in_action = widgets_of(gui.protocol_action_grid)
+
+    assert status_widgets <= in_status
+    assert action_widgets <= in_action
+    assert not (in_status & in_action), 'a widget is in both grids'
+
+
+def test_the_protocol_dropdown_spans_the_preset_column(experiment_gui):
+    grid = experiment_gui.protocol_selector_grid
+    index = grid.indexOf(experiment_gui.protocol_selection_combo_box)
+    _, _, _, column_span = grid.getItemPosition(index)
+    assert column_span == 2
+
+
+def test_creating_a_subject_enables_record(experiment_gui, tmp_path):
+    """The end-to-end path a user actually takes, rather than poking current_subject directly."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    assert not gui.record_button.isEnabled()
+
+    gui.data.experiment_file_name = 'record_button_test'
+    gui.data.initialize_experiment_file()
+    gui.subject_id_input.setText('subj_new')
+    gui.on_created_subject()
+
+    assert gui.data.current_subject == 'subj_new'
+    assert gui.record_button.isEnabled()
+
+
+def test_the_selector_dropdowns_get_the_widths_slack(experiment_gui, qapp):
+    """Three equal columns gave a third of the row to a caption and a third to a button, leaving
+    the dropdowns -- which hold the longest text on the tab -- elliding in the middle third."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    qapp.processEvents()
+
+    grid = gui.protocol_selector_grid
+    assert grid.columnStretch(1) > grid.columnStretch(0)
+    assert grid.columnStretch(1) > grid.columnStretch(2)
+
+    # and it reaches the rendered geometry, not just the stretch factors: widening the window has
+    # to widen the dropdowns rather than the caption and the button beside them. Asserted as a
+    # response to resizing, not as a fraction of the width, so it holds at any window size.
+    save_button = next(b for b in gui.findChildren(type(gui.view_button)) if b.text() == 'Save preset')
+    before = {w: w.width() for w in (gui.parameter_preset_comboBox,
+                                     gui.protocol_selection_combo_box, save_button)}
+
+    extra = 300
+    gui.resize(gui.width() + extra, gui.height())
+    qapp.processEvents()
+
+    grew = {w: w.width() - before[w] for w in before}
+    assert grew[gui.parameter_preset_comboBox] > 0.9 * extra, 'the preset dropdown did not take the slack'
+    assert grew[gui.protocol_selection_combo_box] > 0.9 * extra
+    assert grew[save_button] < 10, 'the button absorbed width the dropdowns should have had'
+
+
+def test_the_ensemble_selector_dropdowns_get_the_slack_too(experiment_gui, qapp):
+    """The Ensemble tab has the same protocol/preset rows and had the same three equal columns."""
+    gui = experiment_gui
+    gui.tabs.setCurrentWidget(gui.ensemble_tab)
+    qapp.processEvents()
+
+    grid = gui.ensemble_protocol_selector_grid
+    assert grid.columnStretch(1) > grid.columnStretch(0)
+    assert grid.columnStretch(1) > grid.columnStretch(2)
+
+    append_button = next(b for b in gui.findChildren(type(gui.view_button)) if b.text() == 'Append')
+    before = {w: w.width() for w in (gui.ensemble_parameter_preset_comboBox,
+                                     gui.ensemble_protocol_selection_combo_box, append_button)}
+
+    extra = 300
+    gui.resize(gui.width() + extra, gui.height())
+    qapp.processEvents()
+
+    grew = {w: w.width() - before[w] for w in before}
+    assert grew[gui.ensemble_parameter_preset_comboBox] > 0.9 * extra
+    assert grew[gui.ensemble_protocol_selection_combo_box] > 0.9 * extra
+    assert grew[append_button] < 10
+
+
+def test_both_tabs_call_it_param_preset(experiment_gui):
+    from PyQt6.QtWidgets import QLabel
+    captions = [w.text() for w in experiment_gui.findChildren(QLabel)]
+    assert captions.count('Param preset:') == 2      # Main and Ensemble
+    assert 'Parameter preset:' not in captions
+
+
+# --- the Subject tab ------------------------------------------------------------------------------
+
+def test_subject_tab_labels_are_left_aligned(experiment_gui):
+    from PyQt6.QtCore import Qt
+    alignment = experiment_gui.data_form.labelAlignment()
+    assert alignment & Qt.AlignmentFlag.AlignLeft
+    assert not (alignment & Qt.AlignmentFlag.AlignHCenter)
+
+
+def test_the_subject_tab_names_the_current_subject_once(experiment_gui):
+    """It used to be three stacked rows -- a dropdown, a read-only label and the ID field -- all
+    showing the same string once a subject was loaded."""
+    from PyQt6.QtWidgets import QLabel
+
+    gui = experiment_gui
+    captions = [w.text() for w in gui.data_tab.findChildren(QLabel)]
+    assert captions.count('Current subject:') == 1
+    assert 'Load existing subject' not in captions        # the dropdown IS the current subject now
+    assert not hasattr(gui, 'current_subject_display')    # the read-only duplicate is gone
+
+
+def test_the_subject_dropdown_is_blank_when_no_subject_is_selected(experiment_gui):
+    """Left on index 0 it would show whichever subject is first as though it were selected -- and
+    Record keys off whether there actually is one."""
+    gui = experiment_gui
+    gui.existing_subject_input.clear()
+    gui.existing_subject_input.addItems(['flyA', 'flyB'])
+    gui.data.current_subject = None
+
+    gui.show_current_subject('')
+
+    assert gui.existing_subject_input.currentIndex() == -1
+    assert gui.existing_subject_input.currentText() == ''
+    assert not gui.record_button.isEnabled()
+
+
+# --- the shared run controls ----------------------------------------------------------------------
+
+def control_box_tab(gui):
+    """Which tab currently holds the run controls."""
+    return gui.protocol_control_box.parent()
+
+
+
+
+
+
+
+def test_stop_ensemble_is_only_offered_when_an_ensemble_is_running(experiment_gui):
+    """Running one series from the Main tab left 'Stop ensemble' enabled on the Ensemble tab,
+    offering to stop something that was not going."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+
+    gui.run_started(save_metadata_flag=False)        # a single series, no ensemble
+
+    assert not gui.ensemble_stop_button.isEnabled(), 'offered to stop an ensemble that is not running'
+    assert gui.stop_button.isEnabled(), 'the running series cannot be stopped'
+
+    gui.set_ensemble_running(True)
+    assert gui.ensemble_stop_button.isEnabled()
+
+
+def test_starting_is_only_offered_when_nothing_is_running(experiment_gui):
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.current_subject = 'subj1'
+    gui.update_run_button_states()
+    assert gui.view_button.isEnabled() and gui.record_button.isEnabled()
+
+    gui.run_started(save_metadata_flag=False)
+    assert not gui.view_button.isEnabled()
+    assert not gui.record_button.isEnabled()
+    assert not gui.ensemble_view_button.isEnabled(), 'could start an ensemble on top of a running series'
+    assert not gui.ensemble_record_button.isEnabled()
+
+
+
+def test_parameters_stay_locked_when_an_ensemble_loads_its_next_item(experiment_gui):
+    """Each ensemble item rebuilds the parameter widgets, and new widgets do not inherit a lock
+    applied to the ones they replaced."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.set_ensemble_running(True)
+    gui.run_started(save_metadata_flag=False)
+    assert not gui.parameters_box.isEnabled()
+
+    select_protocol(gui, 'MovingPatch')          # what run_ensemble_item does between items
+
+    assert not gui.parameters_box.isEnabled(), 'the rebuilt parameter fields are editable'
+    assert not gui.protocol_selector_box.isEnabled(), 'the protocol/preset dropdowns are editable'
+    assert gui.parameters_scroll_area.isEnabled(), 'the parameters cannot be scrolled'
+
+
+def test_loading_an_ensemble_item_does_not_declare_the_gui_idle(experiment_gui):
+    """Selecting a protocol is also how an ensemble loads its next item. Declaring STANDBY there
+    said 'Ready' mid-ensemble and re-enabled View and Record."""
+    from stimpack.experiment.gui import Status
+
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.set_ensemble_running(True)
+    gui.run_started(save_metadata_flag=False)
+
+    select_protocol(gui, 'MovingPatch')
+
+    assert gui.status == Status.VIEWING
+    assert gui.status_label.text() != 'Ready'
+    assert not gui.view_button.isEnabled()
+
+
+def test_the_status_line_says_when_a_series_belongs_to_an_ensemble(experiment_gui):
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.ensemble_list.append_item('DriftingSquareGrating', 'Default')
+    gui.ensemble_list.append_item('MovingPatch', 'Default')
+    gui.set_ensemble_running(True)
+    gui.ensemble_list.reset_current_ensemble_idx()
+    gui.ensemble_list.increment_current_ensemble_idx()
+
+    gui.run_started(save_metadata_flag=False)
+
+    text = gui.status_label.text()
+    assert 'ensemble' in text and '1 of 2' in text, text
+
+    gui.set_ensemble_running(False)
+    gui.run_started(save_metadata_flag=False)
+    assert 'ensemble' not in gui.status_label.text()
+
+
+# --- overwriting a series -------------------------------------------------------------------------
+
+def test_recording_onto_an_existing_series_asks_first(experiment_gui, monkeypatch, qapp):
+    """It used to be refused outright, so a false start meant renumbering around it -- the file
+    grew a gap and the numbering stopped matching the notebook."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.experiment_file_name = 'overwrite_test'
+    gui.data.initialize_experiment_file()
+    gui.subject_id_input.setText('subj_ow')
+    gui.on_created_subject()
+    gui.data.create_series(gui.protocol_object)              # series 1 now exists
+    assert gui.data.get_series_count() in gui.data.get_existing_series()
+
+    asked = []
+    monkeypatch.setattr(gui, 'confirm_series_overwrite', lambda n: asked.append(n) or False)
+    gui.record_button.click()
+
+    assert asked == [gui.data.get_series_count()], 'recorded without asking'
+    assert gui.client.runs == [], 'declining the overwrite still started a run'
+    assert gui.data.get_series_count() in gui.data.get_existing_series(), 'declined, but deleted anyway'
+
+    monkeypatch.setattr(gui, 'confirm_series_overwrite', lambda n: True)
+    gui.record_button.click()
+    gui.run_series_thread.wait(5000)                            # the run thread (FakeClient) is quick
+    qapp.processEvents()
+
+    assert gui.client.runs == [('DriftingSquareGrating', True)], 'accepting the overwrite did not record'
+
+
+# --- each tab owns its controls --------------------------------------------------------------------
+
+def test_each_tab_has_its_own_run_buttons(experiment_gui):
+    """Sharing one set meant buttons whose meaning changed with the tab, and readouts that only
+    ever described a single series."""
+    gui = experiment_gui
+
+    def widgets_under(widget):
+        return set(widget.findChildren(type(gui.view_button))) | set(widget.findChildren(QLabel_type()))
+
+    main = widgets_under(gui.protocol_tab)
+    ensemble = widgets_under(gui.ensemble_tab)
+
+    assert gui.view_button in main and gui.view_button not in ensemble
+    assert gui.ensemble_view_button in ensemble and gui.ensemble_view_button not in main
+    assert gui.elapsed_time_label in main and gui.elapsed_time_label not in ensemble
+    assert gui.ensemble_progress_label in ensemble and gui.ensemble_progress_label not in main
+
+
+def QLabel_type():
+    from PyQt6.QtWidgets import QLabel
+    return QLabel
+
+
+def test_the_notes_row_sits_below_the_tabs(experiment_gui):
+    """A note is about the experiment, not about whichever tab is showing."""
+    gui = experiment_gui
+    in_main = gui.protocol_tab.findChildren(type(gui.notes_edit))
+    assert gui.notes_edit not in in_main
+    assert gui.notes_edit.parent() is gui
+
+
+def test_the_ensemble_tab_counts_protocols_not_trials(experiment_gui):
+    gui = experiment_gui
+    gui.ensemble_list.append_item('DriftingSquareGrating', 'Default')
+    gui.ensemble_list.append_item('MovingPatch', 'Default')
+
+    gui.update_ensemble_progress()
+    assert gui.ensemble_progress_label.text() == '0 / 2'
+    assert gui.ensemble_elapsed_label.text() == ''
+
+    gui.set_ensemble_running(True)
+    gui.ensemble_list.reset_current_ensemble_idx()
+    gui.ensemble_list.increment_current_ensemble_idx()      # the first item is running
+    gui.update_ensemble_progress()
+
+    # Counts protocols finished, the way 'Epochs run' counts epochs finished: the one in progress
+    # is not one of them.
+    assert gui.ensemble_progress_label.text() == '0 / 2'
+    assert gui.ensemble_elapsed_label.text().endswith('s')
+
+    gui.ensemble_list.increment_current_ensemble_idx()      # on to the second
+    gui.update_ensemble_progress()
+    assert gui.ensemble_progress_label.text() == '1 / 2'
+
+
+def test_ensemble_elapsed_covers_the_gaps_between_protocols(experiment_gui):
+    """Timed from the start of the ensemble, not of the item in progress: the gap between one
+    protocol finishing and the next starting is time the ensemble is taking."""
+    import time as _time
+
+    gui = experiment_gui
+    gui.ensemble_list.append_item('DriftingSquareGrating', 'Default')
+    gui.set_ensemble_running(True)
+    started = gui.ensemble_start_time
+    assert started is not None
+
+    gui.run_started(save_metadata_flag=False)
+    gui.run_finished(save_metadata_flag=False)             # between items: no run in progress
+    assert gui.ensemble_start_time == started, 'the ensemble clock restarted with the item'
+
+    gui.set_ensemble_running(False)
+    assert gui.ensemble_start_time is None
+    _time.sleep(0)                                         # nothing running: nothing to measure
+    gui.update_ensemble_progress()
+    assert gui.ensemble_elapsed_label.text() == ''
+
+
+def test_both_pause_buttons_say_the_same_thing(experiment_gui):
+    """Two buttons onto one run loop."""
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.run_started(save_metadata_flag=False)
+    assert gui.pause_button.isEnabled() and gui.ensemble_pause_button.isEnabled()
+
+    gui.pause_button.click()
+    assert gui.client.pause is True
+    assert gui.pause_button.text() == 'Resume' and gui.ensemble_pause_button.text() == 'Resume'
+
+    gui.ensemble_pause_button.click()                      # resume from the other tab
+    assert gui.client.pause is False
+    assert gui.pause_button.text() == 'Pause' and gui.ensemble_pause_button.text() == 'Pause'
+
+
+def test_neither_tab_can_start_while_the_other_is_running(experiment_gui):
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.current_subject = 'subj1'
+    gui.set_ensemble_running(True)
+
+    assert not gui.view_button.isEnabled(), 'could start a series on top of a running ensemble'
+    assert not gui.record_button.isEnabled()
+    assert not gui.ensemble_view_button.isEnabled()
+
+
+# --- the current epoch's parameters ------------------------------------------------------------
+
+def test_the_trial_readout_shows_only_the_parameters_that_vary(experiment_gui):
+    """A protocol's varying parameters are chosen per epoch on the client and printed by the
+    server; the GUI never showed them, so the only way to see what was on screen was the server's
+    terminal. The unvarying ones stay out: they are in the fields above, and repeating them would
+    bury the two or three that differ."""
+    from stimpack.experiment.gui import Status
+
+    gui = experiment_gui
+    protocol = select_protocol(gui, 'DriftingSquareGrating')
+    gui.status = Status.VIEWING
+
+    protocol.protocol_parameters['angle'] = [0, 45, 90]        # varies
+    protocol.protocol_parameters['rate'] = 20                  # does not
+    protocol.persistent_parameters = {}                        # force the recomputed fallback
+    protocol.trial_protocol_parameters = {'angle': 45, 'rate': 20}
+
+    text = gui.epoch_parameters_text()
+    assert 'angle: 45' in text
+    assert 'rate' not in text, 'a parameter that never changes was reported as this epoch\'s'
+
+
+def test_the_trial_readout_prefers_what_the_protocol_recorded(experiment_gui):
+    """process_input_parameters names the varying parameters; the fallback is only for protocols
+    that override it without calling super()."""
+    from stimpack.experiment.gui import Status
+
+    gui = experiment_gui
+    protocol = select_protocol(gui, 'DriftingSquareGrating')
+    gui.status = Status.RECORDING
+    protocol.persistent_parameters = {'variable_protocol_parameter_names': ['contrast']}
+    protocol.trial_protocol_parameters = {'contrast': 0.25, 'angle': 45}
+
+    assert gui.epoch_parameters_text() == 'contrast: 0.25'
+
+
+def test_the_trial_readout_is_blank_between_runs(experiment_gui):
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    assert gui.epoch_parameters_text() == ''
+
+
+def test_the_trial_readout_says_so_when_nothing_varies(experiment_gui):
+    from stimpack.experiment.gui import Status
+
+    gui = experiment_gui
+    protocol = select_protocol(gui, 'DriftingSquareGrating')
+    gui.status = Status.VIEWING
+    protocol.persistent_parameters = {'variable_protocol_parameter_names': []}
+    protocol.trial_protocol_parameters = {'angle': 45}
+
+    assert gui.epoch_parameters_text() == '(no parameters vary across trials)'
+
+
+def test_a_long_trial_readout_does_not_reshape_the_window(experiment_gui, qapp):
+    gui = experiment_gui
+    qapp.processEvents()
+    before = (gui.width(), gui.height())
+
+    gui.epoch_parameters_label.setText('some_parameter: 3.14159,   ' * 200)
+    qapp.processEvents()
+
+    assert (gui.width(), gui.height()) == before
+    assert gui.epoch_parameters_label.toolTip().startswith('some_parameter')
+
+
+def test_the_trial_readout_follows_a_real_protocol_trial_by_trial(experiment_gui):
+    """Drives the actual parameter-selection machinery rather than setting the dict by hand: the
+    readout is only useful if trial_protocol_parameters holds the value chosen for this epoch and
+    not the list it was chosen from."""
+    from stimpack.experiment.gui import Status
+
+    gui = experiment_gui
+    protocol = select_protocol(gui, 'DriftingSquareGrating')
+    protocol.protocol_parameters['angle'] = [0, 45, 90]
+    protocol.run_parameters['num_trials'] = 3
+    protocol.run_parameters['randomize_order'] = False
+    protocol.prepare_run(manager=gui.client.manager, recompute_epoch_parameters=True)
+    gui.status = Status.VIEWING
+
+    seen = []
+    for _ in range(3):
+        protocol.load_precomputed_trial_parameters()
+        seen.append(gui.epoch_parameters_text())
+        protocol.num_trials_completed += 1
+
+    assert all(text.startswith('angle: ') for text in seen), seen
+    assert '[' not in ' '.join(seen), 'showed the list of values rather than this epoch\'s value'
+    assert sorted(t.split(': ')[1] for t in seen) == ['0', '45', '90'], seen
+
+
+def test_a_data_write_failure_is_surfaced_as_its_own_error(experiment_gui, monkeypatch, qapp):
+    """Not as a server error: this did not come from the rig, and saying it did sends somebody to
+    look at the wrong thing."""
+    import stimpack.experiment.gui as gui_mod
+
+    gui = experiment_gui
+    alerts = []
+    monkeypatch.setattr(gui_mod, 'open_message_window',
+                        lambda title="", text="": alerts.append((title, text)))
+
+    gui.client.on_data_error('The run ended "completed", but recording that in the NWBData file '
+                             'failed. The file for this series may be incomplete, and may not open.')
+    qapp.processEvents()
+
+    assert alerts and alerts[0][0] == 'Data file error'
+    assert 'may not open' in alerts[0][1]
+    assert gui.status_label.text().startswith('[data error]')

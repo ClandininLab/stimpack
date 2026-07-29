@@ -6,6 +6,7 @@ and the protocol adapts, rather than the framework knowing about any particular 
 import pytest
 
 from fakes import FakeManager
+from helpers import unobtrusive_screen
 
 pytestmark = pytest.mark.integration
 
@@ -41,19 +42,19 @@ def test_prepare_run_picks_up_the_modules_from_the_manager():
 
     class Tiny(BaseProtocol):
         def get_run_parameter_defaults(self):
-            return {'num_epochs': 1, 'idle_color': 0.5, 'do_loco': False}
+            return {'num_trials': 1, 'idle_color': 0.5, 'do_loco': False}
         def get_protocol_parameter_defaults(self):
             return {'pre_time': 0.0, 'stim_time': 0.0, 'tail_time': 0.0}
-        def get_epoch_parameters(self):
-            super().get_epoch_parameters()
-            self.epoch_stim_parameters = {'name': 'FakeStim'}
+        def get_trial_parameters(self):
+            super().get_trial_parameters()
+            self.trial_stim_parameters = {'name': 'FakeStim'}
 
     manager = FakeManager()
     manager.available_modules = {'visual', 'voltage_out'}
     protocol = Tiny(cfg={})
     protocol.prepare_run(manager=manager)
 
-    # available before precompute runs, so has_module() is usable inside get_epoch_parameters too
+    # available before precompute runs, so has_module() is usable inside get_trial_parameters too
     assert protocol.available_modules == {'visual', 'voltage_out'}
     assert protocol.has_module('voltage_out') is True
     assert protocol.has_module('locomotion') is False
@@ -92,8 +93,6 @@ def test_alias_deprecation_warns_once_not_per_call(visual_only_server_with_volta
 def visual_only_server_with_voltage_out():
     from stimpack.device.daq import DAQ
     from stimpack.experiment.server import BaseServer
-    from stimpack.visual_stim.screen import Screen
-
     class CountingDAQ(DAQ):
         triggered = 0
         def send_trigger(self, *args, **kwargs):
@@ -102,7 +101,7 @@ def visual_only_server_with_voltage_out():
     CountingDAQ.triggered = 0
     try:
         server = BaseServer(host='127.0.0.1', port=None,
-                            visual_stim_kwargs={'screens': [Screen(fullscreen=False, vsync=False)]},
+                            visual_stim_kwargs={'screens': [unobtrusive_screen()]},
                             daq_class=CountingDAQ, start_loop=False)
     except Exception as e:
         pytest.skip(f'could not construct a server here: {type(e).__name__}: {e}')

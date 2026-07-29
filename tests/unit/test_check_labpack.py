@@ -253,14 +253,14 @@ from stimpack.rpc.multicall import MyMultiCall
 
 class {name}(BaseProtocol):
     def get_run_parameter_defaults(self):
-        return {{'num_epochs': 2, 'idle_color': 0.5, 'do_loco': False}}
+        return {{'num_trials': 2, 'idle_color': 0.5, 'do_loco': False}}
 
     def get_protocol_parameter_defaults(self):
         return {{'pre_time': 0.0, 'stim_time': 0.0, 'tail_time': 0.0}}
 
-    def get_epoch_parameters(self):
-        super().get_epoch_parameters()
-        self.epoch_stim_parameters = {{'name': 'MovingSpot'}}
+    def get_trial_parameters(self):
+        super().get_trial_parameters()
+        self.trial_stim_parameters = {{'name': 'MovingSpot'}}
 
     def load_stimuli(self, manager, multicall=None):
         multicall = multicall or MyMultiCall(manager)
@@ -370,7 +370,7 @@ def test_protocols_that_cannot_be_exercised_are_counted_not_hidden(tmp_path):
 def test_the_deep_check_does_not_sleep_through_the_stimulus(tmp_path):
     """start_stimuli sleeps for the real stimulus duration; checking must not take that long."""
     import time
-    cfg = labpack_with_protocol(tmp_path, "        pass")
+    labpack_with_protocol(tmp_path, "        pass")   # builds the labpack; the cfg is not needed here
     path = tmp_path / 'pack' / 'protocol' / 'my_protocol.py'
     path.write_text(path.read_text().replace("'pre_time': 0.0", "'pre_time': 30.0"))
 
@@ -447,13 +447,13 @@ def test_a_visual_stim_module_that_will_not_load_is_an_error(tmp_path):
     assert 'visual-stim-will-not-load' in codes(findings, level='error')
 
 
-def test_every_stimulus_in_a_multi_stimulus_epoch_is_checked(tmp_path):
-    """epoch_stim_parameters may be a list; a bad name later in it must not be missed."""
+def test_every_stimulus_in_a_multi_stimulus_trial_is_checked(tmp_path):
+    """trial_stim_parameters may be a list; a bad name later in it must not be missed."""
     labpack_with_protocol(tmp_path, "        pass")
     path = tmp_path / 'pack' / 'protocol' / 'my_protocol.py'
     path.write_text(path.read_text().replace(
-        "self.epoch_stim_parameters = {'name': 'MovingSpot'}",
-        "self.epoch_stim_parameters = [{'name': 'MovingSpot'}, {'name': 'AlsoNotReal'}]"))
+        "self.trial_stim_parameters = {'name': 'MovingSpot'}",
+        "self.trial_stim_parameters = [{'name': 'MovingSpot'}, {'name': 'AlsoNotReal'}]"))
 
     findings = deep_findings(tmp_path)
     assert codes(findings, level='error') == ['unknown-stimulus']
