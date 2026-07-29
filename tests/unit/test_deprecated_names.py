@@ -84,7 +84,9 @@ def test_a_legacy_run_parameter_still_says_how_many_trials():
     30 saved presets carry it."""
     protocol = LegacyProtocol(cfg={})
     assert protocol.run_parameters['num_trials'] == 3
-    assert 'num_epochs' not in protocol.run_parameters, 'both spellings would drift apart'
+    # `in` answers True for the old key by design -- it resolves to the new one. What must not
+    # happen is the value being *stored* twice, where the two copies could drift.
+    assert sorted(protocol.run_parameters) == ['idle_color', 'num_trials']
 
 
 def test_the_old_names_say_what_to_use_instead(fresh_warnings):
@@ -222,4 +224,29 @@ def test_run_parameters_are_renamed_however_they_are_assigned():
         protocol.run_parameters = {'num_epochs': 11, 'idle_color': 0.5}   # assigned again, later
 
     assert protocol.run_parameters['num_trials'] == 11
-    assert 'num_epochs' not in protocol.run_parameters
+    assert 'num_epochs' not in list(protocol.run_parameters)
+
+
+def test_reading_a_run_parameter_by_its_old_key_still_works():
+    """Renaming the key on the way in is not enough. A protocol that reads
+    run_parameters['num_epochs'] then finds nothing -- which is how two labpack protocols raised
+    KeyError under a compatibility layer whose whole job was to keep them running."""
+    protocol = ModernProtocol(cfg={})
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        assert protocol.run_parameters['num_epochs'] == 3
+        assert protocol.run_parameters.get('num_epochs') == 3
+        assert 'num_epochs' in protocol.run_parameters
+
+
+def test_a_run_parameter_is_stored_once_not_under_both_names():
+    """Storing both spellings would let them drift the moment anything wrote one of them."""
+    protocol = ModernProtocol(cfg={})
+    assert list(protocol.run_parameters).count('num_trials') == 1
+    assert 'num_epochs' not in list(protocol.run_parameters), 'stored twice'
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        protocol.run_parameters['num_trials'] = 9
+        assert protocol.run_parameters['num_epochs'] == 9, 'the old key read a stale copy'

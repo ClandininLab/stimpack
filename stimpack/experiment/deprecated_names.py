@@ -118,18 +118,46 @@ def calls_legacy_override(legacy_name):
 RUN_PARAMETER_RENAMES = {'num_epochs': 'num_trials'}
 
 
+class RunParameters(dict):
+    """Run parameters under their current keys, still answering to the pre-0.3 ones.
+
+    Renaming the key on the way in is not enough: a protocol that *reads*
+    ``run_parameters['num_epochs']`` then finds nothing, which is how two labpack protocols
+    raised KeyError under a compatibility layer meant to keep them running. Storing both spellings
+    instead would let them drift the moment anything wrote one of them.
+    """
+
+    def _resolve(self, key):
+        if key not in RUN_PARAMETER_RENAMES or dict.__contains__(self, key):
+            return key
+        new_name = RUN_PARAMETER_RENAMES[key]
+        if dict.__contains__(self, new_name):
+            _warn_once(key, new_name, 'Run parameter')
+            return new_name
+        return key
+
+    def __getitem__(self, key):
+        return dict.__getitem__(self, self._resolve(key))
+
+    def __contains__(self, key):
+        return dict.__contains__(self, self._resolve(key))
+
+    def get(self, key, default=None):
+        return dict.get(self, self._resolve(key), default)
+
+
 def normalize_run_parameters(run_parameters):
     """Rename any pre-0.3 run-parameter keys, warning once each.
 
-    Applied where run parameters enter stimpack -- from a protocol's defaults and from a saved
-    preset -- so everything downstream, including the required-parameter check and the data file,
-    sees one spelling. A config that somehow carries both keeps the new one.
+    Applied to every assignment of BaseProtocol.run_parameters, so everything downstream --
+    the required-parameter check, the data file, a protocol reading its own parameters -- sees
+    one spelling. A config that somehow carries both keeps the new one.
     """
     if not isinstance(run_parameters, dict):
         return run_parameters
     for old_name, new_name in RUN_PARAMETER_RENAMES.items():
         if old_name in run_parameters:
             _warn_once(old_name, new_name, 'Run parameter')
-            value = run_parameters.pop(old_name)
+            value = dict.pop(run_parameters, old_name)
             run_parameters.setdefault(new_name, value)
-    return run_parameters
+    return RunParameters(run_parameters)
