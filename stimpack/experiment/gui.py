@@ -110,6 +110,7 @@ class ExperimentGUI(QWidget):
         # user input to select configuration file and rig name
         # sets self.cfg
         self.cfg_initialized = False
+        self.note_dialog = None   # the modeless note dialog, while one is open
         self.cfg: dict[str, Any] = {}
         init_gui_size = None
         dialog = QDialog()
@@ -1681,20 +1682,71 @@ class ExperimentGUI(QWidget):
 
         self.mid_parameter_edit = False
 
+    def experiment_identity(self):
+        """What distinguishes one open experiment from another, for the note dialog to hold on to."""
+        return (self.data.data_directory, self.data.experiment_file_name)
+
     def prompt_for_note(self):
-        """Ask for a note and write it to the experiment.
+        """Ask for a note, without taking the rest of the window hostage while it is being typed.
+
+        Modeless, because a note is usually written *about* something the user wants to look at --
+        a series in the File tab, the parameters that produced it -- and a modal dialog forces the
+        choice between reading and writing. The window it is a child of stays usable.
 
         Checked before asking rather than after: with the field gone there is nowhere to leave
         rejected text, so somebody who types a paragraph into a dialog and then learns there is no
-        experiment to put it in has lost it. Refusing up front costs one modal instead.
+        experiment to put it in has lost it.
         """
         if not self.data.experiment_file_exists():
             open_message_window(title=f'No {self.data.output_noun}',
                                 text=f'Create or load a {self.data.output_noun} before writing a note.')
             return
 
-        text, accepted = QInputDialog.getMultiLineText(self, 'Enter note', 'Note:')
-        if not accepted or not text.strip():
+        # One dialog. Being modeless, the button stays clickable while it is open, and stacking
+        # invisible copies of it would lose whatever was typed in the ones underneath.
+        if self.note_dialog is not None and self.note_dialog.isVisible():
+            self.note_dialog.raise_()
+            self.note_dialog.activateWindow()
+            return
+
+        dialog = QInputDialog(self)
+        dialog.setInputMode(QInputDialog.InputMode.TextInput)
+        dialog.setOption(QInputDialog.InputDialogOption.UsePlainTextEditForTextInput, True)
+        dialog.setWindowTitle('Enter note')
+        dialog.setLabelText('Note:')
+        dialog.setModal(False)
+
+        # Bound to the experiment that was open when it was raised. Modeless means the user can
+        # load a different experiment while typing, and a note written about one experiment must
+        # not land silently in another.
+        origin = self.experiment_identity()
+        dialog.textValueSelected.connect(lambda text: self.save_note(text, origin))
+        dialog.finished.connect(self.forget_note_dialog)
+        self.note_dialog = dialog
+        dialog.show()
+
+    def forget_note_dialog(self):
+        """Drop the reference once it closes, so the next press builds a fresh dialog."""
+        self.note_dialog = None
+
+    def save_note(self, text, origin=None):
+        """Write a note, refusing rather than misfiling it if the experiment has moved on."""
+        if not text.strip():
+            return
+
+        if origin is not None and origin != self.experiment_identity():
+            open_message_window(
+                title='Note not saved',
+                text=('The experiment changed while this note was open, so it was not written -- '
+                      'it would have gone into a different file than the one it is about.\n\n'
+                      'The text is below; copy it if you still want it.\n\n' + text))
+            return
+
+        if not self.data.experiment_file_exists():
+            open_message_window(
+                title=f'No {self.data.output_noun}',
+                text=(f'There is no {self.data.output_noun} to write this note to any more.\n\n'
+                      'The text is below; copy it if you still want it.\n\n' + text))
             return
 
         self.note_text = text

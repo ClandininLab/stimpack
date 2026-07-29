@@ -345,23 +345,20 @@ def test_note_before_initialization_is_refused(nwb_experiment_gui, monkeypatch):
     import stimpack.experiment.gui as gui_mod
 
     gui = nwb_experiment_gui
-    asked = []
     monkeypatch.setattr(gui_mod, 'open_message_window', lambda title="", text="": None)
-    monkeypatch.setattr(gui_mod.QInputDialog, 'getMultiLineText',
-                        lambda *a, **k: asked.append(1) or ('', False))
 
     button(gui, 'Note').click()
 
-    assert asked == [], 'asked for a note with no NWB directory to save it in'
+    assert gui.note_dialog is None, 'asked for a note with no NWB directory to save it in'
 
 
-def test_note_is_written_beside_the_nwb_files(nwb_experiment_gui, tmp_path, monkeypatch):
+def test_note_is_written_beside_the_nwb_files(nwb_experiment_gui, tmp_path):
     gui = nwb_experiment_gui
     initialize(gui, 'noted')
-    import stimpack.experiment.gui as gui_mod
-    monkeypatch.setattr(gui_mod.QInputDialog, 'getMultiLineText',
-                        lambda *a, **k: ('stimulus looked dim', True))
+
     button(gui, 'Note').click()
+    gui.note_dialog.setTextValue('stimulus looked dim')
+    gui.note_dialog.accept()
 
     notes = tmp_path / 'noted' / 'notes.csv'
     assert notes.is_file() and 'stimulus looked dim' in notes.read_text()

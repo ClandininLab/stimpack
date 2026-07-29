@@ -765,16 +765,19 @@ def test_notes_cost_no_permanent_row(experiment_gui):
     assert outside == [], 'a text edit outside the tabs is still taking up a row'
 
 
-def test_a_note_is_typed_into_a_dialog_and_saved(experiment_gui, monkeypatch, tmp_path):
-    import stimpack.experiment.gui as gui_mod
-
-    gui = experiment_gui
-    gui.data.experiment_file_name = 'noted'
+def _open_note_dialog(gui, name='noted'):
+    gui.data.experiment_file_name = name
     gui.data.initialize_experiment_file()
-
-    monkeypatch.setattr(gui_mod.QInputDialog, 'getMultiLineText',
-                        lambda *a, **k: ('stimulus looked dim', True))
     gui.note_button.click()
+    return gui.note_dialog
+
+
+def test_a_note_is_typed_into_a_dialog_and_saved(experiment_gui, tmp_path):
+    gui = experiment_gui
+    dialog = _open_note_dialog(gui)
+
+    dialog.setTextValue('stimulus looked dim')
+    dialog.accept()
 
     import h5py
     with h5py.File(f'{gui.data.data_directory}/noted.hdf5', 'r') as f:
@@ -782,20 +785,87 @@ def test_a_note_is_typed_into_a_dialog_and_saved(experiment_gui, monkeypatch, tm
     assert 'Note saved' in gui.status_label.text()
 
 
-def test_a_cancelled_or_empty_note_writes_nothing(experiment_gui, monkeypatch):
-    import stimpack.experiment.gui as gui_mod
+def test_the_note_dialog_does_not_hold_the_window_hostage(experiment_gui):
+    """A note is usually written *about* something the user wants to look at -- a series in the
+    File tab, the parameters that produced it -- and a modal dialog forces the choice between
+    reading and writing."""
+    from PyQt6.QtCore import Qt
 
+    gui = experiment_gui
+    dialog = _open_note_dialog(gui)
+
+    assert not dialog.isModal()
+    assert dialog.windowModality() == Qt.WindowModality.NonModal
+    assert gui.isEnabled() and gui.tabs.isEnabled()
+
+
+def test_pressing_note_again_reuses_the_open_dialog(experiment_gui):
+    """Being modeless, the button stays clickable while one is open, and stacking copies of it
+    would lose whatever was typed in the ones underneath."""
+    gui = experiment_gui
+    dialog = _open_note_dialog(gui)
+    dialog.setTextValue('half a thought')
+
+    gui.note_button.click()
+
+    assert gui.note_dialog is dialog
+    assert dialog.textValue() == 'half a thought'
+
+
+def test_closing_the_dialog_lets_the_next_one_be_built(experiment_gui):
+    gui = experiment_gui
+    dialog = _open_note_dialog(gui)
+    dialog.reject()
+
+    assert gui.note_dialog is None
+
+    gui.note_button.click()
+    assert gui.note_dialog is not None and gui.note_dialog is not dialog
+
+
+def test_a_cancelled_or_empty_note_writes_nothing(experiment_gui):
     gui = experiment_gui
     gui.data.experiment_file_name = 'nothing_written'
     gui.data.initialize_experiment_file()
 
-    for reply in [('a note', False), ('', True), ('   ', True)]:
-        monkeypatch.setattr(gui_mod.QInputDialog, 'getMultiLineText', lambda *a, **k: reply)
+    gui.note_button.click()
+    gui.note_dialog.setTextValue('a note')
+    gui.note_dialog.reject()                       # cancelled
+
+    for blank in ['', '   ']:
         gui.note_button.click()
+        gui.note_dialog.setTextValue(blank)
+        gui.note_dialog.accept()
 
     import h5py
     with h5py.File(f'{gui.data.data_directory}/nothing_written.hdf5', 'r') as f:
         assert list(f['/Notes'].attrs) == []
+
+
+def test_a_note_is_not_misfiled_into_an_experiment_it_is_not_about(experiment_gui, monkeypatch,
+                                                                   tmp_path):
+    """Modeless means the user can load a different experiment while typing. Writing the note into
+    whichever file happens to be open at that moment would put it somewhere it does not belong,
+    silently."""
+    import stimpack.experiment.gui as gui_mod
+
+    gui = experiment_gui
+    dialog = _open_note_dialog(gui, 'first')
+    dialog.setTextValue('about the first experiment')
+
+    gui.data.experiment_file_name = 'second'       # as loading another experiment would
+    gui.data.initialize_experiment_file()
+
+    alerts = []
+    monkeypatch.setattr(gui_mod, 'open_message_window',
+                        lambda title="", text="": alerts.append((title, text)))
+    dialog.accept()
+
+    import h5py
+    for name in ('first', 'second'):
+        with h5py.File(f'{gui.data.data_directory}/{name}.hdf5', 'r') as f:
+            assert list(f['/Notes'].attrs) == [], f'note landed in {name}'
+    assert alerts and 'about the first experiment' in alerts[0][1], 'the text was not handed back'
 
 
 def test_the_note_dialog_is_refused_before_it_opens_without_a_file(experiment_gui, monkeypatch):
@@ -804,15 +874,14 @@ def test_the_note_dialog_is_refused_before_it_opens_without_a_file(experiment_gu
     import stimpack.experiment.gui as gui_mod
 
     gui = experiment_gui
-    alerts, asked = [], []
+    alerts = []
     monkeypatch.setattr(gui_mod, 'open_message_window',
                         lambda title="", text="": alerts.append((title, text)))
-    monkeypatch.setattr(gui_mod.QInputDialog, 'getMultiLineText',
-                        lambda *a, **k: asked.append(1) or ('', False))
 
     gui.note_button.click()
 
-    assert asked == [], 'asked for a note it had nowhere to save'
+    assert gui.note_dialog is None, 'opened a dialog it had nowhere to save'
+    assert alerts
     assert alerts and 'before writing a note' in alerts[0][1]
 
 
