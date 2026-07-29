@@ -31,11 +31,11 @@ CFG = {
 class _Protocol:
     """Minimal stand-in with the attributes the data object reads."""
     def __init__(self, stim_params=None):
-        self.run_parameters = {"num_epochs": 2, "idle_color": 0.0}
+        self.run_parameters = {"num_trials": 2, "idle_color": 0.0}
         self.protocol_parameters = {"angle": [0, 90]}
-        self.epoch_stim_parameters = stim_params if stim_params is not None else {"name": "StimA"}
-        self.epoch_protocol_parameters = {"pre_time": 1.0, "stim_time": 2.0, "tail_time": 1.0}
-        self.num_epochs_completed = 0
+        self.trial_stim_parameters = stim_params if stim_params is not None else {"name": "StimA"}
+        self.trial_protocol_parameters = {"pre_time": 1.0, "stim_time": 2.0, "tail_time": 1.0}
+        self.num_trials_completed = 0
         self.save_stringified_params = False
 
 
@@ -60,7 +60,7 @@ def test_is_a_basedata():
         'initialize_experiment_file', 'load_experiment', 'prepare_series',
         'experiment_file_exists', 'current_subject_exists',
         'create_subject', 'update_subject', 'select_subject', 'get_existing_subject_data',
-        'create_epoch_run', 'end_epoch_run', 'create_epoch', 'end_epoch', 'create_note',
+        'create_series', 'end_series', 'create_trial', 'end_trial', 'create_note',
         'get_existing_series', 'get_highest_series_count', 'get_series_count',
         'update_series_count', 'advance_series_count', 'reload_series_count',
         'get_server_subdir',
@@ -234,8 +234,8 @@ def test_end_epoch_run_records_status_and_reason(tmp_path):
     data = _make_data(tmp_path)
     data.prepare_series()
     proto = _Protocol()
-    data.create_epoch_run(proto)
-    data.end_epoch_run(proto, status='aborted', reason='server_connection_lost')
+    data.create_series(proto)
+    data.end_series(proto, status='aborted', reason='server_connection_lost')
 
     row = _epochs_table(data).iloc[0]
     assert row['run_status'] == 'aborted'
@@ -247,8 +247,8 @@ def test_end_epoch_run_defaults_to_completed(tmp_path):
     data = _make_data(tmp_path)
     data.prepare_series()
     proto = _Protocol()
-    data.create_epoch_run(proto)
-    data.end_epoch_run(proto)
+    data.create_series(proto)
+    data.end_series(proto)
 
     row = _epochs_table(data).iloc[0]
     assert row['run_status'] == 'completed'
@@ -257,35 +257,35 @@ def test_end_epoch_run_defaults_to_completed(tmp_path):
 
 def test_end_epoch_run_without_an_epoch_run_does_not_raise(tmp_path):
     """The client calls this from a finally block, so it runs even when the run failed before
-    create_epoch_run stored anything. Popping epoch_start_time then raised KeyError from inside
+    create_series stored anything. Popping epoch_start_time then raised KeyError from inside
     the error handler, hiding whatever actually went wrong."""
-    data = _make_data(tmp_path, subject=None)      # no subject -> create_epoch_run bails out
+    data = _make_data(tmp_path, subject=None)      # no subject -> create_series bails out
     proto = _Protocol()
-    data.create_epoch_run(proto)
+    data.create_series(proto)
     with pytest.warns(UserWarning, match='No epoch run to close out'):
-        data.end_epoch_run(proto, status='error', reason='boom')
+        data.end_series(proto, status='error', reason='boom')
 
 
 def test_end_epoch_run_without_a_series_file_does_not_raise(tmp_path):
     """A run that failed before prepare_series has no file to append to."""
     data = _make_data(tmp_path)
     proto = _Protocol()
-    data.create_epoch_run(proto)                   # parameters exist...
+    data.create_series(proto)                   # parameters exist...
     assert not os.path.isfile(data.get_nwb_file_path())   # ...but the file does not
     with pytest.warns(UserWarning, match='No NWB file at'):
-        data.end_epoch_run(proto, status='error', reason='boom')
+        data.end_series(proto, status='error', reason='boom')
 
 
 def test_a_full_series_round_trips(tmp_path):
     data = _make_data(tmp_path)
     data.prepare_series()
     proto = _Protocol()
-    data.create_epoch_run(proto)
+    data.create_series(proto)
     for _ in range(2):
-        data.create_epoch(proto)
-        data.end_epoch(proto)
-        proto.num_epochs_completed += 1
-    data.end_epoch_run(proto)
+        data.create_trial(proto)
+        data.end_trial(proto)
+        proto.num_trials_completed += 1
+    data.end_series(proto)
 
     with NWBHDF5IO(data.get_nwb_file_path(), 'r') as io:
         nwbfile = io.read()
@@ -308,21 +308,21 @@ def test_notes_go_to_a_csv_beside_the_series_files(tmp_path):
 
 
 def test_create_epoch_without_a_subject_does_not_collect_parameters(tmp_path):
-    """Warning and carrying on only defers the failure to end_epoch, which then reports a missing
+    """Warning and carrying on only defers the failure to end_trial, which then reports a missing
     file instead of the missing subject that caused it."""
     data = _make_data(tmp_path, subject=None)
     with pytest.warns(UserWarning, match='define a subject first'):
-        data.create_epoch(_Protocol())
+        data.create_trial(_Protocol())
     assert data.trial_parameters == {}
 
 
 def test_end_epoch_without_a_series_file_does_not_raise(tmp_path):
     """Called once per epoch during a run; a run not saving metadata must not raise every epoch."""
     data = _make_data(tmp_path)
-    data.create_epoch(_Protocol())                        # parameters collected...
+    data.create_trial(_Protocol())                        # parameters collected...
     assert not os.path.isfile(data.get_nwb_file_path())   # ...but no file was ever written
     with pytest.warns(UserWarning, match='No NWB file at'):
-        data.end_epoch(_Protocol())
+        data.end_trial(_Protocol())
 
 
 def test_end_epoch_with_nothing_collected_is_silent(tmp_path):
@@ -331,4 +331,4 @@ def test_end_epoch_with_nothing_collected_is_silent(tmp_path):
     data = _make_data(tmp_path, subject=None)
     with warnings.catch_warnings():
         warnings.simplefilter('error')
-        data.end_epoch(_Protocol())
+        data.end_trial(_Protocol())

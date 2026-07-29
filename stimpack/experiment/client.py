@@ -35,6 +35,7 @@ from stimpack.experiment.util import config_tools
 from stimpack.device import daq
 from stimpack.device.locomotion.loco_managers.keytrac_managers import KeytracClosedLoopManager
 from stimpack.util import ROOT_DIR
+from stimpack.experiment.deprecated_names import add_deprecated_aliases, _warn_once
 
 # How often the run loop looks up while paused. Nothing is being presented or recorded in that
 # state and it is waiting on somebody to press Resume, so this only has to beat human reaction
@@ -57,8 +58,8 @@ class BaseClient():
         self.protocol_object = None
         # Which epoch is running, and why the last one ended early (None if it ran its full
         # length). Both are per-epoch, reset as each begins.
-        self.current_epoch_index = None
-        self.epoch_end_reason = None
+        self.current_trial_index = None
+        self.trial_end_reason = None
         # Pause has two states, and they are not the same thing. `pause` is what the user asked
         # for, set the instant the button is pressed; `paused_since` is when the run loop actually
         # went idle, which cannot happen until the epoch in progress finishes. Between the two the
@@ -139,10 +140,13 @@ class BaseClient():
 
         # Let the server push warnings/errors back to us; delivered when we drain the queue (run loop).
         self.manager.register_function(self.report_server_message, name='report_server_message')
-        # Lets the server end an epoch early -- see BaseServer.end_epoch. Registered here rather
+        # Lets the server end an epoch early -- see BaseServer.end_trial. Registered here rather
         # than on BaseServer's side of the link because the server can only ask; the client is
         # what actually runs the epoch.
-        self.manager.register_function(self.stop_epoch, name='stop_epoch')
+        self.manager.register_function(self.stop_trial, name='stop_trial')
+        # Under its old name too: these are wire names, so a server from before 0.3 -- or a
+        # labpack device calling manager.stop_epoch(...) -- still reaches the right method.
+        self.manager.register_function(self.stop_trial, name='stop_epoch')
 
         # The server advertises its modules as soon as it accepts the connection, but that message
         # only takes effect once we drain the queue. Wait briefly for it here so protocols can rely
@@ -170,16 +174,19 @@ class BaseClient():
                 else:
                     self.manager.target('visual').import_stim_module(path)
 
-    def stop_epoch(self, epoch_index=None, reason=None):
+    def stop_trial(self, trial_index=None, reason=None, epoch_index=None):
         """
         End the current epoch's remaining wait, without stopping the run.
 
         The protocol's pre / stimulus / tail intervals are interruptible sleeps (see
         BaseProtocol.sleep); this is what interrupts them. Called locally by stop_run, and
         remotely by the server for a trial whose length depends on the animal's behaviour
-        (BaseServer.end_epoch).
+        (BaseServer.end_trial).
 
-        :param epoch_index: the epoch this was meant for. A request is ignored if that epoch has
+        :param epoch_index: the pre-0.3 name for trial_index. This is a wire signature -- a
+            server from before 0.3 stamps its request with epoch_index -- so it is accepted here
+            rather than only as a method alias.
+        :param trial_index: the epoch this was meant for. A request is ignored if that epoch has
             already ended -- without this, one sent as an epoch was finishing would arrive during
             the next and cut it short, which is close to invisible in the data. None (the local
             Stop button) always applies to whatever is running now.
@@ -191,18 +198,22 @@ class BaseClient():
         if protocol_object is None:
             return
 
-        if epoch_index is not None and epoch_index != getattr(self, 'current_epoch_index', None):
+        if epoch_index is not None and trial_index is None:
+            _warn_once('epoch_index', 'trial_index', 'Argument')
+            trial_index = epoch_index
+
+        if trial_index is not None and trial_index != getattr(self, 'current_trial_index', None):
             return          # meant for an epoch that has already ended
 
-        self.epoch_end_reason = reason
-        protocol_object.stop_epoch()
+        self.trial_end_reason = reason
+        protocol_object.stop_trial()
 
     def stop_run(self):
         self.stop = True
         # Cut the epoch in progress short as well. Without this, Stop is not acted on until the
         # epoch ends -- so stopping a run with long epochs meant watching the current one finish,
         # which is no use when the reason for stopping is what is on the screen.
-        self.stop_epoch()
+        self.stop_trial()
         QApplication.processEvents()
 
     def pause_run(self):
@@ -262,7 +273,7 @@ class BaseClient():
             self.server_error = text        # always, even on a repeat: this aborts the run
             # End the epoch's wait too: the run loop checks server_error between epochs, so
             # without this an error reported mid-epoch is not acted on until that epoch finishes.
-            self.stop_epoch()
+            self.stop_trial()
 
         key = (level, text)
         self._message_counts[key] = self._message_counts.get(key, 0) + 1
@@ -300,7 +311,7 @@ class BaseClient():
         self.manager.target('visual').set_idle_background(get_rgba(protocol_object.run_parameters.get('idle_color', 0)))
 
         if save_metadata_flag:
-            data.create_epoch_run(protocol_object)
+            data.create_series(protocol_object)
         else:
             print('Warning - you are not saving your metadata!')
 
@@ -319,7 +330,7 @@ class BaseClient():
             self.start_loco_loop()
 
         # # # Epoch run loop # # #
-        # run_status is recorded on the series group at the end (data.end_epoch_run). The try/finally
+        # run_status is recorded on the series group at the end (data.end_series). The try/finally
         # guarantees a clean teardown + a recorded outcome even if the run aborts or raises.
         run_status, run_status_reason = 'completed', None
         try:
@@ -331,7 +342,7 @@ class BaseClient():
             if self.server_error is None:
                 self.manager.print_on_server("Starting run.")
                 protocol_object.on_run_start(self.manager)
-            while protocol_object.num_epochs_completed < protocol_object.run_parameters['num_epochs']:
+            while protocol_object.num_trials_completed < protocol_object.run_parameters['num_trials']:
                 QApplication.processEvents()
 
                 # Drain anything the server pushed back (e.g. an error) and act on it.
@@ -370,7 +381,7 @@ class BaseClient():
                     if self.paused_since is not None:
                         self._close_out_pause()
                         self.manager.print_on_server('Resumed.')
-                    self.start_epoch(protocol_object, data, save_metadata_flag=save_metadata_flag)
+                    self.start_trial(protocol_object, data, save_metadata_flag=save_metadata_flag)
         except Exception as e:
             run_status, run_status_reason = 'error', f'{type(e).__name__}: {e}'
             warnings.warn(f"Run aborted by exception:\n{traceback.format_exc()}")
@@ -402,11 +413,11 @@ class BaseClient():
             # actually went wrong with a failure from the cleanup, and -- since start_run is called
             # on a QThread, where an exception out of run() aborts the process -- takes the GUI
             # down with it. That is exactly what happened when a bad epoch write left an NWB file
-            # that end_epoch_run could not then read: the real error was reported, and then the
+            # that end_series could not then read: the real error was reported, and then the
             # application core-dumped while trying to record that it had failed.
             if save_metadata_flag:
                 try:
-                    data.end_epoch_run(protocol_object, status=run_status, reason=run_status_reason,
+                    data.end_series(protocol_object, status=run_status, reason=run_status_reason,
                                        paused_seconds=self.paused_seconds)
                 except Exception:
                     # Loudly. Whatever stopped the outcome being written stopped it part-way, so
@@ -438,24 +449,24 @@ class BaseClient():
         except Exception:
             warnings.warn(f"on_data_error callback failed:\n{traceback.format_exc()}")
 
-    def start_epoch(self, protocol_object:BaseProtocol, data:BaseData, save_metadata_flag:bool=True):
+    def start_trial(self, protocol_object:BaseProtocol, data:BaseData, save_metadata_flag:bool=True):
         #  get stimulus parameters for this epoch
-        if protocol_object.use_precomputed_epoch_parameters:
-            protocol_object.load_precomputed_epoch_parameters()
+        if protocol_object.use_precomputed_trial_parameters:
+            protocol_object.load_precomputed_trial_parameters()
         else:
-            protocol_object.get_epoch_parameters()
+            protocol_object.get_trial_parameters()
         
         # Check that all required epoch protocol parameters are set
-        protocol_object.check_required_epoch_protocol_parameters()
+        protocol_object.check_required_trial_protocol_parameters()
 
-        # Tell the server which epoch this is, so it can stamp an end_epoch request and we can
+        # Tell the server which epoch this is, so it can stamp an end_trial request and we can
         # tell a late one from a current one.
-        self.current_epoch_index = protocol_object.num_epochs_completed
-        self.epoch_end_reason = None
-        self.manager.set_current_epoch(self.current_epoch_index)
+        self.current_trial_index = protocol_object.num_trials_completed
+        self.trial_end_reason = None
+        self.manager.set_current_trial(self.current_trial_index)
 
         if save_metadata_flag:
-            data.create_epoch(protocol_object)
+            data.create_trial(protocol_object)
 
         # Send triggering TTL through the DAQ device (if device is set)
         if protocol_object.trigger_on_epoch is True:
@@ -463,7 +474,7 @@ class BaseClient():
                 print("Triggering acquisition devices.")
                 self.trigger_device.send_trigger()
 
-        self.manager.print_on_server(f'Epoch {protocol_object.num_epochs_completed}')
+        self.manager.print_on_server(f'Epoch {protocol_object.num_trials_completed}')
 
         # Use the protocol object to send the stimulus to stimpack.visual_stim
         protocol_object.load_stimuli(self.manager)
@@ -472,12 +483,12 @@ class BaseClient():
 
         self.manager.print_on_server('Epoch completed.')
 
-        # Nothing is running now, so a late end_epoch has nothing to cut short.
-        self.current_epoch_index = None
-        self.manager.set_current_epoch(None)
+        # Nothing is running now, so a late end_trial has nothing to cut short.
+        self.current_trial_index = None
+        self.manager.set_current_trial(None)
 
         if save_metadata_flag:
-            data.end_epoch(protocol_object, reason=self.epoch_end_reason)
+            data.end_trial(protocol_object, reason=self.trial_end_reason)
         
         protocol_object.advance_epoch_counter()
 
@@ -539,3 +550,11 @@ class BaseClient():
                 self.local_server.close()
             except Exception as e:
                 warnings.warn(f"Error closing local server: {type(e).__name__}: {e}")
+
+
+add_deprecated_aliases(
+    BaseClient,
+    methods=[('start_epoch', 'start_trial'), ('stop_epoch', 'stop_trial')],
+    attributes=[('current_epoch_index', 'current_trial_index'),
+                ('epoch_end_reason', 'trial_end_reason')],
+)

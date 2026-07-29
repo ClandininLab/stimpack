@@ -17,11 +17,11 @@ def experiment(tmp_path):
     from stimpack.experiment.data import BaseData
 
     class Proto:
-        run_parameters = {'num_epochs': 2, 'idle_color': 0.0}
+        run_parameters = {'num_trials': 2, 'idle_color': 0.0}
         protocol_parameters = {'angle': [0, 90]}
-        epoch_stim_parameters = {'name': 'DriftingSquareGrating'}
-        epoch_protocol_parameters = {'pre_time': 1.0, 'stim_time': 2.0, 'tail_time': 1.0}
-        num_epochs_completed = 0
+        trial_stim_parameters = {'name': 'DriftingSquareGrating'}
+        trial_protocol_parameters = {'pre_time': 1.0, 'stim_time': 2.0, 'tail_time': 1.0}
+        num_trials_completed = 0
 
     data = BaseData(cfg={})
     data.data_directory = str(tmp_path)
@@ -29,10 +29,10 @@ def experiment(tmp_path):
     data.initialize_experiment_file()
     data.create_subject({'subject_id': 'fly1', 'age': 3, 'notes': 'healthy'})
     proto = Proto()
-    data.create_epoch_run(proto)
-    data.create_epoch(proto)
-    data.end_epoch(proto)
-    data.end_epoch_run(proto)
+    data.create_series(proto)
+    data.create_trial(proto)
+    data.end_trial(proto)
+    data.end_series(proto)
     data.create_subject({'subject_id': 'fly2', 'age': 5, 'notes': ''})
     return data
 

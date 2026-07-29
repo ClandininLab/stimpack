@@ -18,24 +18,24 @@ pytestmark = pytest.mark.e2e
 class LiveProtocol(BaseProtocol):
     """A real 2-epoch protocol using a real built-in stimulus, with short timings."""
     stim_name = 'MovingSpot'
-    on_epoch = None
+    on_trial = None
 
     def get_run_parameter_defaults(self):
-        return {'num_epochs': 2, 'idle_color': 0.5, 'do_loco': False}
+        return {'num_trials': 2, 'idle_color': 0.5, 'do_loco': False}
 
     def get_protocol_parameter_defaults(self):
         return {'pre_time': 0.05, 'stim_time': 0.15, 'tail_time': 0.05, 'radius': [10.0, 20.0]}
 
-    def get_epoch_parameters(self):
-        super().get_epoch_parameters()
-        self.epoch_stim_parameters = {'name': self.stim_name,
-                                      'radius': self.epoch_protocol_parameters['radius'],
+    def get_trial_parameters(self):
+        super().get_trial_parameters()
+        self.trial_stim_parameters = {'name': self.stim_name,
+                                      'radius': self.trial_protocol_parameters['radius'],
                                       'sphere_radius': 1, 'color': [1, 1, 1, 1],
                                       'theta': 0, 'phi': 0}
 
     def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
-        if self.on_epoch is not None:
-            self.on_epoch(self)
+        if self.on_trial is not None:
+            self.on_trial(self)
         super().start_stimuli(manager, append_stim_frames=append_stim_frames,
                               print_profile=print_profile, multicall=multicall)
 
@@ -116,13 +116,13 @@ def test_full_experiment_series_end_to_end(live_client, live_data):
     protocol = LiveProtocol(cfg={})
     live_client.start_run(protocol, live_data, save_metadata_flag=True)
 
-    assert protocol.num_epochs_completed == 2
+    assert protocol.num_trials_completed == 2
 
     path = f'{live_data.data_directory}/{live_data.experiment_file_name}.hdf5'
     with h5py.File(path, 'r') as f:
         series = f['/Subjects/subj_e2e/epoch_runs/series_001']
         assert series.attrs['run_status'] == 'completed'
-        assert series.attrs['num_epochs_completed'] == 2
+        assert series.attrs['num_trials_completed'] == 2
         assert series.attrs['protocol_ID'] == 'LiveProtocol'
         epochs = list(series['epochs'].keys())
         assert len(epochs) == 2
@@ -135,11 +135,11 @@ def test_full_experiment_series_end_to_end(live_client, live_data):
 def test_stopping_a_live_run_halts_it(live_client, live_data):
     """Stop mid-series against the live server, exactly as the GUI's Stop button does."""
     protocol = LiveProtocol(cfg={})
-    protocol.on_epoch = lambda p: live_client.stop_run() if p.num_epochs_completed == 0 else None
+    protocol.on_trial = lambda p: live_client.stop_run() if p.num_trials_completed == 0 else None
 
     live_client.start_run(protocol, live_data, save_metadata_flag=True)
 
-    assert protocol.num_epochs_completed == 1
+    assert protocol.num_trials_completed == 1
     path = f'{live_data.data_directory}/{live_data.experiment_file_name}.hdf5'
     with h5py.File(path, 'r') as f:
         series = f['/Subjects/subj_e2e/epoch_runs/series_001']
@@ -152,7 +152,7 @@ def test_live_run_aborts_when_the_protocol_asks_for_a_bad_stimulus(live_client, 
     protocol.stim_name = 'NoSuchStimulus_E2E_Run'
     # More epochs = more between-epoch checkpoints at which the error can be noticed. The run aborts
     # at the first one, so this doesn't slow the passing case; it only removes the race.
-    protocol.run_parameters['num_epochs'] = 4
+    protocol.run_parameters['num_trials'] = 4
     # The error has to cross three processes (screen -> VisualStimServer -> BaseServer -> client)
     # before the client's next between-epoch check. Give epoch 0 a comfortably longer duration than
     # that propagation takes, so the assertion isn't racing it.
@@ -169,7 +169,7 @@ def test_live_run_aborts_when_the_protocol_asks_for_a_bad_stimulus(live_client, 
         series = f['/Subjects/subj_e2e/epoch_runs/series_001']
         assert series.attrs['run_status'] == 'error'
         assert 'abort_reason' in series.attrs
-    assert protocol.num_epochs_completed < 2         # did not run the whole series
+    assert protocol.num_trials_completed < 2         # did not run the whole series
 
 
 def test_root_function_names_match_a_live_server(live_server):
@@ -199,21 +199,21 @@ def test_a_live_server_can_end_an_epoch_early(live_server, live_manager, live_cl
         # state_update is what just arrived; subject_state is what it was before. Testing the
         # latter alone would fire one update late -- or never, on a single update.
         if state_update.get('x', subject_state.get('x', 0)) > 0.5:
-            server.end_epoch(reason='reached_goal')
+            server.end_trial(reason='reached_goal')
             ended.append(True)
         return state_update
 
     live_server.loaded_custom_state_dependent_control = control
-    live_manager.register_function(live_client.stop_epoch, name='stop_epoch')
+    live_manager.register_function(live_client.stop_trial, name='stop_trial')
 
     class GoalProtocol(BaseProtocol):
         def get_run_parameter_defaults(self):
-            return {'num_epochs': 1, 'idle_color': 0.5, 'do_loco': False}
+            return {'num_trials': 1, 'idle_color': 0.5, 'do_loco': False}
         def get_protocol_parameter_defaults(self):
             return {'pre_time': 0.0, 'stim_time': 30.0, 'tail_time': 0.0}
-        def get_epoch_parameters(self):
-            super().get_epoch_parameters()
-            self.epoch_stim_parameters = {'name': 'MovingSpot', 'radius': 10, 'sphere_radius': 1,
+        def get_trial_parameters(self):
+            super().get_trial_parameters()
+            self.trial_stim_parameters = {'name': 'MovingSpot', 'radius': 10, 'sphere_radius': 1,
                                           'color': [1, 1, 1, 1], 'theta': 0, 'phi': 0}
         def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
             # the "animal" reaches the goal 0.3 s in
@@ -230,7 +230,7 @@ def test_a_live_server_can_end_an_epoch_early(live_server, live_manager, live_cl
 
     assert ended, 'the closed-loop function never saw the state update'
     assert elapsed < 10, f'{elapsed:.1f}s: the 30 s epoch was not cut short'
-    assert protocol.num_epochs_completed == 1
+    assert protocol.num_trials_completed == 1
 
 
 class _NullData:

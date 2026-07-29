@@ -42,19 +42,19 @@ def test_prepare_run_picks_up_the_modules_from_the_manager():
 
     class Tiny(BaseProtocol):
         def get_run_parameter_defaults(self):
-            return {'num_epochs': 1, 'idle_color': 0.5, 'do_loco': False}
+            return {'num_trials': 1, 'idle_color': 0.5, 'do_loco': False}
         def get_protocol_parameter_defaults(self):
             return {'pre_time': 0.0, 'stim_time': 0.0, 'tail_time': 0.0}
-        def get_epoch_parameters(self):
-            super().get_epoch_parameters()
-            self.epoch_stim_parameters = {'name': 'FakeStim'}
+        def get_trial_parameters(self):
+            super().get_trial_parameters()
+            self.trial_stim_parameters = {'name': 'FakeStim'}
 
     manager = FakeManager()
     manager.available_modules = {'visual', 'voltage_out'}
     protocol = Tiny(cfg={})
     protocol.prepare_run(manager=manager)
 
-    # available before precompute runs, so has_module() is usable inside get_epoch_parameters too
+    # available before precompute runs, so has_module() is usable inside get_trial_parameters too
     assert protocol.available_modules == {'visual', 'voltage_out'}
     assert protocol.has_module('voltage_out') is True
     assert protocol.has_module('locomotion') is False

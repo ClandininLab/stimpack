@@ -109,12 +109,12 @@ def test_save_preset_via_input_dialog(experiment_gui, tmp_path, monkeypatch):
     select_protocol(gui)
     gui.protocol_object.parameter_preset_directory = str(tmp_path)   # don't write into the repo
 
-    gui.run_parameter_input['num_epochs'].setText('11')
+    gui.run_parameter_input['num_trials'].setText('11')
     monkeypatch.setattr(gui_mod.QInputDialog, 'getText', lambda *a, **k: ('my_preset', True))
     button(gui, 'Save preset').click()
 
     assert 'my_preset' in gui.protocol_object.parameter_presets
-    assert gui.protocol_object.parameter_presets['my_preset']['run_parameters']['num_epochs'] == 11
+    assert gui.protocol_object.parameter_presets['my_preset']['run_parameters']['num_trials'] == 11
     assert gui.parameter_preset_comboBox.findText('my_preset') >= 0   # offered in the dropdown
     assert (tmp_path / 'DriftingSquareGrating.yaml').exists()         # persisted to disk
 

@@ -21,6 +21,7 @@ from stimpack.rpc.util import start_daemon_thread, find_free_port
 from stimpack.rpc.transceiver import MySocketServer, reject_private_attribute
 
 from stimpack.experiment.util import config_tools
+from stimpack.experiment.deprecated_names import add_deprecated_aliases
 
 from stimpack.util import ROOT_DIR
 
@@ -39,9 +40,13 @@ MODULE_ALIASES = {'daq': 'voltage_out'}
 ROOT_FUNCTION_NAMES = frozenset({
     'print_on_server',
     'set_subject_state',
-    'set_current_epoch',
+    'set_current_trial',
     'load_server_side_state_dependent_control',
     'unload_server_side_state_dependent_control',
+    # Deprecated wire names, registered so a pre-0.3 client still reaches the right method. Listed
+    # here because they are genuinely registered: leaving them out would have --check-labpack
+    # report a call that works as one that lands nowhere, which is worse than not mentioning it.
+    'set_current_epoch',
 })
 
 # Targets a request may name. Modules present depend on the rig (a rig with no voltage-out hardware
@@ -115,7 +120,9 @@ class BaseServer(MySocketServer):
         self.functions_on_root = {}
         self.register_function_on_root(lambda x: print(x), "print_on_server")
         self.register_function_on_root(self.set_subject_state, "set_subject_state")
-        self.register_function_on_root(self.set_current_epoch, "set_current_epoch")
+        self.register_function_on_root(self.set_current_trial, "set_current_trial")
+        # Wire names, so a client from before 0.3 keeps working against this server.
+        self.register_function_on_root(self.set_current_trial, "set_current_epoch")
         self.register_function_on_root(self.load_server_side_state_dependent_control, "load_server_side_state_dependent_control")
         self.register_function_on_root(self.unload_server_side_state_dependent_control, "unload_server_side_state_dependent_control")
 
@@ -129,9 +136,9 @@ class BaseServer(MySocketServer):
         self.loaded_custom_state_dependent_control = None
 
         # Which epoch the client is running, set by the client as each one starts. Used to stamp
-        # end_epoch() so a request cannot arrive late and cut short the epoch after the one it was
+        # end_trial() so a request cannot arrive late and cut short the epoch after the one it was
         # meant for. None between epochs, when there is nothing to end.
-        self.current_epoch_index = None
+        self.current_trial_index = None
 
         # set the subject position parameters
         self.subject_state = {}
@@ -323,16 +330,16 @@ class BaseServer(MySocketServer):
         '''
         [module.on_connection_close() for module in self.modules.values()]
         
-    def set_current_epoch(self, epoch_index):
+    def set_current_trial(self, trial_index):
         """
         Told by the client as each epoch begins, and set to None when it ends.
 
-        Only used to stamp :meth:`end_epoch`; the server does not otherwise care which epoch is
+        Only used to stamp :meth:`end_trial`; the server does not otherwise care which epoch is
         running.
         """
-        self.current_epoch_index = epoch_index
+        self.current_trial_index = trial_index
 
-    def end_epoch(self, reason=None):
+    def end_trial(self, reason=None):
         """
         Ask the client to end the epoch in progress early, and go on to the next one.
 
@@ -346,7 +353,7 @@ class BaseServer(MySocketServer):
 
             def server_side_state_dependent_control(server, subject_state, state_update):
                 if subject_state['x'] > 0.5:
-                    server.end_epoch(reason='reached_goal')
+                    server.end_trial(reason='reached_goal')
                 return state_update
 
         :param reason: recorded with the epoch, so a trial that ended early can be told apart
@@ -359,10 +366,10 @@ class BaseServer(MySocketServer):
         This ends one epoch. To stop the whole run, report an error instead
         (:meth:`report_to_client`), which aborts it and records why.
         """
-        if self.current_epoch_index is None:
+        if self.current_trial_index is None:
             return
-        self.write_request_list([{'name': 'stop_epoch',
-                                  'args': [], 'kwargs': {'epoch_index': self.current_epoch_index,
+        self.write_request_list([{'name': 'stop_trial',
+                                  'args': [], 'kwargs': {'trial_index': self.current_trial_index,
                                                          'reason': reason}}])
 
     ### Functions for setting subject state ###
@@ -397,3 +404,10 @@ class BaseServer(MySocketServer):
         Unload custom state-dependent control function.
         '''
         self.loaded_custom_state_dependent_control = None
+
+# The pre-0.3 spelling. Labpack device code calls server.end_epoch(...) to end a trial on
+# behaviour; see the behaviour-ended trials guide.
+add_deprecated_aliases(
+    BaseServer,
+    methods=[('end_epoch', 'end_trial'), ('set_current_epoch', 'set_current_trial')],
+)

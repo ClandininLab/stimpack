@@ -78,7 +78,7 @@ class NWBData(BaseData):
     def __init__(self, cfg):
         super().__init__(cfg)
         self.subject = None
-        # Set here rather than only in create_epoch_run / create_epoch, so the end_* methods can
+        # Set here rather than only in create_series / create_trial, so the end_* methods can
         # ask whether there is anything to write without tripping over a missing attribute --
         # they run from the client's finally block, after failures that never got that far.
         self.epoch_parameters = {}
@@ -262,7 +262,7 @@ class NWBData(BaseData):
     create_data_file = prepare_series
 
 
-    def create_epoch_run(self, protocol_object):
+    def create_series(self, protocol_object):
         """
         Store the protocol parameters and the protocol ID.
         """
@@ -287,12 +287,12 @@ class NWBData(BaseData):
             
             # Given that we are using epochs, epochs in nwb for your "epochs runs" and "trials " for your "epochs" 
             # I am going to shift the nomencalture to be consistent with nwb
-            self.epoch_parameters["num_trials"] = self.epoch_parameters.get("num_epochs", "")
+            self.epoch_parameters["num_trials"] = self.epoch_parameters.get("num_trials", "")
             
         else:
             print('Create an nwb file directory and/or define a subject first')
 
-    def end_epoch_run(self, protocol_object, status='completed', reason=None, paused_seconds=0.0):
+    def end_series(self, protocol_object, status='completed', reason=None, paused_seconds=0.0):
         """
         NWB requires the stop time to be set when the epoch is created
         So this function is called after an epoch run is concluded and this adds an entry
@@ -305,7 +305,7 @@ class NWBData(BaseData):
         runs that finished. Everything below therefore has to cope with a run that never got as
         far as creating its epoch parameters or its file.
         """
-        # create_epoch_run bails out (leaving epoch_parameters empty) when there is no subject or
+        # create_series bails out (leaving epoch_parameters empty) when there is no subject or
         # no directory, and the client still reaches its finally block. Popping a key that was
         # never set would then raise from inside the error handler, replacing whatever actually
         # went wrong with a bare KeyError.
@@ -411,7 +411,7 @@ class NWBData(BaseData):
             # Write the nwbfile to disk
             io.write(subject_nwbfile)
             
-    def create_epoch(self, protocol_object):
+    def create_trial(self, protocol_object):
         """
         This loads the data from the protocol object stim parameters.
         Then, when the epoch is concluded, we add the data as a row of the trials table.
@@ -420,7 +420,7 @@ class NWBData(BaseData):
         self.trial_parameters = {}
         if not (self.current_subject_exists() and self.experiment_file_exists()):
             # Return, rather than warning and carrying on: collecting parameters for an epoch
-            # that has nowhere to go only defers the failure to end_epoch, which then reports a
+            # that has nowhere to go only defers the failure to end_trial, which then reports a
             # missing file instead of the missing subject that actually caused it.
             warnings.warn(f'Create an {self.output_noun} and/or define a subject first; '
                           f'this epoch will not be saved.')
@@ -429,54 +429,54 @@ class NWBData(BaseData):
         self.trial_parameters['trial_start_time'] = datetime.now(self.timezone).timestamp()
 
         if protocol_object.save_stringified_params:
-            assert hasattr(protocol_object, 'all_epoch_stim_parameter_keys'), 'must specify a list of all_epoch_stim_parameter_keys within protocol object to use save_stringified_params flag'
-            for key in protocol_object.all_epoch_stim_parameter_keys:
-                if key in protocol_object.epoch_stim_parameters:
+            assert hasattr(protocol_object, 'all_trial_stim_parameter_keys'), 'must specify a list of all_trial_stim_parameter_keys within protocol object to use save_stringified_params flag'
+            for key in protocol_object.all_trial_stim_parameter_keys:
+                if key in protocol_object.trial_stim_parameters:
                     # Note string-ifying everything so we can build a big trial matrix with potentially different data types across trials within a column
-                    self.trial_parameters[key] = str(protocol_object.epoch_stim_parameters[key])
+                    self.trial_parameters[key] = str(protocol_object.trial_stim_parameters[key])
                 else:  # store a dummy value
                     self.trial_parameters[key] = str(None)
 
         else:
             # Extract epoch stim parameters
-            if type(protocol_object.epoch_stim_parameters) is tuple:  # stimulus is tuple of multiple stims layered on top of one another
-                num_stims = len(protocol_object.epoch_stim_parameters)
+            if type(protocol_object.trial_stim_parameters) is tuple:  # stimulus is tuple of multiple stims layered on top of one another
+                num_stims = len(protocol_object.trial_stim_parameters)
                 for stim_ind in range(num_stims):
                     
                     prefix = f"stim{stim_ind}_"
-                    for key in protocol_object.epoch_stim_parameters[stim_ind]:
-                        value = protocol_object.epoch_stim_parameters[stim_ind][key]
+                    for key in protocol_object.trial_stim_parameters[stim_ind]:
+                        value = protocol_object.trial_stim_parameters[stim_ind][key]
                         self.trial_parameters[prefix + key] = hdf5ify_parameter(value)
 
-            elif type(protocol_object.epoch_stim_parameters) is dict:  # single stim class
-                for key, value in protocol_object.epoch_stim_parameters.items():
+            elif type(protocol_object.trial_stim_parameters) is dict:  # single stim class
+                for key, value in protocol_object.trial_stim_parameters.items():
                     self.trial_parameters[key] = hdf5ify_parameter(value)
             
         # Extract and store protocol parameters
-        for key, value in protocol_object.epoch_protocol_parameters.items():
+        for key, value in protocol_object.trial_protocol_parameters.items():
             self.trial_parameters[key] = hdf5ify_parameter(value)
 
         # In NWB the name is reserved so I am adding a prefix
         self.trial_parameters["protocol"] = self.trial_parameters.pop("name", "")
 
-    def end_epoch(self, protocol_object, reason=None):
+    def end_trial(self, protocol_object, reason=None):
         """
         Finalize the trial information and add the trial to the trials table.
 
         :param reason: None if the epoch ran its full length, otherwise why it was cut short --
-            see BaseData.end_epoch. Recorded as trial columns, so a behaviour-ended trial can be
+            see BaseData.end_trial. Recorded as trial columns, so a behaviour-ended trial can be
             told from one that ran to time. The trials table already carries start and stop times,
             so the duration is there by construction.
 
-        Degrades quietly when there is nothing to write to, the same way create_epoch and
-        end_epoch_run do: this is called once per epoch during a run, and a run that is not
+        Degrades quietly when there is nothing to write to, the same way create_trial and
+        end_series do: this is called once per epoch during a run, and a run that is not
         saving metadata should not raise on every epoch.
         """
         if not self.trial_parameters or 'trial_start_time' not in self.trial_parameters:
             return
 
         self.trial_parameters['ended_early'] = reason is not None
-        self.trial_parameters['epoch_end_reason'] = str(reason) if reason is not None else ''
+        self.trial_parameters['trial_end_reason'] = str(reason) if reason is not None else ''
 
         nwbfile_path = self.get_nwb_file_path()
         if not os.path.isfile(nwbfile_path):

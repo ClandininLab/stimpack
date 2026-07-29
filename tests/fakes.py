@@ -52,7 +52,7 @@ class FakeManager:
 
     def push_server_request(self, name, *args, **kwargs):
         """Queue any request as if the server had sent it -- the server calls functions on the
-        client too, not only report_server_message (see BaseServer.end_epoch)."""
+        client too, not only report_server_message (see BaseServer.end_trial)."""
         self.inbox.append((name, args, kwargs))
 
 

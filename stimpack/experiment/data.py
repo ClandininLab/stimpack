@@ -26,6 +26,7 @@ from datetime import datetime
 import numpy as np
 
 from stimpack.experiment.util import config_tools
+from stimpack.experiment.deprecated_names import add_deprecated_aliases
 
 
 class BaseData():
@@ -175,7 +176,7 @@ class BaseData():
 
 
 
-    def create_epoch_run(self, protocol_object):
+    def create_series(self, protocol_object):
         """"
         """
         # create a new epoch run group in the data file
@@ -201,43 +202,43 @@ class BaseData():
         else:
             print('Create a data file and/or define a subject first')
 
-    def create_epoch(self, protocol_object):
+    def create_trial(self, protocol_object):
         """
         """
         if (self.current_subject_exists() and self.experiment_file_exists()):
             with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
                 epoch_unix_time = datetime.now().timestamp()
                 epoch_run_group = experiment_file['/Subjects/{}/epoch_runs/series_{}/epochs'.format(self.current_subject, str(self.series_count).zfill(3))]
-                new_epoch = epoch_run_group.create_group('epoch_{}'.format(str(protocol_object.num_epochs_completed+1).zfill(3)))
+                new_epoch = epoch_run_group.create_group('epoch_{}'.format(str(protocol_object.num_trials_completed+1).zfill(3)))
                 new_epoch.attrs['epoch_unix_time'] = epoch_unix_time
 
                 epoch_stim_parameters_group = new_epoch
                 # Handle both tuple and list of stims (protocol.load_stimuli supports a list too);
-                # otherwise a list-valued epoch_stim_parameters is silently not saved.
-                if type(protocol_object.epoch_stim_parameters) in (tuple, list):  # multiple stims layered on top of one another
-                    num_stims = len(protocol_object.epoch_stim_parameters)
+                # otherwise a list-valued trial_stim_parameters is silently not saved.
+                if type(protocol_object.trial_stim_parameters) in (tuple, list):  # multiple stims layered on top of one another
+                    num_stims = len(protocol_object.trial_stim_parameters)
                     for stim_ind in range(num_stims):
-                        for key in protocol_object.epoch_stim_parameters[stim_ind]:
+                        for key in protocol_object.trial_stim_parameters[stim_ind]:
                             prefix = 'stim{}_'.format(str(stim_ind))
-                            epoch_stim_parameters_group.attrs[prefix + key] = hdf5ify_parameter(protocol_object.epoch_stim_parameters[stim_ind][key])
+                            epoch_stim_parameters_group.attrs[prefix + key] = hdf5ify_parameter(protocol_object.trial_stim_parameters[stim_ind][key])
 
-                elif type(protocol_object.epoch_stim_parameters) is dict:  # single stim class
-                    for key in protocol_object.epoch_stim_parameters:
-                        epoch_stim_parameters_group.attrs[key] = hdf5ify_parameter(protocol_object.epoch_stim_parameters[key])
+                elif type(protocol_object.trial_stim_parameters) is dict:  # single stim class
+                    for key in protocol_object.trial_stim_parameters:
+                        epoch_stim_parameters_group.attrs[key] = hdf5ify_parameter(protocol_object.trial_stim_parameters[key])
 
                 epoch_protocol_parameters_group = new_epoch
-                for key in protocol_object.epoch_protocol_parameters:  # save out convenience parameters
-                    epoch_protocol_parameters_group.attrs[key] = hdf5ify_parameter(protocol_object.epoch_protocol_parameters[key])
+                for key in protocol_object.trial_protocol_parameters:  # save out convenience parameters
+                    epoch_protocol_parameters_group.attrs[key] = hdf5ify_parameter(protocol_object.trial_protocol_parameters[key])
 
         else:
             print('Create a data file and/or define a subject first')
 
-    def end_epoch(self, protocol_object, reason=None):
+    def end_trial(self, protocol_object, reason=None):
         """
         Record when the epoch ended, and why.
 
         :param reason: None if it ran its full length, otherwise why it was cut short -- the
-            string a labpack passed to BaseServer.end_epoch, for a trial ended by the animal's
+            string a labpack passed to BaseServer.end_trial, for a trial ended by the animal's
             behaviour.
 
         Also stores the epoch's actual duration. With a fixed stim_time that is redundant, but a
@@ -252,20 +253,20 @@ class BaseData():
         with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
             epoch_end_unix_time = datetime.now().timestamp()
             epoch_run_group = experiment_file['/Subjects/{}/epoch_runs/series_{}/epochs'.format(self.current_subject, str(self.series_count).zfill(3))]
-            epoch_group = epoch_run_group['epoch_{}'.format(str(protocol_object.num_epochs_completed+1).zfill(3))]
+            epoch_group = epoch_run_group['epoch_{}'.format(str(protocol_object.num_trials_completed+1).zfill(3))]
             epoch_group.attrs['epoch_end_unix_time'] = epoch_end_unix_time
             start = epoch_group.attrs.get('epoch_unix_time')
             if start is not None:
-                epoch_group.attrs['epoch_duration'] = epoch_end_unix_time - start
+                epoch_group.attrs['trial_duration'] = epoch_end_unix_time - start
             epoch_group.attrs['ended_early'] = reason is not None
             if reason is not None:
-                epoch_group.attrs['epoch_end_reason'] = str(reason)
+                epoch_group.attrs['trial_end_reason'] = str(reason)
 
-    def end_epoch_run(self, protocol_object, status='completed', reason=None, paused_seconds=0.0):
+    def end_series(self, protocol_object, status='completed', reason=None, paused_seconds=0.0):
         """
         Record the outcome of an epoch run as attributes on its series group.
 
-        There is otherwise no run-completion marker in the file (create_epoch_run only writes a start
+        There is otherwise no run-completion marker in the file (create_series only writes a start
         time), so this also gives every run an end timestamp and a completion status.
 
         :param status: 'completed' | 'stopped' | 'aborted' | 'error'
@@ -285,7 +286,7 @@ class BaseData():
                 return
             series_group.attrs['run_status'] = status
             series_group.attrs['run_end_unix_time'] = datetime.now().timestamp()
-            series_group.attrs['num_epochs_completed'] = int(protocol_object.num_epochs_completed)
+            series_group.attrs['num_trials_completed'] = int(protocol_object.num_trials_completed)
             series_group.attrs['paused_duration'] = float(paused_seconds)
             if reason is not None:
                 series_group.attrs['abort_reason'] = str(reason)
@@ -414,6 +415,18 @@ class BaseData():
         histories, for instance. Relative to the server's ``data_directory``.
         """
         return self.experiment_file_name
+
+
+# The pre-0.3 spelling. A labpack's own data class subclasses BaseData and calls these.
+add_deprecated_aliases(
+    BaseData,
+    methods=[
+        ('create_epoch', 'create_trial'),
+        ('end_epoch', 'end_trial'),
+        ('create_epoch_run', 'create_series'),
+        ('end_epoch_run', 'end_series'),
+    ],
+)
 
 
 def hdf5ify_parameter(value):

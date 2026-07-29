@@ -45,19 +45,19 @@ def test_selecting_a_protocol_populates_parameters(experiment_gui):
     assert protocol.__class__.__name__ == 'DriftingSquareGrating'
     assert gui.status_label.text() == 'Ready'
     # the parameter grid is populated from the protocol's defaults
-    assert 'num_epochs' in gui.run_parameter_input
+    assert 'num_trials' in gui.run_parameter_input
     assert 'period' in gui.protocol_parameter_input
-    assert protocol.run_parameters['num_epochs'] == 40
+    assert protocol.run_parameters['num_trials'] == 40
 
 
 def test_editing_a_parameter_field_updates_the_protocol(experiment_gui):
     gui = experiment_gui
     protocol = select_protocol(gui, 'DriftingSquareGrating')
 
-    gui.run_parameter_input['num_epochs'].setText('7')       # type into the field
+    gui.run_parameter_input['num_trials'].setText('7')       # type into the field
     gui.update_parameters_from_fillable_fields(compute_epoch_parameters=False)
 
-    assert gui.protocol_object.run_parameters['num_epochs'] == 7
+    assert gui.protocol_object.run_parameters['num_trials'] == 7
     assert protocol is gui.protocol_object
 
 
@@ -452,7 +452,7 @@ def test_the_buttons_do_not_share_column_widths_with_the_readouts(experiment_gui
     """One grid sized every column to its widest member, so 'Elapsed / Est:' set the width of the
     View button beneath it. Separate grids size independently."""
     gui = experiment_gui
-    status_widgets = {gui.series_counter_input, gui.elapsed_time_label, gui.epoch_count_label}
+    status_widgets = {gui.series_counter_input, gui.elapsed_time_label, gui.trial_count_label}
     action_widgets = {gui.view_button, gui.record_button, gui.pause_button, gui.stop_button}
 
     def widgets_of(grid):
@@ -697,7 +697,7 @@ def test_recording_onto_an_existing_series_asks_first(experiment_gui, monkeypatc
     gui.data.initialize_experiment_file()
     gui.subject_id_input.setText('subj_ow')
     gui.on_created_subject()
-    gui.data.create_epoch_run(gui.protocol_object)              # series 1 now exists
+    gui.data.create_series(gui.protocol_object)              # series 1 now exists
     assert gui.data.get_series_count() in gui.data.get_existing_series()
 
     asked = []
@@ -837,7 +837,7 @@ def test_the_epoch_readout_shows_only_the_parameters_that_vary(experiment_gui):
     protocol.protocol_parameters['angle'] = [0, 45, 90]        # varies
     protocol.protocol_parameters['rate'] = 20                  # does not
     protocol.persistent_parameters = {}                        # force the recomputed fallback
-    protocol.epoch_protocol_parameters = {'angle': 45, 'rate': 20}
+    protocol.trial_protocol_parameters = {'angle': 45, 'rate': 20}
 
     text = gui.epoch_parameters_text()
     assert 'angle: 45' in text
@@ -853,7 +853,7 @@ def test_the_epoch_readout_prefers_what_the_protocol_recorded(experiment_gui):
     protocol = select_protocol(gui, 'DriftingSquareGrating')
     gui.status = Status.RECORDING
     protocol.persistent_parameters = {'variable_protocol_parameter_names': ['contrast']}
-    protocol.epoch_protocol_parameters = {'contrast': 0.25, 'angle': 45}
+    protocol.trial_protocol_parameters = {'contrast': 0.25, 'angle': 45}
 
     assert gui.epoch_parameters_text() == 'contrast: 0.25'
 
@@ -871,7 +871,7 @@ def test_the_epoch_readout_says_so_when_nothing_varies(experiment_gui):
     protocol = select_protocol(gui, 'DriftingSquareGrating')
     gui.status = Status.VIEWING
     protocol.persistent_parameters = {'variable_protocol_parameter_names': []}
-    protocol.epoch_protocol_parameters = {'angle': 45}
+    protocol.trial_protocol_parameters = {'angle': 45}
 
     assert gui.epoch_parameters_text() == '(no parameters vary across epochs)'
 
@@ -890,23 +890,23 @@ def test_a_long_epoch_readout_does_not_reshape_the_window(experiment_gui, qapp):
 
 def test_the_epoch_readout_follows_a_real_protocol_epoch_by_epoch(experiment_gui):
     """Drives the actual parameter-selection machinery rather than setting the dict by hand: the
-    readout is only useful if epoch_protocol_parameters holds the value chosen for this epoch and
+    readout is only useful if trial_protocol_parameters holds the value chosen for this epoch and
     not the list it was chosen from."""
     from stimpack.experiment.gui import Status
 
     gui = experiment_gui
     protocol = select_protocol(gui, 'DriftingSquareGrating')
     protocol.protocol_parameters['angle'] = [0, 45, 90]
-    protocol.run_parameters['num_epochs'] = 3
+    protocol.run_parameters['num_trials'] = 3
     protocol.run_parameters['randomize_order'] = False
     protocol.prepare_run(manager=gui.client.manager, recompute_epoch_parameters=True)
     gui.status = Status.VIEWING
 
     seen = []
     for _ in range(3):
-        protocol.load_precomputed_epoch_parameters()
+        protocol.load_precomputed_trial_parameters()
         seen.append(gui.epoch_parameters_text())
-        protocol.num_epochs_completed += 1
+        protocol.num_trials_completed += 1
 
     assert all(text.startswith('angle: ') for text in seen), seen
     assert '[' not in ' '.join(seen), 'showed the list of values rather than this epoch\'s value'

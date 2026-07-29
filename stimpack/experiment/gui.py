@@ -323,10 +323,10 @@ class ExperimentGUI(QWidget):
 
         new_label = QLabel('Epochs run:')
         self.protocol_status_grid.addWidget(new_label, 1, 2)
-        self.epoch_count_label = QLabel()
-        self.epoch_count_label.setFrameShadow(QFrame.Shadow(1))
-        self.protocol_status_grid.addWidget(self.epoch_count_label, 1, 3)
-        self.epoch_count_label.setText('')
+        self.trial_count_label = QLabel()
+        self.trial_count_label.setFrameShadow(QFrame.Shadow(1))
+        self.protocol_status_grid.addWidget(self.trial_count_label, 1, 3)
+        self.trial_count_label.setText('')
 
         # What this epoch drew: the parameters that vary from epoch to epoch, at their values for
         # the epoch running now. Those values are chosen on the client and sent to the server,
@@ -1597,7 +1597,7 @@ class ExperimentGUI(QWidget):
         if self.status == Status.STANDBY:
             return ''
 
-        values = self.protocol_object.epoch_protocol_parameters or {}
+        values = self.protocol_object.trial_protocol_parameters or {}
         names = [name for name in self.varying_epoch_parameter_names() if name in values]
         if not names:
             return '(no parameters vary across epochs)'
@@ -1634,7 +1634,7 @@ class ExperimentGUI(QWidget):
             # alongside instead of being folded in and silently inflating progress.
             paused_seconds = int(self.client.paused_seconds)
             elapsed_time = int(time.time() - self.run_start_time) - paused_seconds
-            epoch_count = self.protocol_object.num_epochs_completed
+            epoch_count = self.protocol_object.num_trials_completed
 
         # est_run_time is only set once prepare_run has precomputed the epochs, and this method is
         # now reached from the Pause/Resume slots as well as the timer. An exception raised in a Qt
@@ -1645,7 +1645,7 @@ class ExperimentGUI(QWidget):
         if paused_seconds > 0:
             elapsed_text += f'  (+{paused_seconds})'
         self.elapsed_time_label.setText(elapsed_text)
-        self.epoch_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_epochs", "?")}')
+        self.trial_count_label.setText(f'{epoch_count} / {self.protocol_object.run_parameters.get("num_trials", "?")}')
         # Read straight off the protocol object, like the epoch count above it. The run loop owns
         # that object on another thread, but these are plain attribute reads of values it replaces
         # wholesale at the start of each epoch, so the worst case is showing the previous epoch's
