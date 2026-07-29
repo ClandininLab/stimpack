@@ -63,6 +63,7 @@ class FakeClient:
         self.cfg = cfg
         self.manager = FakeManager()
         self.on_server_message = None
+        self.on_data_error = None
         self.runs = []                 # (protocol class name, save_metadata_flag) per start_run
         self.stop = False
         self.pause = False

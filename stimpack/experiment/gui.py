@@ -58,6 +58,8 @@ class ExperimentGUI(QWidget):
     # Emitted when the server pushes a message. report_server_message runs on the run thread, so this
     # signal (a queued cross-thread connection) marshals the update onto the GUI thread.
     server_message_signal = pyqtSignal(str, str)
+    # A failure to write the data file, raised on the run thread and surfaced on the GUI thread.
+    data_error_signal = pyqtSignal(str)
 
     def __init__(self, data_format=None):
         """
@@ -137,6 +139,8 @@ class ExperimentGUI(QWidget):
         # Route server-pushed messages to the GUI thread (see server_message_signal above).
         self.server_message_signal.connect(self.on_server_message_received)
         self.client.on_server_message = self.server_message_signal.emit
+        self.data_error_signal.connect(self.on_data_error_received)
+        self.client.on_data_error = self.data_error_signal.emit
         self._server_error_dialog_open = False  # guards against stacking error dialogs
 
         self.current_ensemble_idx = 0
@@ -737,6 +741,21 @@ class ExperimentGUI(QWidget):
             self._server_error_dialog_open = True
             try:
                 open_message_window(title='Server error', text=text)
+            finally:
+                self._server_error_dialog_open = False
+
+    def on_data_error_received(self, text):
+        """Surface a failed data write. Named for what it is, not as a server error.
+
+        Modal rather than the status line alone, for the same reason a server error is: this
+        arrives as the run ends, and run_finished overwrites the status line with 'Ready' straight
+        afterwards. Shares the dialog guard so a data error and a server error cannot stack.
+        """
+        self.status_label.setText(f'[data error] {text.splitlines()[0]}')
+        if not self._server_error_dialog_open:
+            self._server_error_dialog_open = True
+            try:
+                open_message_window(title='Data file error', text=text)
             finally:
                 self._server_error_dialog_open = False
 

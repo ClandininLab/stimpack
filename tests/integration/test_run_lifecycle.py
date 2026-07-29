@@ -709,7 +709,7 @@ def test_a_failure_to_record_the_outcome_does_not_take_the_process_down(client, 
         raise ValueError('No data_type found for builder root/intervals/trials')
     monkeypatch.setattr(data, 'end_epoch_run', explode)
 
-    with pytest.warns(UserWarning, match='Could not record how this run ended'):
+    with pytest.warns(UserWarning, match='recording that in the .* file failed'):
         client.start_run(protocol, data, save_metadata_flag=True)   # must not raise
 
     assert protocol.num_epochs_completed == 3, 'the run itself should have finished normally'
@@ -727,7 +727,7 @@ def test_the_original_error_survives_a_failing_cleanup(client, data, monkeypatch
 
     messages = [str(w.message) for w in warnings_raised]
     assert any('the screen fell over' in m for m in messages), 'the real error was lost'
-    assert any('Could not record how this run ended' in m for m in messages)
+    assert any('recording that in the' in m for m in messages)
 
 
 def test_nwb_trials_columns_can_grow_without_limit(client, nwb_data):
@@ -742,3 +742,30 @@ def test_nwb_trials_columns_can_grow_without_limit(client, nwb_data):
         assert trials['start_time'].maxshape == (None,)
         # a pair keeps its width and grows only in rows
         assert trials['width_height'].maxshape == (None, 2)
+
+
+def test_a_failure_to_record_the_outcome_is_reported_not_just_logged(client, data, monkeypatch):
+    """Whatever stopped the outcome being written stopped it part-way, so the file is not what it
+    should be -- and for NWB it may not open at all. The run has already ended by then, so nothing
+    else will raise about it: a warning alone leaves it to be found at analysis time."""
+    reported = []
+    client.on_data_error = reported.append
+    monkeypatch.setattr(data, 'end_epoch_run',
+                        lambda *a, **k: (_ for _ in ()).throw(ValueError('no data_type found')))
+
+    with pytest.warns(UserWarning):
+        client.start_run(TinyProtocol(cfg={}), data, save_metadata_flag=True)
+
+    assert len(reported) == 1, 'the failure was not surfaced'
+    assert 'may not open' in reported[0]
+    assert 'no data_type found' in reported[0], 'the underlying error was not included'
+
+
+def test_a_broken_data_error_callback_cannot_take_the_run_with_it(client, data, monkeypatch):
+    """It is called from a finally block on a QThread; raising there aborts the process."""
+    client.on_data_error = lambda text: (_ for _ in ()).throw(RuntimeError('callback is broken'))
+    monkeypatch.setattr(data, 'end_epoch_run',
+                        lambda *a, **k: (_ for _ in ()).throw(ValueError('write failed')))
+
+    with pytest.warns(UserWarning, match='on_data_error callback failed'):
+        client.start_run(TinyProtocol(cfg={}), data, save_metadata_flag=True)   # must not raise

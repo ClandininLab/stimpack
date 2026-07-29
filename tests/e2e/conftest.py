@@ -77,6 +77,7 @@ def live_client(live_manager):
     c.server_messages = []
     c.server_error = None
     c.on_server_message = None
+    c.on_data_error = None
     c._message_counts = {}
     c.manager = live_manager
     c.trigger_device = None

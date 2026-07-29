@@ -911,3 +911,22 @@ def test_the_epoch_readout_follows_a_real_protocol_epoch_by_epoch(experiment_gui
     assert all(text.startswith('angle: ') for text in seen), seen
     assert '[' not in ' '.join(seen), 'showed the list of values rather than this epoch\'s value'
     assert sorted(t.split(': ')[1] for t in seen) == ['0', '45', '90'], seen
+
+
+def test_a_data_write_failure_is_surfaced_as_its_own_error(experiment_gui, monkeypatch, qapp):
+    """Not as a server error: this did not come from the rig, and saying it did sends somebody to
+    look at the wrong thing."""
+    import stimpack.experiment.gui as gui_mod
+
+    gui = experiment_gui
+    alerts = []
+    monkeypatch.setattr(gui_mod, 'open_message_window',
+                        lambda title="", text="": alerts.append((title, text)))
+
+    gui.client.on_data_error('The run ended "completed", but recording that in the NWBData file '
+                             'failed. The file for this series may be incomplete, and may not open.')
+    qapp.processEvents()
+
+    assert alerts and alerts[0][0] == 'Data file error'
+    assert 'may not open' in alerts[0][1]
+    assert gui.status_label.text().startswith('[data error]')

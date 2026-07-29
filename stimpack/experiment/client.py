@@ -73,6 +73,7 @@ class BaseClient():
         self.server_messages:list = []
         self.server_error:Optional[str] = None      # set when the server reports an error; aborts the run
         self.on_server_message = None               # optional callback(level, text), e.g. a GUI status hook
+        self.on_data_error = None                   # optional callback(text) for a failed data write
         self._message_counts:dict = {}              # (level, text) -> times seen; used to deduplicate
 
         # # # Load server options from config file and selections # # #
@@ -408,13 +409,34 @@ class BaseClient():
                     data.end_epoch_run(protocol_object, status=run_status, reason=run_status_reason,
                                        paused_seconds=self.paused_seconds)
                 except Exception:
-                    warnings.warn(f"Could not record how this run ended (it ended '{run_status}'):"
-                                  f"\n{traceback.format_exc()}")
+                    # Loudly. Whatever stopped the outcome being written stopped it part-way, so
+                    # the file is not what it should be -- and for NWB it may not open at all.
+                    # A warning alone leaves that to be discovered at analysis time; the run has
+                    # already ended, so nothing else is going to raise about it.
+                    message = (f"The run ended '{run_status}', but recording that in the "
+                               f"{type(data).__name__} file failed. The file for this series may "
+                               f"be incomplete, and may not open.\n\n{traceback.format_exc()}")
+                    warnings.warn(message)
+                    self.report_data_error(message)
 
             if not broken:
                 self.manager.print_on_server('Run ended.')
 
             self.protocol_object = None
+
+    def report_data_error(self, text):
+        """Surface a failure to write the data file to whoever is driving, not just to the log.
+
+        Separate from report_server_message on purpose: this did not come from the server, and
+        reporting it as a server error sends somebody to look at the rig for a problem that is in
+        the file. Best-effort, and never raises -- it is called from a finally block.
+        """
+        if self.on_data_error is None:
+            return
+        try:
+            self.on_data_error(text)
+        except Exception:
+            warnings.warn(f"on_data_error callback failed:\n{traceback.format_exc()}")
 
     def start_epoch(self, protocol_object:BaseProtocol, data:BaseData, save_metadata_flag:bool=True):
         #  get stimulus parameters for this epoch
