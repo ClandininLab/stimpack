@@ -134,8 +134,8 @@ def set_labpack_directory(path):
 BUILTIN_DATA_FORMATS = {
     'hdf5': ('stimpack.experiment.data', 'BaseData'),
     'nwb':  ('stimpack.experiment.data_nwb', 'NWBData'),
-    # The layout stimpack wrote before it renamed trial -> trial and series -> series. Same
-    # code, old names, so analysis that walks epoch_runs/.../trials keeps working.
+    # The layout stimpack wrote before it renamed epoch -> trial and epoch run -> series.
+    # Same code, old names, so analysis that walks epoch_runs/.../epochs keeps working.
     'legacy_hdf5': ('stimpack.experiment.data_legacy', 'LegacyHdf5Data'),
 }
 
@@ -321,6 +321,12 @@ def get_module_paths(cfg, module_name: str) -> list[str]:
         return []
     
     module_paths = cfg.get('module_paths', {}).get(module_name, [])
+    if isinstance(module_paths, dict):
+        # A data module mapped per format -- see get_data_module_paths_by_format. Everything from
+        # here down asks only "which files does this config name", and the values are the answer.
+        # Without this the mapping reached os.path as a dict, so --check-labpack crashed on the
+        # configs it exists to check.
+        module_paths = list(module_paths.values())
     if not isinstance(module_paths, list):
         module_paths = [module_paths]
     return module_paths
@@ -514,6 +520,67 @@ def get_data_format(cfg):
                       f"{sorted(BUILTIN_DATA_FORMATS)}. Falling back to 'hdf5'.")
         return 'hdf5'
     return data_format
+
+
+def get_data_module_paths_by_format(cfg) -> dict[str, str]:
+    """
+    ``{format: path}`` when a config maps its data modules by format, ``{}`` otherwise.
+
+    A config may name its own data class either way::
+
+        module_paths:
+          data: labpack/data.py            # one class, whatever the format
+
+        module_paths:
+          data:                            # one class per format, chosen like a built-in
+            hdf5: labpack/data.py
+            nwb:  labpack/data_nwb.py
+
+    The first fixes the format, because the class's base is what decides it -- so ``data_format``
+    and the startup dialog cannot be honoured and are not consulted. The second leaves the choice
+    open: they select among the labpack's own classes exactly as they select among the built-ins.
+
+    The mapping exists because the first form quietly took the choice away. A labpack with a
+    ``data.py`` and a ``data_nwb.py`` sitting side by side could name only one of them, so picking
+    NWB in the dialog produced an HDF5 file.
+    """
+    entry = (cfg.get('module_paths') or {}).get('data')
+    if not isinstance(entry, dict):
+        return {}
+    return {str(fmt).lower(): path for fmt, path in entry.items()}
+
+
+def get_available_data_formats(cfg) -> list[str]:
+    """
+    Which formats this config can actually write, for the startup dialog to offer.
+
+    A config that maps its data modules by format can write those and no others: offering a
+    built-in it has no class for would be offering a choice that cannot be honoured.
+    """
+    mapped = get_data_module_paths_by_format(cfg)
+    return sorted(mapped) if mapped else sorted(BUILTIN_DATA_FORMATS)
+
+
+def load_user_data_module(cfg):
+    """
+    The labpack's data module for this config, or ``None`` if it names none usable.
+
+    ``None`` means "use the built-in for ``data_format``", which is also the answer when a config
+    maps its modules by format and the requested format is not among them -- a labpack that
+    customizes HDF5 and not NWB should still be able to write NWB, using stimpack's own class,
+    rather than being refused or silently handed the HDF5 one.
+    """
+    mapped = get_data_module_paths_by_format(cfg)
+    if not mapped:
+        return next(iter(load_user_module(cfg, 'data')), None)
+
+    data_format = get_data_format(cfg)
+    path = mapped.get(data_format)
+    if path is None:
+        warnings.warn(f"This config maps its data modules by format and has none for "
+                      f"'{data_format}' (it has {sorted(mapped)}). Using stimpack's built-in.")
+        return None
+    return load_user_module_from_path(convert_labpack_relative_path_to_full_path(path), 'data')
 
 
 def get_builtin_data_class(cfg):

@@ -34,7 +34,7 @@ An example may look like:
       protocol:                                  # may be a list of modules
         - template_labpack/protocol/JBM_protocol.py
       # data: template_labpack/data.py           # class must be named "Data"
-      #   Only once it overrides something: naming it here means data_format is ignored.
+      #   Only once it overrides something -- see "Using your own data class" below.
       client: template_labpack/client.py         # class must be named "Client"
       daq: template_labpack/device/daq.py
       visual_stim:                               # may be a list of directories
@@ -115,16 +115,42 @@ rather than a file, and its attributes are shown read-only.
 
 To try a format without editing a config, pass ``stimpack --data-format nwb``.
 
-.. warning::
+Using your own data class
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    A config naming its own data module under ``module_paths.data`` uses that class and
-    ``data_format`` is **not consulted at all** — not the config's, not the startup dialog's, not
-    ``--data-format``. The dialog disables the choice and names the responsible module when this
-    is the case, and startup prints the class actually writing the file.
+``module_paths.data`` names a class of your own. Its format is decided by the class it subclasses
+— ``BaseData`` is HDF5, ``NWBData`` is NWB — so naming **one** class settles the format, and
+``data_format`` is then **not consulted at all**: not the config's, not the startup dialog's, not
+``--data-format``.
 
-    So a labpack whose ``data.py`` subclasses ``BaseData`` writes ``hdf5`` however the config or
-    dialog is set. If you want the setting to decide, do not name a data module; point
-    ``module_paths.data`` at your own class only once it overrides something.
+.. code-block:: yaml
+
+    module_paths:
+      data: labpack/data.py     # one class; its base fixes the format
+
+That is a real constraint rather than a missing feature. Honouring a request for ``nwb`` against a
+``class Data(BaseData)`` would mean constructing stimpack's ``NWBData`` instead of your class, so
+the format would be right and every override you wrote would be silently gone — a worse failure
+than the wrong format, because a wrong extension is obvious immediately and a missing frame
+counter is not.
+
+To keep both, give the key **one module per format**:
+
+.. code-block:: yaml
+
+    module_paths:
+      data:
+        hdf5: labpack/data.py
+        nwb:  labpack/data_nwb.py
+
+Now ``data_format``, the startup dialog and ``--data-format`` select among *your* classes exactly
+as they select among the built-ins, and the dialog offers precisely the formats you supplied a
+class for. A format not in the mapping falls back to stimpack's built-in with a warning, so a
+labpack that customizes HDF5 and not NWB can still write NWB.
+
+With a single module the dialog disables the choice and shows the module's name rather than a
+format, since claiming a format without importing the class to check would be the same lie in a
+quieter form. Either way, startup prints the class actually writing the file.
 
 .. note::
 

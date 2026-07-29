@@ -342,3 +342,41 @@ def test_the_format_choice_is_offered_when_nothing_overrides_it(qapp, tmp_path):
     assert dialog.data_format_combobox.isEnabled()
     assert dialog.data_format_combobox.currentText() == 'nwb'
     assert dialog.label_data_format.text() == 'Data format'
+
+
+def test_a_module_per_format_keeps_the_choice_live(qapp, tmp_path):
+    """A config mapping a data module per format has a real choice to offer, so the combo stays
+    enabled and lists exactly the formats that config can write -- not every built-in, since a
+    format it has no class for could not be honoured."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {
+        'data_format': 'nwb',
+        'module_paths': {'data': {'hdf5': 'labpack/data.py', 'nwb': 'labpack/data_nwb.py'}}})
+
+    assert dialog.data_format_combobox.isEnabled()
+    assert [dialog.data_format_combobox.itemText(i)
+            for i in range(dialog.data_format_combobox.count())] == ['hdf5', 'nwb']
+    assert dialog.data_format_combobox.currentText() == 'nwb'
+    assert 'labpack/data_nwb.py' in dialog.data_format_combobox.toolTip()
+
+
+def test_one_data_module_names_itself_rather_than_claiming_a_format(qapp, tmp_path):
+    """Showing a disabled 'hdf5' would assert a format we have not imported the class to check.
+    Naming the module says only what is known."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path,
+                                    {'data_format': 'nwb',
+                                     'module_paths': {'data': 'labpack/data.py'}})
+
+    assert dialog.data_format_combobox.currentText() == '(from labpack/data.py)'
+
+
+def test_the_placeholder_never_reaches_the_config(qapp, tmp_path):
+    """on_pressed_enter_button copies the combo into cfg['data_format']. With a single labpack
+    module the combo holds a module name, and writing that would leave a data_format nothing can
+    resolve -- get_data_format would warn and silently fall back to hdf5."""
+    cfg = {'data_format': 'nwb', 'module_paths': {'data': 'labpack/data.py'}}
+    dialog, stub = make_startup_dialog(qapp, tmp_path, cfg)
+    dialog.rig_combobox.addItem('rig1')
+
+    dialog.on_pressed_enter_button()
+
+    assert stub.cfg['data_format'] == 'nwb'

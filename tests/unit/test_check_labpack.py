@@ -492,3 +492,29 @@ def test_nwb_with_pynwb_installed_passes():
     pytest.importorskip('pynwb')
     findings = check_labpack.check_config({'data_format': 'nwb', 'module_paths': {}}, 'c.yaml')
     assert [f for f in findings if f.code == 'data-backend-unavailable'] == []
+
+
+def test_a_data_module_mapped_per_format_checks_out(tmp_path):
+    """module_paths.data may map a class per format. That reached os.path as a dict, so the
+    checker raised TypeError on exactly the configs it exists to check."""
+    cfg = good_cfg()
+    cfg['module_paths']['data'] = {'hdf5': 'pack/data.py', 'nwb': 'pack/data_nwb.py'}
+    root = make_labpack(tmp_path, cfg)
+    (root / 'pack' / 'data_nwb.py').write_text('')
+
+    findings, configs = check_labpack.check_labpack(str(tmp_path))
+
+    assert findings == []
+    assert configs == ['test_config.yaml']
+
+
+def test_a_missing_module_is_still_found_inside_a_mapping(tmp_path):
+    """Flattening the mapping must not cost the existence check that the flat form gets."""
+    cfg = good_cfg()
+    cfg['module_paths']['data'] = {'hdf5': 'pack/data.py', 'nwb': 'pack/nonexistent.py'}
+    make_labpack(tmp_path, cfg)
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+
+    assert codes(findings, level='error') == ['missing-module-path']
+    assert 'nonexistent.py' in findings[0].message

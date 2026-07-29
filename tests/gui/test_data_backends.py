@@ -74,16 +74,68 @@ def test_unknown_data_format_warns_and_falls_back(test_cfg):
         assert config_tools.get_data_format(dict(test_cfg, data_format='parquet')) == 'hdf5'
 
 
-def test_a_labpack_data_module_still_wins_over_data_format(test_cfg):
-    """data_format chooses between the BUILT-IN backends; a labpack pointing at its own data
-    module must keep overriding both."""
+def _write_data_module(tmp_path, name, base_import, base):
+    """A labpack data module on disk, since these are loaded by file path rather than imported."""
+    path = tmp_path / name
+    path.write_text(f'from {base_import} import {base}\n\n'
+                    f'class Data({base}):\n'
+                    f'    lab_marker = {name!r}\n')
+    return str(path)
+
+
+def test_one_labpack_data_module_still_wins_over_data_format(tmp_path, test_cfg):
+    """A config naming a single data class has its format decided by that class's base, so
+    data_format cannot be honoured and is not consulted. Overriding it the other way -- building
+    the built-in for the requested format -- would drop the lab's overrides instead, which is the
+    same silent discard and much harder to notice."""
     from stimpack.experiment.util import config_tools
-    assert config_tools.get_data_format(dict(test_cfg, data_format='nwb')) == 'nwb'
-    # the GUI consults load_user_module first -- asserted by reading the branch order
-    import inspect
-    import stimpack.experiment.gui as gui_mod
-    src = inspect.getsource(gui_mod.ExperimentGUI.__init__)
-    assert src.index("load_user_module(self.cfg, 'data')") < src.index('get_builtin_data_class')
+
+    path = _write_data_module(tmp_path, 'data.py', 'stimpack.experiment.data', 'BaseData')
+    cfg = dict(test_cfg, data_format='nwb', module_paths={'data': path})
+
+    module = config_tools.load_user_data_module(cfg)
+    assert module.Data.lab_marker == 'data.py'
+    assert config_tools.get_available_data_formats(cfg) == sorted(config_tools.BUILTIN_DATA_FORMATS)
+
+
+@pytest.mark.parametrize('data_format, expected', [('hdf5', 'data.py'), ('nwb', 'data_nwb.py')])
+def test_a_module_per_format_lets_data_format_choose_among_them(tmp_path, test_cfg,
+                                                                data_format, expected):
+    """The point of the mapping: a labpack keeping a class per format gets to keep its overrides
+    AND have the choice honoured, which naming one module cannot do."""
+    from stimpack.experiment.util import config_tools
+
+    cfg = dict(test_cfg, data_format=data_format, module_paths={'data': {
+        'hdf5': _write_data_module(tmp_path, 'data.py', 'stimpack.experiment.data', 'BaseData'),
+        'nwb': _write_data_module(tmp_path, 'data_nwb.py', 'stimpack.experiment.data_nwb', 'NWBData'),
+    }})
+
+    assert config_tools.load_user_data_module(cfg).Data.lab_marker == expected
+
+
+def test_the_dialog_offers_only_the_formats_a_mapping_supplies(tmp_path, test_cfg):
+    """Offering a format the labpack has no class for would be offering a choice that cannot be
+    honoured -- the fault this mapping exists to remove."""
+    from stimpack.experiment.util import config_tools
+
+    cfg = dict(test_cfg, module_paths={'data': {
+        'hdf5': _write_data_module(tmp_path, 'data.py', 'stimpack.experiment.data', 'BaseData'),
+    }})
+
+    assert config_tools.get_available_data_formats(cfg) == ['hdf5']
+
+
+def test_a_mapping_without_the_requested_format_falls_back_to_the_builtin(tmp_path, test_cfg):
+    """A labpack that customizes HDF5 and not NWB should still be able to write NWB with
+    stimpack's own class, rather than being refused or handed the HDF5 one."""
+    from stimpack.experiment.util import config_tools
+
+    cfg = dict(test_cfg, data_format='nwb', module_paths={'data': {
+        'hdf5': _write_data_module(tmp_path, 'data.py', 'stimpack.experiment.data', 'BaseData'),
+    }})
+
+    with pytest.warns(UserWarning, match='has none for'):
+        assert config_tools.load_user_data_module(cfg) is None
 
 
 # --- the GUI adapts to the backend rather than being forked per backend --------------------------
