@@ -263,3 +263,141 @@ def test_pro4500_aspect_is_16_10_not_16_9():
 def test_pro4500_rejects_an_unknown_lens():
     with pytest.raises(ValueError, match='lens must be one of'):
         PinholeProjector.wintech_pro4500(position=(0, 0, 1), lens='fisheye')
+
+
+# --- a bowl that is not mounted level ------------------------------------------------------------
+
+def test_the_default_pole_changes_nothing():
+    """Added to a working rig, so an unspecified pole has to reproduce the old mesh exactly rather
+    than merely equivalently."""
+    from stimpack.visual_stim.curved_screen import SphericalSurface
+
+    plain = SphericalSurface(radius=0.0715, n_azimuth=12, n_elevation=6)
+    with_pole = SphericalSurface(radius=0.0715, n_azimuth=12, n_elevation=6, pole=(0, 0, 1))
+
+    a, ta = plain.vertices_and_triangles()
+    b, tb = with_pole.vertices_and_triangles()
+    assert np.array_equal(a, b)
+    assert np.array_equal(ta, tb)
+
+
+def test_the_pole_tilts_the_whole_patch():
+    """A hemisphere's rim is perpendicular to its pole, wherever the pole points."""
+    from stimpack.visual_stim.curved_screen import SphericalSurface
+
+    tilt = 35.0
+    pole = (0, -np.sin(np.radians(tilt)), np.cos(np.radians(tilt)))     # tilted forward
+    surface = SphericalSurface(radius=0.0715, elevation_range=(0, 90), n_azimuth=36, n_elevation=9,
+                               pole=pole)
+    vertices, _ = surface.vertices_and_triangles()
+
+    # every vertex is still on the sphere, and still within 90 degrees of the pole
+    assert np.allclose(np.linalg.norm(vertices, axis=1), 0.0715)
+    angle = np.degrees(np.arccos(np.clip(vertices @ np.array(pole) / 0.0715, -1, 1)))
+    assert angle.max() <= 90 + 1e-9
+    assert np.isclose(angle.max(), 90, atol=1e-6), 'the rim should reach exactly 90 degrees'
+
+    # the rim (elevation 0 in the surface frame) lies in the plane perpendicular to the pole
+    rim = vertices[np.isclose(angle, 90, atol=1e-6)]
+    assert np.allclose(rim @ np.array(pole), 0, atol=1e-9)
+
+
+def test_the_pole_leaves_the_sphere_alone():
+    """The whole point of the parameter: it says which parts are screen, and nothing else. A sphere
+    is unchanged by rotating it about its centre, so the set of points is identical."""
+    from stimpack.visual_stim.curved_screen import SphericalSurface
+
+    level = SphericalSurface(radius=0.0715, elevation_range=(-90, 90), n_azimuth=36, n_elevation=18)
+    tilted = SphericalSurface(radius=0.0715, elevation_range=(-90, 90), n_azimuth=36, n_elevation=18,
+                              pole=(0, -0.6, 0.8))
+
+    a, _ = level.vertices_and_triangles()
+    b, _ = tilted.vertices_and_triangles()
+    assert np.allclose(np.sort(np.linalg.norm(a, axis=1)), np.sort(np.linalg.norm(b, axis=1)))
+    assert not np.allclose(a, b), 'a partial sphere should actually move'
+
+
+def test_roll_turns_the_patch_about_its_own_pole():
+    from stimpack.visual_stim.curved_screen import SphericalSurface
+
+    kwargs = dict(radius=0.0715, azimuth_range=(-30, 30), elevation_range=(0, 60),
+                  n_azimuth=6, n_elevation=3)
+    straight, _ = SphericalSurface(**kwargs).vertices_and_triangles()
+    rolled, _ = SphericalSurface(**kwargs, roll=90).vertices_and_triangles()
+
+    assert not np.allclose(straight, rolled)
+    # a roll about +z cannot change how high anything is
+    assert np.allclose(np.sort(straight[:, 2]), np.sort(rolled[:, 2]))
+
+
+def test_a_full_ring_is_symmetric_under_roll():
+    from stimpack.visual_stim.curved_screen import SphericalSurface
+
+    kwargs = dict(radius=0.0715, elevation_range=(0, 90), n_azimuth=36, n_elevation=9)
+    straight, _ = SphericalSurface(**kwargs).vertices_and_triangles()
+    rolled, _ = SphericalSurface(**kwargs, roll=30).vertices_and_triangles()
+
+    # the same set of points, in a different order round the ring
+    assert np.allclose(np.sort(np.linalg.norm(straight, axis=1)),
+                       np.sort(np.linalg.norm(rolled, axis=1)))
+    assert np.allclose(np.sort(straight[:, 2]), np.sort(rolled[:, 2]))
+
+
+def test_an_upside_down_pole_is_handled():
+    """The cross product says nothing about the axis when the pole is antiparallel to +z, which is
+    exactly the bowl-underneath case."""
+    from stimpack.visual_stim.curved_screen import SphericalSurface
+
+    surface = SphericalSurface(radius=0.0715, elevation_range=(0, 90), n_azimuth=12, n_elevation=6,
+                               pole=(0, 0, -1))
+    vertices, _ = surface.vertices_and_triangles()
+
+    assert np.all(np.isfinite(vertices))
+    assert vertices[:, 2].max() <= 1e-9, 'the patch should hang below the subject'
+    assert np.allclose(np.linalg.norm(vertices, axis=1), 0.0715)
+
+
+def test_a_zero_pole_is_refused():
+    from stimpack.visual_stim.curved_screen import SphericalSurface
+
+    with pytest.raises(ValueError, match='direction'):
+        SphericalSurface(pole=(0, 0, 0))
+
+
+def test_the_pole_survives_serialization():
+    """The surface is serialized to reach the screen subprocess, so a pole that did not round-trip
+    would give a correct mesh in the parent and a level one on the rig."""
+    from stimpack.visual_stim.curved_screen import SphericalSurface, deserialize_surface
+
+    surface = SphericalSurface(radius=0.0715, pole=(0, -0.6, 0.8), roll=15)
+    restored = deserialize_surface(surface.serialize())
+
+    assert restored.pole == surface.pole
+    assert restored.roll == surface.roll
+    assert np.allclose(restored.vertices_and_triangles()[0], surface.vertices_and_triangles()[0])
+
+
+def test_a_tilted_bowl_lit_along_its_own_axis_stays_inside_its_rim():
+    """The flymax rig: a hemisphere mounted at an angle, with the projector on its axis aimed at
+    the animal at the sphere's centre. Everything drawn must land on real screen."""
+    from stimpack.visual_stim.curved_screen import (SphericalSurface, PinholeProjector,
+                                                    build_screen_mesh)
+
+    radius, distance, tilt = 0.0715, 0.302067, 35.0
+    axis = np.array([0, -np.sin(np.radians(tilt)), -np.cos(np.radians(tilt))])   # bowl faces up-ish
+
+    surface = SphericalSurface(radius=radius, elevation_range=(0, 90),
+                               n_azimuth=72, n_elevation=18, pole=axis)
+    projector = PinholeProjector(position=tuple(distance * axis), look_at=(0, 0, 0),
+                                 throw_ratio=1.57523511, aspect_ratio=1.6)
+    mesh = build_screen_mesh(surface, projector)
+
+    drawn = mesh.positions[np.unique(mesh.triangles)]
+    angle = np.degrees(np.arccos(np.clip(drawn @ axis / radius, -1, 1)))
+
+    # nothing past the rim, and nothing beyond where the projector's rays graze the limb
+    tangent_limit = 90 - np.degrees(np.arcsin(radius / distance))
+    assert angle.max() <= 90, 'the mesh runs past the bowl rim'
+    assert angle.max() <= tangent_limit + 1e-6
+    assert np.isclose(angle.max(), tangent_limit, atol=6.0), 'should reach nearly to the limb'
+    assert 0.6 < mesh.lit.mean() < 0.95

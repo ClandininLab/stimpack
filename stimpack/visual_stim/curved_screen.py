@@ -169,20 +169,40 @@ class SphericalSurface(CurvedSurface):
     horizontal plane from +y (the direction the subject faces), and elevation from that plane
     towards +z.
 
+    ``pole`` tilts the whole patch. The ranges above are measured in the surface's *own* frame, so
+    they can only describe a bowl whose rim is horizontal; a bowl mounted at an angle -- which is
+    the usual way to put a hemisphere in front of an animal rather than under it -- has a rim that
+    is not a range of rig elevations at all. Naming where the surface's own axis points says it
+    directly, and leaves the ranges meaning what they meant.
+
+    Worth knowing what this does *not* affect: nothing about the projection. Where a point lands on
+    the projector and which direction it lies in from the subject both depend only on the sphere and
+    the optics, and a sphere is unchanged by rotating it about its centre. Getting the pole wrong
+    therefore does not distort the image -- it changes which parts of the sphere are screen, so the
+    mesh can run past the real rim at one edge and fall short at another.
+
     :param radius: meters
     :param azimuth_range: (min, max) degrees; the default is the full 360
     :param elevation_range: (min, max) degrees; the default is the upper hemisphere
     :param n_azimuth: tessellation steps around
     :param n_elevation: tessellation steps up
+    :param pole: rig-frame direction of the surface's own +z axis, about which the ranges above are
+        measured; the default (0, 0, 1) leaves the patch where the ranges put it
+    :param roll: degrees about ``pole``, which decides where azimuth zero lands. Only matters for a
+        patch that does not go all the way round.
     """
 
     def __init__(self, radius=0.15, azimuth_range=(-180, 180), elevation_range=(0, 90),
-                 n_azimuth=36, n_elevation=9):
+                 n_azimuth=36, n_elevation=9, pole=(0, 0, 1), roll=0.0):
         self.radius = float(radius)
         self.azimuth_range = tuple(float(v) for v in azimuth_range)
         self.elevation_range = tuple(float(v) for v in elevation_range)
         self.n_azimuth = int(n_azimuth)
         self.n_elevation = int(n_elevation)
+        self.pole = tuple(float(v) for v in pole)
+        self.roll = float(roll)
+        if np.linalg.norm(self.pole) < 1e-9:
+            raise ValueError('pole must be a direction, not the zero vector')
 
     def vertices_and_triangles(self):
         azimuth = np.radians(np.linspace(*self.azimuth_range, self.n_azimuth + 1))
@@ -194,6 +214,11 @@ class SphericalSurface(CurvedSurface):
                              horizontal * np.cos(az),      # y, in front of the subject
                              self.radius * np.sin(el)],    # z, above the subject
                             axis=-1).reshape(-1, 3)
+
+        # Built in the surface's own frame above, then turned to face where it is mounted. The
+        # triangles are indices, so they are unaffected.
+        rotation = _rotation_from_pole(self.pole, self.roll)
+        vertices = vertices @ rotation.T
         return vertices, _grid_triangles(self.n_azimuth + 1, self.n_elevation + 1)
 
     def outward_normals(self, vertices):
@@ -202,7 +227,7 @@ class SphericalSurface(CurvedSurface):
     def serialize(self):
         return {'kind': 'spherical', 'radius': self.radius, 'azimuth_range': self.azimuth_range,
                 'elevation_range': self.elevation_range, 'n_azimuth': self.n_azimuth,
-                'n_elevation': self.n_elevation}
+                'n_elevation': self.n_elevation, 'pole': self.pole, 'roll': self.roll}
 
 
 class CylindricalSurface(CurvedSurface):
@@ -371,6 +396,46 @@ def _circular_range(angles_deg):
     end = angles[widest]
     wrap = lambda a: float((a + 180.0) % 360.0 - 180.0)      # noqa: E731 - back to (-180, +180]
     return (wrap(start), wrap(end))
+
+
+def _skew(vector):
+    x, y, z = vector
+    return np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]])
+
+
+def _rotation_from_pole(pole, roll_degrees=0.0):
+    """Rotation taking +z to `pole`, then turning by `roll` degrees about it.
+
+    The shortest such rotation, so that a surface with the default pole comes back exactly
+    unrotated rather than merely equivalent -- an identity here means the existing mesh is
+    reproduced bit for bit, which is what makes the parameter safe to add to a working rig.
+
+    Roll is applied after, and is the only thing that distinguishes rotations sharing a pole. It
+    matters for a patch that does not go all the way round in azimuth; for one that does, the
+    surface is symmetric under it.
+
+    :param pole: rig-frame direction the surface's own +z should point (need not be normalized)
+    :param roll_degrees: rotation about that direction
+    """
+    pole = np.asarray(pole, dtype=float)
+    pole = pole / np.linalg.norm(pole)
+    z = np.array([0.0, 0.0, 1.0])
+
+    axis = np.cross(z, pole)
+    sine, cosine = np.linalg.norm(axis), float(z @ pole)
+    if sine < 1e-12:
+        # Parallel or antiparallel, where the cross product says nothing about the axis. Turning
+        # about x by 180 degrees is one of the many rotations that inverts z; any of them will do,
+        # since a pole antiparallel to z leaves the roll to pick between them anyway.
+        align = np.eye(3) if cosine > 0 else np.diag([1.0, -1.0, -1.0])
+    else:
+        skew = _skew(axis)
+        align = np.eye(3) + skew + skew @ skew * ((1 - cosine) / sine ** 2)
+
+    theta = np.radians(roll_degrees)
+    skew = _skew(pole)
+    spin = np.eye(3) + np.sin(theta) * skew + (1 - np.cos(theta)) * skew @ skew
+    return spin @ align
 
 
 def _grid_triangles(n_u, n_v):
