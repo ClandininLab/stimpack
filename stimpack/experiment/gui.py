@@ -19,7 +19,8 @@ import yaml
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
                              QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QHBoxLayout, QFrame,
-                             QScrollArea, QListWidget, QSizePolicy, QAbstractItemView)
+                             QScrollArea, QListWidget, QSizePolicy, QAbstractItemView,
+                             QCompleter)
 import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, QUrl
 import PyQt6.QtGui as QtGui
@@ -532,6 +533,14 @@ class ExperimentGUI(QWidget):
         self.ensemble_progress_label.setFrameShadow(QFrame.Shadow(1))
         self.ensemble_status_grid.addWidget(self.ensemble_progress_label, 0, 3)
 
+        # Which subject this will be recorded against, as on the Main tab. An ensemble records
+        # several series in a row without stopping, so it is the tab where being wrong about the
+        # subject costs the most.
+        self.ensemble_status_grid.addWidget(QLabel('Subject:'), 1, 0)
+        self.ensemble_subject_label = QLabel()
+        self.ensemble_subject_label.setFrameShadow(QFrame.Shadow(1))
+        self.ensemble_status_grid.addWidget(self.ensemble_subject_label, 1, 1)
+
         # Ensemble run buttons. Separate widgets from the Main tab's, so each tab's buttons act on
         # that tab's subject and nothing has to be relabelled or routed by label.
         self.ensemble_view_button = QPushButton("View ensemble", self)
@@ -569,24 +578,32 @@ class ExperimentGUI(QWidget):
 
         # # subject info:
         #
-        # One row, not three. This was 'Load existing subject' (a dropdown), 'Current subject:' (a
-        # read-only label) and 'subject ID:' (a line edit) stacked together, all showing the same
-        # string once a subject was loaded. The dropdown is the one that both shows the current
-        # subject and changes it, so it is the one that stays; the read-only label said nothing it
-        # did not, and the Main tab now carries the at-a-glance readout anyway.
-        new_label = QLabel('Current subject:')
+        # One row, doing both jobs. This was three -- a dropdown, a read-only label and a separate
+        # ID field -- all showing the same string once a subject was loaded. Editable, so typing
+        # filters the list and an unmatched name is simply a new subject; the button below says
+        # which of the two a press will do.
+        #
+        # subject_id_input IS the dropdown's line edit, so everything written against it -- the
+        # metadata handlers, the button's label, the tests -- keeps working unchanged, and there is
+        # only ever one place the id is typed.
+        new_label = QLabel('Subject:')
         self.existing_subject_input = QComboBox()
+        self.existing_subject_input.setEditable(True)
+        self.existing_subject_input.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        cap_dropdown_width(self.existing_subject_input)
         self.existing_subject_input.activated.connect(self.on_selected_existing_subject)
+        self.subject_id_input = self.existing_subject_input.lineEdit()
         self.data_form.addRow(new_label, self.existing_subject_input)
 
-        self.update_existing_subject_input()
+        # Match anywhere in the id, not just the start: subjects are often dated or prefixed, so
+        # the distinguishing part is rarely the first characters.
+        completer = QCompleter(self.existing_subject_input.model(), self)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.existing_subject_input.setCompleter(completer)
 
-        # Only built-ins are "subject_id," "age" and "notes"
-        # The editable identity, which the dropdown is not: what Create subject names a new subject,
-        # and what Update subject looks up. Distinct from the row above, so it keeps its own field.
-        new_label = QLabel('Subject ID:')
-        self.subject_id_input = QLineEdit()
-        self.data_form.addRow(new_label, self.subject_id_input)
+        self.update_existing_subject_input()
 
         # Age: 
         new_label = QLabel('Age:')
@@ -1079,6 +1096,15 @@ class ExperimentGUI(QWidget):
         is_new = self.typed_subject_is_new()
         self.subject_button.setEnabled(is_new is not None)
         self.subject_button.setText('Create subject' if is_new is not False else 'Update subject')
+
+        # Italic while the text names no saved subject, upright once it does. The field is both a
+        # chooser and an entry, so it has to say which it is holding -- and a font style says it
+        # without a colour, which is what kept the series counter legible in a dark theme.
+        field = self.existing_subject_input.lineEdit()
+        if field is not None:
+            font = field.font()
+            font.setItalic(is_new is not False)
+            field.setFont(font)
         if is_new is None:
             self.subject_button.setToolTip(
                 f'Type a subject ID, and create or load a {self.data.output_noun} first.')
@@ -1271,6 +1297,8 @@ class ExperimentGUI(QWidget):
         index = self.existing_subject_input.findText(subject_id) if subject_id else -1
         self.existing_subject_input.setCurrentIndex(index)
         self.current_subject_main_label.setText(subject_id)
+        if hasattr(self, 'ensemble_subject_label'):
+            self.ensemble_subject_label.setText(subject_id)
         self.update_run_button_states()
 
     def set_parameter_editing_enabled(self, enabled):

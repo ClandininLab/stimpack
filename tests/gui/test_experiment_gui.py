@@ -573,9 +573,11 @@ def test_the_subject_tab_names_the_current_subject_once(experiment_gui):
 
     gui = experiment_gui
     captions = [w.text() for w in gui.data_tab.findChildren(QLabel)]
-    assert captions.count('Current subject:') == 1
-    assert 'Load existing subject' not in captions        # the dropdown IS the current subject now
+    assert captions.count('Subject:') == 1
+    assert 'Load existing subject' not in captions        # the dropdown IS the subject now
+    assert 'Subject ID:' not in captions                  # and it is where the id is typed
     assert not hasattr(gui, 'current_subject_display')    # the read-only duplicate is gone
+    assert gui.subject_id_input is gui.existing_subject_input.lineEdit()
 
 
 def test_the_subject_dropdown_is_blank_when_no_subject_is_selected(experiment_gui):
@@ -1249,3 +1251,45 @@ def test_the_action_is_decided_by_state_not_by_the_label(experiment_gui, monkeyp
     gui.subject_button.click()
 
     assert updated == [1] and created == [], 'followed the label rather than the file'
+
+
+def test_the_subject_field_is_both_a_chooser_and_an_entry(experiment_gui):
+    """One row doing both jobs: typing filters the list, and an unmatched name is a new subject."""
+    from PyQt6.QtWidgets import QComboBox
+
+    gui = experiment_gui
+    experiment_with_subject(gui, 'editable', 'fly_03')
+
+    assert gui.existing_subject_input.isEditable()
+    assert gui.existing_subject_input.insertPolicy() == QComboBox.InsertPolicy.NoInsert, \
+        'typing a name would otherwise add it to the list before it is created'
+    assert gui.existing_subject_input.completer() is not None
+    assert gui.subject_id_input is gui.existing_subject_input.lineEdit(), 'two places to type an id'
+
+
+def test_the_field_says_whether_it_holds_a_saved_subject(experiment_gui):
+    """The cue is a font style, not a colour: the series counter was white-on-white in dark mode
+    for exactly that reason."""
+    gui = experiment_gui
+    experiment_with_subject(gui, 'cue', 'fly_03')
+
+    gui.subject_id_input.setText('fly_03')                  # a saved subject
+    assert not gui.subject_id_input.font().italic()
+
+    gui.subject_id_input.setText('fly_04')                  # a name being typed
+    assert gui.subject_id_input.font().italic()
+
+    gui.subject_id_input.setText('fly_03')                  # and back
+    assert not gui.subject_id_input.font().italic()
+
+
+def test_the_ensemble_tab_shows_the_subject_too(experiment_gui):
+    """An ensemble records several series without stopping, so it is where being wrong about the
+    subject costs the most."""
+    gui = experiment_gui
+    experiment_with_subject(gui, 'ens_subject', 'fly_07')
+    gui.data.current_subject = 'fly_07'
+    gui.show_current_subject('fly_07')
+
+    assert gui.ensemble_subject_label.text() == 'fly_07'
+    assert gui.current_subject_main_label.text() == 'fly_07'
