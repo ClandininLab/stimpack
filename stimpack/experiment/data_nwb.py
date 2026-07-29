@@ -96,6 +96,8 @@ class NWBData(BaseData):
         # and stimpack already uses that word for two specific things (see BaseProtocol).
         self.series_record = {}
         self.trial_parameters = {}
+        # Subjects created in this experiment, keyed by id. See get_existing_subject_data.
+        self.defined_subjects = {}
 
     # # # NWB-flavored aliases for BaseData's storage-neutral attribute names # # #
 
@@ -152,6 +154,11 @@ class NWBData(BaseData):
         self.initialize_session()
 
     def initialize_session(self):
+        # Run by both initialize_experiment_file and load_experiment, which is exactly when the
+        # experiment changes -- so subjects remembered for the previous one are dropped here
+        # rather than following the user into a different experiment.
+        self.defined_subjects = {}
+
         self.timezone = timezone.utc  # This could be changed if desired
         session_start_time = datetime.now(self.timezone)
 
@@ -192,6 +199,12 @@ class NWBData(BaseData):
         own .nwb file, written at the start of that series, and the subject is embedded in each.
         """
         self.subject_metadata = subject_metadata
+        # Remembered so this experiment can answer which subjects it has. The HDF5 backend writes
+        # a group the moment a subject is created, so it can answer from the file; here nothing
+        # exists on disk until a series is run, and a subject that has not run yet was invisible
+        # to every caller that asks -- including the GUI, which then went on offering to create
+        # the subject it had just created.
+        self.defined_subjects[subject_metadata['subject_id']] = dict(subject_metadata)
         self.select_subject(subject_metadata['subject_id'])
 
     def update_subject(self, subject_metadata):
@@ -203,6 +216,7 @@ class NWBData(BaseData):
             print('No subject with this ID is currently selected!')
             return
         self.subject_metadata = subject_metadata
+        self.defined_subjects[subject_metadata['subject_id']] = dict(subject_metadata)
 
     def create_subject(self, subject_metadata):
         """
@@ -658,6 +672,17 @@ class NWBData(BaseData):
     # get_highest_series_count() is inherited: it is written in terms of get_existing_series().
 
     def get_existing_subject_data(self):
+        """Every subject this experiment has: those embedded in written series files, plus those
+        created in this session that have not run a series yet.
+
+        The second half is what an HDF5 experiment gets for free by writing a group on creation.
+        Without it a freshly created subject did not exist as far as any caller could tell.
+        """
+        # Keyed by id so a subject appearing in several series files is one entry, and so what was
+        # written to disk wins over what is only remembered -- the file is the record.
+        subject_data = {subject_id: dict(metadata)
+                        for subject_id, metadata in self.defined_subjects.items()}
+
         subject_data_list = []
         all_files = self.get_series_files()
 
@@ -679,7 +704,9 @@ class NWBData(BaseData):
 
                 subject_data_list.append(subject_metadata)
 
-        return subject_data_list
+        for subject_metadata in subject_data_list:
+            subject_data[subject_metadata.get('subject_id')] = subject_metadata
+        return list(subject_data.values())
 
     # advance_series_count / update_series_count / get_series_count are inherited: the series
     # counter is just an integer, with nothing storage-specific about it.

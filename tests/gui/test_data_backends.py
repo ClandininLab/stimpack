@@ -307,7 +307,9 @@ def test_creating_a_subject_selects_and_displays_it(fixture, request):
 
 def test_subject_dropdown_lists_each_subject_once(nwb_experiment_gui):
     """NWB keeps subject metadata in every series file, so a subject run three times was reported
-    three times and appeared three times in the dropdown."""
+    three times and appeared three times in the dropdown. The backend keys by subject id now, so
+    the answer is right before the GUI ever sees it -- the dropdown's own deduplication stays as
+    the second line of defence."""
     gui = nwb_experiment_gui
     initialize(gui, 'dupes')
     add_subject(gui, 'fly1')
@@ -316,9 +318,9 @@ def test_subject_dropdown_lists_each_subject_once(nwb_experiment_gui):
         gui.data.prepare_series()
         gui.data.advance_series_count()
 
-    assert len(gui.data.get_existing_subject_data()) == 3      # backend reports one per series
+    assert [s['subject_id'] for s in gui.data.get_existing_subject_data()] == ['fly1']
     gui.update_existing_subject_input()
-    assert gui.existing_subject_input.count() == 1             # dropdown shows it once
+    assert gui.existing_subject_input.count() == 1
 
 
 def test_selecting_from_the_dropdown_selects_that_subject(nwb_experiment_gui):
@@ -547,3 +549,36 @@ def test_naming_no_data_module_is_not_worth_a_warning(test_cfg):
         warnings.simplefilter('always')
         assert config_tools.load_user_data_class(cfg) is None
     assert [str(w.message) for w in caught] == []
+
+
+def test_a_created_subject_is_acknowledged_on_both_backends(experiment_gui, nwb_experiment_gui):
+    """The button and the field's styling both ask the backend whether this experiment has the
+    typed subject. NWB read that from written series files only, so a subject created but not yet
+    run did not exist as far as the GUI could tell: the button went on saying 'Create subject'
+    for a subject that had just been created, and the field never showed it had become a
+    selection."""
+    for gui, name in [(experiment_gui, 'hdf5'), (nwb_experiment_gui, 'nwb')]:
+        initialize(gui, f'subjects_{name}')
+        gui.subject_id_input.setText('fly1')
+        gui.refresh_subject_button()
+        assert gui.subject_button.text() == 'Create subject', name
+
+        add_subject(gui, 'fly1')
+
+        assert gui.typed_subject_is_new() is False, name
+        assert gui.subject_button.text() == 'Update subject', name
+        assert 'fly1' in [gui.existing_subject_input.itemText(i)
+                          for i in range(gui.existing_subject_input.count())], name
+
+
+def test_switching_experiments_forgets_subjects_of_the_previous_one(nwb_experiment_gui, tmp_path):
+    """Remembered subjects belong to the experiment they were created in, and must not follow the
+    user into another."""
+    gui = nwb_experiment_gui
+    initialize(gui, 'first')
+    add_subject(gui, 'fly1')
+    assert gui.data.get_existing_subject_data()
+
+    initialize(gui, 'second')
+
+    assert gui.data.get_existing_subject_data() == []

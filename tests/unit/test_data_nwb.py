@@ -170,7 +170,25 @@ def test_update_subject_revises_metadata(tmp_path):
 
 def test_get_existing_subject_data_on_a_fresh_directory(tmp_path):
     # Must not raise just because no series have been written yet.
-    assert _make_data(tmp_path).get_existing_subject_data() == []
+    assert _make_data(tmp_path, subject=None).get_existing_subject_data() == []
+
+
+def test_a_subject_exists_before_it_has_run_a_series(tmp_path):
+    """Subject metadata lives in the series files, so a subject that has not run one was reported
+    by nobody -- and every caller that asks whether this experiment has it, the GUI included, was
+    told no about a subject it had just created."""
+    data = _make_data(tmp_path)                      # creates s1, writes no series
+
+    assert [s['subject_id'] for s in data.get_existing_subject_data()] == ['s1']
+
+
+def test_a_subject_written_to_disk_wins_over_the_remembered_copy(tmp_path):
+    """The file is the record. What is remembered is only a stand-in until one exists."""
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    data.defined_subjects['s1']['age'] = 999         # as a stale in-memory copy would be
+
+    assert data.get_existing_subject_data()[0]['age'] == 5
 
 
 def test_get_existing_subject_data_round_trips(tmp_path):
