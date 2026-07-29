@@ -1267,13 +1267,23 @@ class ExperimentGUI(QWidget):
         for key in self.subject_metadata_inputs:
             self.subject_metadata_inputs[key].setCurrentText(subject_data_dict[key])
 
+    def flag_series_number(self, already_used):
+        """Mark the series counter when its number has already been recorded, or clear the mark.
+
+        Cleared by removing the override rather than by painting the field white. Forcing white
+        left the text colour to the palette, so under a dark theme the field was white text on a
+        white background -- unreadable in exactly the state that means "this is fine".
+
+        The warning names both colours for the same reason: a background set without a foreground
+        inherits whatever the theme supplies, which is only legible by luck.
+        """
+        self.series_counter_input.setStyleSheet(
+            'background-color: rgb(220, 76, 76); color: black;' if already_used else '')
+
     def on_entered_series_count(self):
         self.data.update_series_count(self.series_counter_input.value())
         if self.data.experiment_file_exists() is True:
-            if self.data.get_series_count() <= self.data.get_highest_series_count():
-                self.series_counter_input.setStyleSheet("background-color: rgb(255, 0, 0);")
-            else:
-                self.series_counter_input.setStyleSheet("background-color: rgb(255, 255, 255);")
+            self.flag_series_number(self.data.get_series_count() <= self.data.get_highest_series_count())
 
     def confirm_series_overwrite(self, series_number):
         """Ask before recording onto a series number that already holds data. True to go ahead.
@@ -1306,11 +1316,11 @@ class ExperimentGUI(QWidget):
                 # around it as the only option -- so the file grew a gap and the numbering stopped
                 # matching the notebook. Destructive, so it is opt-in and defaults to No.
                 if not self.confirm_series_overwrite(self.data.get_series_count()):
-                    self.series_counter_input.setStyleSheet("background-color: rgb(255, 0, 0);")
+                    self.flag_series_number(True)
                     self.status_label.setText('Select an unused series number')
                     return
                 self.data.delete_series()
-            self.series_counter_input.setStyleSheet("background-color: rgb(255, 255, 255);")
+            self.flag_series_number(False)
 
         # Populate parameters from filled fields
         if self.mid_parameter_edit:

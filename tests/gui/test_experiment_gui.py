@@ -996,3 +996,42 @@ def test_a_data_write_failure_is_surfaced_as_its_own_error(experiment_gui, monke
     assert alerts and alerts[0][0] == 'Data file error'
     assert 'may not open' in alerts[0][1]
     assert gui.status_label.text().startswith('[data error]')
+
+
+def test_clearing_the_series_warning_does_not_paint_the_field(experiment_gui):
+    """It used to set the background white, leaving the text colour to the palette -- so under a
+    dark theme a valid series number was white on white, unreadable in the state that means fine."""
+    gui = experiment_gui
+
+    gui.flag_series_number(True)
+    style = gui.series_counter_input.styleSheet()
+    assert 'background-color' in style
+    assert 'color: black' in style, 'a background without a foreground is legible only by luck'
+
+    gui.flag_series_number(False)
+    assert gui.series_counter_input.styleSheet() == '', \
+        'the field is still overridden, so it cannot follow the theme'
+
+
+def test_the_series_warning_follows_the_number_that_is_entered(experiment_gui, tmp_path):
+    """The mark has to track the value, not just be settable."""
+    gui = experiment_gui
+    gui.data.experiment_file_name = 'series_flag'
+    gui.data.initialize_experiment_file()
+    gui.data.create_subject({'subject_id': 'fly1'})
+
+    class Proto:
+        run_parameters = {'num_trials': 1, 'idle_color': 0.0}
+        protocol_parameters = {}
+        trial_stim_parameters = {'name': 'S'}
+        trial_protocol_parameters = {}
+        num_trials_completed = 0
+    gui.data.create_series(Proto())          # series 1 now exists
+
+    gui.series_counter_input.setValue(1)     # already recorded
+    gui.on_entered_series_count()
+    assert 'background-color' in gui.series_counter_input.styleSheet()
+
+    gui.series_counter_input.setValue(2)     # free
+    gui.on_entered_series_count()
+    assert gui.series_counter_input.styleSheet() == ''

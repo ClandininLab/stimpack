@@ -17,7 +17,6 @@ than by the browser knowing which format it is looking at.
 import os
 
 import PyQt6.QtCore as QtCore
-from PyQt6.QtCore import Qt
 import PyQt6.QtGui as QtGui
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
                              QTableWidget, QTableWidgetItem)
@@ -55,21 +54,15 @@ class Hdf5DataBrowser(QWidget):
         self.table_attributes.setColumnCount(2)
         self.table_attributes.setObjectName("table_attributes")
         self.table_attributes.setRowCount(0)
-        item = QTableWidgetItem()
+        # Header items carry their text and nothing else. They used to hardcode a grey background
+        # with a darker grey foreground, which ignores the palette: barely legible under any
+        # theme, and wrong under a dark one. Left to the theme they are readable under both.
         font = QtGui.QFont()
         font.setPointSize(10)
-        item.setFont(font)
-        item.setBackground(QtGui.QColor(121, 121, 121))
-        brush = QtGui.QBrush(QtGui.QColor(91, 91, 91))
-        brush.setStyle(Qt.BrushStyle.SolidPattern)
-        item.setForeground(brush)
-        self.table_attributes.setHorizontalHeaderItem(0, item)
         item = QTableWidgetItem()
-        item.setBackground(QtGui.QColor(123, 123, 123))
-        brush = QtGui.QBrush(QtGui.QColor(91, 91, 91))
-        brush.setStyle(Qt.BrushStyle.SolidPattern)
-        item.setForeground(brush)
-        self.table_attributes.setHorizontalHeaderItem(1, item)
+        item.setFont(font)
+        self.table_attributes.setHorizontalHeaderItem(0, item)
+        self.table_attributes.setHorizontalHeaderItem(1, QTableWidgetItem())
         self.table_attributes.horizontalHeader().setCascadingSectionResizes(True)
         self.table_attributes.horizontalHeader().setDefaultSectionSize(200)
         self.table_attributes.horizontalHeader().setHighlightSections(False)
