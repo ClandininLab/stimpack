@@ -16,7 +16,7 @@ import moderngl  # noqa: E402
 import numpy as np  # noqa: E402
 
 from stimpack.visual_stim.cubemap import (  # noqa: E402
-    CUBE_FACES, CubeMapRenderer, face_matrices, face_view_projections,
+    CUBE_FACES, CubeMapRenderer, face_view_projections,
 )
 from stimpack.visual_stim.curved_screen import (  # noqa: E402
     CylindricalSurface, PinholeProjector, ScreenMesh, SphericalSurface, build_screen_mesh,

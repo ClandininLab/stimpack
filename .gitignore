@@ -175,3 +175,8 @@ tests/gl/_failures/
 
 # GL on-demand render output (--save-renders) and contact sheets
 tests/gl/_output/
+
+# Experiment output, which lands in the working directory when a GUI or test is
+# run from the repo root. One of these was committed by accident once.
+*.hdf5
+*.nwb
