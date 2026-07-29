@@ -14,7 +14,17 @@ pytestmark = pytest.mark.unit
 
 
 class LegacyProtocol(BaseProtocol):
-    """Written the way labpack protocols are written today, and not ported."""
+    """Written the way labpack protocols are written today, and not ported.
+
+    The __init__ matters: 75 protocols in one labpack re-assign run_parameters exactly like this,
+    which never passes through stimpack's own code. A legacy protocol without it would test a
+    path no real protocol takes -- and did, until the template was run against this and raised
+    KeyError: 'num_trials'.
+    """
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        self.run_parameters = self.get_run_parameter_defaults()
+
     def get_run_parameter_defaults(self):
         return {'num_epochs': 3, 'idle_color': 0.5}
 
@@ -199,3 +209,17 @@ def test_each_old_name_is_reported_once_not_once_per_trial(fresh_warnings):
                  if issubclass(w.category, DeprecationWarning)]:
         counts[name] = counts.get(name, 0) + 1
     assert counts and set(counts.values()) == {1}, counts
+
+
+def test_run_parameters_are_renamed_however_they_are_assigned():
+    """The usual labpack protocol sets run_parameters itself, after stimpack has already built
+    them, so normalising where stimpack assigns them misses every one of those protocols."""
+    protocol = LegacyProtocol(cfg={})
+    assert protocol.run_parameters['num_trials'] == 3
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        protocol.run_parameters = {'num_epochs': 11, 'idle_color': 0.5}   # assigned again, later
+
+    assert protocol.run_parameters['num_trials'] == 11
+    assert 'num_epochs' not in protocol.run_parameters

@@ -81,7 +81,7 @@ class BaseProtocol():
         # Fill this in with desired parameters in get_trial_parameters(). Can also be used to control other features of the stimulus and used in load_stimuli()
         self.trial_protocol_parameters = {}
 
-        self.run_parameters = normalize_run_parameters(self.get_run_parameter_defaults())
+        self.run_parameters = self.get_run_parameter_defaults()
         self.protocol_parameters = self.get_protocol_parameter_defaults()
         self.load_parameter_presets()
         
@@ -160,6 +160,30 @@ class BaseProtocol():
         absolute_center = [sum(x) for x in zip(relative_center, self.screen_center)]
         return absolute_center
 
+    @property
+    def run_parameters(self):
+        """The run's parameters, with any pre-0.3 keys renamed.
+
+        A property rather than a plain attribute so that the rename catches every assignment. The
+        usual labpack protocol sets this itself::
+
+            def __init__(self, cfg):
+                super().__init__(cfg)
+                self.run_parameters = self.get_run_parameter_defaults()
+
+        -- which never passes through stimpack's own code, so normalising there would have missed
+        a protocol declaring num_epochs in 75 protocols of one labpack alone.
+        """
+        try:
+            return self._run_parameters
+        except AttributeError:
+            self._run_parameters = {}
+            return self._run_parameters
+
+    @run_parameters.setter
+    def run_parameters(self, value):
+        self._run_parameters = normalize_run_parameters(value)
+
     @calls_legacy_override('get_epoch_parameters')
     def get_trial_parameters(self):
         """ Inherit / overwrite me in the child subclass"""
@@ -212,7 +236,7 @@ class BaseProtocol():
         Parameters that are not present in the preset will use the current protocol's default values.
         '''
 
-        self.run_parameters = normalize_run_parameters(self.get_run_parameter_defaults())
+        self.run_parameters = self.get_run_parameter_defaults()
         self.protocol_parameters = self.get_protocol_parameter_defaults()
 
         # If loco is available, add/set "do_loco" boolean to run parameters
