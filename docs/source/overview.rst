@@ -30,6 +30,26 @@ A **trial** is one stimulus presentation. A **series** is a run of them under on
 what the Record button produces: one series, numbered, with its parameters and outcome recorded
 alongside.
 
+You *run* a protocol; each recorded run is a series. A View run is a run with no series -- trials
+are presented, nothing is written, and no series number is used. That is the whole of the
+difference between the two words, and why ``run_parameters`` (``num_trials``, ``idle_color``) is
+not called ``series_parameters``: those settings govern a View run too, which never becomes a
+series.
+
+Two kinds of parameter go into a run, and which one a setting belongs to decides who reads it:
+
+**Run parameters** are read by stimpack itself and are fixed for the whole run -- ``num_trials``
+drives the loop, ``do_loco`` starts the tracker, ``randomize_order`` shapes the sequence.
+``num_trials`` and ``idle_color`` are required; the rest have defaults.
+
+**Protocol parameters** are the stimulus, and stimpack never reads one by name. It only sequences
+them and hands the protocol one value per trial. Give one a list of more than one value and it
+sweeps across trials -- ``angle: [0, 45, 90]`` presents three angles in turn -- which is the one
+place that rule applies. A run parameter given a list is just a list.
+
+So a new setting is a run parameter if stimpack has to understand it, and a protocol parameter if
+only your protocol does.
+
 Before 0.3 stimpack called these an *epoch* and an *epoch run*. Its NWB files never did -- NWB
 calls a presentation a trial -- so the same thing had two names depending on where you looked.
 Code written for the old names still works: ``get_epoch_parameters``, ``num_epochs`` and the rest
