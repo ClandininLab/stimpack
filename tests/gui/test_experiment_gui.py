@@ -907,7 +907,7 @@ def test_the_trial_readout_shows_only_the_parameters_that_vary(experiment_gui):
     protocol.persistent_parameters = {}                        # force the recomputed fallback
     protocol.trial_protocol_parameters = {'angle': 45, 'rate': 20}
 
-    text = gui.epoch_parameters_text()
+    text = gui.trial_parameters_text()
     assert 'angle: 45' in text
     assert 'rate' not in text, 'a parameter that never changes was reported as this epoch\'s'
 
@@ -923,13 +923,13 @@ def test_the_trial_readout_prefers_what_the_protocol_recorded(experiment_gui):
     protocol.persistent_parameters = {'variable_protocol_parameter_names': ['contrast']}
     protocol.trial_protocol_parameters = {'contrast': 0.25, 'angle': 45}
 
-    assert gui.epoch_parameters_text() == 'contrast: 0.25'
+    assert gui.trial_parameters_text() == 'contrast: 0.25'
 
 
 def test_the_trial_readout_is_blank_between_runs(experiment_gui):
     gui = experiment_gui
     select_protocol(gui, 'DriftingSquareGrating')
-    assert gui.epoch_parameters_text() == ''
+    assert gui.trial_parameters_text() == ''
 
 
 def test_the_trial_readout_says_so_when_nothing_varies(experiment_gui):
@@ -941,7 +941,7 @@ def test_the_trial_readout_says_so_when_nothing_varies(experiment_gui):
     protocol.persistent_parameters = {'variable_protocol_parameter_names': []}
     protocol.trial_protocol_parameters = {'angle': 45}
 
-    assert gui.epoch_parameters_text() == '(no parameters vary across trials)'
+    assert gui.trial_parameters_text() == '(no parameters vary across trials)'
 
 
 def test_a_long_trial_readout_does_not_reshape_the_window(experiment_gui, qapp):
@@ -949,11 +949,11 @@ def test_a_long_trial_readout_does_not_reshape_the_window(experiment_gui, qapp):
     qapp.processEvents()
     before = (gui.width(), gui.height())
 
-    gui.epoch_parameters_label.setText('some_parameter: 3.14159,   ' * 200)
+    gui.trial_parameters_label.setText('some_parameter: 3.14159,   ' * 200)
     qapp.processEvents()
 
     assert (gui.width(), gui.height()) == before
-    assert gui.epoch_parameters_label.toolTip().startswith('some_parameter')
+    assert gui.trial_parameters_label.toolTip().startswith('some_parameter')
 
 
 def test_the_trial_readout_follows_a_real_protocol_trial_by_trial(experiment_gui):
@@ -973,7 +973,7 @@ def test_the_trial_readout_follows_a_real_protocol_trial_by_trial(experiment_gui
     seen = []
     for _ in range(3):
         protocol.load_precomputed_trial_parameters()
-        seen.append(gui.epoch_parameters_text())
+        seen.append(gui.trial_parameters_text())
         protocol.num_trials_completed += 1
 
     assert all(text.startswith('angle: ') for text in seen), seen
@@ -1293,3 +1293,33 @@ def test_the_ensemble_tab_shows_the_subject_too(experiment_gui):
 
     assert gui.ensemble_subject_label.text() == 'fly_07'
     assert gui.current_subject_main_label.text() == 'fly_07'
+
+
+def test_a_truncated_dropdown_name_can_still_be_read_in_full(experiment_gui, qapp):
+    """Capping the width elides the name in the closed box, so the box carries the whole of it as
+    a tooltip -- truncating is only safe if there is a way to read the rest."""
+    gui = experiment_gui
+    LONG = 'ADeliberatelyVeryLongProtocolNameSomebodyWouldWrite (mc_protocol_demo)'
+
+    gui.protocol_selection_combo_box.addItem(LONG)
+    gui.protocol_selection_combo_box.setCurrentText(LONG)
+    qapp.processEvents()
+
+    assert gui.protocol_selection_combo_box.toolTip() == LONG
+
+    from PyQt6.QtGui import QFontMetrics
+    metrics = QFontMetrics(gui.protocol_selection_combo_box.font())
+    assert metrics.horizontalAdvance(LONG) > gui.protocol_selection_combo_box.width(), \
+        'the premise is gone: the name now fits, so nothing is being truncated'
+
+
+def test_the_tooltip_follows_the_selection(experiment_gui, qapp):
+    gui = experiment_gui
+    gui.protocol_selection_combo_box.addItems(['ShortOne', 'AnotherOneEntirely'])
+    gui.protocol_selection_combo_box.setCurrentText('ShortOne')
+    qapp.processEvents()
+    assert gui.protocol_selection_combo_box.toolTip() == 'ShortOne'
+
+    gui.protocol_selection_combo_box.setCurrentText('AnotherOneEntirely')
+    qapp.processEvents()
+    assert gui.protocol_selection_combo_box.toolTip() == 'AnotherOneEntirely'

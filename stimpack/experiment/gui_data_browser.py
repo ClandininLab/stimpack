@@ -19,7 +19,7 @@ import os
 import PyQt6.QtCore as QtCore
 import PyQt6.QtGui as QtGui
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
-                             QTableWidget, QTableWidgetItem)
+                             QTableWidget, QTableWidgetItem, QSplitter)
 
 from stimpack.experiment.util import h5io
 
@@ -43,10 +43,16 @@ class Hdf5DataBrowser(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self.group_tree = QTreeWidget(self)
+        # A splitter, so the share between the tree and the attribute table is the user's to set.
+        # Stacked in a plain layout the table's 400 px minimum height won it most of the space and
+        # the tree was left a few rows, which is the wrong way round for finding a series.
+        self.splitter = QSplitter(QtCore.Qt.Orientation.Vertical, self)
+        layout.addWidget(self.splitter)
+
+        self.group_tree = QTreeWidget(self.splitter)
         self.group_tree.setHeaderHidden(True)
         self.group_tree.itemClicked.connect(self.on_tree_item_clicked)
-        layout.addWidget(self.group_tree)
+        self.splitter.addWidget(self.group_tree)
 
         # Attribute table
         self.table_attributes = QTableWidget()
@@ -70,7 +76,7 @@ class Hdf5DataBrowser(QWidget):
         self.table_attributes.horizontalHeader().setStretchLastSection(True)
         self.table_attributes.verticalHeader().setVisible(False)
         self.table_attributes.verticalHeader().setHighlightSections(False)
-        self.table_attributes.setMinimumSize(QtCore.QSize(200, 400))
+        self.table_attributes.setMinimumSize(QtCore.QSize(200, 80))
         item = self.table_attributes.horizontalHeaderItem(0)
         item.setText("Attribute")
         item = self.table_attributes.horizontalHeaderItem(1)
@@ -78,7 +84,12 @@ class Hdf5DataBrowser(QWidget):
 
         self.table_attributes.itemChanged.connect(self.update_attrs_to_file)
 
-        layout.addWidget(self.table_attributes)
+        self.splitter.addWidget(self.table_attributes)
+        # Start with the tree given the larger share, and let it keep whatever the user drags it
+        # to: the table's minimum is what made the tree small, so it is the one that yields.
+        self.splitter.setStretchFactor(0, 2)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([500, 250])
 
     @property
     def file_path(self):

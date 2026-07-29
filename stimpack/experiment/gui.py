@@ -63,9 +63,19 @@ DROPDOWN_CHARACTERS = 24
 
 
 def cap_dropdown_width(combo_box, characters=DROPDOWN_CHARACTERS):
-    """Stop a long entry in `combo_box` dictating the width of everything around it."""
+    """Stop a long entry in `combo_box` dictating the width of everything around it.
+
+    The name is then elided in the closed box, so the box also carries the whole of it as its
+    tooltip: a truncated protocol name is only safe to show if there is a way to read the rest.
+    """
     combo_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
     combo_box.setMinimumContentsLength(characters)
+
+    def show_full_name(_=None):
+        combo_box.setToolTip(combo_box.currentText())
+
+    combo_box.currentTextChanged.connect(show_full_name)
+    show_full_name()
     return combo_box
 
 
@@ -318,6 +328,11 @@ class ExperimentGUI(QWidget):
         self.series_counter_input.setMaximum(1000)
         self.series_counter_input.setValue(1)
         self.series_counter_input.valueChanged.connect(self.on_entered_series_count)
+        # Mirrored on the Ensemble tab, which shows the number but does not set it. Driven by the
+        # signal so a programmatic setValue -- advancing after a recorded series -- updates it too.
+        self.series_counter_input.valueChanged.connect(
+            lambda value: self.ensemble_series_label.setText(str(value))
+            if hasattr(self, 'ensemble_series_label') else None)
         self.protocol_status_grid.addWidget(self.series_counter_input, 0, 1)
 
         # Current subject, next to the series counter: together they say what the next run will
@@ -353,22 +368,20 @@ class ExperimentGUI(QWidget):
         # Same treatment as the status line, and for the same reason: a protocol varying several
         # parameters produces a long line, and a bare QLabel's size hint grows with its text until
         # it reshapes the window. One line tall, scrolls if longer, whole text in the tooltip.
-        self.epoch_parameters_label = _StatusLabel('')
-        self.epoch_parameters_label.setWordWrap(True)
-        self.epoch_parameters_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self.epoch_parameters_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.trial_parameters_label = _StatusLabel('')
+        self.trial_parameters_label.setWordWrap(True)
+        self.trial_parameters_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.trial_parameters_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
-        self.epoch_parameters_scroll_area = QScrollArea()
-        self.epoch_parameters_scroll_area.setWidget(self.epoch_parameters_label)
-        self.epoch_parameters_scroll_area.setWidgetResizable(True)
-        self.epoch_parameters_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.epoch_parameters_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.epoch_parameters_scroll_area.setFixedHeight(
-            self.epoch_parameters_label.fontMetrics().height()
-            + 2 * self.epoch_parameters_scroll_area.frameWidth())
+        self.trial_parameters_scroll_area = QScrollArea()
+        self.trial_parameters_scroll_area.setWidget(self.trial_parameters_label)
+        self.trial_parameters_scroll_area.setWidgetResizable(True)
+        self.trial_parameters_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.trial_parameters_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.trial_parameters_scroll_area.setFixedHeight(
+            self.trial_parameters_label.fontMetrics().height()
+            + 2 * self.trial_parameters_scroll_area.frameWidth())
 
-        self.protocol_status_grid.addWidget(QLabel('This trial:'), 2, 0)
-        self.protocol_status_grid.addWidget(self.epoch_parameters_scroll_area, 2, 1, 1, 3)
 
         # Elapsed timer for protocol
         self.progress_timer = QTimer()
@@ -523,23 +536,29 @@ class ExperimentGUI(QWidget):
         # single protocol.
         # Same order as the Main tab's readout row -- elapsed on the left, the count on the right.
         # Switching tabs mid-run should not move the numbers around under the eye.
-        self.ensemble_status_grid.addWidget(QLabel('Elapsed:'), 0, 0)
-        self.ensemble_elapsed_label = QLabel()
-        self.ensemble_elapsed_label.setFrameShadow(QFrame.Shadow(1))
-        self.ensemble_status_grid.addWidget(self.ensemble_elapsed_label, 0, 1)
+        # Same shape as the Main tab's readouts, cell for cell: what a series is being recorded as
+        # on the top row, how far along it is on the second. Switching tabs mid-run should move
+        # nothing under the eye -- which is also why the series number and subject appear here at
+        # all, read-only, rather than only where they are set.
+        self.ensemble_status_grid.addWidget(QLabel('Series #'), 0, 0)
+        self.ensemble_series_label = QLabel()
+        self.ensemble_series_label.setFrameShadow(QFrame.Shadow(1))
+        self.ensemble_status_grid.addWidget(self.ensemble_series_label, 0, 1)
 
-        self.ensemble_status_grid.addWidget(QLabel('Protocols run:'), 0, 2)
-        self.ensemble_progress_label = QLabel()
-        self.ensemble_progress_label.setFrameShadow(QFrame.Shadow(1))
-        self.ensemble_status_grid.addWidget(self.ensemble_progress_label, 0, 3)
-
-        # Which subject this will be recorded against, as on the Main tab. An ensemble records
-        # several series in a row without stopping, so it is the tab where being wrong about the
-        # subject costs the most.
-        self.ensemble_status_grid.addWidget(QLabel('Subject:'), 1, 0)
+        self.ensemble_status_grid.addWidget(QLabel('Subject:'), 0, 2)
         self.ensemble_subject_label = QLabel()
         self.ensemble_subject_label.setFrameShadow(QFrame.Shadow(1))
-        self.ensemble_status_grid.addWidget(self.ensemble_subject_label, 1, 1)
+        self.ensemble_status_grid.addWidget(self.ensemble_subject_label, 0, 3)
+
+        self.ensemble_status_grid.addWidget(QLabel('Elapsed:'), 1, 0)
+        self.ensemble_elapsed_label = QLabel()
+        self.ensemble_elapsed_label.setFrameShadow(QFrame.Shadow(1))
+        self.ensemble_status_grid.addWidget(self.ensemble_elapsed_label, 1, 1)
+
+        self.ensemble_status_grid.addWidget(QLabel('Protocols run:'), 1, 2)
+        self.ensemble_progress_label = QLabel()
+        self.ensemble_progress_label.setFrameShadow(QFrame.Shadow(1))
+        self.ensemble_status_grid.addWidget(self.ensemble_progress_label, 1, 3)
 
         # Ensemble run buttons. Separate widgets from the Main tab's, so each tab's buttons act on
         # that tab's subject and nothing has to be relabelled or routed by label.
@@ -681,12 +700,20 @@ class ExperimentGUI(QWidget):
         # Below the tabs, so both are there whichever tab is showing: a note is about the
         # experiment rather than about one tab, and a server error aborts the run wherever you
         # happen to be looking when it arrives.
+        # Below the tabs rather than inside one: trials run during an ensemble too, so this is as
+        # useful there as on the Main tab, and keeping it out of both grids is what lets the two
+        # tabs have the same shape.
+        trial_row = QHBoxLayout()
+        trial_row.addWidget(QLabel('This trial:'))
+        trial_row.addWidget(self.trial_parameters_scroll_area)
+
         bottom_row = QHBoxLayout()
         bottom_row.addWidget(self.status_scroll_area)
         bottom_row.addWidget(self.note_button)
 
         self.layout = QVBoxLayout(self)
         self.layout.addWidget(self.tabs)
+        self.layout.addLayout(trial_row)
         self.layout.addLayout(bottom_row)
 
         self.update_run_button_states()
@@ -1711,7 +1738,7 @@ class ExperimentGUI(QWidget):
                      if isinstance(value, list) and len(value) > 1]
         return names
 
-    def epoch_parameters_text(self):
+    def trial_parameters_text(self):
         """This trial's values for the parameters that vary, as one line.
 
         Only the varying ones: the rest are on show in the parameter fields above, unchanged for
@@ -1773,7 +1800,7 @@ class ExperimentGUI(QWidget):
         # that object on another thread, but these are plain attribute reads of values it replaces
         # wholesale at the start of each trial, so the worst case is showing the previous trial's
         # values for one tick of the timer.
-        self.epoch_parameters_label.setText(self.epoch_parameters_text())
+        self.trial_parameters_label.setText(self.trial_parameters_text())
         self.update_ensemble_progress()
 
         # Announce pause transitions only, rather than rewriting the status every tick: the same
