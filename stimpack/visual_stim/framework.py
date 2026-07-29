@@ -33,6 +33,7 @@ from stimpack.visual_stim.trajectory import make_as_trajectory, return_for_time_
 
 from stimpack.visual_stim.perspective import GenPerspective
 from stimpack.visual_stim.square import SquareProgram
+from stimpack.visual_stim.calibration import CalibrationSpot
 from stimpack.visual_stim.screen import Screen
 from stimpack.visual_stim.curved_screen import CurvedScreen
 
@@ -69,6 +70,8 @@ SCREEN_FUNCTION_NAMES = (
     'import_stim_module',
     'unload_stim_module',
     'report_frame_count',
+    'show_calibration_spot',
+    'hide_calibration_spot',
 )
 
 
@@ -167,6 +170,7 @@ class StimDisplay(QOpenGLWidget):
 
         # make program for rendering the corner square
         self.square_program = SquareProgram(screen=screen)
+        self.calibration_spot = CalibrationSpot()
 
         # initialize background color
         self.idle_background = (0.5, 0.5, 0.5, 1.0)
@@ -192,6 +196,17 @@ class StimDisplay(QOpenGLWidget):
         self.imported_stim_module_classes = {}        # barcode -> {class name: class}
         self.stim_classes = {}                        # name -> class; later imports shadow earlier
         self._rebuild_stim_registry()
+
+    def show_calibration_spot(self, ndc_x, ndc_y, radius=0.05, intensity=1.0):
+        """Put a spot at a known place in the projector image, on an otherwise black screen.
+
+        For measuring the rig's brightness falloff: aim a photometer at it from where the animal
+        sits. See stimpack.visual_stim.calibration, which also picks where to put them.
+        """
+        self.calibration_spot.show(ndc_x, ndc_y, radius=radius, intensity=intensity)
+
+    def hide_calibration_spot(self):
+        self.calibration_spot.hide()
 
     def report_frame_count(self):
         """Push this screen's rendered-frame count back to the client.
@@ -340,6 +355,9 @@ class StimDisplay(QOpenGLWidget):
 
         # initialize square program
         self.square_program.initialize(self.ctx)
+        self.calibration_spot.initialize(
+            self.ctx, aspect_ratio=getattr(self.screen, 'projector', None)
+            and self.screen.projector.aspect_ratio or 1.0)
 
         self.frame_count = 0
 
@@ -455,8 +473,14 @@ class StimDisplay(QOpenGLWidget):
         else: # Clear when there is no stim loaded (tail-time and when on standby)
             self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
 
-        # draw the corner square
-        self.square_program.paint()
+        # A calibration spot owns the whole frame: black everywhere else, and no corner square,
+        # because a photometer aimed at the spot collects whatever else the screen is showing.
+        if self.calibration_spot.visible:
+            self.ctx.clear(0.0, 0.0, 0.0, 1.0)
+            self.calibration_spot.paint()
+        else:
+            # draw the corner square
+            self.square_program.paint()
 
         if self.debug:
             error = self.ctx.error
