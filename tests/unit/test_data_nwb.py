@@ -398,3 +398,85 @@ def test_the_nwb_file_records_which_stimpack_wrote_it(tmp_path):
             assert nwbfile.source_script.startswith('stimpack ')
             assert nwbfile.source_script_file_name == 'stimpack'
     assert not [w for w in caught if 'MissingRequired' in type(w.message).__name__]
+
+
+# --- subjects that have not run a series yet ----------------------------------------------------
+
+def _reopen(tmp_path, name='expt_2026-07-26'):
+    """A second NWBData over the same directory, standing in for a restarted GUI."""
+    data = NWBData(cfg=CFG)
+    data.load_experiment(str(tmp_path / name))
+    return data
+
+
+def test_a_subject_survives_a_restart_before_it_has_run(tmp_path):
+    """Subject metadata lives inside each series file, so one that has not run a series is
+    recorded nowhere. Kept beside the .nwb files for the same reason notes.csv is."""
+    _make_data(tmp_path)                             # creates s1, writes no series
+    assert (tmp_path / 'expt_2026-07-26' / NWBData.SUBJECTS_FILE).is_file()
+
+    assert [s['subject_id'] for s in _reopen(tmp_path).get_existing_subject_data()] == ['s1']
+
+
+def test_a_revision_survives_too(tmp_path):
+    data = _make_data(tmp_path)
+    data.update_subject({'subject_id': 's1', 'age': 9, 'notes': 'revised'})
+
+    reopened = _reopen(tmp_path).get_existing_subject_data()[0]
+    assert reopened['age'] == 9 and reopened['notes'] == 'revised'
+
+
+def test_the_sidecar_is_not_mistaken_for_a_series(tmp_path):
+    """get_series_files filters on the .nwb suffix, and the series count comes from it."""
+    data = _make_data(tmp_path)
+
+    assert data.get_series_files() == []
+    assert data.get_existing_series() == []
+
+
+def test_another_experiment_does_not_inherit_them(tmp_path):
+    """They belong to the experiment they were created in."""
+    _make_data(tmp_path)
+
+    other = NWBData(cfg=CFG)
+    other.data_directory = str(tmp_path)
+    other.experiment_file_name = 'other'
+    other.initialize_experiment_file()
+
+    assert other.get_existing_subject_data() == []
+
+
+@pytest.mark.parametrize('contents', ['{not json', '["not", "a", "mapping"]'])
+def test_an_unreadable_sidecar_warns_rather_than_stopping_the_experiment(tmp_path, contents):
+    """The series files are the record either way, so a convenience file must not be able to stop
+    an experiment opening."""
+    _make_data(tmp_path)
+    (tmp_path / 'expt_2026-07-26' / NWBData.SUBJECTS_FILE).write_text(contents)
+
+    with pytest.warns(UserWarning, match=NWBData.SUBJECTS_FILE):
+        data = _reopen(tmp_path)
+
+    assert data.get_existing_subject_data() == []
+
+
+def test_a_sidecar_that_cannot_be_written_warns_rather_than_raising(tmp_path, monkeypatch):
+    """Creating a subject happens mid-session, often with an animal already mounted."""
+    data = _make_data(tmp_path, subject=None)
+
+    def refuse(*args, **kwargs):
+        raise OSError('read-only file system')
+    monkeypatch.setattr('builtins.open', refuse)
+
+    with pytest.warns(UserWarning, match='will not survive a restart'):
+        data.create_subject({'subject_id': 's9', 'age': 1, 'notes': ''})
+
+    assert data.current_subject == 's9', 'the subject is still usable this session'
+
+
+def test_an_experiment_written_before_the_sidecar_existed_still_opens(tmp_path):
+    """A missing file is the normal state for those, not an error."""
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    (tmp_path / 'expt_2026-07-26' / NWBData.SUBJECTS_FILE).unlink()
+
+    assert [s['subject_id'] for s in _reopen(tmp_path).get_existing_subject_data()] == ['s1']

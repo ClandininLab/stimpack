@@ -112,8 +112,15 @@ backend.
 
     Every NWB file records its provenance in ``source_script``, the schema's own field for what
     software wrote a file, as one line: ``stimpack 0.3.0.dev0 (28a303e); labpack clandinin_labpack
-    (18b2dfe); config mc_config.yaml``. Two extra config keys are written in as top-level
-    metadata:
+    (18b2dfe); config mc_config.yaml``.
+
+    Two things an experiment knows before any series exists have no series file to live in, so
+    they sit beside them: ``notes.csv`` and ``subjects.json``, the latter holding subjects created
+    but not yet run. Where a subject has run, the series file is the record and the sidecar is
+    ignored. Archiving only the ``.nwb`` files therefore loses notes, and subjects with no data
+    attached.
+
+    Two extra config keys are written into every file as top-level metadata:
 
     .. code-block:: yaml
 

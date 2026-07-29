@@ -96,7 +96,8 @@ class NWBData(BaseData):
         # and stimpack already uses that word for two specific things (see BaseProtocol).
         self.series_record = {}
         self.trial_parameters = {}
-        # Subjects created in this experiment, keyed by id. See get_existing_subject_data.
+        # Subjects created in this experiment, keyed by id. Mirrored to SUBJECTS_FILE so one that
+        # has not run a series yet survives a restart. See get_existing_subject_data.
         self.defined_subjects = {}
 
     # # # NWB-flavored aliases for BaseData's storage-neutral attribute names # # #
@@ -131,6 +132,52 @@ class NWBData(BaseData):
         the parent directory and name the GUI may still be editing."""
         return Path(os.path.join(self.data_directory, self.experiment_file_name))
 
+    # Subject metadata lives inside each series file, so a subject that has not run one is
+    # recorded nowhere. Kept beside the .nwb files for the same reason notes.csv is: what the
+    # experiment knows before a series exists has no series file to live in.
+    #
+    # JSON rather than CSV, which is what notes uses, because a note is flat (timestamp, text)
+    # and subject metadata is an arbitrary dict -- the config's subject_metadata keys differ per
+    # lab, and a CSV would need a union-of-keys header and would stringify the age back into the
+    # form _days_from_iso8601_duration exists to undo.
+    SUBJECTS_FILE = 'subjects.json'
+
+    @property
+    def subjects_file_path(self):
+        return self.nwb_directory_path / self.SUBJECTS_FILE
+
+    def write_defined_subjects(self):
+        """Mirror the defined subjects to disk. Fails soft: an experiment must not stop recording
+        because a convenience file could not be written."""
+        if not self.experiment_file_exists():
+            return
+        try:
+            with open(self.subjects_file_path, 'w') as f:
+                json.dump(self.defined_subjects, f, indent=2, sort_keys=True)
+        except (OSError, TypeError, ValueError) as e:
+            warnings.warn(f'Could not write {self.subjects_file_path}: {e}. Subjects created but '
+                          f'not yet run will not survive a restart.')
+
+    def read_defined_subjects(self):
+        """Load them back, or return nothing. A missing file is the normal state for an experiment
+        written before this existed, and a corrupt one must not stop the experiment opening -- the
+        series files are the record either way."""
+        try:
+            with open(self.subjects_file_path) as f:
+                subjects = json.load(f)
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as e:
+            warnings.warn(f'Could not read {self.subjects_file_path}: {e}. Subjects that have run '
+                          f'a series are unaffected; they are read from the series files.')
+            return {}
+
+        if not isinstance(subjects, dict):
+            warnings.warn(f'{self.subjects_file_path} does not hold a mapping of subjects; ignoring.')
+            return {}
+        return {str(subject_id): metadata for subject_id, metadata in subjects.items()
+                if isinstance(metadata, dict)}
+
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # # # # # # # #  Creating experiment file and groups  # # # # # # # # # # # #
@@ -155,9 +202,9 @@ class NWBData(BaseData):
 
     def initialize_session(self):
         # Run by both initialize_experiment_file and load_experiment, which is exactly when the
-        # experiment changes -- so subjects remembered for the previous one are dropped here
-        # rather than following the user into a different experiment.
-        self.defined_subjects = {}
+        # experiment changes -- so subjects belonging to the previous one are dropped here rather
+        # than following the user into a different experiment, and this one's are read back.
+        self.defined_subjects = self.read_defined_subjects()
 
         self.timezone = timezone.utc  # This could be changed if desired
         session_start_time = datetime.now(self.timezone)
@@ -205,6 +252,7 @@ class NWBData(BaseData):
         # to every caller that asks -- including the GUI, which then went on offering to create
         # the subject it had just created.
         self.defined_subjects[subject_metadata['subject_id']] = dict(subject_metadata)
+        self.write_defined_subjects()
         self.select_subject(subject_metadata['subject_id'])
 
     def update_subject(self, subject_metadata):
@@ -217,6 +265,7 @@ class NWBData(BaseData):
             return
         self.subject_metadata = subject_metadata
         self.defined_subjects[subject_metadata['subject_id']] = dict(subject_metadata)
+        self.write_defined_subjects()
 
     def create_subject(self, subject_metadata):
         """
@@ -676,7 +725,8 @@ class NWBData(BaseData):
         created in this session that have not run a series yet.
 
         The second half is what an HDF5 experiment gets for free by writing a group on creation.
-        Without it a freshly created subject did not exist as far as any caller could tell.
+        Without it a freshly created subject did not exist as far as any caller could tell. It
+        survives a restart via SUBJECTS_FILE.
         """
         # Keyed by id so a subject appearing in several series files is one entry, and so what was
         # written to disk wins over what is only remembered -- the file is the record.
