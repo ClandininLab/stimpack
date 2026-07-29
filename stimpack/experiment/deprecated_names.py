@@ -16,6 +16,8 @@ labpack still uses.
 import functools
 import warnings
 
+import yaml
+
 
 def _warn_once(old, new, kind):
     """Warn about a deprecated name, once per name per process.
@@ -144,6 +146,24 @@ class RunParameters(dict):
 
     def get(self, key, default=None):
         return dict.get(self, self._resolve(key), default)
+
+
+def _represent_run_parameters(dumper, data):
+    """Write a RunParameters as a plain YAML mapping.
+
+    Without this PyYAML falls back to tagging it by type, so saving a parameter preset produced
+
+        run_parameters: !!python/object/new:stimpack.experiment.deprecated_names.RunParameters
+
+    which yaml.safe_load then refuses to construct -- a preset stimpack had just written and could
+    not read back. Registered on the type rather than fixed at the one call site that dumps it, so
+    a labpack writing run_parameters to YAML of its own gets the same treatment.
+    """
+    return dumper.represent_dict(data)
+
+
+for _dumper in (yaml.Dumper, yaml.SafeDumper):
+    yaml.add_representer(RunParameters, _represent_run_parameters, Dumper=_dumper)
 
 
 def normalize_run_parameters(run_parameters):

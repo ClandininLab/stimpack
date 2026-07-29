@@ -358,9 +358,9 @@ class ExperimentGUI(QWidget):
         self.update_parameter_preset_selector()
 
         # Save parameter preset button:
-        save_preset_button = QPushButton("Save preset", self)
-        save_preset_button.clicked.connect(self.on_pressed_button)
-        self.protocol_selector_grid.addWidget(save_preset_button, 2, 2)
+        self.save_preset_button = QPushButton("Save preset", self)
+        self.save_preset_button.clicked.connect(self.on_pressed_button)
+        self.protocol_selector_grid.addWidget(self.save_preset_button, 2, 2)
 
         # Status window: its own row at the bottom of the tab, below the buttons.
         #
@@ -979,6 +979,11 @@ class ExperimentGUI(QWidget):
             self.prompt_for_note()
 
         elif sender.text() == 'Save preset':
+            # A backstop for the disabled button: there are no parameters to save from a protocol
+            # that has not been chosen, and the rest of this branch would write a preset onto a
+            # bare BaseProtocol.
+            if not self.protocol_selected:
+                return
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=False)  # get the state of the param input from GUI
             start_name = self.parameter_preset_comboBox.currentText()
             if start_name == 'Default':
@@ -1360,6 +1365,10 @@ class ExperimentGUI(QWidget):
         self.protocol_selector_grid.addWidget(self.parameter_preset_comboBox, 2, 1, 1, 1)
 
     def on_selected_parameter_preset(self, text):
+        # A backstop for the disabled dropdown above: there is no preset to apply to a protocol
+        # that has not been chosen, and going on would reach prepare_run and abort the process.
+        if not self.protocol_selected:
+            return
         self.protocol_object.select_protocol_preset(text)
         self.reset_layout()
         self.update_parameters_input()
@@ -1459,9 +1468,19 @@ class ExperimentGUI(QWidget):
 
         # A greyed button says nothing about why. Only for prerequisites the user can act on --
         # that something else is already running is plain from the rest of the window.
+        # Both of these end up in prepare_run, which a bare BaseProtocol cannot satisfy: it has no
+        # num_trials, so its own required-parameter check raises -- and an exception in a Qt slot
+        # takes the process down with a core dump rather than surfacing as an error. Unreachable
+        # without a protocol now. This crashed from start-up, before anything had been selected,
+        # and not only after deselecting one.
+        self.parameter_preset_comboBox.setEnabled(has_protocol)
+        self.save_preset_button.setEnabled(has_protocol)
+
         protocol_hint = '' if has_protocol else 'Select a protocol first.'
         ensemble_hint = '' if has_ensemble else 'Add a protocol to the ensemble first.'
         subject_hint = '' if can_record else 'Specify a subject to record.'
+        self.parameter_preset_comboBox.setToolTip(protocol_hint)
+        self.save_preset_button.setToolTip(protocol_hint)
         self.view_button.setToolTip(protocol_hint)
         self.record_button.setToolTip(protocol_hint or subject_hint)
         self.ensemble_view_button.setToolTip(ensemble_hint)
@@ -1660,6 +1679,16 @@ class ExperimentGUI(QWidget):
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
 
     def update_parameters_from_fillable_fields(self, compute_epoch_parameters=True):
+        """Read the parameter fields back into the protocol and re-prepare the run.
+
+        Does nothing without a protocol selected. Every route that reached prepare_run without one
+        ended the process: BaseProtocol has no num_trials, its required-parameter check raises, and
+        an exception in a Qt slot is fatal. Guarded here as well as at each entry point because
+        this is the one place they all pass through.
+        """
+        if not self.protocol_selected:
+            return
+
         def is_number(s):
             try:
                 float(s)

@@ -250,3 +250,25 @@ def test_a_run_parameter_is_stored_once_not_under_both_names():
         warnings.simplefilter('ignore')
         protocol.run_parameters['num_trials'] = 9
         assert protocol.run_parameters['num_epochs'] == 9, 'the old key read a stale copy'
+
+
+def test_run_parameters_serialize_as_a_plain_mapping():
+    """PyYAML tagged them by type, so saving a parameter preset wrote
+
+        run_parameters: !!python/object/new:...RunParameters
+
+    which yaml.safe_load refuses to construct -- a file stimpack had just written and could not
+    read back. Both dumpers, since either could be reached from a labpack.
+    """
+    import yaml
+
+    from stimpack.experiment.deprecated_names import RunParameters
+
+    parameters = RunParameters({'num_trials': 5, 'idle_color': 0.5})
+
+    for dump in (yaml.dump, yaml.safe_dump):
+        text = dump({'run_parameters': parameters}, default_flow_style=False, sort_keys=False)
+        assert 'python/object' not in text
+        assert yaml.safe_load(text) == {'run_parameters': {'num_trials': 5, 'idle_color': 0.5}}
+
+    assert parameters['num_epochs'] == 5, 'the old key must still resolve'

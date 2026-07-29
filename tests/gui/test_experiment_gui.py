@@ -1656,3 +1656,73 @@ def test_a_disabled_run_button_says_what_is_missing(experiment_gui):
 
     assert gui.view_button.toolTip() == ''
     assert gui.record_button.toolTip() == 'Specify a subject to record.'
+
+
+def test_preset_controls_cannot_be_used_without_a_protocol(experiment_gui):
+    """Both the preset dropdown and Save preset end up in prepare_run, which a bare BaseProtocol
+    cannot satisfy: it has no num_trials, so its own required-parameter check raises -- and an
+    exception in a Qt slot takes the process down with a core dump rather than surfacing.
+
+    Reachable from start-up, before anything had ever been selected, and again after deselecting.
+    """
+    gui = experiment_gui
+
+    assert not gui.parameter_preset_comboBox.isEnabled()
+    assert not gui.save_preset_button.isEnabled()
+    assert gui.parameter_preset_comboBox.toolTip() == 'Select a protocol first.'
+
+    _select_protocol(gui)
+    assert gui.parameter_preset_comboBox.isEnabled(), 'still disabled with a protocol selected'
+    assert gui.save_preset_button.isEnabled()
+
+    gui.protocol_selection_combo_box.setCurrentIndex(0)
+    gui.on_selected_protocol_ID(0)
+    assert not gui.parameter_preset_comboBox.isEnabled()
+    assert not gui.save_preset_button.isEnabled()
+
+
+@pytest.mark.parametrize('when', ['never selected', 'deselected'])
+def test_the_preset_handlers_refuse_rather_than_abort_the_process(experiment_gui, when):
+    """Backstops for the disabled controls above, at the one place every route passes through.
+    A ValueError here is not an error message -- it is the end of the session, with an animal
+    mounted."""
+    gui = experiment_gui
+    if when == 'deselected':
+        _select_protocol(gui)
+        gui.protocol_selection_combo_box.setCurrentIndex(0)
+        gui.on_selected_protocol_ID(0)
+
+    gui.on_selected_parameter_preset('Default')                      # must not raise
+    gui.update_parameters_from_fillable_fields(compute_epoch_parameters=False)
+
+    assert type(gui.protocol_object).__name__ == 'BaseProtocol'
+
+
+def test_saving_a_preset_still_works_once_a_protocol_is_chosen(experiment_gui, monkeypatch,
+                                                               tmp_path):
+    """The guards must not cost the thing they protect."""
+    import stimpack.experiment.gui as gui_mod
+
+    gui = experiment_gui
+    _select_protocol(gui)
+    # Into tmp_path, not wherever the process happens to be: without this the preset lands in the
+    # working directory, and a stray DriftingSquareGrating.yaml there is then read by every other
+    # test that loads presets.
+    gui.protocol_object.parameter_preset_directory = str(tmp_path)
+    monkeypatch.setattr(gui_mod.QInputDialog, 'getText', lambda *a, **k: ('my_preset', True))
+
+    gui.save_preset_button.click()
+
+    assert 'my_preset' in [gui.parameter_preset_comboBox.itemText(i)
+                           for i in range(gui.parameter_preset_comboBox.count())]
+
+    # And readable again afterwards, through the loader stimpack itself uses. run_parameters is a
+    # RunParameters, which PyYAML tagged by type; that loader knows !!python/tuple, which presets
+    # legitimately contain, but not that -- so the file stimpack had just written was one it could
+    # not read back, which is how three unrelated tests started failing.
+    from stimpack.experiment.util import config_tools
+
+    text = (tmp_path / 'DriftingSquareGrating.yaml').read_text()
+    assert 'python/object' not in text
+    written = config_tools.safe_load_yaml_with_tuples(text)
+    assert 'num_trials' in written['my_preset']['run_parameters']
