@@ -768,6 +768,10 @@ def test_notes_cost_no_permanent_row(experiment_gui):
 def _open_note_dialog(gui, name='noted'):
     gui.data.experiment_file_name = name
     gui.data.initialize_experiment_file()
+    # What the real 'Initialize experiment' handler does next, and what the Note button's enabled
+    # state rides on (update_existing_subject_input -> show_current_subject ->
+    # update_run_button_states). Without it the button is still disabled and the click is a no-op.
+    gui.update_existing_subject_input()
     gui.note_button.click()
     return gui.note_dialog
 
@@ -827,6 +831,7 @@ def test_a_cancelled_or_empty_note_writes_nothing(experiment_gui):
     gui = experiment_gui
     gui.data.experiment_file_name = 'nothing_written'
     gui.data.initialize_experiment_file()
+    gui.update_existing_subject_input()
 
     gui.note_button.click()
     gui.note_dialog.setTextValue('a note')
@@ -868,8 +873,25 @@ def test_a_note_is_not_misfiled_into_an_experiment_it_is_not_about(experiment_gu
     assert alerts and 'about the first experiment' in alerts[0][1], 'the text was not handed back'
 
 
-def test_the_note_dialog_is_refused_before_it_opens_without_a_file(experiment_gui, monkeypatch):
-    """Checked before asking, not after: with no field to leave the text in, somebody who types a
+def test_the_note_button_is_disabled_until_there_is_a_file(experiment_gui):
+    """A control that cannot do anything should not invite the click. Same treatment Record gets
+    for a missing subject, and the tooltip carries the reason a greyed button cannot."""
+    gui = experiment_gui
+
+    assert not gui.note_button.isEnabled()
+    assert 'Create or load' in gui.note_button.toolTip()
+
+    gui.data.experiment_file_name = 'noted'
+    gui.data.initialize_experiment_file()
+    gui.update_existing_subject_input()          # the refresh chain Initialize/Load run
+
+    assert gui.note_button.isEnabled()
+    assert gui.note_button.toolTip() == ''
+
+
+def test_the_note_dialog_is_refused_even_if_the_button_state_is_stale(experiment_gui, monkeypatch):
+    """A backstop, not the usual path. A desynchronised button must refuse rather than open a
+    dialog whose text has nowhere to go -- with no field to leave it in, somebody who types a
     paragraph and then learns there is nowhere to put it has lost it."""
     import stimpack.experiment.gui as gui_mod
 
@@ -878,6 +900,7 @@ def test_the_note_dialog_is_refused_before_it_opens_without_a_file(experiment_gu
     monkeypatch.setattr(gui_mod, 'open_message_window',
                         lambda title="", text="": alerts.append((title, text)))
 
+    gui.note_button.setEnabled(True)             # as a missed refresh would leave it
     gui.note_button.click()
 
     assert gui.note_dialog is None, 'opened a dialog it had nowhere to save'

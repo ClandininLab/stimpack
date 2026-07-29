@@ -1417,6 +1417,15 @@ class ExperimentGUI(QWidget):
         for button in (self.pause_button, self.ensemble_pause_button):
             button.setEnabled(busy)
 
+        # There is nowhere to put a note until a file exists. Disabled rather than refused after
+        # the click, which is how Record already treats a missing subject -- and a control that
+        # cannot do anything should not invite the click in the first place. The tooltip carries
+        # the reason, which a greyed button on its own does not.
+        can_note = self.data.experiment_file_exists()
+        self.note_button.setEnabled(can_note)
+        self.note_button.setToolTip(
+            '' if can_note else f'Create or load a {self.data.output_noun} to write a note.')
+
     def set_pause_button_label(self, text):
         """Both Pause buttons drive the same run loop, so they say the same thing."""
         self.pause_button.setText(text)
@@ -1727,9 +1736,9 @@ class ExperimentGUI(QWidget):
         a series in the File tab, the parameters that produced it -- and a modal dialog forces the
         choice between reading and writing. The window it is a child of stays usable.
 
-        Checked before asking rather than after: with the field gone there is nowhere to leave
-        rejected text, so somebody who types a paragraph into a dialog and then learns there is no
-        experiment to put it in has lost it.
+        The button is disabled without a file, so the check below is a backstop rather than the
+        way this is normally communicated -- it still matters, because a desynchronised button
+        state must refuse rather than open a dialog whose text has nowhere to go.
         """
         if not self.data.experiment_file_exists():
             open_message_window(title=f'No {self.data.output_noun}',

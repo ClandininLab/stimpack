@@ -93,6 +93,7 @@ def test_enter_note_writes_to_the_file(experiment_gui, tmp_path, monkeypatch):
     monkeypatch.setattr(gui_mod.QFileDialog, 'getOpenFileName', lambda *a, **k: (path, ''))
     button(gui, 'Load experiment').click()
 
+    gui.update_existing_subject_input()          # as the real Load handler does
     button(gui, 'Note').click()
     gui.note_dialog.setTextValue('stimulus looked dim')
     gui.note_dialog.accept()

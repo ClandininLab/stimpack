@@ -45,6 +45,9 @@ def initialize(gui, name='expt'):
     dialog_ui.le_data_directory.setText(gui.data.data_directory)
     dialog_ui.le_experimenter.setText('tester')
     dialog_ui.on_pressed_enter_button()
+    # The real handler refreshes after the dialog closes, which is what the Note button's enabled
+    # state rides on. Driving the dialog directly skips the caller, so do it here.
+    gui.update_existing_subject_input()
     return dialog_ui
 
 
