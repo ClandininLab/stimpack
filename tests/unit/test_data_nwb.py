@@ -366,7 +366,7 @@ def test_the_nwb_file_records_which_stimpack_wrote_it(tmp_path):
     """source_script is the schema's own field for 'what software wrote this', so provenance goes
     there rather than in an attribute of stimpack's invention. source_script_file_name is required
     alongside it -- without it pynwb writes the file but warns, leaving it technically invalid."""
-    from stimpack.experiment.data import stimpack_version
+    from stimpack.experiment.util import provenance
 
     data = _make_data(tmp_path)
     data.prepare_series()
@@ -376,6 +376,7 @@ def test_the_nwb_file_records_which_stimpack_wrote_it(tmp_path):
         warnings.simplefilter('always')
         with NWBHDF5IO(data.get_nwb_file_path(), 'r') as io:
             nwbfile = io.read()
-            assert nwbfile.source_script == f'stimpack {stimpack_version()}'
+            assert nwbfile.source_script == provenance.provenance_summary(data.cfg)
+            assert nwbfile.source_script.startswith('stimpack ')
             assert nwbfile.source_script_file_name == 'stimpack'
     assert not [w for w in caught if 'MissingRequired' in type(w.message).__name__]

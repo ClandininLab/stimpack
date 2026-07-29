@@ -149,17 +149,18 @@ def test_additional_exclusions_still_accepts_a_bare_string(tmp_path):
     assert 'keep' in hierarchy and 'drop_a' not in hierarchy
 
 
-def test_the_file_records_which_layout_and_version_wrote_it(tmp_path):
+def test_the_file_records_which_layout_and_which_code_wrote_it(tmp_path):
     """Both HDF5 backends produce a .hdf5 whose root attributes were otherwise identical, so
-    analysis had to probe for a group name to know which reader to use, and nothing recorded which
-    stimpack wrote the file. That matters for a lab running both layouts through a migration."""
-    from stimpack.experiment.data import stimpack_version
+    analysis had to probe for a group name to know which reader to use, and nothing recorded what
+    produced the file at all -- neither stimpack nor the labpack the protocol came from."""
+    from stimpack.experiment.util import provenance
 
     data = _make_data(tmp_path)
 
     with h5py.File(data.data_directory + '/test_experiment.hdf5', 'r') as f:
         assert f.attrs['data_format'] == 'hdf5'
-        assert f.attrs['stimpack_version'] == stimpack_version()
+        for key, value in provenance.provenance_attributes(data.cfg).items():
+            assert f.attrs[key] == value
 
 
 def test_the_legacy_layout_is_identified_by_the_absence_of_data_format(tmp_path):
@@ -169,8 +170,8 @@ def test_the_legacy_layout_is_identified_by_the_absence_of_data_format(tmp_path)
     The version IS recorded: what this backend guarantees is the group and attribute names
     analysis reads, and an added root attribute costs none of that.
     """
-    from stimpack.experiment.data import stimpack_version
     from stimpack.experiment.data_legacy import LegacyHdf5Data
+    from stimpack.experiment.util import provenance
 
     data = LegacyHdf5Data(cfg={})
     data.data_directory = str(tmp_path)
@@ -179,4 +180,5 @@ def test_the_legacy_layout_is_identified_by_the_absence_of_data_format(tmp_path)
 
     with h5py.File(str(tmp_path / 'legacy.hdf5'), 'r') as f:
         assert 'data_format' not in f.attrs
-        assert f.attrs['stimpack_version'] == stimpack_version()
+        assert f.attrs['stimpack_version'] == provenance.stimpack_version()
+        assert 'labpack_revision' in f.attrs or 'labpack_directory' not in f.attrs

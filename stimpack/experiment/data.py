@@ -25,17 +25,8 @@ import os
 from datetime import datetime
 import numpy as np
 
-from stimpack.experiment.util import config_tools
+from stimpack.experiment.util import config_tools, provenance
 from stimpack.experiment.deprecated_names import add_deprecated_aliases
-
-
-def stimpack_version() -> str:
-    """The running stimpack version, or ``'unknown'`` outside an installed distribution."""
-    try:
-        from importlib.metadata import PackageNotFoundError, version
-        return version('stimpack')
-    except PackageNotFoundError:
-        return 'unknown'
 
 
 class BaseData():
@@ -140,7 +131,12 @@ class BaseData():
             experiment_file.attrs['data_directory'] = self.data_directory
             experiment_file.attrs['experimenter'] = self.experimenter
             experiment_file.attrs['rig_config'] = self.cfg.get('current_rig_name', '')
-            experiment_file.attrs['stimpack_version'] = stimpack_version()
+            # What code produced this file: stimpack's version and checkout, the labpack's, and
+            # the config used. A stimulus is defined by both halves -- the protocol, its parameters
+            # and its stimuli all live in the labpack -- so stimpack's version alone cannot answer
+            # what an experiment did.
+            for key, value in provenance.provenance_attributes(self.cfg).items():
+                experiment_file.attrs[key] = value
             if self.DECLARES_DATA_FORMAT:
                 experiment_file.attrs['data_format'] = self.DATA_FORMAT
             rig_config = (self.cfg.get('rig_config') or {}).get(self.cfg.get('current_rig_name')) or {}

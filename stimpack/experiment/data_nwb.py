@@ -27,8 +27,8 @@ from hdmf.common import VectorData, VectorIndex
 from hdmf.backends.hdf5.h5_utils import H5DataIO
 from hdmf.common.table import ElementIdentifiers
 
-from stimpack.experiment.data import BaseData, stimpack_version, hdf5ify_parameter
-from stimpack.experiment.util import config_tools
+from stimpack.experiment.data import BaseData, hdf5ify_parameter
+from stimpack.experiment.util import config_tools, provenance
 
 
 def _row_shape(value):
@@ -177,7 +177,9 @@ class NWBData(BaseData):
             # The schema's own field for 'what software wrote this'. source_script_file_name is
             # required alongside it -- without it pynwb writes the file but warns
             # MissingRequiredBuildWarning, leaving a technically invalid file.
-            source_script=f'stimpack {stimpack_version()}',
+            # NWB has no free-form file attributes of stimpack's, so the whole provenance line
+            # goes in the schema's own field for what software wrote a file.
+            source_script=provenance.provenance_summary(self.cfg),
             source_script_file_name='stimpack',
         )
 

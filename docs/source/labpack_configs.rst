@@ -78,8 +78,8 @@ backend.
 
         /Subjects/<id>/series/series_001/trials/trial_001
 
-    The file's root attributes record ``data_format`` and ``stimpack_version``, so a reader can
-    tell which layout it is holding, and which stimpack wrote it, without probing for group names.
+    The file's root attributes record ``data_format``, so a reader can tell which layout it is
+    holding without probing for group names, along with the provenance below.
 
 ``legacy_hdf5``
     The same file, with the names stimpack used before 0.3, when a trial was called an epoch and a
@@ -96,9 +96,9 @@ backend.
     ``data_format: hdf5`` in one rig's own config to move that rig over when its analysis is ready.
 
     It writes no ``data_format`` root attribute, deliberately: *absence* is how a reader
-    recognises this layout, and means exactly "legacy, or written before 0.3". It does write
-    ``stimpack_version``, since what this backend guarantees is the names analysis reads, and an
-    added root attribute costs none of that.
+    recognises this layout, and means exactly "legacy, or written before 0.3". It does record
+    provenance, since what this backend guarantees is the names analysis reads, and added root
+    attributes cost none of that.
 
 ``nwb``
     A *directory* per experiment, holding one `NWB <https://www.nwb.org/>`_ file per series. NWB
@@ -110,8 +110,10 @@ backend.
     Attributes are shown read-only -- pynwb validates a schema that a hand-edited attribute can
     break, where an HDF5 experiment is stimpack's own layout and editing one is a supported repair.
 
-    Every NWB file records which stimpack wrote it in ``source_script``, the schema's own field
-    for that. Two extra config keys are written in as top-level metadata:
+    Every NWB file records its provenance in ``source_script``, the schema's own field for what
+    software wrote a file, as one line: ``stimpack 0.3.0.dev0 (28a303e); labpack clandinin_labpack
+    (18b2dfe); config mc_config.yaml``. Two extra config keys are written in as top-level
+    metadata:
 
     .. code-block:: yaml
 
@@ -123,6 +125,34 @@ differs only where the formats genuinely do — loading an NWB experiment asks f
 rather than a file, and its attributes are shown read-only.
 
 To try a format without editing a config, pass ``stimpack --data-format nwb``.
+
+What produced a file
+~~~~~~~~~~~~~~~~~~~~
+
+Every experiment records the code that made it — in root attributes for the HDF5 backends, in
+``source_script`` for NWB:
+
+=======================  ========================================================================
+``stimpack_version``     the installed distribution's version
+``stimpack_revision``    stimpack's git commit, ``.dirty`` if its tree had uncommitted changes
+``labpack_directory``    where the labpack was read from
+``labpack_name``         that directory's name
+``labpack_revision``     the labpack's git commit, with the same ``.dirty`` marker
+``config_name``          which config file was used
+=======================  ========================================================================
+
+Both halves are recorded because a stimulus is defined by both: the protocol that ran, the
+parameters it exposed and the stimuli it drew all live in the labpack, so a stimpack version alone
+cannot say what an experiment did.
+
+``stimpack_revision`` is there because ``stimpack_version`` can lie. It comes from installed
+distribution metadata, which for an editable install is whatever ``setup.py`` said at install
+time — a rig running from a git checkout can report 0.1.1 while running 0.3.0 code. Prefer the
+revision wherever it is present.
+
+Anything that cannot be determined is left out rather than written empty, so a file never claims
+to know something it does not. A labpack that is not a git checkout simply has no
+``labpack_revision``.
 
 Using your own data class
 ~~~~~~~~~~~~~~~~~~~~~~~~~
