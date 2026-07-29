@@ -413,13 +413,19 @@ class BaseData():
         to be refused outright, which meant renumbering around a false start rather than replacing
         it). Returns whether anything was removed.
 
+        Deletes the series wherever it is, not only under the current subject. Series numbers are
+        global while each series sits under one subject, so looking only under the current one
+        found nothing when the number belonged to another -- and the caller, told nothing had been
+        removed, went on to record a second series with the same number.
+
         :param series_number: which series; the current one if not given.
         """
         series_number = self.series_count if series_number is None else series_number
-        if not (self.current_subject_exists() and self.experiment_file_exists()):
+        owner = self.series_owner(series_number)
+        if owner is None:
             return False
         with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
-            runs = experiment_file.get(self.subject_series_path())
+            runs = experiment_file.get(self.subject_series_path(owner))
             name = 'series_{}'.format(str(series_number).zfill(3))
             if runs is None or name not in runs:
                 return False

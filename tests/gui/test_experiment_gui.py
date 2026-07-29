@@ -1054,12 +1054,11 @@ def test_both_tabs_put_elapsed_left_and_the_count_right(experiment_gui):
     assert column_of(gui.ensemble_status_grid, gui.ensemble_progress_label) == 3
 
 
-def test_recording_onto_another_subjects_series_is_refused(experiment_gui, monkeypatch):
-    """It used to offer to overwrite, name the wrong subject, delete nothing -- the delete looked
-    under the current subject -- and then record a second series with the same number under a
-    different subject, so get_existing_series returned [1, 1]."""
-    import stimpack.experiment.gui as gui_mod
-
+def test_overwriting_a_series_recorded_for_another_subject_still_deletes_it(experiment_gui, monkeypatch, qapp):
+    """A series is not tied to a subject, so the dialog asks only whether to overwrite. What has to
+    hold is that the old series is actually removed: the delete used to look only under the current
+    subject, find nothing, and record a second series with the same number -- get_existing_series()
+    then returned [1, 1], in a scheme whose point is that the number identifies one recording."""
     gui = experiment_gui
     select_protocol(gui, 'DriftingSquareGrating')
     gui.data.experiment_file_name = 'two_subjects'
@@ -1072,26 +1071,41 @@ def test_recording_onto_another_subjects_series_is_refused(experiment_gui, monke
         trial_protocol_parameters = {}
         num_trials_completed = 0
 
-    gui.data.create_subject({'subject_id': 'test1'})
+    gui.data.create_subject({'subject_id': 'test_1'})
     gui.data.update_series_count(1)
-    gui.data.create_series(Proto())                     # series 1 belongs to test1
+    gui.data.create_series(Proto())                     # series 1 recorded for test_1
 
-    gui.data.create_subject({'subject_id': 'test2'})
-    gui.show_current_subject('test2')
+    gui.data.create_subject({'subject_id': 'test_2'})
+    gui.show_current_subject('test_2')
     gui.series_counter_input.setValue(1)
 
-    asked, alerts = [], []
+    asked = []
     monkeypatch.setattr(gui, 'confirm_series_overwrite', lambda n: asked.append(n) or True)
-    monkeypatch.setattr(gui_mod, 'open_message_window',
-                        lambda title="", text="": alerts.append((title, text)))
-
     gui.record_button.click()
+    gui.run_series_thread.wait(5000)
+    qapp.processEvents()
 
-    assert asked == [], "offered to overwrite another subject's series"
-    assert gui.client.runs == [], 'recorded anyway'
-    assert alerts and 'test1' in alerts[0][1], 'did not name the subject that owns it'
-    assert 'test1' in gui.status_label.text()
-    assert gui.data.get_existing_series() == [1], 'a duplicate series number was created'
+    assert asked == [1], 'recorded over an existing series without asking'
+    assert gui.client.runs == [('DriftingSquareGrating', True)], 'the run did not start'
+    # The old series is gone. Nothing takes its place here because the GUI tier drives a
+    # FakeClient, which records no data -- what matters is that series 1 was removed rather than
+    # left in place for a second series 1 to be written alongside.
+    assert gui.data.get_existing_series() == [], 'the old series was not removed'
+    assert gui.data.series_owner(1) is None
+
+
+def test_the_overwrite_dialog_does_not_name_a_subject(experiment_gui, monkeypatch):
+    """Naming one implied a rule that does not exist -- a series does not belong to a subject."""
+    import stimpack.experiment.gui as gui_mod
+
+    gui = experiment_gui
+    shown = []
+    monkeypatch.setattr(gui_mod.QMessageBox, 'exec', lambda self: shown.append(self.text()) or 0)
+    gui.data.current_subject = 'test_2'
+    gui.confirm_series_overwrite(1)
+
+    assert shown == ['Series 1 already exists.']
+    assert 'test_2' not in shown[0]
 
 
 def test_recording_onto_your_own_series_still_offers_to_overwrite(experiment_gui, monkeypatch, qapp):
@@ -1121,3 +1135,46 @@ def test_recording_onto_your_own_series_still_offers_to_overwrite(experiment_gui
 
     assert asked == [1], "did not ask before overwriting this subject's own series"
     assert gui.client.runs == [('DriftingSquareGrating', True)]
+
+
+def test_a_long_protocol_name_does_not_widen_the_window(qapp):
+    """Qt6 sizes a combo to its longest entry the first time it is shown, so one long protocol
+    name -- a labpack with several protocol modules appends the module to each -- set the width of
+    the box, the tab, and the whole window. Measured before the cap: 102 px to 484."""
+    from PyQt6.QtWidgets import QComboBox, QWidget, QVBoxLayout
+    from stimpack.experiment.gui import cap_dropdown_width
+
+    LONG = 'ADeliberatelyVeryLongProtocolNameSomebodyWouldWrite (mc_protocol_demo)'
+
+    def demanded_width(items, capped):
+        holder = QWidget()
+        layout = QVBoxLayout(holder)
+        box = QComboBox()
+        if capped:
+            cap_dropdown_width(box)
+        for item in items:
+            box.addItem(item)
+        layout.addWidget(box)
+        holder.show()                      # items added before first show, as the GUI does
+        qapp.processEvents()
+        width = box.sizeHint().width()
+        holder.close()
+        return width
+
+    short_uncapped = demanded_width(['MovingPatch', 'MovingSpot'], capped=False)
+    long_uncapped = demanded_width(['MovingPatch', LONG], capped=False)
+    long_capped = demanded_width(['MovingPatch', LONG], capped=True)
+
+    assert long_uncapped > short_uncapped * 2, 'the premise no longer holds; Qt changed its sizing'
+    assert long_capped < long_uncapped / 1.5, 'the long name still dictates the width'
+
+
+def test_every_protocol_and_preset_dropdown_is_capped(experiment_gui):
+    """All four, since any one of them widening the window is the same complaint."""
+    from PyQt6.QtWidgets import QComboBox
+
+    gui = experiment_gui
+    for box in (gui.protocol_selection_combo_box, gui.parameter_preset_comboBox,
+                gui.ensemble_protocol_selection_combo_box, gui.ensemble_parameter_preset_comboBox):
+        assert box.sizeAdjustPolicy() == QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        assert box.minimumContentsLength() > 0

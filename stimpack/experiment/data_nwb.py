@@ -604,19 +604,18 @@ class NWBData(BaseData):
     def delete_series(self, series_number=None):
         """Remove a recorded series so its number can be recorded onto again.
 
-        One file per series here, so this deletes that file rather than a group inside one. Only
-        the file for the current subject and date is named by get_nwb_file_path, which is the same
-        file prepare_series would refuse to overwrite -- so this removes exactly what is in the way.
+        One file per series here, so this deletes that file rather than a group inside one. Found
+        by number across the directory rather than by rebuilding the current subject's file name:
+        a series number is global, and the file holding it may be another subject's or another
+        day's, neither of which get_nwb_file_path would name.
         """
         series_number = self.series_count if series_number is None else series_number
-        original, self.series_count = self.series_count, series_number
-        try:
-            path = self.get_nwb_file_path()
-        finally:
-            self.series_count = original
-        if os.path.isfile(path):
-            os.remove(path)
-            return True
+        suffix = str(series_number).zfill(3)
+        for path in self.get_series_files():
+            stem = os.path.basename(str(path)).rsplit('.', 1)[0]
+            if stem.split('_')[-1] == suffix:
+                os.remove(path)
+                return True
         return False
 
     def series_owner(self, series_number=None):

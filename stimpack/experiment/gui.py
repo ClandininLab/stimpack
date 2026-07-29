@@ -53,6 +53,21 @@ class _StatusLabel(QLabel):
         self.setToolTip(text)
 
 
+# How many characters a protocol/preset dropdown asks to fit. Qt6 sizes a combo to its longest
+# entry the first time it is shown, so one long protocol name -- a labpack with several protocol
+# modules appends the module to each -- set the width of the box, the width of the tab, and with it
+# the whole window. Measured: one 70-character entry took a combo from 102 px to 484. Capping what
+# it asks for lets the name elide instead; the box still fills its column, which has the stretch.
+DROPDOWN_CHARACTERS = 24
+
+
+def cap_dropdown_width(combo_box, characters=DROPDOWN_CHARACTERS):
+    """Stop a long entry in `combo_box` dictating the width of everything around it."""
+    combo_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    combo_box.setMinimumContentsLength(characters)
+    return combo_box
+
+
 class ExperimentGUI(QWidget):
 
     # Emitted when the server pushes a message. report_server_message runs on the run thread, so this
@@ -232,6 +247,7 @@ class ExperimentGUI(QWidget):
 
         # Protocol ID drop-down:
         self.protocol_selection_combo_box = QComboBox(self)
+        cap_dropdown_width(self.protocol_selection_combo_box)
         self.protocol_selection_combo_box.addItem("(select a protocol to run)")
         for sub_class in self.available_protocols:
             if len(self.protocol_modules) > 1:
@@ -443,6 +459,7 @@ class ExperimentGUI(QWidget):
 
         # Protocol ID drop-down:
         self.ensemble_protocol_selection_combo_box = QComboBox(self)
+        cap_dropdown_width(self.ensemble_protocol_selection_combo_box)
         self.ensemble_protocol_selection_combo_box.addItem("(select a protocol to add to ensemble)")
         for sub_class in self.available_protocols:
             self.ensemble_protocol_selection_combo_box.addItem(sub_class.__name__)
@@ -454,6 +471,7 @@ class ExperimentGUI(QWidget):
         # Parameter preset drop-down:
         parameter_preset_label = QLabel('Param preset:')
         self.ensemble_parameter_preset_comboBox = QComboBox(self)
+        cap_dropdown_width(self.ensemble_parameter_preset_comboBox)
         self.ensemble_parameter_preset_comboBox.addItem("Default")
         self.ensemble_protocol_selector_grid.addWidget(parameter_preset_label, 1, 0)
         self.ensemble_protocol_selector_grid.addWidget(self.ensemble_parameter_preset_comboBox, 1, 1)
@@ -767,6 +785,7 @@ class ExperimentGUI(QWidget):
         if self.ensemble_parameter_preset_comboBox is not None:
             self.ensemble_parameter_preset_comboBox.deleteLater()
         self.ensemble_parameter_preset_comboBox = QComboBox(self)
+        cap_dropdown_width(self.ensemble_parameter_preset_comboBox)
         self.ensemble_parameter_preset_comboBox.addItem("Default")
 
         temp_protocol_object = self.available_protocols[protocol_dropdown_idx - 1](self.cfg)
@@ -1151,6 +1170,7 @@ class ExperimentGUI(QWidget):
         if self.parameter_preset_comboBox is not None:
             self.parameter_preset_comboBox.deleteLater()
         self.parameter_preset_comboBox = QComboBox(self)
+        cap_dropdown_width(self.parameter_preset_comboBox)
         self.parameter_preset_comboBox.addItem("Default")
         for name in self.protocol_object.parameter_presets.keys():
             self.parameter_preset_comboBox.addItem(name)
@@ -1288,18 +1308,19 @@ class ExperimentGUI(QWidget):
             self.flag_series_number(self.data.get_series_count() <= self.data.get_highest_series_count())
 
     def confirm_series_overwrite(self, series_number):
-        """Ask before recording onto one of this subject's own series numbers. True to go ahead.
+        """Ask before recording onto a series number that already holds data. True to go ahead.
 
-        Only ever asked about the current subject's series -- see send_run, which refuses outright
-        when the number belongs to another subject rather than offering to delete their data.
+        Says only that the number is taken. Which subject recorded it is not the question being
+        asked -- a series is not tied to a subject, and naming one implied a rule that does not
+        exist. What matters is that recording destroys what is there.
 
         Its own method so a test can answer it without a human, and so the wording lives in one
-        place: what is about to be destroyed, named, with No as the default button.
+        place, with No as the default button.
         """
         msg = QMessageBox()
         msg.setIcon(QMessageBox.Icon.Warning)
         msg.setWindowTitle('Overwrite series?')
-        msg.setText(f'Series {series_number} already exists for subject {self.data.current_subject}.')
+        msg.setText(f'Series {series_number} already exists.')
         msg.setInformativeText('Recording will delete the existing series and everything in it. '
                                'This cannot be undone.')
         msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
@@ -1316,29 +1337,12 @@ class ExperimentGUI(QWidget):
         if save_metadata_flag:
             self.data.update_series_count(self.series_counter_input.value())
             series_number = self.data.get_series_count()
-            owner = self.data.series_owner(series_number)
-            if owner is not None and owner != self.data.current_subject:
-                # Taken, but not by this subject. Series numbers are global while each series
-                # lives under one subject, so overwriting here would mean deleting another
-                # subject's recording because a number was typed -- and it did not even do that:
-                # the delete looked under the current subject, found nothing, and recorded a
-                # second series with the same number under a different subject.
-                self.flag_series_number(True)
-                self.status_label.setText(
-                    f'Series {series_number} belongs to subject {owner}; choose another number')
-                open_message_window(
-                    title='Series number in use',
-                    text=(f'Series {series_number} was recorded for subject {owner}, not '
-                          f'{self.data.current_subject}.\n\nSeries numbers are shared across the '
-                          f'experiment, so choose a number that is free. To re-record that series, '
-                          f'select subject {owner} first.'))
-                return
-
-            if owner is not None:
-                # This subject's own series. Usually a false start somebody wants to redo under the
-                # same number, and refusing outright left renumbering around it as the only option --
-                # so the file grew a gap and the numbering stopped matching the notebook.
-                # Destructive, so it is opt-in and defaults to No.
+            if series_number in self.data.get_existing_series():
+                # Usually a false start somebody wants to redo under the same number, and refusing
+                # outright left renumbering around it as the only option -- so the file grew a gap
+                # and the numbering stopped matching the notebook. Destructive, so it is opt-in and
+                # defaults to No. delete_series finds the series wherever it is, which is what
+                # stops a second one being recorded under the same number.
                 if not self.confirm_series_overwrite(series_number):
                     self.flag_series_number(True)
                     self.status_label.setText('Select an unused series number')
