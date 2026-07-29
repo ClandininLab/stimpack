@@ -807,6 +807,7 @@ class ExperimentGUI(QWidget):
 
     def on_selected_protocol_ID(self, protocol_dropdown_idx, preset_name='Default'):
         if protocol_dropdown_idx == 0:
+            self.deselect_protocol()
             return
         # Clear old params list from grid
         self.reset_layout()
@@ -836,6 +837,25 @@ class ExperimentGUI(QWidget):
         # re-enabled View and Record, which update_run_button_states reads status to decide.
         if self.status == Status.STANDBY:
             self.status_label.setText('Ready')
+
+    def deselect_protocol(self):
+        """Put the Main tab back the way it starts, on '(select a protocol to run)'.
+
+        This used to return without doing anything, so choosing the placeholder left the previous
+        protocol's parameter fields, its presets and its trial readout on show -- fields that no
+        longer described anything selected, and that a run could not have used.
+
+        Each step undoes one that selecting a protocol did, so the state matches a GUI just
+        started: an empty parameter grid, a bare protocol object, presets back to 'Default' alone,
+        and the status line asking for a protocol again.
+        """
+        self.reset_layout()
+        self.protocol_object = protocol.BaseProtocol(self.cfg)
+        self.update_parameter_preset_selector()
+        self.trial_parameters_label.setText(self.trial_parameters_text())
+        self.update_window_width()
+        if self.status == Status.STANDBY:
+            self.status_label.setText('Select a protocol')
 
     def on_server_message_received(self, level, text):
         '''Runs on the GUI thread (via server_message_signal): surface a message the server pushed back.

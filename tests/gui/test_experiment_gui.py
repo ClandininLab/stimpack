@@ -1521,3 +1521,62 @@ def test_both_series_captions_read_the_same(experiment_gui):
     ensemble = gui.ensemble_status_grid.itemAtPosition(0, 0).widget().text()
 
     assert main == ensemble == 'Series #:'
+
+
+def _main_tab_state(gui):
+    """Everything selecting a protocol changes, so deselecting can be compared against a start."""
+    return dict(
+        protocol=type(gui.protocol_object).__name__,
+        parameter_rows=sum(1 for row in range(gui.parameters_grid.rowCount())
+                           if gui.parameters_grid.itemAtPosition(row, 0) is not None),
+        presets=[gui.parameter_preset_comboBox.itemText(i)
+                 for i in range(gui.parameter_preset_comboBox.count())],
+        status=gui.status_label.text(),
+        trial=gui.trial_parameters_label.text(),
+    )
+
+
+def _settle(gui):
+    """reset_layout deletes the parameter widgets with deleteLater, and a DeferredDelete event is
+    not delivered by processEvents from inside the same call stack -- so the grid still reports rows
+    whose widgets are on their way out. The real GUI's event loop does deliver them."""
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtWidgets import QApplication
+
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    QApplication.processEvents()
+
+
+def test_going_back_to_the_placeholder_restores_the_starting_state(experiment_gui):
+    """Choosing '(select a protocol to run)' used to return without doing anything, leaving the
+    previous protocol's parameter fields, presets and status on show -- fields that no longer
+    described anything selected, and that a run could not have used."""
+    gui = experiment_gui
+    initial = _main_tab_state(gui)
+
+    names = [c.__name__ for c in gui.available_protocols]
+    index = names.index('DriftingSquareGrating') + 1
+    gui.protocol_selection_combo_box.setCurrentIndex(index)
+    gui.on_selected_protocol_ID(index)
+    _settle(gui)
+    assert _main_tab_state(gui) != initial, 'selecting a protocol changed nothing to restore'
+
+    gui.protocol_selection_combo_box.setCurrentIndex(0)
+    gui.on_selected_protocol_ID(0)
+    _settle(gui)
+
+    assert _main_tab_state(gui) == initial
+
+
+def test_deselecting_does_not_claim_to_be_ready(experiment_gui):
+    """'Ready' is about a protocol that could run. With none selected the status line asks for one,
+    as it does at start-up."""
+    gui = experiment_gui
+    names = [c.__name__ for c in gui.available_protocols]
+    index = names.index('DriftingSquareGrating') + 1
+    gui.on_selected_protocol_ID(index)
+    assert gui.status_label.text() == 'Ready'
+
+    gui.on_selected_protocol_ID(0)
+
+    assert gui.status_label.text() == 'Select a protocol'
