@@ -1052,3 +1052,72 @@ def test_both_tabs_put_elapsed_left_and_the_count_right(experiment_gui):
 
     assert column_of(gui.ensemble_status_grid, gui.ensemble_elapsed_label) == 1
     assert column_of(gui.ensemble_status_grid, gui.ensemble_progress_label) == 3
+
+
+def test_recording_onto_another_subjects_series_is_refused(experiment_gui, monkeypatch):
+    """It used to offer to overwrite, name the wrong subject, delete nothing -- the delete looked
+    under the current subject -- and then record a second series with the same number under a
+    different subject, so get_existing_series returned [1, 1]."""
+    import stimpack.experiment.gui as gui_mod
+
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.experiment_file_name = 'two_subjects'
+    gui.data.initialize_experiment_file()
+
+    class Proto:
+        run_parameters = {'num_trials': 1, 'idle_color': 0.0}
+        protocol_parameters = {}
+        trial_stim_parameters = {'name': 'S'}
+        trial_protocol_parameters = {}
+        num_trials_completed = 0
+
+    gui.data.create_subject({'subject_id': 'test1'})
+    gui.data.update_series_count(1)
+    gui.data.create_series(Proto())                     # series 1 belongs to test1
+
+    gui.data.create_subject({'subject_id': 'test2'})
+    gui.show_current_subject('test2')
+    gui.series_counter_input.setValue(1)
+
+    asked, alerts = [], []
+    monkeypatch.setattr(gui, 'confirm_series_overwrite', lambda n: asked.append(n) or True)
+    monkeypatch.setattr(gui_mod, 'open_message_window',
+                        lambda title="", text="": alerts.append((title, text)))
+
+    gui.record_button.click()
+
+    assert asked == [], "offered to overwrite another subject's series"
+    assert gui.client.runs == [], 'recorded anyway'
+    assert alerts and 'test1' in alerts[0][1], 'did not name the subject that owns it'
+    assert 'test1' in gui.status_label.text()
+    assert gui.data.get_existing_series() == [1], 'a duplicate series number was created'
+
+
+def test_recording_onto_your_own_series_still_offers_to_overwrite(experiment_gui, monkeypatch, qapp):
+    gui = experiment_gui
+    select_protocol(gui, 'DriftingSquareGrating')
+    gui.data.experiment_file_name = 'one_subject'
+    gui.data.initialize_experiment_file()
+
+    class Proto:
+        run_parameters = {'num_trials': 1, 'idle_color': 0.0}
+        protocol_parameters = {}
+        trial_stim_parameters = {'name': 'S'}
+        trial_protocol_parameters = {}
+        num_trials_completed = 0
+
+    gui.data.create_subject({'subject_id': 'test1'})
+    gui.show_current_subject('test1')
+    gui.data.update_series_count(1)
+    gui.data.create_series(Proto())
+    gui.series_counter_input.setValue(1)
+
+    asked = []
+    monkeypatch.setattr(gui, 'confirm_series_overwrite', lambda n: asked.append(n) or True)
+    gui.record_button.click()
+    gui.run_series_thread.wait(5000)
+    qapp.processEvents()
+
+    assert asked == [1], "did not ask before overwriting this subject's own series"
+    assert gui.client.runs == [('DriftingSquareGrating', True)]

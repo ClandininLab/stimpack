@@ -619,6 +619,18 @@ class NWBData(BaseData):
             return True
         return False
 
+    def series_owner(self, series_number=None):
+        """Which subject holds this series number, or None. Read from the file names, which carry
+        the subject: <date>_<subject>_<NNN>.nwb."""
+        series_number = self.series_count if series_number is None else series_number
+        suffix = str(series_number).zfill(3)
+        for path in self.get_series_files():
+            stem = os.path.basename(str(path)).rsplit('.', 1)[0]
+            parts = stem.split('_')
+            if len(parts) >= 3 and parts[-1] == suffix:
+                return '_'.join(parts[1:-1])      # a subject id may itself contain underscores
+        return None
+
     def get_existing_series(self):
         series_numbers = []
         for file_path in self.get_series_files():

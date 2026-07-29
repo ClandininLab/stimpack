@@ -386,6 +386,26 @@ class BaseData():
         series = [int(x.split('_')[-1]) for x in all_series]
         return series
 
+    def series_owner(self, series_number=None):
+        """Which subject holds this series number, or None if nobody does.
+
+        Series numbers are global across an experiment, but each series lives under one subject,
+        so "is this number taken" and "is it mine" are different questions. Answering only the
+        first let a run be recorded as series 1 while another subject already held series 1 --
+        two groups with the same number, in a scheme whose whole point is that the number
+        identifies one recording.
+        """
+        series_number = self.series_count if series_number is None else series_number
+        if not self.experiment_file_exists():
+            return None
+        name = 'series_{}'.format(str(series_number).zfill(3))
+        with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r') as experiment_file:
+            for subject_id in list(experiment_file['/Subjects'].keys()):
+                series_group = experiment_file.get(self.subject_series_path(subject_id))
+                if series_group is not None and name in series_group:
+                    return subject_id
+        return None
+
     def delete_series(self, series_number=None):
         """Remove a recorded series so its number can be recorded onto again.
 

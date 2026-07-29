@@ -1288,7 +1288,10 @@ class ExperimentGUI(QWidget):
             self.flag_series_number(self.data.get_series_count() <= self.data.get_highest_series_count())
 
     def confirm_series_overwrite(self, series_number):
-        """Ask before recording onto a series number that already holds data. True to go ahead.
+        """Ask before recording onto one of this subject's own series numbers. True to go ahead.
+
+        Only ever asked about the current subject's series -- see send_run, which refuses outright
+        when the number belongs to another subject rather than offering to delete their data.
 
         Its own method so a test can answer it without a human, and so the wording lives in one
         place: what is about to be destroyed, named, with No as the default button.
@@ -1312,12 +1315,31 @@ class ExperimentGUI(QWidget):
         # check to make sure the series count does not already exist
         if save_metadata_flag:
             self.data.update_series_count(self.series_counter_input.value())
-            if (self.data.get_series_count() in self.data.get_existing_series()):
-                # Ask rather than refuse. A series that exists is usually a false start somebody
-                # wants to redo under the same number, and refusing outright left renumbering
-                # around it as the only option -- so the file grew a gap and the numbering stopped
-                # matching the notebook. Destructive, so it is opt-in and defaults to No.
-                if not self.confirm_series_overwrite(self.data.get_series_count()):
+            series_number = self.data.get_series_count()
+            owner = self.data.series_owner(series_number)
+            if owner is not None and owner != self.data.current_subject:
+                # Taken, but not by this subject. Series numbers are global while each series
+                # lives under one subject, so overwriting here would mean deleting another
+                # subject's recording because a number was typed -- and it did not even do that:
+                # the delete looked under the current subject, found nothing, and recorded a
+                # second series with the same number under a different subject.
+                self.flag_series_number(True)
+                self.status_label.setText(
+                    f'Series {series_number} belongs to subject {owner}; choose another number')
+                open_message_window(
+                    title='Series number in use',
+                    text=(f'Series {series_number} was recorded for subject {owner}, not '
+                          f'{self.data.current_subject}.\n\nSeries numbers are shared across the '
+                          f'experiment, so choose a number that is free. To re-record that series, '
+                          f'select subject {owner} first.'))
+                return
+
+            if owner is not None:
+                # This subject's own series. Usually a false start somebody wants to redo under the
+                # same number, and refusing outright left renumbering around it as the only option --
+                # so the file grew a gap and the numbering stopped matching the notebook.
+                # Destructive, so it is opt-in and defaults to No.
+                if not self.confirm_series_overwrite(series_number):
                     self.flag_series_number(True)
                     self.status_label.setText('Select an unused series number')
                     return
