@@ -288,3 +288,4 @@ def test_run_parameters_are_written_as_a_plain_mapping():
 
     assert 'python/object' not in written
     assert config_tools.safe_load_yaml_with_tuples(written) == {'run_parameters': {'num_trials': 5}}
+

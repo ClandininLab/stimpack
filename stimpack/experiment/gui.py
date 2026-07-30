@@ -2526,6 +2526,31 @@ class EnsembleList(QListWidget):
             self.clearSelection()
 
 
+WAYLAND_TEXTINPUT_CATEGORY = 'qt.qpa.wayland.textinput'
+
+
+def quiet_wayland_textinput_logging():
+    """Silence one noisy Qt category, unless the user has logging rules of their own.
+
+    Opening a dropdown whose entries are wider than the closed box -- which is every protocol
+    dropdown, since cap_dropdown_width caps the box and lets the popup size to the longest name --
+    makes the compositor position an oversized popup surface that then grabs the keyboard. Qt's
+    text-input-v3 client logs a complaint about which surface it thinks owns the text input during
+    that handover:
+
+        qt.qpa.wayland.textinput: ... Try to disable surface 0x... with focusing surface 0x...
+
+    Nothing is wrong; the dropdown works, and stimpack never sees it. But it appears on every
+    click, and an unexplained Qt message on a rig reads like a fault.
+
+    Scoped to this one category and skipped entirely when QT_LOGGING_RULES is already set, so it
+    can never hide another Qt warning or override a choice you made.
+    """
+    if os.environ.get('QT_LOGGING_RULES'):
+        return
+    os.environ['QT_LOGGING_RULES'] = f'{WAYLAND_TEXTINPUT_CATEGORY}=false'
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='stimpack', description='Stimpack experiment GUI.')
     parser.add_argument('--check-labpack', action='store_true',
@@ -2551,6 +2576,8 @@ def main(argv=None):
         findings, configs = check_labpack.check_labpack(args.labpack_dir, deep=args.deep)
         print(check_labpack.format_report(findings, configs, args.labpack_dir))
         sys.exit(1 if any(f.level == 'error' for f in findings) else 0)
+
+    quiet_wayland_textinput_logging()
 
     app = QApplication(sys.argv)
     app.setApplicationName('Stimpack Experiment')

@@ -1861,3 +1861,48 @@ def test_deleting_a_preset_twice_is_not_an_error(experiment_gui, monkeypatch, tm
     gui.protocol_object.delete_parameter_preset('fast')
 
     assert gui.protocol_object.parameter_presets == {}
+
+
+# --- Qt logging noise ----------------------------------------------------------------------------
+# Env-var behaviour rather than widget behaviour, but it belongs beside the module it lives in.
+
+def test_the_wayland_textinput_category_is_silenced_by_default(monkeypatch):
+    """Opening a dropdown whose popup is wider than the closed box -- every protocol dropdown,
+    since the box is capped and the popup sizes to the longest name -- makes Qt's text-input client
+    complain about which surface owns the text input. Nothing is wrong, but an unexplained Qt
+    message on a rig reads like a fault."""
+    import os
+
+    from stimpack.experiment.gui import (WAYLAND_TEXTINPUT_CATEGORY,
+                                         quiet_wayland_textinput_logging)
+
+    monkeypatch.delenv('QT_LOGGING_RULES', raising=False)
+    quiet_wayland_textinput_logging()
+
+    assert os.environ['QT_LOGGING_RULES'] == f'{WAYLAND_TEXTINPUT_CATEGORY}=false'
+
+
+def test_logging_rules_of_your_own_are_left_alone(monkeypatch):
+    """Scoped so it can never override a choice you made -- including one that asks for more
+    output, which is exactly when a silenced category would be maddening."""
+    import os
+
+    from stimpack.experiment.gui import quiet_wayland_textinput_logging
+
+    monkeypatch.setenv('QT_LOGGING_RULES', '*.debug=true')
+    quiet_wayland_textinput_logging()
+
+    assert os.environ['QT_LOGGING_RULES'] == '*.debug=true'
+
+
+def test_only_that_one_category_is_touched(monkeypatch):
+    """A blanket rule would hide the next real Qt warning."""
+    import os
+
+    from stimpack.experiment.gui import quiet_wayland_textinput_logging
+
+    monkeypatch.delenv('QT_LOGGING_RULES', raising=False)
+    quiet_wayland_textinput_logging()
+
+    rules = os.environ['QT_LOGGING_RULES']
+    assert rules.count('=') == 1 and '*' not in rules
