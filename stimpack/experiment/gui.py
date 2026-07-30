@@ -358,9 +358,17 @@ class ExperimentGUI(QWidget):
         self.update_parameter_preset_selector()
 
         # Save parameter preset button:
+        # Both buttons share column 2 rather than taking one each, so the dropdown in column 1
+        # keeps the slack -- it holds the longest text on the tab.
         self.save_preset_button = QPushButton("Save preset", self)
         self.save_preset_button.clicked.connect(self.on_pressed_button)
-        self.protocol_selector_grid.addWidget(self.save_preset_button, 2, 2)
+        self.delete_preset_button = QPushButton("Delete preset", self)
+        self.delete_preset_button.clicked.connect(self.on_pressed_button)
+        preset_buttons = QHBoxLayout()
+        preset_buttons.setContentsMargins(0, 0, 0, 0)
+        preset_buttons.addWidget(self.save_preset_button)
+        preset_buttons.addWidget(self.delete_preset_button)
+        self.protocol_selector_grid.addLayout(preset_buttons, 2, 2)
 
         # Status window: its own row at the bottom of the tab, below the buttons.
         #
@@ -981,6 +989,9 @@ class ExperimentGUI(QWidget):
         elif sender.text() == 'Save preset':
             self.save_parameter_preset()
 
+        elif sender.text() == 'Delete preset':
+            self.delete_parameter_preset()
+
         elif sender.text() == 'Initialize experiment':
             dialog = QDialog()
 
@@ -1352,6 +1363,12 @@ class ExperimentGUI(QWidget):
         for name in self.protocol_object.parameter_presets.keys():
             self.parameter_preset_comboBox.addItem(name)
         self.parameter_preset_comboBox.textActivated.connect(self.on_selected_parameter_preset)
+        # Connected after the items are added, and to currentTextChanged rather than
+        # textActivated: whether the selection can be deleted has to follow the selection however
+        # it moved, and saving a preset selects it with setCurrentIndex, which no activation signal
+        # reports. Connecting before populating would fire this while the buttons it reads do not
+        # yet exist.
+        self.parameter_preset_comboBox.currentTextChanged.connect(self.update_run_button_states)
         self.protocol_selector_grid.addWidget(self.parameter_preset_comboBox, 2, 1, 1, 1)
 
     def save_parameter_preset(self):
@@ -1397,6 +1414,35 @@ class ExperimentGUI(QWidget):
         self.parameter_preset_comboBox.setCurrentIndex(self.parameter_preset_comboBox.findText(name))
         self.status_label.setText(f"Preset '{name}' {'updated' if replacing else 'saved'}")
 
+    def delete_parameter_preset(self):
+        """Remove the selected preset, after asking.
+
+        Confirmed where saving over one is not: replacing a preset is how you revise it, while
+        deleting is never part of running an experiment.
+
+        A .spens ensemble refers to its presets by name, so deleting one an ensemble uses leaves
+        that reference dangling. Loading such an ensemble already reports the missing preset rather
+        than failing (see the check in load_ensemble), so this does not go looking for them.
+        """
+        name = self.parameter_preset_comboBox.currentText()
+        if not self.protocol_selected or name == DEFAULT_PRESET_NAME:
+            return
+        if name not in self.protocol_object.parameter_presets:
+            return
+
+        if QMessageBox.question(
+                self, 'Delete preset',
+                f"Delete the preset '{name}' for {type(self.protocol_object).__name__}?"
+                ) != QMessageBox.StandardButton.Yes:
+            return
+
+        self.protocol_object.delete_parameter_preset(name)
+        self.update_parameter_preset_selector()
+        self.parameter_preset_comboBox.setCurrentIndex(
+            self.parameter_preset_comboBox.findText(DEFAULT_PRESET_NAME))
+        self.on_selected_parameter_preset(DEFAULT_PRESET_NAME)
+        self.status_label.setText(f"Preset '{name}' deleted")
+
     def on_selected_parameter_preset(self, text):
         # A backstop for the disabled dropdown above: there is no preset to apply to a protocol
         # that has not been chosen, and going on would reach prepare_run and abort the process.
@@ -1406,6 +1452,8 @@ class ExperimentGUI(QWidget):
         self.reset_layout()
         self.update_parameters_input()
         self.update_parameters_from_fillable_fields()
+        # Whether the selection can be deleted changes with the selection.
+        self.update_run_button_states()
         self.show()
 
     def on_selected_existing_subject(self, index):
@@ -1508,12 +1556,21 @@ class ExperimentGUI(QWidget):
         # and not only after deselecting one.
         self.parameter_preset_comboBox.setEnabled(has_protocol)
         self.save_preset_button.setEnabled(has_protocol)
+        # Only a saved preset can be deleted -- DEFAULT_PRESET_NAME is the protocol's own values,
+        # which exist whether or not anything is saved.
+        selected_preset = self.parameter_preset_comboBox.currentText()
+        self.delete_preset_button.setEnabled(
+            has_protocol and selected_preset != DEFAULT_PRESET_NAME
+            and selected_preset in self.protocol_object.parameter_presets)
 
         protocol_hint = '' if has_protocol else 'Select a protocol first.'
         ensemble_hint = '' if has_ensemble else 'Add a protocol to the ensemble first.'
         subject_hint = '' if can_record else 'Specify a subject to record.'
         self.parameter_preset_comboBox.setToolTip(protocol_hint)
         self.save_preset_button.setToolTip(protocol_hint)
+        self.delete_preset_button.setToolTip(
+            protocol_hint or ('' if self.delete_preset_button.isEnabled()
+                              else 'Select a saved preset to delete it.'))
         self.view_button.setToolTip(protocol_hint)
         self.record_button.setToolTip(protocol_hint or subject_hint)
         self.ensemble_view_button.setToolTip(ensemble_hint)

@@ -1782,3 +1782,82 @@ def test_resaving_a_preset_replaces_it_and_says_so(experiment_gui, monkeypatch, 
     _save_preset_as(gui, monkeypatch, ('fast', True))
     assert gui.status_label.text() == "Preset 'fast' updated"
     assert list(gui.protocol_object.parameter_presets) == ['fast'], 'replaced, not duplicated'
+
+
+def _confirm(monkeypatch, answer=True):
+    from PyQt6.QtWidgets import QMessageBox
+
+    button = QMessageBox.StandardButton.Yes if answer else QMessageBox.StandardButton.No
+    monkeypatch.setattr(QMessageBox, 'question', lambda *a, **k: button)
+
+
+def _preset_names(gui):
+    return [gui.parameter_preset_comboBox.itemText(i)
+            for i in range(gui.parameter_preset_comboBox.count())]
+
+
+def test_a_preset_can_be_deleted(experiment_gui, monkeypatch, tmp_path):
+    """Confirmed where saving over one is not: replacing a preset is how you revise it, while
+    deleting is never part of running an experiment."""
+    from stimpack.experiment.util import config_tools
+
+    gui = experiment_gui
+    _select_protocol(gui)
+    gui.protocol_object.parameter_preset_directory = str(tmp_path)
+    _save_preset_as(gui, monkeypatch, ('fast', True))
+    assert _preset_names(gui) == ['Default', 'fast']
+
+    _confirm(monkeypatch, answer=False)
+    gui.delete_preset_button.click()
+    assert _preset_names(gui) == ['Default', 'fast'], 'deleted despite being declined'
+
+    _confirm(monkeypatch, answer=True)
+    gui.delete_preset_button.click()
+
+    assert _preset_names(gui) == ['Default']
+    assert gui.status_label.text() == "Preset 'fast' deleted"
+    written = (tmp_path / 'DriftingSquareGrating.yaml').read_text()
+    assert list(config_tools.safe_load_yaml_with_tuples(written)) == [], 'still on disk'
+
+
+def test_the_default_entry_cannot_be_deleted(experiment_gui, monkeypatch, tmp_path):
+    """It is not a saved preset -- it is the protocol's own values, which exist whether or not
+    anything is saved."""
+    gui = experiment_gui
+    _select_protocol(gui)
+    gui.protocol_object.parameter_preset_directory = str(tmp_path)
+
+    assert gui.parameter_preset_comboBox.currentText() == 'Default'
+    assert not gui.delete_preset_button.isEnabled()
+    assert gui.delete_preset_button.toolTip() == 'Select a saved preset to delete it.'
+
+
+def test_delete_follows_the_selection_however_it_moved(experiment_gui, monkeypatch, tmp_path):
+    """Saving a preset selects it with setCurrentIndex, which reports no activation -- so a button
+    watching only textActivated stayed disabled for the preset that had just been selected."""
+    gui = experiment_gui
+    _select_protocol(gui)
+    gui.protocol_object.parameter_preset_directory = str(tmp_path)
+
+    _save_preset_as(gui, monkeypatch, ('fast', True))
+
+    assert gui.parameter_preset_comboBox.currentText() == 'fast'
+    assert gui.delete_preset_button.isEnabled()
+
+    gui.parameter_preset_comboBox.setCurrentIndex(
+        gui.parameter_preset_comboBox.findText('Default'))
+    assert not gui.delete_preset_button.isEnabled()
+
+
+def test_deleting_a_preset_twice_is_not_an_error(experiment_gui, monkeypatch, tmp_path):
+    """The file on disk is the record, and it is re-read before writing -- so a preset already
+    gone is a no-op rather than a KeyError."""
+    gui = experiment_gui
+    _select_protocol(gui)
+    gui.protocol_object.parameter_preset_directory = str(tmp_path)
+    _save_preset_as(gui, monkeypatch, ('fast', True))
+
+    gui.protocol_object.delete_parameter_preset('fast')
+    gui.protocol_object.delete_parameter_preset('fast')
+
+    assert gui.protocol_object.parameter_presets == {}

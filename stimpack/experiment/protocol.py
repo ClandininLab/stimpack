@@ -238,6 +238,21 @@ class BaseProtocol():
             config_tools.safe_dump_yaml_with_tuples(
                 self.parameter_presets, ymlfile, default_flow_style=False, sort_keys=False)
 
+    def delete_parameter_preset(self, name):
+        """Remove a named preset and rewrite the file. Silently does nothing if there is no such
+        preset, so deleting one twice is not an error.
+
+        Re-reads before writing, as saving does: the file on disk is the record, and another
+        process may have added a preset since this one loaded it.
+        """
+        self.load_parameter_presets()
+        if name not in self.parameter_presets:
+            return
+        del self.parameter_presets[name]
+        with open(os.path.join(self.parameter_preset_directory, self.__class__.__name__ + '.yaml'), 'w+') as ymlfile:
+            config_tools.safe_dump_yaml_with_tuples(
+                self.parameter_presets, ymlfile, default_flow_style=False, sort_keys=False)
+
     def select_protocol_preset(self, name=DEFAULT_PRESET_NAME):
         '''
         Parameters that are not present in the preset will use the current protocol's default values.
