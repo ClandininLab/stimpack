@@ -28,7 +28,7 @@ from hdmf.backends.hdf5.h5_utils import H5DataIO
 from hdmf.common.table import ElementIdentifiers
 
 from stimpack.experiment.data import BaseData, hdf5ify_parameter
-from stimpack.experiment.util import config_tools
+from stimpack.experiment.util import config_tools, provenance
 
 
 def _row_shape(value):
@@ -72,6 +72,12 @@ class NWBData(BaseData):
     either name keep working.
     """
     output_is_directory = True
+
+    # An .nwb file identifies its format itself -- its extension, and a schema version pynwb
+    # writes -- so it needs no data_format attribute. Which stimpack wrote it goes in the schema's
+    # own field for that, source_script; see initialize_session.
+    DATA_FORMAT = 'nwb'
+    DECLARES_DATA_FORMAT = False
     supports_data_browser = True
     output_noun = 'NWB directory'
 
@@ -90,6 +96,9 @@ class NWBData(BaseData):
         # and stimpack already uses that word for two specific things (see BaseProtocol).
         self.series_record = {}
         self.trial_parameters = {}
+        # Subjects created in this experiment, keyed by id. Mirrored to SUBJECTS_FILE so one that
+        # has not run a series yet survives a restart. See get_existing_subject_data.
+        self.defined_subjects = {}
 
     # # # NWB-flavored aliases for BaseData's storage-neutral attribute names # # #
 
@@ -123,6 +132,52 @@ class NWBData(BaseData):
         the parent directory and name the GUI may still be editing."""
         return Path(os.path.join(self.data_directory, self.experiment_file_name))
 
+    # Subject metadata lives inside each series file, so a subject that has not run one is
+    # recorded nowhere. Kept beside the .nwb files for the same reason notes.csv is: what the
+    # experiment knows before a series exists has no series file to live in.
+    #
+    # JSON rather than CSV, which is what notes uses, because a note is flat (timestamp, text)
+    # and subject metadata is an arbitrary dict -- the config's subject_metadata keys differ per
+    # lab, and a CSV would need a union-of-keys header and would stringify the age back into the
+    # form _days_from_iso8601_duration exists to undo.
+    SUBJECTS_FILE = 'subjects.json'
+
+    @property
+    def subjects_file_path(self):
+        return self.nwb_directory_path / self.SUBJECTS_FILE
+
+    def write_defined_subjects(self):
+        """Mirror the defined subjects to disk. Fails soft: an experiment must not stop recording
+        because a convenience file could not be written."""
+        if not self.experiment_file_exists():
+            return
+        try:
+            with open(self.subjects_file_path, 'w') as f:
+                json.dump(self.defined_subjects, f, indent=2, sort_keys=True)
+        except (OSError, TypeError, ValueError) as e:
+            warnings.warn(f'Could not write {self.subjects_file_path}: {e}. Subjects created but '
+                          f'not yet run will not survive a restart.')
+
+    def read_defined_subjects(self):
+        """Load them back, or return nothing. A missing file is the normal state for an experiment
+        written before this existed, and a corrupt one must not stop the experiment opening -- the
+        series files are the record either way."""
+        try:
+            with open(self.subjects_file_path) as f:
+                subjects = json.load(f)
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as e:
+            warnings.warn(f'Could not read {self.subjects_file_path}: {e}. Subjects that have run '
+                          f'a series are unaffected; they are read from the series files.')
+            return {}
+
+        if not isinstance(subjects, dict):
+            warnings.warn(f'{self.subjects_file_path} does not hold a mapping of subjects; ignoring.')
+            return {}
+        return {str(subject_id): metadata for subject_id, metadata in subjects.items()
+                if isinstance(metadata, dict)}
+
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # # # # # # # #  Creating experiment file and groups  # # # # # # # # # # # #
@@ -146,10 +201,19 @@ class NWBData(BaseData):
         self.initialize_session()
 
     def initialize_session(self):
+        # Run by both initialize_experiment_file and load_experiment, which is exactly when the
+        # experiment changes -- so subjects belonging to the previous one are dropped here rather
+        # than following the user into a different experiment, and this one's are read back.
+        self.defined_subjects = self.read_defined_subjects()
+
         self.timezone = timezone.utc  # This could be changed if desired
         session_start_time = datetime.now(self.timezone)
 
-        rig_config = self.cfg.get('rig_config').get(self.cfg.get('current_rig_name'))        
+        # Guarded the way BaseData reads the same thing: a config with no rig_config section, or
+        # one whose current_rig_name names no rig, is a config that can still write a file. This
+        # raised instead -- AttributeError on the missing section, TypeError iterating the None
+        # from an unmatched name -- so an experiment could not be initialized at all.
+        rig_config = (self.cfg.get('rig_config') or {}).get(self.cfg.get('current_rig_name')) or {}
         self.rig_config_parameters = dict()
         for key in rig_config:
             self.rig_config_parameters[key] = str(rig_config.get(key, ""))
@@ -163,7 +227,14 @@ class NWBData(BaseData):
             experimenter=self.experimenter,
             lab=config_tools.get_lab(self.cfg),
             institution=config_tools.get_institution(self.cfg),
-            experiment_description=experiment_description, 
+            experiment_description=experiment_description,
+            # The schema's own field for 'what software wrote this'. source_script_file_name is
+            # required alongside it -- without it pynwb writes the file but warns
+            # MissingRequiredBuildWarning, leaving a technically invalid file.
+            # NWB has no free-form file attributes of stimpack's, so the whole provenance line
+            # goes in the schema's own field for what software wrote a file.
+            source_script=provenance.provenance_summary(self.cfg),
+            source_script_file_name='stimpack',
         )
 
 
@@ -175,6 +246,13 @@ class NWBData(BaseData):
         own .nwb file, written at the start of that series, and the subject is embedded in each.
         """
         self.subject_metadata = subject_metadata
+        # Remembered so this experiment can answer which subjects it has. The HDF5 backend writes
+        # a group the moment a subject is created, so it can answer from the file; here nothing
+        # exists on disk until a series is run, and a subject that has not run yet was invisible
+        # to every caller that asks -- including the GUI, which then went on offering to create
+        # the subject it had just created.
+        self.defined_subjects[subject_metadata['subject_id']] = dict(subject_metadata)
+        self.write_defined_subjects()
         self.select_subject(subject_metadata['subject_id'])
 
     def update_subject(self, subject_metadata):
@@ -186,6 +264,8 @@ class NWBData(BaseData):
             print('No subject with this ID is currently selected!')
             return
         self.subject_metadata = subject_metadata
+        self.defined_subjects[subject_metadata['subject_id']] = dict(subject_metadata)
+        self.write_defined_subjects()
 
     def create_subject(self, subject_metadata):
         """
@@ -604,20 +684,31 @@ class NWBData(BaseData):
     def delete_series(self, series_number=None):
         """Remove a recorded series so its number can be recorded onto again.
 
-        One file per series here, so this deletes that file rather than a group inside one. Only
-        the file for the current subject and date is named by get_nwb_file_path, which is the same
-        file prepare_series would refuse to overwrite -- so this removes exactly what is in the way.
+        One file per series here, so this deletes that file rather than a group inside one. Found
+        by number across the directory rather than by rebuilding the current subject's file name:
+        a series number is global, and the file holding it may be another subject's or another
+        day's, neither of which get_nwb_file_path would name.
         """
         series_number = self.series_count if series_number is None else series_number
-        original, self.series_count = self.series_count, series_number
-        try:
-            path = self.get_nwb_file_path()
-        finally:
-            self.series_count = original
-        if os.path.isfile(path):
-            os.remove(path)
-            return True
+        suffix = str(series_number).zfill(3)
+        for path in self.get_series_files():
+            stem = os.path.basename(str(path)).rsplit('.', 1)[0]
+            if stem.split('_')[-1] == suffix:
+                os.remove(path)
+                return True
         return False
+
+    def series_owner(self, series_number=None):
+        """Which subject holds this series number, or None. Read from the file names, which carry
+        the subject: <date>_<subject>_<NNN>.nwb."""
+        series_number = self.series_count if series_number is None else series_number
+        suffix = str(series_number).zfill(3)
+        for path in self.get_series_files():
+            stem = os.path.basename(str(path)).rsplit('.', 1)[0]
+            parts = stem.split('_')
+            if len(parts) >= 3 and parts[-1] == suffix:
+                return '_'.join(parts[1:-1])      # a subject id may itself contain underscores
+        return None
 
     def get_existing_series(self):
         series_numbers = []
@@ -630,6 +721,18 @@ class NWBData(BaseData):
     # get_highest_series_count() is inherited: it is written in terms of get_existing_series().
 
     def get_existing_subject_data(self):
+        """Every subject this experiment has: those embedded in written series files, plus those
+        created in this session that have not run a series yet.
+
+        The second half is what an HDF5 experiment gets for free by writing a group on creation.
+        Without it a freshly created subject did not exist as far as any caller could tell. It
+        survives a restart via SUBJECTS_FILE.
+        """
+        # Keyed by id so a subject appearing in several series files is one entry, and so what was
+        # written to disk wins over what is only remembered -- the file is the record.
+        subject_data = {subject_id: dict(metadata)
+                        for subject_id, metadata in self.defined_subjects.items()}
+
         subject_data_list = []
         all_files = self.get_series_files()
 
@@ -651,7 +754,9 @@ class NWBData(BaseData):
 
                 subject_data_list.append(subject_metadata)
 
-        return subject_data_list
+        for subject_metadata in subject_data_list:
+            subject_data[subject_metadata.get('subject_id')] = subject_metadata
+        return list(subject_data.values())
 
     # advance_series_count / update_series_count / get_series_count are inherited: the series
     # counter is just an integer, with nothing storage-specific about it.

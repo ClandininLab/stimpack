@@ -290,3 +290,24 @@ def test_nwb_attributes_are_not_editable(qapp, tmp_path):
         assert before == after, 'an NWB file was written to through the browser'
     finally:
         browser.close()
+
+
+def test_the_tree_and_the_table_can_be_resized_against_each_other(browser, qapp):
+    """The table's 400 px minimum won it most of the space, leaving the tree a few rows -- the
+    wrong way round for finding a series in it."""
+    from PyQt6.QtWidgets import QSplitter
+
+    assert isinstance(browser.splitter, QSplitter)
+    assert browser.splitter.indexOf(browser.group_tree) == 0
+    assert browser.splitter.indexOf(browser.table_attributes) == 1
+
+    browser.resize(400, 600)
+    browser.show()                 # a splitter distributes nothing until it is laid out
+    qapp.processEvents()
+    tree_height, table_height = browser.splitter.sizes()
+    assert tree_height > table_height, 'the tree still starts smaller than the table'
+
+    # and a drag has to be able to reverse that, which the old minimum prevented
+    browser.splitter.setSizes([100, 500])
+    qapp.processEvents()
+    assert browser.splitter.sizes()[0] < browser.splitter.sizes()[1]

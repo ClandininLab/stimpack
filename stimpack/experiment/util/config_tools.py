@@ -49,6 +49,44 @@ def safe_load_yaml_with_tuples(stream):
     return yaml.load(stream, Loader=TupleSafeLoader)
 
 
+class TupleSafeDumper(yaml.SafeDumper):
+    """Writes exactly what TupleSafeLoader can read: plain YAML, plus ``!!python/tuple``.
+
+    These files used to be written with the default yaml.Dumper, which serializes whatever Python
+    type it is handed. That made the writer and the reader disagree: anything beyond plain data and
+    tuples produced a file stimpack could write and then refuse to load. It happened -- run
+    parameters became a dict subclass in 0.3, the dumper tagged it
+    ``!!python/object/new:...RunParameters``, and selecting a protocol with a saved preset aborted
+    the GUI.
+
+    Basing this on SafeDumper makes that a RepresenterError at save time, in front of whoever
+    introduced the type, rather than a file that fails later on a rig.
+
+    The tuple tag stays, and is not decoration: a protocol parameter given as a *list* of more than
+    one value is one that varies from trial to trial (see BaseProtocol.process_input_parameters),
+    while a tuple is a single value with components. Writing ``center: (5, -5)`` as ``[5, -5]``
+    would not lose a type, it would turn one centred stimulus into two trials at different
+    positions.
+    """
+
+
+TupleSafeDumper.add_representer(
+    tuple,
+    lambda dumper, data: dumper.represent_sequence('tag:yaml.org,2002:python/tuple', data))
+
+# RunParameters is a mapping and is written as one. Registered here rather than left to
+# inheritance: add_representer snapshots the base class's table on its first call, so whichever of
+# the two modules imports second would otherwise not be seen by the other.
+from stimpack.experiment.deprecated_names import _register_run_parameters_representer  # noqa: E402
+
+_register_run_parameters_representer(TupleSafeDumper)
+
+
+def safe_dump_yaml_with_tuples(data, stream=None, **kwargs):
+    """Counterpart to safe_load_yaml_with_tuples. Raises on any type neither can round-trip."""
+    return yaml.dump(data, stream, Dumper=TupleSafeDumper, **kwargs)
+
+
 # Prefix for every labpack module registered in sys.modules.
 #
 # Deliberately a fixed name owned by stimpack, rather than the labpack's own package name. A labpack
@@ -134,8 +172,8 @@ def set_labpack_directory(path):
 BUILTIN_DATA_FORMATS = {
     'hdf5': ('stimpack.experiment.data', 'BaseData'),
     'nwb':  ('stimpack.experiment.data_nwb', 'NWBData'),
-    # The layout stimpack wrote before it renamed trial -> trial and series -> series. Same
-    # code, old names, so analysis that walks epoch_runs/.../trials keeps working.
+    # The layout stimpack wrote before it renamed epoch -> trial and epoch run -> series.
+    # Same code, old names, so analysis that walks epoch_runs/.../epochs keeps working.
     'legacy_hdf5': ('stimpack.experiment.data_legacy', 'LegacyHdf5Data'),
 }
 
@@ -321,6 +359,12 @@ def get_module_paths(cfg, module_name: str) -> list[str]:
         return []
     
     module_paths = cfg.get('module_paths', {}).get(module_name, [])
+    if isinstance(module_paths, dict):
+        # A data module mapped per format -- see get_data_module_paths_by_format. Everything from
+        # here down asks only "which files does this config name", and the values are the answer.
+        # Without this the mapping reached os.path as a dict, so --check-labpack crashed on the
+        # configs it exists to check.
+        module_paths = [split_data_module_spec(spec)[0] for spec in module_paths.values()]
     if not isinstance(module_paths, list):
         module_paths = [module_paths]
     return module_paths
@@ -440,7 +484,8 @@ def load_trigger_device(cfg):
     daq_module_list = load_user_module(cfg, 'daq')
 
     # fetch the trigger device definition from the config
-    trigger_device_definition = cfg.get('rig_config')[cfg.get('current_rig_name')].get('trigger', None)
+    rig_config = (cfg.get('rig_config') or {}).get(cfg.get('current_rig_name')) or {}
+    trigger_device_definition = rig_config.get('trigger', None)
 
     if not daq_module_list or trigger_device_definition is None:
         print('No trigger device defined')
@@ -507,12 +552,131 @@ def get_data_format(cfg):
     Ignored when the config points to a labpack's own data module, which takes precedence over
     both built-ins. See stimpack.experiment.data / data_nwb.
     """
-    data_format = str(cfg.get('data_format', 'hdf5')).lower()
-    if data_format not in BUILTIN_DATA_FORMATS:
+    if cfg.get('data_format') is None:
+        return get_default_data_format(cfg)
+
+    data_format = str(cfg['data_format']).lower()
+    # Validated against what THIS config can write, not against the built-ins alone. Checking only
+    # the built-ins made a labpack-defined format unreachable, and left the dialog offering a
+    # format this function then refused to resolve -- one config, two answers.
+    available = get_available_data_formats(cfg)
+    if data_format not in available:
+        fallback = get_default_data_format(cfg)
         warnings.warn(f"Unknown data_format '{data_format}' in config; expected one of "
-                      f"{sorted(BUILTIN_DATA_FORMATS)}. Falling back to 'hdf5'.")
-        return 'hdf5'
+                      f"{available}. Falling back to '{fallback}'.")
+        return fallback
     return data_format
+
+
+def get_data_module_paths_by_format(cfg) -> dict[str, str]:
+    """
+    ``{format: path}`` when a config maps its data modules by format, ``{}`` otherwise.
+
+    A config may name its own data class either way::
+
+        module_paths:
+          data: labpack/data.py            # one class, whatever the format
+
+        module_paths:
+          data:                            # one class per format, chosen like a built-in
+            hdf5: labpack/data.py
+            nwb:  labpack/data_nwb.py
+
+    The first fixes the format, because the class's base is what decides it -- so ``data_format``
+    and the startup dialog cannot be honoured and are not consulted. The second leaves the choice
+    open: they select among the labpack's own classes exactly as they select among the built-ins.
+
+    The mapping exists because the first form quietly took the choice away. A labpack with a
+    ``data.py`` and a ``data_nwb.py`` sitting side by side could name only one of them, so picking
+    NWB in the dialog produced an HDF5 file.
+    """
+    entry = (cfg.get('module_paths') or {}).get('data')
+    if not isinstance(entry, dict):
+        return {}
+    return {str(fmt).lower(): spec for fmt, spec in entry.items()}
+
+
+def split_data_module_spec(spec: str) -> tuple[str, str]:
+    """
+    ``'labpack/data.py:DataLegacy'`` -> ``('labpack/data.py', 'DataLegacy')``; the class defaults
+    to ``Data``.
+
+    Without this a mapping needs one module per format, and the two HDF5 layouts differ only in
+    five strings -- so a labpack supporting both would put its overrides in a mixin and write two
+    three-line modules importing it. Naming the class lets one module hold all of them.
+
+    Split on the last colon and only when what follows is an identifier, so a path containing one
+    (a Windows drive letter, say) is not mistaken for a class name.
+    """
+    path, sep, class_name = str(spec).rpartition(':')
+    if sep and class_name.isidentifier():
+        return path, class_name
+    return str(spec), 'Data' 
+
+
+def get_available_data_formats(cfg) -> list[str]:
+    """
+    Every format this config can write: stimpack's built-ins, plus any the labpack adds.
+
+    This used to return the mapping's keys alone, which conflated two different things -- which
+    formats stimpack can write (always all the built-ins) and which ones the labpack has
+    *customized*. A lab that customized HDF5 could then not reach NWB from the dialog at all,
+    though nothing stopped stimpack writing it, and the same choice was still available through
+    ``--data-format``. Offering a built-in where the labpack has no class is fine as long as it
+    is labelled, which is what the dialog does.
+
+    A mapping may also name a format stimpack has never heard of. The class is loaded by path and
+    only ever duck-typed, so a labpack can add its own backend this way.
+    """
+    return sorted(set(BUILTIN_DATA_FORMATS) | set(get_data_module_paths_by_format(cfg)))
+
+
+def get_default_data_format(cfg) -> str:
+    """What ``data_format`` means when a config does not set one.
+
+    ``hdf5`` as it always has -- except for a config that maps data modules, where defaulting to a
+    format the labpack did not customize would quietly bypass every class it supplied.
+    """
+    mapped = get_data_module_paths_by_format(cfg)
+    if not mapped:
+        return 'hdf5'
+    return 'hdf5' if 'hdf5' in mapped else sorted(mapped)[0]
+
+
+def load_user_data_class(cfg):
+    """
+    The labpack's data class for this config, or ``None`` if it names none usable.
+
+    ``None`` means "use the built-in for ``data_format``", which is also the answer when a config
+    maps its modules by format and the requested format is not among them -- a labpack that
+    customizes HDF5 and not NWB should still be able to write NWB, using stimpack's own class,
+    rather than being refused or silently handed the HDF5 one.
+    """
+    # Naming no data module is the normal case -- stimpack has built-ins -- so it is not worth a
+    # warning. load_user_module warns for every unspecified module, which made a correct config
+    # print 'No user module specified for data' at every launch.
+    if not user_module_specified(cfg, 'data'):
+        return None
+
+    mapped = get_data_module_paths_by_format(cfg)
+    if not mapped:
+        module = next(iter(load_user_module(cfg, 'data')), None)
+        return getattr(module, 'Data', None) if module is not None else None
+
+    data_format = get_data_format(cfg)
+    spec = mapped.get(data_format)
+    if spec is None:
+        warnings.warn(f"This config maps its data modules by format and has none for "
+                      f"'{data_format}' (it has {sorted(mapped)}). Using stimpack's built-in.")
+        return None
+
+    path, class_name = split_data_module_spec(spec)
+    module = load_user_module_from_path(convert_labpack_relative_path_to_full_path(path), 'data')
+    data_class = getattr(module, class_name, None)
+    if data_class is None:
+        raise AttributeError(f"module_paths.data maps '{data_format}' to {spec}, but {path} "
+                             f"defines no class named '{class_name}'.")
+    return data_class
 
 
 def get_builtin_data_class(cfg):

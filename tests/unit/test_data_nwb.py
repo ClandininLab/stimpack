@@ -170,7 +170,25 @@ def test_update_subject_revises_metadata(tmp_path):
 
 def test_get_existing_subject_data_on_a_fresh_directory(tmp_path):
     # Must not raise just because no series have been written yet.
-    assert _make_data(tmp_path).get_existing_subject_data() == []
+    assert _make_data(tmp_path, subject=None).get_existing_subject_data() == []
+
+
+def test_a_subject_exists_before_it_has_run_a_series(tmp_path):
+    """Subject metadata lives in the series files, so a subject that has not run one was reported
+    by nobody -- and every caller that asks whether this experiment has it, the GUI included, was
+    told no about a subject it had just created."""
+    data = _make_data(tmp_path)                      # creates s1, writes no series
+
+    assert [s['subject_id'] for s in data.get_existing_subject_data()] == ['s1']
+
+
+def test_a_subject_written_to_disk_wins_over_the_remembered_copy(tmp_path):
+    """The file is the record. What is remembered is only a stand-in until one exists."""
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    data.defined_subjects['s1']['age'] = 999         # as a stale in-memory copy would be
+
+    assert data.get_existing_subject_data()[0]['age'] == 5
 
 
 def test_get_existing_subject_data_round_trips(tmp_path):
@@ -337,3 +355,128 @@ def test_end_trial_with_nothing_collected_is_silent(tmp_path):
     with warnings.catch_warnings():
         warnings.simplefilter('error')
         data.end_trial(_Protocol())
+
+
+@pytest.mark.parametrize('cfg, why', [
+    ({'experimenter': 'x'}, 'no rig_config section at all'),
+    ({'experimenter': 'x', 'rig_config': None}, 'an empty rig_config section'),
+    ({'experimenter': 'x', 'rig_config': {'rig1': {}}, 'current_rig_name': 'other'},
+     'a current_rig_name matching no rig'),
+])
+def test_a_config_without_a_matching_rig_still_writes(tmp_path, cfg, why):
+    """A config that names no usable rig is still a config that can record.
+
+    This read the rig section unguarded, so it raised before creating anything -- AttributeError
+    on the missing section, TypeError iterating the None from an unmatched name. BaseData has
+    always tolerated the same configs, and the two backends are chosen by a config key, so one
+    refusing what the other accepts makes that key unsafe to change.
+    """
+    data = NWBData(cfg=dict(cfg))
+    data.data_directory = str(tmp_path)
+    data.experiment_file_name = 'expt'
+    data.initialize_experiment_file()
+
+    assert os.path.isdir(os.path.join(str(tmp_path), 'expt')), why
+    assert data.rig_config_parameters == {}
+
+
+def test_the_nwb_file_records_which_stimpack_wrote_it(tmp_path):
+    """source_script is the schema's own field for 'what software wrote this', so provenance goes
+    there rather than in an attribute of stimpack's invention. source_script_file_name is required
+    alongside it -- without it pynwb writes the file but warns, leaving it technically invalid."""
+    from stimpack.experiment.util import provenance
+
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    data.create_series(_Protocol())
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with NWBHDF5IO(data.get_nwb_file_path(), 'r') as io:
+            nwbfile = io.read()
+            assert nwbfile.source_script == provenance.provenance_summary(data.cfg)
+            assert nwbfile.source_script.startswith('stimpack ')
+            assert nwbfile.source_script_file_name == 'stimpack'
+    assert not [w for w in caught if 'MissingRequired' in type(w.message).__name__]
+
+
+# --- subjects that have not run a series yet ----------------------------------------------------
+
+def _reopen(tmp_path, name='expt_2026-07-26'):
+    """A second NWBData over the same directory, standing in for a restarted GUI."""
+    data = NWBData(cfg=CFG)
+    data.load_experiment(str(tmp_path / name))
+    return data
+
+
+def test_a_subject_survives_a_restart_before_it_has_run(tmp_path):
+    """Subject metadata lives inside each series file, so one that has not run a series is
+    recorded nowhere. Kept beside the .nwb files for the same reason notes.csv is."""
+    _make_data(tmp_path)                             # creates s1, writes no series
+    assert (tmp_path / 'expt_2026-07-26' / NWBData.SUBJECTS_FILE).is_file()
+
+    assert [s['subject_id'] for s in _reopen(tmp_path).get_existing_subject_data()] == ['s1']
+
+
+def test_a_revision_survives_too(tmp_path):
+    data = _make_data(tmp_path)
+    data.update_subject({'subject_id': 's1', 'age': 9, 'notes': 'revised'})
+
+    reopened = _reopen(tmp_path).get_existing_subject_data()[0]
+    assert reopened['age'] == 9 and reopened['notes'] == 'revised'
+
+
+def test_the_sidecar_is_not_mistaken_for_a_series(tmp_path):
+    """get_series_files filters on the .nwb suffix, and the series count comes from it."""
+    data = _make_data(tmp_path)
+
+    assert data.get_series_files() == []
+    assert data.get_existing_series() == []
+
+
+def test_another_experiment_does_not_inherit_them(tmp_path):
+    """They belong to the experiment they were created in."""
+    _make_data(tmp_path)
+
+    other = NWBData(cfg=CFG)
+    other.data_directory = str(tmp_path)
+    other.experiment_file_name = 'other'
+    other.initialize_experiment_file()
+
+    assert other.get_existing_subject_data() == []
+
+
+@pytest.mark.parametrize('contents', ['{not json', '["not", "a", "mapping"]'])
+def test_an_unreadable_sidecar_warns_rather_than_stopping_the_experiment(tmp_path, contents):
+    """The series files are the record either way, so a convenience file must not be able to stop
+    an experiment opening."""
+    _make_data(tmp_path)
+    (tmp_path / 'expt_2026-07-26' / NWBData.SUBJECTS_FILE).write_text(contents)
+
+    with pytest.warns(UserWarning, match=NWBData.SUBJECTS_FILE):
+        data = _reopen(tmp_path)
+
+    assert data.get_existing_subject_data() == []
+
+
+def test_a_sidecar_that_cannot_be_written_warns_rather_than_raising(tmp_path, monkeypatch):
+    """Creating a subject happens mid-session, often with an animal already mounted."""
+    data = _make_data(tmp_path, subject=None)
+
+    def refuse(*args, **kwargs):
+        raise OSError('read-only file system')
+    monkeypatch.setattr('builtins.open', refuse)
+
+    with pytest.warns(UserWarning, match='will not survive a restart'):
+        data.create_subject({'subject_id': 's9', 'age': 1, 'notes': ''})
+
+    assert data.current_subject == 's9', 'the subject is still usable this session'
+
+
+def test_an_experiment_written_before_the_sidecar_existed_still_opens(tmp_path):
+    """A missing file is the normal state for those, not an error."""
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    (tmp_path / 'expt_2026-07-26' / NWBData.SUBJECTS_FILE).unlink()
+
+    assert [s['subject_id'] for s in _reopen(tmp_path).get_existing_subject_data()] == ['s1']

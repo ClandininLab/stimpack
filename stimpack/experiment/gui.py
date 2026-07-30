@@ -14,18 +14,19 @@ import traceback
 from enum import Enum
 import warnings
 from typing import Any
-import yaml
 
 from PyQt6.QtWidgets import (QPushButton, QWidget, QLabel, QTextEdit, QGridLayout, QApplication,
                              QComboBox, QLineEdit, QFormLayout, QDialog, QFileDialog, QInputDialog,
                              QMessageBox, QCheckBox, QSpinBox, QTabWidget, QVBoxLayout, QHBoxLayout, QFrame,
-                             QScrollArea, QListWidget, QSizePolicy, QAbstractItemView)
+                             QScrollArea, QListWidget, QSizePolicy, QAbstractItemView,
+                             QCompleter, QSplitter)
 import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal, QUrl
 import PyQt6.QtGui as QtGui
 
 from stimpack.experiment.util import config_tools, check_labpack
 from stimpack.experiment import protocol, data, client
+from stimpack.experiment.protocol import DEFAULT_PRESET_NAME
 
 from stimpack.util import get_all_subclasses, ICON_PATH, ROOT_DIR
 from stimpack.util import open_message_window
@@ -51,6 +52,31 @@ class _StatusLabel(QLabel):
     def setText(self, text):
         super().setText(text)
         self.setToolTip(text)
+
+
+# How many characters a protocol/preset dropdown asks to fit. Qt6 sizes a combo to its longest
+# entry the first time it is shown, so one long protocol name -- a labpack with several protocol
+# modules appends the module to each -- set the width of the box, the width of the tab, and with it
+# the whole window. Measured: one 70-character entry took a combo from 102 px to 484. Capping what
+# it asks for lets the name elide instead; the box still fills its column, which has the stretch.
+DROPDOWN_CHARACTERS = 24
+
+
+def cap_dropdown_width(combo_box, characters=DROPDOWN_CHARACTERS):
+    """Stop a long entry in `combo_box` dictating the width of everything around it.
+
+    The name is then elided in the closed box, so the box also carries the whole of it as its
+    tooltip: a truncated protocol name is only safe to show if there is a way to read the rest.
+    """
+    combo_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    combo_box.setMinimumContentsLength(characters)
+
+    def show_full_name(_=None):
+        combo_box.setToolTip(combo_box.currentText())
+
+    combo_box.currentTextChanged.connect(show_full_name)
+    show_full_name()
+    return combo_box
 
 
 class ExperimentGUI(QWidget):
@@ -84,6 +110,7 @@ class ExperimentGUI(QWidget):
         # user input to select configuration file and rig name
         # sets self.cfg
         self.cfg_initialized = False
+        self.note_dialog = None   # the modeless note dialog, while one is open
         self.cfg: dict[str, Any] = {}
         init_gui_size = None
         dialog = QDialog()
@@ -115,15 +142,32 @@ class ExperimentGUI(QWidget):
 
         # start a protocol object
         self.protocol_object =  protocol.BaseProtocol(self.cfg)
+        # Whether protocol_object is one the user chose, rather than the placeholder standing in
+        # for none. Set by the two methods that know, not read off the dropdown's index: the
+        # dropdown is also driven programmatically (run_ensemble_item, deselecting), and reading it
+        # meant on_selected_protocol_ID(0) left the run buttons live when the index had not moved.
+        self.protocol_selected = False
         self.available_protocols =  [x for x in get_all_subclasses(protocol.BaseProtocol) if x.__name__ not in ['BaseProtocol', 'SharedPixMapProtocol']]
 
         # start a data object
-        user_data_module_list = config_tools.load_user_module(self.cfg, 'data')
-        if user_data_module_list:
-            self.data = user_data_module_list[0].Data(self.cfg)
+        # The format is settled first, because a config may map a data module per format and so
+        # cannot be resolved until it is known. Applying --data-format inside the else branch, as
+        # this did, would leave the flag unable to reach a labpack's own classes.
+        if self.data_format_override is not None:
+            self.cfg['data_format'] = self.data_format_override
+        user_data_class = config_tools.load_user_data_class(self.cfg)
+        if user_data_class is not None:
+            # Named so it is obvious which class is writing the file. Without this the only
+            # startup line about the data module was the one printed when a built-in was used.
+            self.data = user_data_class(self.cfg)
+            if config_tools.get_data_module_paths_by_format(self.cfg):
+                print(f"!!! Using labpack data module for format "
+                      f"'{config_tools.get_data_format(self.cfg)}' ({type(self.data).__name__}) !!!")
+            else:
+                named = (self.cfg.get('module_paths') or {}).get('data')
+                print(f"!!! Using labpack data module {named} ({type(self.data).__name__}); "
+                      f"the config's data_format is not consulted !!!")
         else:  # use a built-in, chosen by the config's data_format (default hdf5, or nwb)
-            if self.data_format_override is not None:
-                self.cfg['data_format'] = self.data_format_override
             data_class = config_tools.get_builtin_data_class(self.cfg)
             print('!!! Using builtin {} module ({}). To use user defined module, you must point to that module in your config file !!!'.format('data', data_class.__name__))
             self.data = data_class(self.cfg)
@@ -223,15 +267,75 @@ class ExperimentGUI(QWidget):
         self.protocol_status_grid.setHorizontalSpacing(10)
         self.protocol_status_grid.setColumnMinimumWidth(2, 24)
 
+        # What this trial drew: the parameters that vary from trial to trial, at their values for
+        # the trial running now. Those values are chosen on the client and sent to the server,
+        # which prints them; until now the GUI never showed them, so the only way to see what was
+        # on screen was the server's terminal.
+        #
+        # Same treatment as the status line, and for the same reason: a protocol varying several
+        # parameters produces a long line, and a bare QLabel's size hint grows with its text until
+        # it reshapes the window. One line tall, scrolls if longer, whole text in the tooltip.
+        self.trial_parameters_label = _StatusLabel('')
+        self.trial_parameters_label.setWordWrap(True)
+        self.trial_parameters_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.trial_parameters_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        self.trial_parameters_scroll_area = QScrollArea()
+        self.trial_parameters_scroll_area.setWidget(self.trial_parameters_label)
+        self.trial_parameters_scroll_area.setWidgetResizable(True)
+        self.trial_parameters_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.trial_parameters_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        one_line = (self.trial_parameters_label.fontMetrics().height()
+                    + 2 * self.trial_parameters_scroll_area.frameWidth())
+        self.trial_parameters_scroll_area.setMinimumHeight(one_line)
+        # Starts at one line, as it was when its height was fixed. A minimum rather than a fixed
+        # height is what lets the splitter above it give it more.
+        self.trial_parameters_one_line_height = one_line
+
         self.protocol_tab = QWidget()
         self.protocol_tab_layout = QVBoxLayout()
         self.protocol_tab_layout.addWidget(self.protocol_selector_box)
-        self.protocol_tab_layout.addWidget(self.parameters_scroll_area)
+        # Directly above the control box, and directly below the protocol parameters it is derived
+        # from, so the two read together. This costs nothing in the consistency it was moved out of
+        # the tabs to protect: both control boxes are the LAST widget in their tab's layout with an
+        # expanding widget above, so each sits against the bottom of its tab whatever precedes it
+        # -- measured, the offset between the two is the same with this row as without it.
+        #
+        # In here rather than below the tabs because the Main tab is a live view of whatever is
+        # running, ensembles included: run_ensemble_item drives this tab's protocol and preset
+        # selectors and repopulates its parameter fields for each item as it starts. So this is
+        # never showing one protocol's trial beside another protocol's parameters -- which was the
+        # thing that argued for keeping it outside.
+        trial_widget = QWidget()
+        trial_row = QHBoxLayout(trial_widget)
+        trial_row.setContentsMargins(0, 0, 0, 0)
+        trial_caption = QLabel('This trial:')
+        # Top-aligned, so the caption stays beside the first line when the box is dragged taller
+        # rather than drifting to the middle of it.
+        trial_caption.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        trial_row.addWidget(trial_caption)
+        trial_row.addWidget(self.trial_parameters_scroll_area)
+
+        # Draggable, because one line is right for a protocol varying one parameter and not for one
+        # varying ten -- and which it is changes with the protocol selected, so no fixed height is
+        # correct for long. The parameters above yield the space, as they are the ones that scroll.
+        self.protocol_trial_splitter = QSplitter(QtCore.Qt.Orientation.Vertical)
+        self.protocol_trial_splitter.addWidget(self.parameters_scroll_area)
+        self.protocol_trial_splitter.addWidget(trial_widget)
+        self.protocol_trial_splitter.setStretchFactor(0, 1)
+        self.protocol_trial_splitter.setStretchFactor(1, 0)
+        # Opens at one line, which is what it was when its height was fixed -- a QScrollArea's own
+        # size hint is several lines, so without this the readout would start taller than it has
+        # ever been and take the space from the parameters above it. Anything past the first line
+        # is the user's to ask for.
+        self.protocol_trial_splitter.setSizes([10_000, self.trial_parameters_one_line_height])
+        self.protocol_tab_layout.addWidget(self.protocol_trial_splitter)
         self.protocol_tab_layout.addWidget(self.protocol_control_box)
         self.protocol_tab.setLayout(self.protocol_tab_layout)
 
         # Protocol ID drop-down:
         self.protocol_selection_combo_box = QComboBox(self)
+        cap_dropdown_width(self.protocol_selection_combo_box)
         self.protocol_selection_combo_box.addItem("(select a protocol to run)")
         for sub_class in self.available_protocols:
             if len(self.protocol_modules) > 1:
@@ -254,9 +358,17 @@ class ExperimentGUI(QWidget):
         self.update_parameter_preset_selector()
 
         # Save parameter preset button:
-        save_preset_button = QPushButton("Save preset", self)
-        save_preset_button.clicked.connect(self.on_pressed_button)
-        self.protocol_selector_grid.addWidget(save_preset_button, 2, 2)
+        # Both buttons share column 2 rather than taking one each, so the dropdown in column 1
+        # keeps the slack -- it holds the longest text on the tab.
+        self.save_preset_button = QPushButton("Save preset", self)
+        self.save_preset_button.clicked.connect(self.on_pressed_button)
+        self.delete_preset_button = QPushButton("Delete preset", self)
+        self.delete_preset_button.clicked.connect(self.on_pressed_button)
+        preset_buttons = QHBoxLayout()
+        preset_buttons.setContentsMargins(0, 0, 0, 0)
+        preset_buttons.addWidget(self.save_preset_button)
+        preset_buttons.addWidget(self.delete_preset_button)
+        self.protocol_selector_grid.addLayout(preset_buttons, 2, 2)
 
         # Status window: its own row at the bottom of the tab, below the buttons.
         #
@@ -294,13 +406,18 @@ class ExperimentGUI(QWidget):
         # looking at. See the end of initUI, where the window layout is assembled.
 
         # Current series counter
-        new_label = QLabel('Series #')
+        new_label = QLabel('Series #:')
         self.protocol_status_grid.addWidget(new_label, 0, 0)
         self.series_counter_input = QSpinBox()
         self.series_counter_input.setMinimum(1)
         self.series_counter_input.setMaximum(1000)
         self.series_counter_input.setValue(1)
         self.series_counter_input.valueChanged.connect(self.on_entered_series_count)
+        # Mirrored on the Ensemble tab, which shows the number but does not set it. Driven by the
+        # signal so a programmatic setValue -- advancing after a recorded series -- updates it too.
+        self.series_counter_input.valueChanged.connect(
+            lambda value: self.ensemble_series_label.setText(str(value))
+            if hasattr(self, 'ensemble_series_label') else None)
         self.protocol_status_grid.addWidget(self.series_counter_input, 0, 1)
 
         # Current subject, next to the series counter: together they say what the next run will
@@ -328,30 +445,6 @@ class ExperimentGUI(QWidget):
         self.protocol_status_grid.addWidget(self.trial_count_label, 1, 3)
         self.trial_count_label.setText('')
 
-        # What this trial drew: the parameters that vary from trial to trial, at their values for
-        # the trial running now. Those values are chosen on the client and sent to the server,
-        # which prints them; until now the GUI never showed them, so the only way to see what was
-        # on screen was the server's terminal.
-        #
-        # Same treatment as the status line, and for the same reason: a protocol varying several
-        # parameters produces a long line, and a bare QLabel's size hint grows with its text until
-        # it reshapes the window. One line tall, scrolls if longer, whole text in the tooltip.
-        self.epoch_parameters_label = _StatusLabel('')
-        self.epoch_parameters_label.setWordWrap(True)
-        self.epoch_parameters_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self.epoch_parameters_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-
-        self.epoch_parameters_scroll_area = QScrollArea()
-        self.epoch_parameters_scroll_area.setWidget(self.epoch_parameters_label)
-        self.epoch_parameters_scroll_area.setWidgetResizable(True)
-        self.epoch_parameters_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.epoch_parameters_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.epoch_parameters_scroll_area.setFixedHeight(
-            self.epoch_parameters_label.fontMetrics().height()
-            + 2 * self.epoch_parameters_scroll_area.frameWidth())
-
-        self.protocol_status_grid.addWidget(QLabel('This trial:'), 2, 0)
-        self.protocol_status_grid.addWidget(self.epoch_parameters_scroll_area, 2, 1, 1, 3)
 
         # Elapsed timer for protocol
         self.progress_timer = QTimer()
@@ -384,13 +477,11 @@ class ExperimentGUI(QWidget):
         self.stop_button.clicked.connect(self.on_pressed_button)
         self.protocol_action_grid.addWidget(self.stop_button, 0, 3)
 
-        # Enter note button:
-        self.note_button = QPushButton("Enter note", self)
+        # Enter note button. The box to type in appears when it is pressed, rather than sitting
+        # in the window: a note is written a few times a session, and an always-present field was
+        # spending a permanent row on something almost always empty.
+        self.note_button = QPushButton("Note", self)
         self.note_button.clicked.connect(self.on_pressed_button)
-
-        # Notes field:
-        self.notes_edit = QTextEdit()
-        self.notes_edit.setFixedHeight(30)
 
 
         # # # TAB 2: ENSEMBLE tab # # #
@@ -445,6 +536,7 @@ class ExperimentGUI(QWidget):
 
         # Protocol ID drop-down:
         self.ensemble_protocol_selection_combo_box = QComboBox(self)
+        cap_dropdown_width(self.ensemble_protocol_selection_combo_box)
         self.ensemble_protocol_selection_combo_box.addItem("(select a protocol to add to ensemble)")
         for sub_class in self.available_protocols:
             self.ensemble_protocol_selection_combo_box.addItem(sub_class.__name__)
@@ -456,7 +548,8 @@ class ExperimentGUI(QWidget):
         # Parameter preset drop-down:
         parameter_preset_label = QLabel('Param preset:')
         self.ensemble_parameter_preset_comboBox = QComboBox(self)
-        self.ensemble_parameter_preset_comboBox.addItem("Default")
+        cap_dropdown_width(self.ensemble_parameter_preset_comboBox)
+        self.ensemble_parameter_preset_comboBox.addItem(DEFAULT_PRESET_NAME)
         self.ensemble_protocol_selector_grid.addWidget(parameter_preset_label, 1, 0)
         self.ensemble_protocol_selector_grid.addWidget(self.ensemble_parameter_preset_comboBox, 1, 1)
 
@@ -504,15 +597,36 @@ class ExperimentGUI(QWidget):
         # in progress. No estimate to measure it against: that would mean precomputing every
         # item's trial parameters up front, which is what makes est_run_time available for a
         # single protocol.
-        self.ensemble_status_grid.addWidget(QLabel('Protocols run:'), 0, 0)
-        self.ensemble_progress_label = QLabel()
-        self.ensemble_progress_label.setFrameShadow(QFrame.Shadow(1))
-        self.ensemble_status_grid.addWidget(self.ensemble_progress_label, 0, 1)
+        # Same order as the Main tab's readout row -- elapsed on the left, the count on the right.
+        # Switching tabs mid-run should not move the numbers around under the eye.
+        # Same shape as the Main tab's readouts, cell for cell: what a series is being recorded as
+        # on the top row, how far along it is on the second. Switching tabs mid-run should move
+        # nothing under the eye -- which is also why the series number and subject appear here at
+        # all, read-only, rather than only where they are set.
+        self.ensemble_status_grid.addWidget(QLabel('Series #:'), 0, 0)
+        self.ensemble_series_label = QLabel()
+        self.ensemble_series_label.setFrameShadow(QFrame.Shadow(1))
+        # Reserves the height an editable field takes. The Main tab sets its series number with a
+        # QSpinBox and this only reports one, and a spin box is taller than a label -- so with
+        # nothing here the two control boxes differed by exactly that, and switching tabs during a
+        # run shifted every button under them by 7 px.
+        self.ensemble_series_label.setMinimumHeight(self.series_counter_input.sizeHint().height())
+        self.ensemble_status_grid.addWidget(self.ensemble_series_label, 0, 1)
 
-        self.ensemble_status_grid.addWidget(QLabel('Elapsed:'), 0, 2)
+        self.ensemble_status_grid.addWidget(QLabel('Subject:'), 0, 2)
+        self.ensemble_subject_label = QLabel()
+        self.ensemble_subject_label.setFrameShadow(QFrame.Shadow(1))
+        self.ensemble_status_grid.addWidget(self.ensemble_subject_label, 0, 3)
+
+        self.ensemble_status_grid.addWidget(QLabel('Elapsed:'), 1, 0)
         self.ensemble_elapsed_label = QLabel()
         self.ensemble_elapsed_label.setFrameShadow(QFrame.Shadow(1))
-        self.ensemble_status_grid.addWidget(self.ensemble_elapsed_label, 0, 3)
+        self.ensemble_status_grid.addWidget(self.ensemble_elapsed_label, 1, 1)
+
+        self.ensemble_status_grid.addWidget(QLabel('Protocols run:'), 1, 2)
+        self.ensemble_progress_label = QLabel()
+        self.ensemble_progress_label.setFrameShadow(QFrame.Shadow(1))
+        self.ensemble_status_grid.addWidget(self.ensemble_progress_label, 1, 3)
 
         # Ensemble run buttons. Separate widgets from the Main tab's, so each tab's buttons act on
         # that tab's subject and nothing has to be relabelled or routed by label.
@@ -551,24 +665,32 @@ class ExperimentGUI(QWidget):
 
         # # subject info:
         #
-        # One row, not three. This was 'Load existing subject' (a dropdown), 'Current subject:' (a
-        # read-only label) and 'subject ID:' (a line edit) stacked together, all showing the same
-        # string once a subject was loaded. The dropdown is the one that both shows the current
-        # subject and changes it, so it is the one that stays; the read-only label said nothing it
-        # did not, and the Main tab now carries the at-a-glance readout anyway.
-        new_label = QLabel('Current subject:')
+        # One row, doing both jobs. This was three -- a dropdown, a read-only label and a separate
+        # ID field -- all showing the same string once a subject was loaded. Editable, so typing
+        # filters the list and an unmatched name is simply a new subject; the button below says
+        # which of the two a press will do.
+        #
+        # subject_id_input IS the dropdown's line edit, so everything written against it -- the
+        # metadata handlers, the button's label, the tests -- keeps working unchanged, and there is
+        # only ever one place the id is typed.
+        new_label = QLabel('Subject:')
         self.existing_subject_input = QComboBox()
+        self.existing_subject_input.setEditable(True)
+        self.existing_subject_input.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        cap_dropdown_width(self.existing_subject_input)
         self.existing_subject_input.activated.connect(self.on_selected_existing_subject)
+        self.subject_id_input = self.existing_subject_input.lineEdit()
         self.data_form.addRow(new_label, self.existing_subject_input)
 
-        self.update_existing_subject_input()
+        # Match anywhere in the id, not just the start: subjects are often dated or prefixed, so
+        # the distinguishing part is rarely the first characters.
+        completer = QCompleter(self.existing_subject_input.model(), self)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.existing_subject_input.setCompleter(completer)
 
-        # Only built-ins are "subject_id," "age" and "notes"
-        # The editable identity, which the dropdown is not: what Create subject names a new subject,
-        # and what Update subject looks up. Distinct from the row above, so it keeps its own field.
-        new_label = QLabel('Subject ID:')
-        self.subject_id_input = QLineEdit()
-        self.data_form.addRow(new_label, self.subject_id_input)
+        self.update_existing_subject_input()
 
         # Age: 
         new_label = QLabel('Age:')
@@ -595,15 +717,15 @@ class ExperimentGUI(QWidget):
 
             self.subject_metadata_inputs[key] = new_input
 
-        # Create subject button
-        create_subject_button = QPushButton("Create subject", self)
-        create_subject_button.clicked.connect(self.on_created_subject)
-        self.data_form.addRow(create_subject_button)
-
-        # Update subject button
-        update_subject_button = QPushButton("Update subject", self)
-        update_subject_button.clicked.connect(self.on_update_subject)
-        self.data_form.addRow(update_subject_button)
+        # One button, saying which of the two things it will do. Two always-enabled buttons meant
+        # Update subject on an unknown ID printed "No subject with this ID is currently selected!"
+        # to the terminal and did nothing the GUI showed -- so the only feedback for pressing the
+        # wrong one was its absence.
+        self.subject_button = QPushButton("Create subject", self)
+        self.subject_button.clicked.connect(self.on_pressed_subject_button)
+        self.data_form.addRow(self.subject_button)
+        self.subject_id_input.textChanged.connect(self.refresh_subject_button)
+        self.refresh_subject_button()
 
         # # # TAB 4: FILE tab - init, load, close etc. h5 file # # #
 
@@ -646,14 +768,22 @@ class ExperimentGUI(QWidget):
         # Below the tabs, so both are there whichever tab is showing: a note is about the
         # experiment rather than about one tab, and a server error aborts the run wherever you
         # happen to be looking when it arrives.
-        notes_row = QHBoxLayout()
-        notes_row.addWidget(self.note_button)
-        notes_row.addWidget(self.notes_edit)
+        bottom_row = QHBoxLayout()
+        bottom_row.addWidget(self.status_scroll_area)
+        bottom_row.addWidget(self.note_button)
 
         self.layout = QVBoxLayout(self)
         self.layout.addWidget(self.tabs)
-        self.layout.addLayout(notes_row)
-        self.layout.addWidget(self.status_scroll_area)
+        self.layout.addLayout(bottom_row)
+
+        # The ensemble run buttons need to know whether there is anything in the list. Taken from
+        # the model's own signals rather than by calling the refresh at each of Append / Remove /
+        # Clear / load-a-file: those are four places to remember, and a fifth way to change the
+        # list would silently not be one of them.
+        for signal in (self.ensemble_list.model().rowsInserted,
+                       self.ensemble_list.model().rowsRemoved,
+                       self.ensemble_list.model().modelReset):
+            signal.connect(self.update_run_button_states)
 
         self.update_run_button_states()
 
@@ -699,12 +829,14 @@ class ExperimentGUI(QWidget):
 
     def on_selected_protocol_ID(self, protocol_dropdown_idx, preset_name='Default'):
         if protocol_dropdown_idx == 0:
+            self.deselect_protocol()
             return
         # Clear old params list from grid
         self.reset_layout()
 
         # initialize the selected protocol object
         self.protocol_object = self.available_protocols[protocol_dropdown_idx-1](self.cfg)
+        self.protocol_selected = True
 
         # update display lists of run & protocol parameters
         self.protocol_object.load_parameter_presets()
@@ -728,6 +860,28 @@ class ExperimentGUI(QWidget):
         # re-enabled View and Record, which update_run_button_states reads status to decide.
         if self.status == Status.STANDBY:
             self.status_label.setText('Ready')
+        self.update_run_button_states()
+
+    def deselect_protocol(self):
+        """Put the Main tab back the way it starts, on '(select a protocol to run)'.
+
+        This used to return without doing anything, so choosing the placeholder left the previous
+        protocol's parameter fields, its presets and its trial readout on show -- fields that no
+        longer described anything selected, and that a run could not have used.
+
+        Each step undoes one that selecting a protocol did, so the state matches a GUI just
+        started: an empty parameter grid, a bare protocol object, presets back to 'Default' alone,
+        and the status line asking for a protocol again.
+        """
+        self.reset_layout()
+        self.protocol_object = protocol.BaseProtocol(self.cfg)
+        self.protocol_selected = False
+        self.update_parameter_preset_selector()
+        self.trial_parameters_label.setText(self.trial_parameters_text())
+        self.update_window_width()
+        if self.status == Status.STANDBY:
+            self.status_label.setText('Select a protocol')
+        self.update_run_button_states()
 
     def on_server_message_received(self, level, text):
         '''Runs on the GUI thread (via server_message_signal): surface a message the server pushed back.
@@ -768,7 +922,8 @@ class ExperimentGUI(QWidget):
         if self.ensemble_parameter_preset_comboBox is not None:
             self.ensemble_parameter_preset_comboBox.deleteLater()
         self.ensemble_parameter_preset_comboBox = QComboBox(self)
-        self.ensemble_parameter_preset_comboBox.addItem("Default")
+        cap_dropdown_width(self.ensemble_parameter_preset_comboBox)
+        self.ensemble_parameter_preset_comboBox.addItem(DEFAULT_PRESET_NAME)
 
         temp_protocol_object = self.available_protocols[protocol_dropdown_idx - 1](self.cfg)
         temp_protocol_object.load_parameter_presets()
@@ -828,25 +983,14 @@ class ExperimentGUI(QWidget):
                 # release the hold here or the ensemble would sit there forever.
                 self.release_paused_ensemble()
 
-        elif sender.text() == 'Enter note':
-            self.note_text = self.notes_edit.toPlainText()
-            if self.data.experiment_file_exists() is True:
-                self.data.create_note(self.note_text)  # save note to expt file
-                self.notes_edit.clear()  # clear notes box
-            else:
-                self.notes_edit.setTextColor(QtGui.QColor("Red"))
+        elif sender.text() == 'Note':
+            self.prompt_for_note()
 
         elif sender.text() == 'Save preset':
-            self.update_parameters_from_fillable_fields(compute_epoch_parameters=False)  # get the state of the param input from GUI
-            start_name = self.parameter_preset_comboBox.currentText()
-            if start_name == 'Default':
-                start_name = ''
+            self.save_parameter_preset()
 
-            text, _ = QInputDialog.getText(self, "Save preset", "Preset Name:",  text=start_name)
-
-            self.protocol_object.update_parameter_presets(text) # TODO update GUI
-            self.update_parameter_preset_selector()
-            self.parameter_preset_comboBox.setCurrentIndex(self.parameter_preset_comboBox.findText(text))
+        elif sender.text() == 'Delete preset':
+            self.delete_parameter_preset()
 
         elif sender.text() == 'Initialize experiment':
             dialog = QDialog()
@@ -944,7 +1088,11 @@ class ExperimentGUI(QWidget):
             file_path += '.spens'
 
         with open(file_path, 'w') as ymlfile:
-            yaml.dump(self.ensemble_list.protocol_preset_list, ymlfile, default_flow_style=False, sort_keys=False)
+            # Matches the loader used to read it back: an ensemble item is a (protocol, preset)
+            # tuple, and the tag is what keeps it one.
+            config_tools.safe_dump_yaml_with_tuples(
+                self.ensemble_list.protocol_preset_list, ymlfile,
+                default_flow_style=False, sort_keys=False)
 
         print('Saved ensemble preset to {}'.format(file_path))
         self.ensemble_file_label.setText(file_path)
@@ -976,7 +1124,7 @@ class ExperimentGUI(QWidget):
             
             temp_protocol_object = self.available_protocols[[x.__name__ for x in self.available_protocols].index(protocol_name)](self.cfg)
             temp_protocol_object.load_parameter_presets()
-            if preset_name not in temp_protocol_object.parameter_presets.keys() and preset_name != 'Default':
+            if preset_name not in temp_protocol_object.parameter_presets.keys() and preset_name != DEFAULT_PRESET_NAME:
                 error_text = f'Preset {preset_name} not found in protocol {protocol_name}. Removing from the loaded ensemble.'
                 open_message_window(title='Ensemble preset load error', text=error_text)
                 protocol_name_preset_pairs.remove((protocol_name, preset_name))
@@ -1042,6 +1190,59 @@ class ExperimentGUI(QWidget):
         self.ensemble_list.update_UI(self.ensemble_running)
 
         self.send_run(save_metadata_flag=save_metadata_flag)
+
+    def typed_subject_is_new(self):
+        """Whether the ID in the field names a subject this experiment does not have yet.
+
+        None when the question cannot be answered -- no experiment file, or nothing typed -- which
+        is what disables the button rather than letting it claim to do either thing.
+        """
+        typed = self.subject_id_input.text().strip() if hasattr(self, 'subject_id_input') else ''
+        if not typed or not self.data.experiment_file_exists():
+            return None
+        existing = {s.get('subject_id') for s in self.data.get_existing_subject_data()}
+        return typed not in existing
+
+    def refresh_subject_button(self):
+        """Label the button with what pressing it will do, and disable it when that is nothing.
+
+        Also called from update_existing_subject_input, which runs during initUI before the field
+        and the button exist -- the subject dropdown is built first.
+        """
+        if not hasattr(self, 'subject_button'):
+            return
+        is_new = self.typed_subject_is_new()
+        self.subject_button.setEnabled(is_new is not None)
+        self.subject_button.setText('Create subject' if is_new is not False else 'Update subject')
+
+        # Italic while the text names no saved subject, upright once it does. The field is both a
+        # chooser and an entry, so it has to say which it is holding -- and a font style says it
+        # without a colour, which is what kept the series counter legible in a dark theme.
+        field = self.existing_subject_input.lineEdit()
+        if field is not None:
+            font = field.font()
+            font.setItalic(is_new is not False)
+            field.setFont(font)
+        if is_new is None:
+            self.subject_button.setToolTip(
+                f'Type a subject ID, and create or load a {self.data.output_noun} first.')
+        else:
+            self.subject_button.setToolTip('')
+
+    def on_pressed_subject_button(self):
+        """Create or update, decided by the same question the label was written from.
+
+        Not by reading the label back: the two would then have to agree, and a label is a thing
+        somebody renames.
+        """
+        is_new = self.typed_subject_is_new()
+        if is_new is None:
+            return
+        if is_new:
+            self.on_created_subject()
+        else:
+            self.on_update_subject()
+        self.refresh_subject_button()
 
     def on_created_subject(self):
         # Populate subject metadata from subject data fields
@@ -1157,17 +1358,102 @@ class ExperimentGUI(QWidget):
         if self.parameter_preset_comboBox is not None:
             self.parameter_preset_comboBox.deleteLater()
         self.parameter_preset_comboBox = QComboBox(self)
-        self.parameter_preset_comboBox.addItem("Default")
+        cap_dropdown_width(self.parameter_preset_comboBox)
+        self.parameter_preset_comboBox.addItem(DEFAULT_PRESET_NAME)
         for name in self.protocol_object.parameter_presets.keys():
             self.parameter_preset_comboBox.addItem(name)
         self.parameter_preset_comboBox.textActivated.connect(self.on_selected_parameter_preset)
+        # Connected after the items are added, and to currentTextChanged rather than
+        # textActivated: whether the selection can be deleted has to follow the selection however
+        # it moved, and saving a preset selects it with setCurrentIndex, which no activation signal
+        # reports. Connecting before populating would fire this while the buttons it reads do not
+        # yet exist.
+        self.parameter_preset_comboBox.currentTextChanged.connect(self.update_run_button_states)
         self.protocol_selector_grid.addWidget(self.parameter_preset_comboBox, 2, 1, 1, 1)
 
+    def save_parameter_preset(self):
+        """Ask for a name and save the current parameters under it.
+
+        Every rejection below produced a preset before. Cancel produced one because the dialog's
+        accepted flag was discarded, so changing your mind at the prompt saved an unnamed preset;
+        an empty or blank name produced a row in the dropdown with nothing written on it; and
+        DEFAULT_PRESET_NAME produced a second entry reading the same as the one the dropdown always
+        offers, with no way to tell which was which.
+        """
+        # A backstop for the disabled button: there are no parameters to save from a protocol that
+        # has not been chosen, and the rest of this would write a preset onto a bare BaseProtocol.
+        if not self.protocol_selected:
+            return
+
+        self.update_parameters_from_fillable_fields(compute_epoch_parameters=False)  # get the state of the param input from GUI
+        start_name = self.parameter_preset_comboBox.currentText()
+        if start_name == DEFAULT_PRESET_NAME:
+            start_name = ''
+
+        name, accepted = QInputDialog.getText(self, 'Save preset', 'Preset Name:', text=start_name)
+        if not accepted:
+            return
+
+        name = name.strip()
+        if not name:
+            open_message_window(title='Preset not saved', text='A preset needs a name.')
+            return
+        if name.casefold() == DEFAULT_PRESET_NAME.casefold():
+            open_message_window(
+                title='Preset not saved',
+                text=f"'{DEFAULT_PRESET_NAME}' is the protocol's own values, which the dropdown "
+                     f"always offers. Choose another name.")
+            return
+
+        # Replacing is allowed and is the usual way to revise one, so it is reported rather than
+        # confirmed: re-saving the preset you are working on is the common case, and a dialog every
+        # time would be friction rather than protection.
+        replacing = name in self.protocol_object.parameter_presets
+        self.protocol_object.update_parameter_presets(name)
+        self.update_parameter_preset_selector()
+        self.parameter_preset_comboBox.setCurrentIndex(self.parameter_preset_comboBox.findText(name))
+        self.status_label.setText(f"Preset '{name}' {'updated' if replacing else 'saved'}")
+
+    def delete_parameter_preset(self):
+        """Remove the selected preset, after asking.
+
+        Confirmed where saving over one is not: replacing a preset is how you revise it, while
+        deleting is never part of running an experiment.
+
+        A .spens ensemble refers to its presets by name, so deleting one an ensemble uses leaves
+        that reference dangling. Loading such an ensemble already reports the missing preset rather
+        than failing (see the check in load_ensemble), so this does not go looking for them.
+        """
+        name = self.parameter_preset_comboBox.currentText()
+        if not self.protocol_selected or name == DEFAULT_PRESET_NAME:
+            return
+        if name not in self.protocol_object.parameter_presets:
+            return
+
+        if QMessageBox.question(
+                self, 'Delete preset',
+                f"Delete the preset '{name}' for {type(self.protocol_object).__name__}?"
+                ) != QMessageBox.StandardButton.Yes:
+            return
+
+        self.protocol_object.delete_parameter_preset(name)
+        self.update_parameter_preset_selector()
+        self.parameter_preset_comboBox.setCurrentIndex(
+            self.parameter_preset_comboBox.findText(DEFAULT_PRESET_NAME))
+        self.on_selected_parameter_preset(DEFAULT_PRESET_NAME)
+        self.status_label.setText(f"Preset '{name}' deleted")
+
     def on_selected_parameter_preset(self, text):
+        # A backstop for the disabled dropdown above: there is no preset to apply to a protocol
+        # that has not been chosen, and going on would reach prepare_run and abort the process.
+        if not self.protocol_selected:
+            return
         self.protocol_object.select_protocol_preset(text)
         self.reset_layout()
         self.update_parameters_input()
         self.update_parameters_from_fillable_fields()
+        # Whether the selection can be deleted changes with the selection.
+        self.update_run_button_states()
         self.show()
 
     def on_selected_existing_subject(self, index):
@@ -1199,6 +1485,7 @@ class ExperimentGUI(QWidget):
             self.existing_subject_input.addItem(subject_id)
 
         self.show_current_subject(self.data.current_subject or '')
+        self.refresh_subject_button()
 
     def show_current_subject(self, subject_id):
         """Reflect the current subject in both places it appears -- the Subject tab's dropdown and
@@ -1212,6 +1499,8 @@ class ExperimentGUI(QWidget):
         index = self.existing_subject_input.findText(subject_id) if subject_id else -1
         self.existing_subject_input.setCurrentIndex(index)
         self.current_subject_main_label.setText(subject_id)
+        if hasattr(self, 'ensemble_subject_label'):
+            self.ensemble_subject_label.setText(subject_id)
         self.update_run_button_states()
 
     def set_parameter_editing_enabled(self, enabled):
@@ -1243,18 +1532,62 @@ class ExperimentGUI(QWidget):
         running = self.status != Status.STANDBY
         busy = running or self.ensemble_running
         can_record = bool(self.data.current_subject)
+        # Something to run, which is a different thing on each tab: the Main buttons run the
+        # selected protocol, the Ensemble buttons run the list. Neither was checked, so both pairs
+        # were live with nothing to act on -- Main would have run a bare BaseProtocol, and an empty
+        # ensemble ran its way straight back to standby.
+        has_protocol = self.protocol_selected
+        has_ensemble = len(self.ensemble_list) > 0
 
-        self.view_button.setEnabled(not busy)
-        self.record_button.setEnabled(not busy and can_record)
+        self.view_button.setEnabled(not busy and has_protocol)
+        self.record_button.setEnabled(not busy and has_protocol and can_record)
         self.stop_button.setEnabled(running)
 
-        self.ensemble_view_button.setEnabled(not busy)
-        self.ensemble_record_button.setEnabled(not busy and can_record)
+        self.ensemble_view_button.setEnabled(not busy and has_ensemble)
+        self.ensemble_record_button.setEnabled(not busy and has_ensemble and can_record)
         self.ensemble_stop_button.setEnabled(self.ensemble_running)
+
+        # A greyed button says nothing about why. Only for prerequisites the user can act on --
+        # that something else is already running is plain from the rest of the window.
+        # Both of these end up in prepare_run, which a bare BaseProtocol cannot satisfy: it has no
+        # num_trials, so its own required-parameter check raises -- and an exception in a Qt slot
+        # takes the process down with a core dump rather than surfacing as an error. Unreachable
+        # without a protocol now. This crashed from start-up, before anything had been selected,
+        # and not only after deselecting one.
+        self.parameter_preset_comboBox.setEnabled(has_protocol)
+        self.save_preset_button.setEnabled(has_protocol)
+        # Only a saved preset can be deleted -- DEFAULT_PRESET_NAME is the protocol's own values,
+        # which exist whether or not anything is saved.
+        selected_preset = self.parameter_preset_comboBox.currentText()
+        self.delete_preset_button.setEnabled(
+            has_protocol and selected_preset != DEFAULT_PRESET_NAME
+            and selected_preset in self.protocol_object.parameter_presets)
+
+        protocol_hint = '' if has_protocol else 'Select a protocol first.'
+        ensemble_hint = '' if has_ensemble else 'Add a protocol to the ensemble first.'
+        subject_hint = '' if can_record else 'Specify a subject to record.'
+        self.parameter_preset_comboBox.setToolTip(protocol_hint)
+        self.save_preset_button.setToolTip(protocol_hint)
+        self.delete_preset_button.setToolTip(
+            protocol_hint or ('' if self.delete_preset_button.isEnabled()
+                              else 'Select a saved preset to delete it.'))
+        self.view_button.setToolTip(protocol_hint)
+        self.record_button.setToolTip(protocol_hint or subject_hint)
+        self.ensemble_view_button.setToolTip(ensemble_hint)
+        self.ensemble_record_button.setToolTip(ensemble_hint or subject_hint)
 
         # One run loop, so both Pause buttons reflect the one piece of client state.
         for button in (self.pause_button, self.ensemble_pause_button):
             button.setEnabled(busy)
+
+        # There is nowhere to put a note until a file exists. Disabled rather than refused after
+        # the click, which is how Record already treats a missing subject -- and a control that
+        # cannot do anything should not invite the click in the first place. The tooltip carries
+        # the reason, which a greyed button on its own does not.
+        can_note = self.data.experiment_file_exists()
+        self.note_button.setEnabled(can_note)
+        self.note_button.setToolTip(
+            '' if can_note else f'Create or load a {self.data.output_noun} to write a note.')
 
     def set_pause_button_label(self, text):
         """Both Pause buttons drive the same run loop, so they say the same thing."""
@@ -1275,24 +1608,38 @@ class ExperimentGUI(QWidget):
         for key in self.subject_metadata_inputs:
             self.subject_metadata_inputs[key].setCurrentText(subject_data_dict[key])
 
+    def flag_series_number(self, already_used):
+        """Mark the series counter when its number has already been recorded, or clear the mark.
+
+        Cleared by removing the override rather than by painting the field white. Forcing white
+        left the text colour to the palette, so under a dark theme the field was white text on a
+        white background -- unreadable in exactly the state that means "this is fine".
+
+        The warning names both colours for the same reason: a background set without a foreground
+        inherits whatever the theme supplies, which is only legible by luck.
+        """
+        self.series_counter_input.setStyleSheet(
+            'background-color: rgb(220, 76, 76); color: black;' if already_used else '')
+
     def on_entered_series_count(self):
         self.data.update_series_count(self.series_counter_input.value())
         if self.data.experiment_file_exists() is True:
-            if self.data.get_series_count() <= self.data.get_highest_series_count():
-                self.series_counter_input.setStyleSheet("background-color: rgb(255, 0, 0);")
-            else:
-                self.series_counter_input.setStyleSheet("background-color: rgb(255, 255, 255);")
+            self.flag_series_number(self.data.get_series_count() <= self.data.get_highest_series_count())
 
     def confirm_series_overwrite(self, series_number):
         """Ask before recording onto a series number that already holds data. True to go ahead.
 
+        Says only that the number is taken. Which subject recorded it is not the question being
+        asked -- a series is not tied to a subject, and naming one implied a rule that does not
+        exist. What matters is that recording destroys what is there.
+
         Its own method so a test can answer it without a human, and so the wording lives in one
-        place: what is about to be destroyed, named, with No as the default button.
+        place, with No as the default button.
         """
         msg = QMessageBox()
         msg.setIcon(QMessageBox.Icon.Warning)
         msg.setWindowTitle('Overwrite series?')
-        msg.setText(f'Series {series_number} already exists for subject {self.data.current_subject}.')
+        msg.setText(f'Series {series_number} already exists.')
         msg.setInformativeText('Recording will delete the existing series and everything in it. '
                                'This cannot be undone.')
         msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
@@ -1308,17 +1655,19 @@ class ExperimentGUI(QWidget):
         # check to make sure the series count does not already exist
         if save_metadata_flag:
             self.data.update_series_count(self.series_counter_input.value())
-            if (self.data.get_series_count() in self.data.get_existing_series()):
-                # Ask rather than refuse. A series that exists is usually a false start somebody
-                # wants to redo under the same number, and refusing outright left renumbering
-                # around it as the only option -- so the file grew a gap and the numbering stopped
-                # matching the notebook. Destructive, so it is opt-in and defaults to No.
-                if not self.confirm_series_overwrite(self.data.get_series_count()):
-                    self.series_counter_input.setStyleSheet("background-color: rgb(255, 0, 0);")
+            series_number = self.data.get_series_count()
+            if series_number in self.data.get_existing_series():
+                # Usually a false start somebody wants to redo under the same number, and refusing
+                # outright left renumbering around it as the only option -- so the file grew a gap
+                # and the numbering stopped matching the notebook. Destructive, so it is opt-in and
+                # defaults to No. delete_series finds the series wherever it is, which is what
+                # stops a second one being recorded under the same number.
+                if not self.confirm_series_overwrite(series_number):
+                    self.flag_series_number(True)
                     self.status_label.setText('Select an unused series number')
                     return
                 self.data.delete_series()
-            self.series_counter_input.setStyleSheet("background-color: rgb(255, 255, 255);")
+            self.flag_series_number(False)
 
         # Populate parameters from filled fields
         if self.mid_parameter_edit:
@@ -1420,6 +1769,16 @@ class ExperimentGUI(QWidget):
             self.update_parameters_from_fillable_fields(compute_epoch_parameters=True)
 
     def update_parameters_from_fillable_fields(self, compute_epoch_parameters=True):
+        """Read the parameter fields back into the protocol and re-prepare the run.
+
+        Does nothing without a protocol selected. Every route that reached prepare_run without one
+        ended the process: BaseProtocol has no num_trials, its required-parameter check raises, and
+        an exception in a Qt slot is fatal. Guarded here as well as at each entry point because
+        this is the one place they all pass through.
+        """
+        if not self.protocol_selected:
+            return
+
         def is_number(s):
             try:
                 float(s)
@@ -1539,6 +1898,77 @@ class ExperimentGUI(QWidget):
 
         self.mid_parameter_edit = False
 
+    def experiment_identity(self):
+        """What distinguishes one open experiment from another, for the note dialog to hold on to."""
+        return (self.data.data_directory, self.data.experiment_file_name)
+
+    def prompt_for_note(self):
+        """Ask for a note, without taking the rest of the window hostage while it is being typed.
+
+        Modeless, because a note is usually written *about* something the user wants to look at --
+        a series in the File tab, the parameters that produced it -- and a modal dialog forces the
+        choice between reading and writing. The window it is a child of stays usable.
+
+        The button is disabled without a file, so the check below is a backstop rather than the
+        way this is normally communicated -- it still matters, because a desynchronised button
+        state must refuse rather than open a dialog whose text has nowhere to go.
+        """
+        if not self.data.experiment_file_exists():
+            open_message_window(title=f'No {self.data.output_noun}',
+                                text=f'Create or load a {self.data.output_noun} before writing a note.')
+            return
+
+        # One dialog. Being modeless, the button stays clickable while it is open, and stacking
+        # invisible copies of it would lose whatever was typed in the ones underneath.
+        if self.note_dialog is not None and self.note_dialog.isVisible():
+            self.note_dialog.raise_()
+            self.note_dialog.activateWindow()
+            return
+
+        dialog = QInputDialog(self)
+        dialog.setInputMode(QInputDialog.InputMode.TextInput)
+        dialog.setOption(QInputDialog.InputDialogOption.UsePlainTextEditForTextInput, True)
+        dialog.setWindowTitle('Enter note')
+        dialog.setLabelText('Note:')
+        dialog.setModal(False)
+
+        # Bound to the experiment that was open when it was raised. Modeless means the user can
+        # load a different experiment while typing, and a note written about one experiment must
+        # not land silently in another.
+        origin = self.experiment_identity()
+        dialog.textValueSelected.connect(lambda text: self.save_note(text, origin))
+        dialog.finished.connect(self.forget_note_dialog)
+        self.note_dialog = dialog
+        dialog.show()
+
+    def forget_note_dialog(self):
+        """Drop the reference once it closes, so the next press builds a fresh dialog."""
+        self.note_dialog = None
+
+    def save_note(self, text, origin=None):
+        """Write a note, refusing rather than misfiling it if the experiment has moved on."""
+        if not text.strip():
+            return
+
+        if origin is not None and origin != self.experiment_identity():
+            open_message_window(
+                title='Note not saved',
+                text=('The experiment changed while this note was open, so it was not written -- '
+                      'it would have gone into a different file than the one it is about.\n\n'
+                      'The text is below; copy it if you still want it.\n\n' + text))
+            return
+
+        if not self.data.experiment_file_exists():
+            open_message_window(
+                title=f'No {self.data.output_noun}',
+                text=(f'There is no {self.data.output_noun} to write this note to any more.\n\n'
+                      'The text is below; copy it if you still want it.\n\n' + text))
+            return
+
+        self.note_text = text
+        self.data.create_note(text)
+        self.status_label.setText('Note saved: ' + text.strip().replace('\n', ' ')[:60])
+
     def release_paused_ensemble(self):
         """Abandon an ensemble that was holding between items, and return the GUI to standby.
 
@@ -1588,7 +2018,7 @@ class ExperimentGUI(QWidget):
                      if isinstance(value, list) and len(value) > 1]
         return names
 
-    def epoch_parameters_text(self):
+    def trial_parameters_text(self):
         """This trial's values for the parameters that vary, as one line.
 
         Only the varying ones: the rest are on show in the parameter fields above, unchanged for
@@ -1650,7 +2080,7 @@ class ExperimentGUI(QWidget):
         # that object on another thread, but these are plain attribute reads of values it replaces
         # wholesale at the start of each trial, so the worst case is showing the previous trial's
         # values for one tick of the timer.
-        self.epoch_parameters_label.setText(self.epoch_parameters_text())
+        self.trial_parameters_label.setText(self.trial_parameters_text())
         self.update_ensemble_progress()
 
         # Announce pause transitions only, rather than rewriting the status every tick: the same
@@ -1799,23 +2229,28 @@ class InitializeRigGUI(QWidget):
         # dialog runs to completion before the data object -- or the File tab's browser, or the
         # labels naming it -- is built, so there is nothing yet to swap out and no open experiment
         # to invalidate. An experiment cannot change format part-way through in any case.
-        label_data_format = QLabel('Data format')
-        label_data_format.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
-        self.init_grid.addWidget(label_data_format, 3, 0)
+        self.label_data_format = QLabel('Data format')
+        self.label_data_format.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        self.init_grid.addWidget(self.label_data_format, 3, 0)
 
         self.data_format_combobox = QComboBox()
-        for format_name in sorted(config_tools.BUILTIN_DATA_FORMATS):
-            self.data_format_combobox.addItem(format_name)
-        self.data_format_combobox.setToolTip(
-            "Which format to write. Defaults to the selected config's data_format.\n"
-            "Ignored if the labpack supplies its own data module, which takes precedence.")
+        self.data_format_combobox.currentIndexChanged.connect(self.update_data_format_note)
         self.init_grid.addWidget(self.data_format_combobox, 3, 1, 1, 2)
+
+        # Says, at the moment of choosing, when the selection means stimpack's own class rather
+        # than the labpack's. What is at stake is not the format -- a wrong extension is obvious
+        # within seconds -- but the overrides that will be missing from the file, which surface
+        # much later, in analysis.
+        self.data_format_note = QLabel('')
+        self.data_format_note.setWordWrap(True)
+        self.data_format_note.setVisible(False)
+        self.init_grid.addWidget(self.data_format_note, 4, 1, 1, 2)
 
         self.update_available_rigs()
 
         self.pb_enter = QPushButton('Enter')
         self.pb_enter.clicked.connect(self.on_pressed_enter_button)
-        self.init_grid.addWidget(self.pb_enter, 4, 0, 1, 3)
+        self.init_grid.addWidget(self.pb_enter, 5, 0, 1, 3)
 
         self.setLayout(self.init_grid)
 
@@ -1860,26 +2295,104 @@ class InitializeRigGUI(QWidget):
         self.show()
 
     def update_data_format_selection(self):
-        """Show the format this config would use, so the default is the config's own answer.
+        """Offer every format this config can write, defaulting to the one it asks for.
 
-        Follows the config selection above it: picking a different config re-reads its
-        data_format rather than leaving the previous config's answer showing. A --data-format on
-        the command line wins over both, so it is shown here too -- the flag is applied after this
-        dialog either way, and a dialog displaying something other than what will be used is worse
-        than no dialog.
+        Follows the config selection above it, so picking a different config re-reads its answer
+        rather than leaving the previous one showing. --data-format wins over both and is shown
+        here too: a dialog displaying something other than what will be used is worse than none.
+
+        The menu lists all available formats even when the labpack supplies classes for only some.
+        Those are two different questions -- what stimpack can write, and what this labpack has
+        customized -- and filtering the first by the second left a lab that customized HDF5 unable
+        to reach NWB at all, while --data-format could still do it. The second question is
+        answered by labelling each entry instead.
         """
+        labpack_entry = (self.cfg.get('module_paths') or {}).get('data')
+        mapped = config_tools.get_data_module_paths_by_format(self.cfg)
         override = getattr(self.experiment_gui_object, 'data_format_override', None)
+
+        # A config naming ONE data class has its format decided by that class's base, and the path
+        # alone does not say which -- finding out means importing it. So there is no choice to
+        # offer and nothing to label; show the module rather than assert a format we have not
+        # checked. A one-entry mapping is the same class with the format stated, hence the tooltip.
+        if labpack_entry and not mapped:
+            self.data_format_combobox.clear()
+            self.data_format_combobox.addItem(f'(from {labpack_entry})', None)
+            self.data_format_combobox.setEnabled(False)
+            self.data_format_combobox.setToolTip(
+                f'This config supplies one data module ({labpack_entry}), whose class fixes the '
+                f'format. To choose here, say which format that class writes:\n\n  data:\n'
+                f'    hdf5: {labpack_entry}\n    nwb: labpack/data_nwb.py')
+            self.label_data_format.setText('Data format (set by labpack)')
+            self.data_format_note.setVisible(False)
+            return
+
+        self.label_data_format.setText('Data format')
         data_format = override if override is not None else config_tools.get_data_format(self.cfg)
-        index = self.data_format_combobox.findText(data_format)
+
+        self.data_format_combobox.blockSignals(True)
+        self.data_format_combobox.clear()
+        for name in config_tools.get_available_data_formats(self.cfg):
+            spec = mapped.get(name)
+            label = name if not mapped else f'{name} — {spec or "stimpack built-in"}'
+            self.data_format_combobox.addItem(label, name)
+        index = self.data_format_combobox.findData(data_format)
         if index >= 0:
             self.data_format_combobox.setCurrentIndex(index)
+        self.data_format_combobox.blockSignals(False)
+
         self.data_format_combobox.setEnabled(override is None)
+        self.data_format_combobox.setToolTip(
+            'Set by --data-format on the command line, which wins over the config.'
+            if override is not None else
+            "Which format to write. Defaults to the selected config's data_format.")
+        self.update_data_format_note()
+
+    def update_data_format_note(self):
+        """Say which class will write the file, and what it costs when that is not the labpack's.
+
+        Stated always, not only when something is wrong. Making it conditional meant a config with
+        no data module of its own -- the common case -- said nothing at all about what was writing
+        its files, and the only mention was a line printed to the terminal at start-up, which
+        nobody reads during a session.
+
+        The second sentence is the warning, and stays conditional: it appears when this labpack
+        customizes some formats and not the selected one. What is at stake there is not the format
+        but the overrides that will be absent from the file, so it names them.
+        """
+        mapped = config_tools.get_data_module_paths_by_format(self.cfg)
+        selected = self.data_format_combobox.currentData()
+
+        if selected is None:            # a single labpack module: the combo names it already
+            self.data_format_note.setVisible(False)
+            return
+
+        spec = mapped.get(selected)
+        if spec is not None:
+            note = f'Written by {spec}.'
+        else:
+            builtin = config_tools.BUILTIN_DATA_FORMATS.get(selected)
+            note = f"Written by stimpack's built-in {builtin[1]}." if builtin else \
+                   f"Written by stimpack's built-in {selected} class."
+            if mapped:
+                customized = ', '.join(f'{fmt} ({path})' for fmt, path in sorted(mapped.items()))
+                note += (f' This labpack customizes {customized} but supplies no {selected} class, '
+                         f'so anything those classes add — extra metadata, device hooks — will be '
+                         f'missing from this experiment.')
+
+        self.data_format_note.setText(note)
+        self.data_format_note.setVisible(True)
 
     def on_pressed_enter_button(self):
         # Store the rig and cfg names in the cfg dict
         self.cfg['current_rig_name'] = self.rig_combobox.currentText()
         self.cfg['current_cfg_name'] = self.cfg_name
-        self.cfg['data_format'] = self.data_format_combobox.currentText()
+        # From the item's data, not its text: entries are labelled with the class that will write
+        # them ('nwb — labpack/data_nwb.py'), and with one labpack data class the combo names that
+        # module and carries no format at all.
+        chosen_format = self.data_format_combobox.currentData()
+        if chosen_format is not None:
+            self.cfg['data_format'] = chosen_format
 
         self.warn_about_labpack_problems()
 
@@ -1963,18 +2476,23 @@ class EnsembleList(QListWidget):
         assert len(self.protocol_preset_list) == self.count()
         return self.count()
 
+    # The rows and the (protocol, preset) pairs behind them are two structures that have to agree,
+    # which __len__ above asserts. Each mutator below updates the pairs BEFORE the rows, so they
+    # already agree by the time the widget's model announces the change -- anything listening to
+    # rowsInserted / rowsRemoved / modelReset runs inside that announcement, and with the rows
+    # changed first it would see the two out of step by one and trip the assert.
     def append_item(self, protocol_name, preset_name):
-        super().addItem(protocol_name + ' (' + preset_name + ')')
         self.protocol_preset_list.append((protocol_name, preset_name))
-    
+        super().addItem(protocol_name + ' (' + preset_name + ')')
+
     def clear(self):
-        super().clear()
         self.protocol_preset_list = []
         self.current_ensemble_idx = -1
+        super().clear()
 
     def remove_item(self, row):
-        super().takeItem(row)
         self.protocol_preset_list.pop(row)
+        super().takeItem(row)
 
     def increment_current_ensemble_idx(self):
         self.current_ensemble_idx += 1
@@ -2008,6 +2526,31 @@ class EnsembleList(QListWidget):
             self.clearSelection()
 
 
+WAYLAND_TEXTINPUT_CATEGORY = 'qt.qpa.wayland.textinput'
+
+
+def quiet_wayland_textinput_logging():
+    """Silence one noisy Qt category, unless the user has logging rules of their own.
+
+    Opening a dropdown whose entries are wider than the closed box -- which is every protocol
+    dropdown, since cap_dropdown_width caps the box and lets the popup size to the longest name --
+    makes the compositor position an oversized popup surface that then grabs the keyboard. Qt's
+    text-input-v3 client logs a complaint about which surface it thinks owns the text input during
+    that handover:
+
+        qt.qpa.wayland.textinput: ... Try to disable surface 0x... with focusing surface 0x...
+
+    Nothing is wrong; the dropdown works, and stimpack never sees it. But it appears on every
+    click, and an unexplained Qt message on a rig reads like a fault.
+
+    Scoped to this one category and skipped entirely when QT_LOGGING_RULES is already set, so it
+    can never hide another Qt warning or override a choice you made.
+    """
+    if os.environ.get('QT_LOGGING_RULES'):
+        return
+    os.environ['QT_LOGGING_RULES'] = f'{WAYLAND_TEXTINPUT_CATEGORY}=false'
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='stimpack', description='Stimpack experiment GUI.')
     parser.add_argument('--check-labpack', action='store_true',
@@ -2022,7 +2565,10 @@ def main(argv=None):
                         choices=sorted(config_tools.BUILTIN_DATA_FORMATS),
                         help="storage backend for this session, overriding the config's "
                              "data_format. For trying a format without editing a config; set "
-                             "data_format in the config file to make it the default.")
+                             "data_format in the config file to make it the default. Limited to "
+                             "the built-ins: this is parsed before a config is chosen, so a "
+                             "format a labpack defines itself is reachable only from the config "
+                             "or the startup dialog.")
     args = parser.parse_args(argv)
 
     if args.check_labpack:
@@ -2030,6 +2576,8 @@ def main(argv=None):
         findings, configs = check_labpack.check_labpack(args.labpack_dir, deep=args.deep)
         print(check_labpack.format_report(findings, configs, args.labpack_dir))
         sys.exit(1 if any(f.level == 'error' for f in findings) else 0)
+
+    quiet_wayland_textinput_logging()
 
     app = QApplication(sys.argv)
     app.setApplicationName('Stimpack Experiment')

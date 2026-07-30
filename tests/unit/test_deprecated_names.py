@@ -250,3 +250,82 @@ def test_a_run_parameter_is_stored_once_not_under_both_names():
         warnings.simplefilter('ignore')
         protocol.run_parameters['num_trials'] = 9
         assert protocol.run_parameters['num_epochs'] == 9, 'the old key read a stale copy'
+
+
+def test_run_parameters_serialize_as_a_plain_mapping():
+    """PyYAML tagged them by type, so saving a parameter preset wrote
+
+        run_parameters: !!python/object/new:...RunParameters
+
+    which yaml.safe_load refuses to construct -- a file stimpack had just written and could not
+    read back. Both dumpers, since either could be reached from a labpack.
+    """
+    import yaml
+
+    from stimpack.experiment.deprecated_names import RunParameters
+
+    parameters = RunParameters({'num_trials': 5, 'idle_color': 0.5})
+
+    for dump in (yaml.dump, yaml.safe_dump):
+        text = dump({'run_parameters': parameters}, default_flow_style=False, sort_keys=False)
+        assert 'python/object' not in text
+        assert yaml.safe_load(text) == {'run_parameters': {'num_trials': 5, 'idle_color': 0.5}}
+
+    assert parameters['num_epochs'] == 5, 'the old key must still resolve'
+
+
+# --- writing a renamed run parameter ------------------------------------------------------------
+
+def test_writing_the_old_key_in_place_lands_on_the_new_one():
+    """Assigning the whole dict was covered by normalize_run_parameters on the property setter;
+    mutating one key was not. run_parameters['num_epochs'] = n added a second key, and the two then
+    drifted -- the protocol read back what it wrote while check_required_run_parameters and the
+    data file went on seeing the old value, which is the drift this class exists to prevent."""
+    from stimpack.experiment.deprecated_names import RunParameters
+
+    parameters = RunParameters({'num_trials': 5, 'idle_color': 0.5})
+    parameters['num_epochs'] = 9
+
+    assert dict(parameters) == {'num_trials': 9, 'idle_color': 0.5}
+    assert parameters['num_epochs'] == parameters['num_trials'] == 9
+
+
+def test_the_old_key_lands_on_the_new_one_even_when_neither_is_there_yet():
+    """Unconditional on write, unlike on read: with nothing present there is no new name to prefer,
+    so a conditional rename would create the old spelling and leave it there."""
+    from stimpack.experiment.deprecated_names import RunParameters
+
+    parameters = RunParameters({})
+    parameters['num_epochs'] = 3
+
+    assert dict(parameters) == {'num_trials': 3}
+
+
+@pytest.mark.parametrize('mutate, expected', [
+    (lambda p: p.update({'num_epochs': 4}), {'num_trials': 4}),
+    (lambda p: p.update(num_epochs=4), {'num_trials': 4}),
+    (lambda p: p.update([('num_epochs', 4)]), {'num_trials': 4}),
+    (lambda p: p.setdefault('num_epochs', 4), {'num_trials': 1}),      # already set, keeps it
+    (lambda p: p.pop('num_epochs'), {}),
+    (lambda p: p.__delitem__('num_epochs'), {}),
+])
+def test_every_mutator_speaks_both_names(mutate, expected):
+    """One uncovered mutator is enough to reintroduce the second spelling."""
+    from stimpack.experiment.deprecated_names import RunParameters
+
+    parameters = RunParameters({'num_trials': 1})
+    mutate(parameters)
+
+    assert dict(parameters) == expected
+
+
+def test_keys_outside_the_rename_table_are_untouched():
+    """A typo must still fail as a typo, under the name that was asked for."""
+    from stimpack.experiment.deprecated_names import RunParameters
+
+    parameters = RunParameters({'num_trials': 1})
+    parameters['idle_color'] = 0.5
+
+    assert parameters['idle_color'] == 0.5
+    with pytest.raises(KeyError, match='no_such_key'):
+        parameters['no_such_key']

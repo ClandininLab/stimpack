@@ -32,7 +32,9 @@ Two severities, and the distinction is about what happens next:
   warning  something is absent or ignored, which may well be deliberate for this rig
 """
 import contextlib
+import inspect
 import os
+import re
 import sys
 import tempfile
 import warnings
@@ -82,12 +84,30 @@ def check_config(cfg, cfg_name='', labpack_dir=None):
     # data_format picks a built-in backend, and the NWB one needs pynwb, which is an optional
     # dependency. Without this the config looks fine and the GUI dies on import at start-up --
     # at the rig, with an animal on it.
-    data_format = str(cfg.get('data_format', 'hdf5')).lower()
-    if data_format not in config_tools.BUILTIN_DATA_FORMATS:
+    mapped = config_tools.get_data_module_paths_by_format(cfg)
+    available = config_tools.get_available_data_formats(cfg)
+    default_format = config_tools.get_default_data_format(cfg)
+    declared = cfg.get('data_format')
+
+    if declared is not None and str(declared).lower() not in available:
         add('error', 'unknown-data-format',
-            f"data_format '{data_format}' is not one of "
-            f"{sorted(config_tools.BUILTIN_DATA_FORMATS)}; stimpack will fall back to hdf5")
-    else:
+            f"data_format '{str(declared).lower()}' is not one of {available}; stimpack will fall "
+            f"back to {default_format}")
+    elif declared is None and mapped:
+        # The lab supplied classes; which one runs is then decided by a default rather than by
+        # them. Unambiguous when they mapped one format, a coin toss when they mapped several.
+        add('warning', 'no-data-format-with-mapping',
+            f"module_paths.data maps {sorted(mapped)} but no data_format is set, so "
+            f"'{default_format}' is used by default. Set data_format to say which you mean.")
+    elif mapped and str(declared).lower() not in mapped:
+        # Legitimate -- custom HDF5 and stock NWB is a reasonable thing to want -- but it means
+        # every launch bypasses the labpack's classes, which is worth knowing on purpose.
+        add('warning', 'data-format-outside-mapping',
+            f"data_format is '{str(declared).lower()}' but module_paths.data supplies classes "
+            f"only for {sorted(mapped)}, so stimpack's built-in class is used")
+
+    data_format = config_tools.get_data_format(cfg)
+    if data_format in config_tools.BUILTIN_DATA_FORMATS:
         try:
             config_tools.get_builtin_data_class(cfg)
         except ImportError as e:
@@ -416,6 +436,24 @@ def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
         findings.append(Finding(level, code, cfg_name, f'{name}{where}: {message}'))
 
     skipped = None                    # set when the protocol could not be exercised at all
+
+    # --- an uninterruptible wait in start_stimuli -----------------------------------------------
+    # BaseProtocol.sleep drains the client's queue and returns early when the run is stopped;
+    # time.sleep cannot be interrupted, so Stop is not noticed until the trial ends -- on a long
+    # trial that is a long wait, and the same delay applies to an error the server reports
+    # mid-trial. A protocol overriding start_stimuli has to remember to use self.sleep, and
+    # stimpack's own example did not, which is what these were copied from.
+    if 'start_stimuli' in protocol_class.__dict__:
+        try:
+            source = inspect.getsource(protocol_class.start_stimuli)
+        except (OSError, TypeError):
+            source = ''
+        # A bare call, not self.sleep(...) or manager.sleep(...).
+        bare_sleeps = len(re.findall(r'(?<![.\w])sleep\s*\(', source))
+        if bare_sleeps:
+            add('warning', 'uninterruptible-sleep',
+                f'start_stimuli calls time.sleep {bare_sleeps} time(s); use self.sleep so Stop '
+                f'takes effect during a trial rather than at the end of it')
 
     # --- tier 3: does it construct, and can it produce an epoch? --------------------------------
     try:

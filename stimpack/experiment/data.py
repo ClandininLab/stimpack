@@ -25,7 +25,7 @@ import os
 from datetime import datetime
 import numpy as np
 
-from stimpack.experiment.util import config_tools
+from stimpack.experiment.util import config_tools, provenance
 from stimpack.experiment.deprecated_names import add_deprecated_aliases
 
 
@@ -53,11 +53,23 @@ class BaseData():
     #
     # Held here rather than inline, so LegacyHdf5Data can write the pre-0.3 layout by overriding
     # five strings instead of reimplementing every method that touches the file. stimpack renamed
-    # an trial to a trial and an series to a series; the layout follows the code, and a lab
+    # an epoch to a trial and an epoch run to a series; the layout follows the code, and a lab
     # whose analysis reads the old names keeps writing them by choosing the legacy backend.
     SERIES_GROUP = 'series'         # was 'epoch_runs'
-    TRIALS_GROUP = 'trials'         # was 'trials'
+    TRIALS_GROUP = 'trials'         # was 'epochs'
     TRIAL_PREFIX = 'trial_'         # was 'epoch_'
+
+    # Written into the file so a reader can tell the layouts apart: both HDF5 backends produce a
+    # .hdf5 whose root attributes were otherwise identical, leaving analysis to probe for a group
+    # name to know which reader to use.
+    #
+    # The legacy backend sets DECLARES_DATA_FORMAT False, so absence of the attribute means
+    # 'legacy layout, or written before 0.3' -- any later layout declares itself, so absence stays
+    # unambiguous. It writes stimpack_version all the same: which version produced a file is worth
+    # knowing whatever its layout, and an added root attribute does not disturb analysis that
+    # walks groups or reads named attributes.
+    DATA_FORMAT = 'hdf5'
+    DECLARES_DATA_FORMAT = True
     # Attributes whose spelling changed with the rename. Anything not named here is written the
     # same by both backends.
     ATTRIBUTE_NAMES = {'num_trials_completed': 'num_trials_completed',
@@ -119,6 +131,14 @@ class BaseData():
             experiment_file.attrs['data_directory'] = self.data_directory
             experiment_file.attrs['experimenter'] = self.experimenter
             experiment_file.attrs['rig_config'] = self.cfg.get('current_rig_name', '')
+            # What code produced this file: stimpack's version and checkout, the labpack's, and
+            # the config used. A stimulus is defined by both halves -- the protocol, its parameters
+            # and its stimuli all live in the labpack -- so stimpack's version alone cannot answer
+            # what an experiment did.
+            for key, value in provenance.provenance_attributes(self.cfg).items():
+                experiment_file.attrs[key] = value
+            if self.DECLARES_DATA_FORMAT:
+                experiment_file.attrs['data_format'] = self.DATA_FORMAT
             rig_config = (self.cfg.get('rig_config') or {}).get(self.cfg.get('current_rig_name')) or {}
             for key in rig_config:
                 experiment_file.attrs[key] = str(rig_config.get(key))
@@ -386,6 +406,26 @@ class BaseData():
         series = [int(x.split('_')[-1]) for x in all_series]
         return series
 
+    def series_owner(self, series_number=None):
+        """Which subject holds this series number, or None if nobody does.
+
+        Series numbers are global across an experiment, but each series lives under one subject,
+        so "is this number taken" and "is it mine" are different questions. Answering only the
+        first let a run be recorded as series 1 while another subject already held series 1 --
+        two groups with the same number, in a scheme whose whole point is that the number
+        identifies one recording.
+        """
+        series_number = self.series_count if series_number is None else series_number
+        if not self.experiment_file_exists():
+            return None
+        name = 'series_{}'.format(str(series_number).zfill(3))
+        with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r') as experiment_file:
+            for subject_id in list(experiment_file['/Subjects'].keys()):
+                series_group = experiment_file.get(self.subject_series_path(subject_id))
+                if series_group is not None and name in series_group:
+                    return subject_id
+        return None
+
     def delete_series(self, series_number=None):
         """Remove a recorded series so its number can be recorded onto again.
 
@@ -393,13 +433,19 @@ class BaseData():
         to be refused outright, which meant renumbering around a false start rather than replacing
         it). Returns whether anything was removed.
 
+        Deletes the series wherever it is, not only under the current subject. Series numbers are
+        global while each series sits under one subject, so looking only under the current one
+        found nothing when the number belonged to another -- and the caller, told nothing had been
+        removed, went on to record a second series with the same number.
+
         :param series_number: which series; the current one if not given.
         """
         series_number = self.series_count if series_number is None else series_number
-        if not (self.current_subject_exists() and self.experiment_file_exists()):
+        owner = self.series_owner(series_number)
+        if owner is None:
             return False
         with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
-            runs = experiment_file.get(self.subject_series_path())
+            runs = experiment_file.get(self.subject_series_path(owner))
             name = 'series_{}'.format(str(series_number).zfill(3))
             if runs is None or name not in runs:
                 return False

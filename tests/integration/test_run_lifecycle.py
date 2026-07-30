@@ -806,3 +806,19 @@ def test_nwb_handles_a_parameter_nested_two_deep(client, nwb_data):
     assert np.asarray(trials['locations'].iloc[0]).tolist() == [[1, 2], [3, 4]]
     assert sorted(np.asarray(trials['width_height'].iloc[i]).tolist() for i in range(2)) \
         == [[10, 30], [20, 40]]
+
+
+def test_series_owner_names_the_subject_that_holds_it(data):
+    """Series numbers are global while each series lives under one subject, so "is this number
+    taken" and "is it mine" are different questions."""
+    protocol = TinyProtocol(cfg={})
+    data.update_series_count(1)
+    data.create_series(protocol)                       # series 1 -> subj1
+
+    assert data.series_owner(1) == 'subj1'
+    assert data.series_owner(2) is None
+
+    data.create_subject({'subject_id': 'subj2'})
+    assert data.current_subject == 'subj2'
+    assert data.series_owner(1) == 'subj1', 'the owner is not whoever is selected now'
+    assert 1 in data.get_existing_series(), 'the number is still taken experiment-wide'
