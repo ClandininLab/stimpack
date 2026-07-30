@@ -130,10 +130,23 @@ class RunParameters(dict):
     """
 
     def _resolve(self, key):
+        """The key to read under. Prefers one that is literally present, so a key this class knows
+        nothing about -- or a genuine typo -- behaves exactly as it would in a dict, raising under
+        the name the caller asked for."""
         if key not in RUN_PARAMETER_RENAMES or dict.__contains__(self, key):
             return key
         new_name = RUN_PARAMETER_RENAMES[key]
         if dict.__contains__(self, new_name):
+            _warn_once(key, new_name, 'Run parameter')
+            return new_name
+        return key
+
+    def _rename(self, key):
+        """The key to write under. Unconditional, unlike _resolve: writing an old name has to land
+        on the new one even when neither is present yet, or the write creates the second spelling
+        this class exists to prevent."""
+        if key in RUN_PARAMETER_RENAMES:
+            new_name = RUN_PARAMETER_RENAMES[key]
             _warn_once(key, new_name, 'Run parameter')
             return new_name
         return key
@@ -146,6 +159,29 @@ class RunParameters(dict):
 
     def get(self, key, default=None):
         return dict.get(self, self._resolve(key), default)
+
+    # Writes go through _rename so the two spellings cannot both exist. Without this,
+    # run_parameters['num_epochs'] = n added a second key and the two drifted: the protocol read
+    # back what it wrote while check_required_run_parameters and the data file went on seeing the
+    # old value. Assigning the whole dict was already covered, by normalize_run_parameters on the
+    # property setter; this covers mutating one key in place.
+    def __setitem__(self, key, value):
+        dict.__setitem__(self, self._rename(key), value)
+
+    def __delitem__(self, key):
+        dict.__delitem__(self, self._resolve(key))
+
+    def setdefault(self, key, default=None):
+        return dict.setdefault(self, self._rename(key), default)
+
+    def pop(self, key, *default):
+        return dict.pop(self, self._resolve(key), *default)
+
+    def update(self, other=(), /, **kwargs):
+        for key, value in (other.items() if hasattr(other, 'items') else other):
+            self[key] = value
+        for key, value in kwargs.items():
+            self[key] = value
 
 
 def _represent_run_parameters(dumper, data):
