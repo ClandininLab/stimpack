@@ -733,3 +733,79 @@ def test_the_residual_survives_serialization():
     restored = Screen.deserialize(screen.serialize())
     assert np.allclose(restored.measured_falloff.values, falloff.values)
     assert np.allclose(restored.build_mesh().gain, screen.build_mesh().gain)
+
+
+# --- which cube faces a screen actually needs -----------------------------------------------------
+
+def test_a_bowl_above_the_animal_never_needs_the_downward_face():
+    """The scene is drawn once per face. A hemisphere sends no direction below -45 degrees
+    elevation, so -Z was a whole scene draw feeding a face nothing sampled."""
+    from stimpack.visual_stim.cubemap import faces_for_mesh
+    from stimpack.visual_stim.curved_screen import (PinholeProjector, SphericalSurface,
+                                                    build_screen_mesh)
+
+    projector = PinholeProjector.wintech_pro4500(position=(0, 0, 0.30), look_at=(0, 0, 0))
+    mesh = build_screen_mesh(SphericalSurface(), projector)
+
+    faces = faces_for_mesh(mesh)
+
+    assert len(faces) == 5
+    assert 5 not in faces, '-Z is below the screen'
+
+
+def test_a_screen_covering_only_the_front_needs_four():
+    """And not the first four in GL order -- it needs +X, -X, +Y and +Z, so a count cannot
+    express it. That is why faces= takes a set."""
+    from stimpack.visual_stim.cubemap import faces_for_mesh
+    from stimpack.visual_stim.curved_screen import (PinholeProjector, SphericalSurface,
+                                                    build_screen_mesh)
+
+    projector = PinholeProjector.wintech_pro4500(position=(0, 0, 0.30), look_at=(0, 0, 0))
+    mesh = build_screen_mesh(SphericalSurface(azimuth_range=(-90, 90)), projector)
+
+    assert faces_for_mesh(mesh) == (0, 1, 2, 4)
+
+
+def test_the_face_set_follows_direction_not_size():
+    """A smaller bowl subtends the same directions from the animal's eye, so it needs the same
+    faces. flymax's 71.5 mm hemisphere and the 150 mm default agree."""
+    from stimpack.visual_stim.cubemap import faces_for_mesh
+    from stimpack.visual_stim.curved_screen import (PinholeProjector, SphericalSurface,
+                                                    build_screen_mesh)
+
+    small = build_screen_mesh(SphericalSurface(radius=0.0715),
+                              PinholeProjector.wintech_pro4500(position=(0, 0, 0.302),
+                                                               look_at=(0, 0, 0)))
+    large = build_screen_mesh(SphericalSurface(radius=0.15),
+                              PinholeProjector.wintech_pro4500(position=(0, 0, 0.30),
+                                                               look_at=(0, 0, 0)))
+
+    assert faces_for_mesh(small) == faces_for_mesh(large)
+
+
+def test_probing_facet_interiors_can_only_add_faces():
+    """A facet straddling a face boundary can put fragments on a face none of its three vertices
+    reached, and the cost of missing one is a black wedge. The extra probes are free arithmetic."""
+    import numpy as np
+
+    from stimpack.visual_stim.cubemap import faces_for_directions
+
+    # A triangle whose vertices sit on +X and +Y, but which sweeps across the +X/+Y edge.
+    directions = np.array([[1.0, 0.2, 0.0], [0.2, 1.0, 0.0], [1.0, 0.9, 0.0]])
+    triangles = np.array([[0, 1, 2]], dtype=np.int32)
+
+    vertices_only = faces_for_directions(directions)
+    with_interiors = faces_for_directions(directions, triangles)
+
+    assert set(vertices_only) <= set(with_interiors)
+
+
+def test_the_default_tessellation_is_five_degrees():
+    """What flymax settled on. Finer costs almost nothing -- one draw call however many facets --
+    and buys geometric accuracy rather than sharpness."""
+    from stimpack.visual_stim.curved_screen import SphericalSurface
+
+    surface = SphericalSurface()
+
+    assert 360 / surface.n_azimuth == 5
+    assert 90 / surface.n_elevation == 5

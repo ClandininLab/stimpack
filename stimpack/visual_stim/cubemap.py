@@ -120,6 +120,44 @@ def face_view_projections(subject_position=None, near=1e-4, far=1000.0):
             for forward, up in CUBE_FACES]
 
 
+def faces_for_directions(directions, triangles=None):
+    """Which cube faces a set of view directions actually lands on, in GL face order.
+
+    A screen rarely fills the sphere. A bowl above the animal never sends a direction downwards, so
+    the -Z face is rendered every frame and sampled by nothing; a screen covering only the front
+    misses two. Rendering the scene into a face nothing samples costs a full scene draw for nothing.
+
+    Faces are found by dominant axis, which is exactly how a cube map is sampled. Passing
+    `triangles` also probes each triangle's edge midpoints and centroid: interpolation runs across
+    a facet, so a facet straddling a face boundary can put fragments on a face none of its three
+    vertices reached, and the cost of missing one is a black wedge on the screen. The extra probes
+    are arithmetic on an array that already exists, so being conservative here is free.
+    """
+    directions = np.asarray(directions, dtype=float)
+    if len(directions) == 0:
+        return ()
+
+    probes = [directions]
+    if triangles is not None:
+        corners = np.asarray(triangles, dtype=int).reshape(-1, 3)
+        a, b, c = (directions[corners[:, i]] for i in range(3))
+        probes += [(a + b) / 2, (b + c) / 2, (c + a) / 2, (a + b + c) / 3]
+
+    found = set()
+    for probe in probes:
+        norms = np.linalg.norm(probe, axis=1, keepdims=True)
+        unit = probe / np.where(norms == 0, 1.0, norms)
+        axis = np.argmax(np.abs(unit), axis=1)
+        negative = unit[np.arange(len(unit)), axis] < 0
+        found.update((axis * 2 + negative).tolist())
+    return tuple(sorted(found))
+
+
+def faces_for_mesh(mesh):
+    """The faces a ScreenMesh needs. See faces_for_directions."""
+    return faces_for_directions(mesh.directions, getattr(mesh, 'triangles', None))
+
+
 def face_matrices(subject_position=None, near=1e-4, far=1000.0):
     """The same six matrices as bytes, laid out exactly as get_perspective returns them.
 
@@ -152,20 +190,38 @@ class CubeMapRenderer:
         directions that make up the warp geometry
     :param resolution: pixels per cube face. 512 is already well below what a fly resolves
         (0.18 degrees per texel over a 90 degree face, against ~5 degrees between ommatidia);
-        1024 costs about 0.1 ms more per frame and 25 MB.
+        1024 costs about 0.1 ms more per frame and 25 MB. This, not the screen tessellation, is
+        what sets angular resolution: each fragment samples the cube along its own interpolated
+        direction, so facets approximate the surface rather than the image.
+    :param faces: which cube faces to render, by default only those the mesh actually samples --
+        five for a bowl above the animal, four for a screen covering the front. Pass an iterable of
+        indices to choose explicitly, or an integer N for the first N in GL order. The texture
+        always has six faces; this decides how many times the scene is drawn.
     """
 
-    def __init__(self, ctx, mesh, resolution=1024, faces=6):
+    def __init__(self, ctx, mesh, resolution=1024, faces=None):
         from OpenGL import GL
 
         if int(resolution) < 1:
             raise ValueError(f'cube resolution must be at least 1 pixel, got {resolution}')
-        if not 1 <= int(faces) <= 6:
-            raise ValueError(f'a cube map has 6 faces; asked for {faces}')
+        if faces is None:
+            face_indices = faces_for_mesh(mesh)
+        elif isinstance(faces, (int, np.integer)):
+            # The legacy spelling: a count, taken from the front of GL face order. Kept because it
+            # is what the tests reach for, but it cannot express most real answers -- a front-facing
+            # screen needs +X, -X, +Y and +Z, and no prefix of the order contains those four.
+            if not 1 <= int(faces) <= 6:
+                raise ValueError(f'a cube map has 6 faces; asked for {faces}')
+            face_indices = tuple(range(int(faces)))
+        else:
+            face_indices = tuple(sorted({int(f) for f in faces}))
+            if not face_indices or not all(0 <= f <= 6 - 1 for f in face_indices):
+                raise ValueError(f'cube face indices must be 0..5; got {faces}')
 
         self.ctx = ctx
         self.resolution = int(resolution)
-        self.faces = int(faces)
+        self.face_indices = face_indices
+        self.faces = len(face_indices)
         self._gl = GL
 
         self.cube = ctx.texture_cube((self.resolution, self.resolution), 4)
@@ -187,7 +243,8 @@ class CubeMapRenderer:
         # failed with GL_INVALID_OPERATION: whichever context PyOpenGL is talking to at paint time
         # is not reliably the one the cube belongs to, whereas at construction it is. Keeping raw GL
         # out of paintGL removes the question, and use_face becomes pure moderngl.
-        self._face_fbos = [self._attach_face(index) for index in range(self.faces)]
+        # Keyed by face index, not positional: the set is sparse in general.
+        self._face_fbos = {index: self._attach_face(index) for index in self.face_indices}
 
         self.program = ctx.program(vertex_shader=WARP_VERTEX_SHADER,
                                    fragment_shader=WARP_FRAGMENT_SHADER)
@@ -217,6 +274,10 @@ class CubeMapRenderer:
 
     def use_face(self, index, clear_color=(0.0, 0.0, 0.0, 1.0)):
         """Make one cube face the render target. Draw the scene, then move to the next face."""
+        if index not in self._face_fbos:
+            raise ValueError(
+                f'face {index} is not attached: this renderer draws {list(self._face_fbos)}, the '
+                f'faces its mesh samples. Pass faces= to render others.')
         fbo = self._face_fbos[index]
         fbo.use()
         self.ctx.viewport = (0, 0, self.resolution, self.resolution)
@@ -235,8 +296,8 @@ class CubeMapRenderer:
 
     def release(self):
         """Free the GL objects. moderngl's default gc_mode does not do this for us."""
-        self._face_fbos = list(getattr(self, '_face_fbos', []))
-        for owned in (*self._face_fbos, self.vao, self._vbo, self.program,
+        self._face_fbos = dict(getattr(self, '_face_fbos', {}))
+        for owned in (*self._face_fbos.values(), self.vao, self._vbo, self.program,
                       self._color_placeholder, self._depth, self.cube):
             try:
                 owned.release()

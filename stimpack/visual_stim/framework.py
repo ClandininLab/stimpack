@@ -394,7 +394,10 @@ class StimDisplay(QOpenGLWidget):
         matrices = face_matrices(self.subject_position)
         face_viewport = [(0, 0, renderer.resolution, renderer.resolution)]
 
-        for face, matrix in enumerate(matrices[:renderer.faces]):
+        # Only the faces the screen samples. A bowl above the animal never looks down, so -Z would
+        # be a whole scene draw feeding a face nothing reads.
+        for face in renderer.face_indices:
+            matrix = matrices[face]
             renderer.use_face(face, clear_color=self.idle_background)
             if not self.stim_started:
                 continue

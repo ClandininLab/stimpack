@@ -92,7 +92,8 @@ def render_curved(ctx, subject_position, theta, phi, resolution=512):
     # cube from the virtual position, which is how the planar path does it too -- GenPerspective
     # keeps its eye at the origin and translates the world. Building the mesh from the virtual
     # position instead applies the translation twice, which showed up here as a 14 px offset.
-    renderer = CubeMapRenderer(ctx, flat_screen_mesh(), resolution=resolution)
+    # All six, because the loop below drives all six; the flat probe mesh samples fewer.
+    renderer = CubeMapRenderer(ctx, flat_screen_mesh(), resolution=resolution, faces=6)
     stim = make_stim(ctx, theta, phi)
     try:
         for face, matrix in enumerate(face_matrices(subject_position)):

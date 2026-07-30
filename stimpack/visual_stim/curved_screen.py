@@ -184,7 +184,12 @@ class SphericalSurface(CurvedSurface):
     :param radius: meters
     :param azimuth_range: (min, max) degrees; the default is the full 360
     :param elevation_range: (min, max) degrees; the default is the upper hemisphere
-    :param n_azimuth: tessellation steps around
+    :param n_azimuth: tessellation steps around. The default is 5 degrees a step, matching the
+        tessellation flymax settled on. Finer costs almost nothing -- the whole screen is one draw
+        call however many facets it has -- and it buys geometric accuracy, not sharpness: a flat
+        facet sags inside the true sphere, so the direction a fragment samples along is wrong by
+        about 0.055 degrees mid-facet at 5 degrees, against 0.218 at 10. Sharpness comes from the
+        cube map instead (see CubeMapRenderer.resolution).
     :param n_elevation: tessellation steps up
     :param pole: rig-frame direction of the surface's own +z axis, about which the ranges above are
         measured; the default (0, 0, 1) leaves the patch where the ranges put it
@@ -193,7 +198,7 @@ class SphericalSurface(CurvedSurface):
     """
 
     def __init__(self, radius=0.15, azimuth_range=(-180, 180), elevation_range=(0, 90),
-                 n_azimuth=36, n_elevation=9, pole=(0, 0, 1), roll=0.0):
+                 n_azimuth=72, n_elevation=18, pole=(0, 0, 1), roll=0.0):
         self.radius = float(radius)
         self.azimuth_range = tuple(float(v) for v in azimuth_range)
         self.elevation_range = tuple(float(v) for v in elevation_range)
@@ -239,7 +244,7 @@ class CylindricalSurface(CurvedSurface):
     """
 
     def __init__(self, radius=0.15, height_range=(-0.05, 0.05), azimuth_range=(-180, 180),
-                 n_azimuth=36, n_height=4):
+                 n_azimuth=72, n_height=4):
         self.radius = float(radius)
         self.height_range = tuple(float(v) for v in height_range)
         self.azimuth_range = tuple(float(v) for v in azimuth_range)

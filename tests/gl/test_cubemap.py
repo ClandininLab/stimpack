@@ -48,7 +48,9 @@ def fill_faces(renderer, colors=FACE_COLORS):
 
 def sample_direction(ctx, direction, resolution=32):
     """Render a full-screen triangle carrying `direction` and read the colour that comes back."""
-    renderer = CubeMapRenderer(ctx, flat_mesh([direction]), resolution=resolution)
+    # All six: this probes the orientation table face by face, so it drives faces the one-triangle
+    # mesh does not itself sample.
+    renderer = CubeMapRenderer(ctx, flat_mesh([direction]), resolution=resolution, faces=6)
     try:
         fill_faces(renderer)
         target = ctx.simple_framebuffer((8, 8))
@@ -127,7 +129,7 @@ def test_every_face_records_the_direction_it_actually_looks_at(headless_gl):
                 probe[(axis + 1) % 3] = du
                 probe[(axis + 2) % 3] = dv
                 probes.append(tuple(probe))
-    renderer = CubeMapRenderer(ctx, flat_mesh(probes), resolution=128)
+    renderer = CubeMapRenderer(ctx, flat_mesh(probes), resolution=128, faces=6)
     program = ctx.program(vertex_shader=DIRECTION_VS, fragment_shader=DIRECTION_FS)
     box, n_vertices = enclosing_box(ctx, program)
     try:
@@ -203,7 +205,7 @@ def test_the_whole_screen_is_one_draw_call_regardless_of_tessellation(headless_g
     for n_azimuth, n_elevation in ((12, 3), (72, 18)):
         surface = SphericalSurface(radius=0.15, n_azimuth=n_azimuth, n_elevation=n_elevation)
         mesh = build_screen_mesh(surface, projector)
-        renderer = CubeMapRenderer(ctx, mesh, resolution=64)
+        renderer = CubeMapRenderer(ctx, mesh, resolution=64, faces=6)
         try:
             assert renderer.n_vertices == mesh.n_triangles * 3
             fill_faces(renderer)
@@ -224,7 +226,7 @@ def test_a_second_renderer_can_be_built_after_releasing_the_first(headless_gl):
     this is where lifetime mistakes show up."""
     ctx = headless_gl
     for _ in range(3):
-        renderer = CubeMapRenderer(ctx, flat_mesh([(1, 0, 0)]), resolution=32)
+        renderer = CubeMapRenderer(ctx, flat_mesh([(1, 0, 0)]), resolution=32, faces=6)
         fill_faces(renderer)
         renderer.release()
         renderer.release()                                  # idempotent
@@ -246,7 +248,7 @@ def test_the_corner_square_survives_the_warp(headless_gl):
     screen = Screen(fullscreen=False, vsync=False,
                     square_size=(0.25, 0.25), square_loc=(-1.0, -1.0))
 
-    renderer = CubeMapRenderer(ctx, flat_mesh([(1, 0, 0)]), resolution=32)
+    renderer = CubeMapRenderer(ctx, flat_mesh([(1, 0, 0)]), resolution=32, faces=6)
     square = SquareProgram(screen=screen)
     square.initialize(ctx)
     square.set_viewport(size, size)
@@ -318,7 +320,7 @@ def test_a_real_screen_shape_renders_through_the_whole_path(headless_gl, surface
     mesh = build_screen_mesh(surface, projector)
     assert mesh.n_triangles > 0
 
-    renderer = CubeMapRenderer(ctx, mesh, resolution=128)
+    renderer = CubeMapRenderer(ctx, mesh, resolution=128, faces=6)
     try:
         fill_faces(renderer)
         target = ctx.simple_framebuffer((96, 96))
@@ -350,7 +352,7 @@ def test_the_per_vertex_gain_attenuates_on_the_gpu(headless_gl):
     def render_with_gain(gain):
         mesh = flat_mesh([(1, 0, 0)])
         mesh.gain = np.full(len(mesh.ndc), gain, dtype=np.float32)
-        renderer = CubeMapRenderer(ctx, mesh, resolution=16)
+        renderer = CubeMapRenderer(ctx, mesh, resolution=16, faces=6)
         try:
             fill_faces(renderer, colors=[(1.0, 1.0, 1.0, 1.0)] * 6)   # white everywhere
             target = ctx.simple_framebuffer((size, size))
