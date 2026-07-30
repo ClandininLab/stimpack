@@ -26,6 +26,7 @@ import PyQt6.QtGui as QtGui
 
 from stimpack.experiment.util import config_tools, check_labpack
 from stimpack.experiment import protocol, data, client
+from stimpack.experiment.protocol import DEFAULT_PRESET_NAME
 
 from stimpack.util import get_all_subclasses, ICON_PATH, ROOT_DIR
 from stimpack.util import open_message_window
@@ -540,7 +541,7 @@ class ExperimentGUI(QWidget):
         parameter_preset_label = QLabel('Param preset:')
         self.ensemble_parameter_preset_comboBox = QComboBox(self)
         cap_dropdown_width(self.ensemble_parameter_preset_comboBox)
-        self.ensemble_parameter_preset_comboBox.addItem("Default")
+        self.ensemble_parameter_preset_comboBox.addItem(DEFAULT_PRESET_NAME)
         self.ensemble_protocol_selector_grid.addWidget(parameter_preset_label, 1, 0)
         self.ensemble_protocol_selector_grid.addWidget(self.ensemble_parameter_preset_comboBox, 1, 1)
 
@@ -914,7 +915,7 @@ class ExperimentGUI(QWidget):
             self.ensemble_parameter_preset_comboBox.deleteLater()
         self.ensemble_parameter_preset_comboBox = QComboBox(self)
         cap_dropdown_width(self.ensemble_parameter_preset_comboBox)
-        self.ensemble_parameter_preset_comboBox.addItem("Default")
+        self.ensemble_parameter_preset_comboBox.addItem(DEFAULT_PRESET_NAME)
 
         temp_protocol_object = self.available_protocols[protocol_dropdown_idx - 1](self.cfg)
         temp_protocol_object.load_parameter_presets()
@@ -978,21 +979,7 @@ class ExperimentGUI(QWidget):
             self.prompt_for_note()
 
         elif sender.text() == 'Save preset':
-            # A backstop for the disabled button: there are no parameters to save from a protocol
-            # that has not been chosen, and the rest of this branch would write a preset onto a
-            # bare BaseProtocol.
-            if not self.protocol_selected:
-                return
-            self.update_parameters_from_fillable_fields(compute_epoch_parameters=False)  # get the state of the param input from GUI
-            start_name = self.parameter_preset_comboBox.currentText()
-            if start_name == 'Default':
-                start_name = ''
-
-            text, _ = QInputDialog.getText(self, "Save preset", "Preset Name:",  text=start_name)
-
-            self.protocol_object.update_parameter_presets(text) # TODO update GUI
-            self.update_parameter_preset_selector()
-            self.parameter_preset_comboBox.setCurrentIndex(self.parameter_preset_comboBox.findText(text))
+            self.save_parameter_preset()
 
         elif sender.text() == 'Initialize experiment':
             dialog = QDialog()
@@ -1126,7 +1113,7 @@ class ExperimentGUI(QWidget):
             
             temp_protocol_object = self.available_protocols[[x.__name__ for x in self.available_protocols].index(protocol_name)](self.cfg)
             temp_protocol_object.load_parameter_presets()
-            if preset_name not in temp_protocol_object.parameter_presets.keys() and preset_name != 'Default':
+            if preset_name not in temp_protocol_object.parameter_presets.keys() and preset_name != DEFAULT_PRESET_NAME:
                 error_text = f'Preset {preset_name} not found in protocol {protocol_name}. Removing from the loaded ensemble.'
                 open_message_window(title='Ensemble preset load error', text=error_text)
                 protocol_name_preset_pairs.remove((protocol_name, preset_name))
@@ -1361,11 +1348,54 @@ class ExperimentGUI(QWidget):
             self.parameter_preset_comboBox.deleteLater()
         self.parameter_preset_comboBox = QComboBox(self)
         cap_dropdown_width(self.parameter_preset_comboBox)
-        self.parameter_preset_comboBox.addItem("Default")
+        self.parameter_preset_comboBox.addItem(DEFAULT_PRESET_NAME)
         for name in self.protocol_object.parameter_presets.keys():
             self.parameter_preset_comboBox.addItem(name)
         self.parameter_preset_comboBox.textActivated.connect(self.on_selected_parameter_preset)
         self.protocol_selector_grid.addWidget(self.parameter_preset_comboBox, 2, 1, 1, 1)
+
+    def save_parameter_preset(self):
+        """Ask for a name and save the current parameters under it.
+
+        Every rejection below produced a preset before. Cancel produced one because the dialog's
+        accepted flag was discarded, so changing your mind at the prompt saved an unnamed preset;
+        an empty or blank name produced a row in the dropdown with nothing written on it; and
+        DEFAULT_PRESET_NAME produced a second entry reading the same as the one the dropdown always
+        offers, with no way to tell which was which.
+        """
+        # A backstop for the disabled button: there are no parameters to save from a protocol that
+        # has not been chosen, and the rest of this would write a preset onto a bare BaseProtocol.
+        if not self.protocol_selected:
+            return
+
+        self.update_parameters_from_fillable_fields(compute_epoch_parameters=False)  # get the state of the param input from GUI
+        start_name = self.parameter_preset_comboBox.currentText()
+        if start_name == DEFAULT_PRESET_NAME:
+            start_name = ''
+
+        name, accepted = QInputDialog.getText(self, 'Save preset', 'Preset Name:', text=start_name)
+        if not accepted:
+            return
+
+        name = name.strip()
+        if not name:
+            open_message_window(title='Preset not saved', text='A preset needs a name.')
+            return
+        if name.casefold() == DEFAULT_PRESET_NAME.casefold():
+            open_message_window(
+                title='Preset not saved',
+                text=f"'{DEFAULT_PRESET_NAME}' is the protocol's own values, which the dropdown "
+                     f"always offers. Choose another name.")
+            return
+
+        # Replacing is allowed and is the usual way to revise one, so it is reported rather than
+        # confirmed: re-saving the preset you are working on is the common case, and a dialog every
+        # time would be friction rather than protection.
+        replacing = name in self.protocol_object.parameter_presets
+        self.protocol_object.update_parameter_presets(name)
+        self.update_parameter_preset_selector()
+        self.parameter_preset_comboBox.setCurrentIndex(self.parameter_preset_comboBox.findText(name))
+        self.status_label.setText(f"Preset '{name}' {'updated' if replacing else 'saved'}")
 
     def on_selected_parameter_preset(self, text):
         # A backstop for the disabled dropdown above: there is no preset to apply to a protocol

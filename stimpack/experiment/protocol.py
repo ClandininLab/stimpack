@@ -52,6 +52,11 @@ from stimpack.util import ROOT_DIR
 # Stop responds within a frame, large enough that waiting costs no measurable CPU.
 SLEEP_POLL_INTERVAL = 0.002
 
+# The dropdown entry standing for "the protocol's own values", rather than a saved preset. Not a
+# key in parameter_presets, which is why saving one under this name produced two identical-looking
+# entries with no way to tell them apart.
+DEFAULT_PRESET_NAME = 'Default'
+
 
 class BaseProtocol():
     def __init__(self, cfg):
@@ -233,7 +238,7 @@ class BaseProtocol():
             config_tools.safe_dump_yaml_with_tuples(
                 self.parameter_presets, ymlfile, default_flow_style=False, sort_keys=False)
 
-    def select_protocol_preset(self, name='Default'):
+    def select_protocol_preset(self, name=DEFAULT_PRESET_NAME):
         '''
         Parameters that are not present in the preset will use the current protocol's default values.
         '''
@@ -245,8 +250,9 @@ class BaseProtocol():
         if self.loco_available:
             self.run_parameters['do_loco'] = False
 
-        # If name is 'Default' or is not in parameter_presets, just use the current protocol's defaults
-        if name == 'Default':
+        # If name is the default entry or is not in parameter_presets, just use the current
+        # protocol's defaults
+        if name == DEFAULT_PRESET_NAME:
             return
         elif name not in self.parameter_presets:
             warnings.warn(f'Warning: Preset {name} not found.', RuntimeWarning)

@@ -1726,3 +1726,59 @@ def test_saving_a_preset_still_works_once_a_protocol_is_chosen(experiment_gui, m
     assert 'python/object' not in text
     written = config_tools.safe_load_yaml_with_tuples(text)
     assert 'num_trials' in written['my_preset']['run_parameters']
+
+
+def _save_preset_as(gui, monkeypatch, reply):
+    import stimpack.experiment.gui as gui_mod
+    monkeypatch.setattr(gui_mod.QInputDialog, 'getText', lambda *a, **k: reply)
+    gui.save_preset_button.click()
+
+
+@pytest.mark.parametrize('reply, why', [
+    (('', False), 'Cancel: the dialog\'s accepted flag was discarded, so changing your mind saved'),
+    (('', True), 'an empty name gave a dropdown row with nothing written on it'),
+    (('   ', True), 'as did a name of only spaces'),
+    (('Default', True), 'Default is the entry the dropdown always offers, not a saved preset'),
+    (('  default  ', True), 'nor is it a matter of spelling'),
+])
+def test_a_preset_needs_a_name_of_its_own(experiment_gui, monkeypatch, tmp_path, reply, why):
+    """Each of these saved a preset before."""
+    gui = experiment_gui
+    _select_protocol(gui)
+    gui.protocol_object.parameter_preset_directory = str(tmp_path)
+
+    monkeypatch.setattr('stimpack.experiment.gui.open_message_window',
+                        lambda title="", text="": None)
+    _save_preset_as(gui, monkeypatch, reply)
+
+    assert list(gui.protocol_object.parameter_presets) == [], why
+    assert [gui.parameter_preset_comboBox.itemText(i)
+            for i in range(gui.parameter_preset_comboBox.count())] == ['Default'], why
+
+
+def test_a_name_is_trimmed_rather_than_refused(experiment_gui, monkeypatch, tmp_path):
+    """Surrounding spaces are a slip, not a different name -- ' fast ' and 'fast' would otherwise
+    be two presets that look identical in the dropdown."""
+    gui = experiment_gui
+    _select_protocol(gui)
+    gui.protocol_object.parameter_preset_directory = str(tmp_path)
+
+    _save_preset_as(gui, monkeypatch, ('  fast  ', True))
+
+    assert list(gui.protocol_object.parameter_presets) == ['fast']
+
+
+def test_resaving_a_preset_replaces_it_and_says_so(experiment_gui, monkeypatch, tmp_path):
+    """Replacing is the usual way to revise one, so it is reported rather than confirmed:
+    re-saving the preset you are working on is the common case, and a dialog every time would be
+    friction rather than protection."""
+    gui = experiment_gui
+    _select_protocol(gui)
+    gui.protocol_object.parameter_preset_directory = str(tmp_path)
+
+    _save_preset_as(gui, monkeypatch, ('fast', True))
+    assert gui.status_label.text() == "Preset 'fast' saved"
+
+    _save_preset_as(gui, monkeypatch, ('fast', True))
+    assert gui.status_label.text() == "Preset 'fast' updated"
+    assert list(gui.protocol_object.parameter_presets) == ['fast'], 'replaced, not duplicated'
