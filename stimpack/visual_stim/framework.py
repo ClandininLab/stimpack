@@ -428,8 +428,53 @@ class StimDisplay(QOpenGLWidget):
         # Get viewport for corner square
         self.square_program.set_viewport(display_width, display_height)
 
-        self.ctx.detect_framebuffer().use()
+        framebuffer = self.ctx.detect_framebuffer()
+        framebuffer.use()
 
+        # One pass per subframe. With subframes=1 this runs once with every channel writable, which
+        # is ordinary rendering; with 3 it draws three timepoints, each masked into one colour
+        # channel, for a projector that reads them back as successive patterns. glClear respects the
+        # write mask, so each pass clears only its own channel -- the other two keep what the earlier
+        # passes put there.
+        masks = self.screen.subframe_color_masks()
+        interval = self.screen.subframe_interval
+        for subframe, mask in enumerate(masks):
+            framebuffer.color_mask = mask
+            self.paint_subframe(subframe * interval, display_width, display_height)
+        framebuffer.color_mask = (True, True, True, True)
+
+        # Once per displayed frame, not per subframe: presenting, capturing and logging all describe
+        # the frame the display will actually show, which is the packed one.
+        if self.debug:
+            error = self.ctx.error
+            if error != 'GL_NO_ERROR' and self.frame_count < 5:
+                print(f'{self.frame_count} OpenGL Error: {error}')
+
+        # update the window
+        self.ctx.finish()
+        self.update()
+
+        if self.stim_started:
+            # print('paintGL {:.2f} ms'.format((time.time()-t0)*1000)) #benchmarking
+
+            if self.save_pos_history:
+                self.pos_history.append([self.subject_position['x'], self.subject_position['y'], self.subject_position['z'], self.subject_position['theta'], self.subject_position['phi']])
+
+            if self.append_stim_frames:
+                # NOTE: with subframes > 1 this captures the packed frame, in which each channel is
+                # a different moment -- not one image. Taking the blue channel gives whichever
+                # subframe landed there, which is a third of the frames at a third of the rate.
+                self.stim_frames.append(util.qimage2ndarray(self.grabFramebuffer())[:, :, 2])
+                self.current_time_index += 1
+
+    def paint_subframe(self, time_offset, display_width, display_height):
+        """Draw one timepoint into whichever channels are currently writable.
+
+        time_offset is how far into the future this subframe will be shown: 0 for ordinary
+        rendering, and 0, 1/360, 2/360 when three are packed into a 120 Hz frame. It matters because
+        the three are displayed at different moments, so evaluating all of them at the same stimulus
+        time would throw away exactly the temporal resolution this mode exists to gain.
+        """
         # clear the previous frame across the whole display
         self.clear_viewports(color=(0,0,0,1), viewports=None)
 
@@ -443,6 +488,7 @@ class StimDisplay(QOpenGLWidget):
                     self.stop_stim()
             else:  # real-time generation
                 t = time.time()
+            t += time_offset
             if self.use_subject_trajectory:
                 self.set_subject_state({'x': return_for_time_t(self.subject_x_trajectory, self.get_stim_time(t)),
                                         'y': return_for_time_t(self.subject_y_trajectory, self.get_stim_time(t)),
@@ -479,28 +525,11 @@ class StimDisplay(QOpenGLWidget):
             self.ctx.clear(0.0, 0.0, 0.0, 1.0)
             self.calibration_spot.paint()
         else:
-            # draw the corner square
+            # Drawn per subframe, not per frame. The photodiode is what says when a frame appeared,
+            # so under multiplexing it has to mark the subframes -- otherwise it reports 120 Hz for
+            # a display running at 360 and there is no way to check the timing that matters.
             self.square_program.paint()
 
-        if self.debug:
-            error = self.ctx.error
-            if error != 'GL_NO_ERROR' and self.frame_count < 5:
-                print(f'{self.frame_count} OpenGL Error: {error}')
-
-        # update the window
-        self.ctx.finish()
-        self.update()
-
-        if self.stim_started:
-            # print('paintGL {:.2f} ms'.format((time.time()-t0)*1000)) #benchmarking
-
-            if self.save_pos_history:
-                self.pos_history.append([self.subject_position['x'], self.subject_position['y'], self.subject_position['z'], self.subject_position['theta'], self.subject_position['phi']])
-
-            if self.append_stim_frames:
-                # grab frame buffer, convert to array, grab blue channel, append to list of stim_frames
-                self.stim_frames.append(util.qimage2ndarray(self.grabFramebuffer())[:, :, 2])
-                self.current_time_index += 1
 
     ###########################################
     # control functions

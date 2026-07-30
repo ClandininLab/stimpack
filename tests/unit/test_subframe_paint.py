@@ -1,0 +1,194 @@
+"""Does the subframe offset actually reach the stimulus?
+
+The gl tests cover the packing -- three channels, distinct, in the configured order. What they do
+not cover is StimDisplay's own loop, because they reimplement it. This drives the real
+paint_subframe with a stimulus that records when it was asked to paint, which is the one thing the
+renderer contributes: without the offset the three channels would hold the same instant, and the
+whole mode would be a 120 Hz display with extra steps.
+"""
+import pytest
+
+pytest.importorskip("numpy")
+pytest.importorskip("PyQt6")
+
+from stimpack.visual_stim.framework import StimDisplay  # noqa: E402
+from stimpack.visual_stim.screen import Screen  # noqa: E402
+
+pytestmark = pytest.mark.unit
+
+
+class RecordingStim:
+    """Stands in for a stimulus, noting the time it was painted at."""
+
+    def __init__(self):
+        self.painted_at = []
+
+    def paint_at(self, t, viewports, perspectives, subject_position=None):
+        self.painted_at.append(t)
+
+
+class FakeFramebuffer:
+    def __init__(self):
+        self.masks = []
+
+    def clear(self, *args, **kwargs):
+        pass
+
+
+class FakeContext:
+    def __init__(self):
+        self.fbo = FakeFramebuffer()
+        self.clears = 0
+
+    def clear(self, *args, **kwargs):
+        # The calibration path blacks out the whole context before drawing the spot; the ordinary
+        # path clears viewports through the framebuffer instead.
+        self.clears += 1
+
+
+class FakeSquare:
+    def __init__(self):
+        self.paints = 0
+
+    def paint(self):
+        self.paints += 1
+
+    def set_viewport(self, *args):
+        pass
+
+
+class FakeCalibrationSpot:
+    """Hidden, which is the normal state. A visible spot owns the whole frame and suppresses the
+    corner square, so these tests would be measuring the wrong thing with it on."""
+
+    visible = False
+
+    def paint(self):
+        pass
+
+
+def display_for(screen, stim):
+    """A StimDisplay with just enough filled in to run paint_subframe, and no Qt or GL."""
+    display = StimDisplay.__new__(StimDisplay)
+    display.screen = screen
+    display.ctx = FakeContext()
+    display.stim_list = [stim]
+    display.stim_started = True
+    display.pre_render = False
+    display.use_subject_trajectory = False
+    display.subject_position = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}
+    display.subscreen_viewports = [(0, 0, 8, 8)]
+    display.square_program = FakeSquare()
+    display.profile_frame_times = []
+    display.idle_background = (0.5, 0.5, 0.5, 1.0)
+    display.cube_renderer = None
+    display.calibration_spot = FakeCalibrationSpot()
+    display.stim_start_time = 0.0
+    display.get_stim_time = lambda t: t
+    return display
+
+
+def test_each_subframe_is_painted_at_its_own_time():
+    """1/360 s apart, which is what the extra passes are for."""
+    screen = Screen(subframes=3, refresh_rate=120)
+    stim = RecordingStim()
+    display = display_for(screen, stim)
+
+    for subframe, _mask in enumerate(screen.subframe_color_masks()):
+        display.paint_subframe(subframe * screen.subframe_interval, 8, 8)
+
+    assert len(stim.painted_at) == 3
+    gaps = [b - a for a, b in zip(stim.painted_at, stim.painted_at[1:])]
+    for gap in gaps:
+        assert gap == pytest.approx(1 / 360, abs=2e-3), \
+            f'subframes {gap * 1000:.2f} ms apart, expected {1000 / 360:.2f} ms'
+
+
+def test_a_single_subframe_screen_paints_once_with_no_offset():
+    """The default path must be untouched: one paint, at the time it would have had before."""
+    screen = Screen()
+    stim = RecordingStim()
+    display = display_for(screen, stim)
+
+    masks = screen.subframe_color_masks()
+    assert len(masks) == 1
+    display.paint_subframe(0.0, 8, 8)
+
+    assert len(stim.painted_at) == 1
+
+
+def test_the_corner_square_is_drawn_once_per_subframe():
+    """It is the photodiode signal, so under multiplexing it has to mark subframes -- otherwise it
+    reports 120 Hz for a display running at 360 and the timing cannot be checked at all."""
+    screen = Screen(subframes=3, refresh_rate=120)
+    display = display_for(screen, RecordingStim())
+
+    for subframe, _mask in enumerate(screen.subframe_color_masks()):
+        display.paint_subframe(subframe * screen.subframe_interval, 8, 8)
+
+    assert display.square_program.paints == 3
+
+
+def test_frames_are_profiled_per_subframe_while_running():
+    """Three timepoints are three opportunities to drop one, so the profile should see all three."""
+    screen = Screen(subframes=3, refresh_rate=120)
+    display = display_for(screen, RecordingStim())
+
+    for subframe, _mask in enumerate(screen.subframe_color_masks()):
+        display.paint_subframe(subframe * screen.subframe_interval, 8, 8)
+
+    assert len(display.profile_frame_times) == 3
+
+
+def test_nothing_is_profiled_before_the_stimulus_starts():
+    """#43: this used to accumulate from load_stim onward, so pre-time frames were folded into the
+    frame-time statistics print_profile reports -- anyone reading those to check for dropped frames
+    was reading polluted numbers."""
+    screen = Screen(subframes=3, refresh_rate=120)
+    display = display_for(screen, RecordingStim())
+    display.stim_started = False
+
+    for subframe, _mask in enumerate(screen.subframe_color_masks()):
+        display.paint_subframe(subframe * screen.subframe_interval, 8, 8)
+
+    assert display.profile_frame_times == []
+
+
+def test_a_stimulus_that_has_not_started_is_not_painted():
+    """Pre-time should clear to the idle background, not draw the stimulus."""
+    screen = Screen(subframes=3, refresh_rate=120)
+    stim = RecordingStim()
+    display = display_for(screen, stim)
+    display.stim_started = False
+
+    display.paint_subframe(0.0, 8, 8)
+
+    assert stim.painted_at == []
+
+
+def test_a_visible_calibration_spot_suppresses_the_corner_square_in_every_subframe():
+    """Where the two rendering features meet, and the merge that brought them together had to
+    choose. A photometer aimed at the calibration spot collects whatever else the screen is
+    showing, so the corner square must not be drawn -- and 'not drawn' has to hold for each
+    subframe, not just once per frame, or two thirds of the square's light still lands in the
+    reading."""
+    screen = Screen(subframes=3, refresh_rate=120)
+    display = display_for(screen, RecordingStim())
+    display.calibration_spot = FakeCalibrationSpot()
+    display.calibration_spot.visible = True
+
+    for subframe, _mask in enumerate(screen.subframe_color_masks()):
+        display.paint_subframe(subframe * screen.subframe_interval, 8, 8)
+
+    assert display.square_program.paints == 0
+
+
+def test_the_corner_square_returns_when_the_spot_is_hidden():
+    """The ordinary case: one square per subframe, so the photodiode marks 360 Hz rather than 120."""
+    screen = Screen(subframes=3, refresh_rate=120)
+    display = display_for(screen, RecordingStim())
+
+    for subframe, _mask in enumerate(screen.subframe_color_masks()):
+        display.paint_subframe(subframe * screen.subframe_interval, 8, 8)
+
+    assert display.square_program.paints == 3
