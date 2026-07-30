@@ -15,7 +15,7 @@ import time
 
 import pytest
 
-from helpers import wait_until          # tests/helpers.py (tests/ is on pytest's pythonpath)
+from helpers import unobtrusive_screen, wait_until   # tests/helpers.py (tests/ is on pytest's pythonpath)
 
 pytestmark = pytest.mark.e2e
 
@@ -33,16 +33,21 @@ def keytrac_py():
     return os.path.join(ROOT_DIR, 'device', 'locomotion', 'keytrac', 'keytrac.py')
 
 
-def make_loco_server(port, screens=None):
-    """A live BaseServer whose 'locomotion' module is a real KeytracClosedLoopManager."""
+def make_loco_server(port, with_screen=True):
+    """A live BaseServer whose 'locomotion' module is a real KeytracClosedLoopManager.
+
+    with_screen=False gives it no visual module at all. A test about the tracker subprocess does
+    not need a display, and every screen is another GL context competing with the rest of this
+    tier -- which is what made this tier flaky.
+    """
     from stimpack.device.locomotion.loco_managers.keytrac_managers import KeytracClosedLoopManager
     from stimpack.experiment.server import BaseServer
-    from stimpack.visual_stim.screen import Screen
 
-    screens = screens if screens is not None else [Screen(fullscreen=False, vsync=False, display_index=0)]
+    visual_stim_kwargs = ({'screens': [unobtrusive_screen(display_index=0)]}
+                          if with_screen else None)
     return BaseServer(
         host='127.0.0.1', port=None,
-        visual_stim_kwargs={'screens': screens},
+        visual_stim_kwargs=visual_stim_kwargs,
         loco_class=KeytracClosedLoopManager,
         loco_kwargs={'host': '127.0.0.1', 'port': port,
                      'python_bin': sys.executable, 'kt_py_fn': keytrac_py(),
@@ -56,7 +61,7 @@ def test_real_keytrac_subprocess_streams_into_the_server():
     """Launch the actual KeyTrac app and consume its real UDP stream."""
     port = free_udp_port()
     try:
-        server = make_loco_server(port)
+        server = make_loco_server(port, with_screen=False)
     except Exception as e:
         pytest.skip(f"could not launch a live server here: {type(e).__name__}: {e}")
 
@@ -96,7 +101,7 @@ def test_real_keytrac_subprocess_streams_into_the_server():
 def test_real_keytrac_subprocess_is_terminated_on_close():
     port = free_udp_port()
     try:
-        server = make_loco_server(port)
+        server = make_loco_server(port, with_screen=False)
     except Exception as e:
         pytest.skip(f"could not launch a live server here: {type(e).__name__}: {e}")
 

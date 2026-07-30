@@ -45,6 +45,9 @@ def initialize(gui, name='expt'):
     dialog_ui.le_data_directory.setText(gui.data.data_directory)
     dialog_ui.le_experimenter.setText('tester')
     dialog_ui.on_pressed_enter_button()
+    # The real handler refreshes after the dialog closes, which is what the Note button's enabled
+    # state rides on. Driving the dialog directly skips the caller, so do it here.
+    gui.update_existing_subject_input()
     return dialog_ui
 
 
@@ -74,27 +77,112 @@ def test_unknown_data_format_warns_and_falls_back(test_cfg):
         assert config_tools.get_data_format(dict(test_cfg, data_format='parquet')) == 'hdf5'
 
 
-def test_a_labpack_data_module_still_wins_over_data_format(test_cfg):
-    """data_format chooses between the BUILT-IN backends; a labpack pointing at its own data
-    module must keep overriding both."""
+def _write_data_module(tmp_path, name, base_import, base):
+    """A labpack data module on disk, since these are loaded by file path rather than imported."""
+    path = tmp_path / name
+    path.write_text(f'from {base_import} import {base}\n\n'
+                    f'class Data({base}):\n'
+                    f'    lab_marker = {name!r}\n')
+    return str(path)
+
+
+def test_one_labpack_data_module_still_wins_over_data_format(tmp_path, test_cfg):
+    """A config naming a single data class has its format decided by that class's base, so
+    data_format cannot be honoured and is not consulted. Overriding it the other way -- building
+    the built-in for the requested format -- would drop the lab's overrides instead, which is the
+    same silent discard and much harder to notice."""
     from stimpack.experiment.util import config_tools
-    assert config_tools.get_data_format(dict(test_cfg, data_format='nwb')) == 'nwb'
-    # the GUI consults load_user_module first -- asserted by reading the branch order
-    import inspect
-    import stimpack.experiment.gui as gui_mod
-    src = inspect.getsource(gui_mod.ExperimentGUI.__init__)
-    assert src.index("load_user_module(self.cfg, 'data')") < src.index('get_builtin_data_class')
+
+    path = _write_data_module(tmp_path, 'data.py', 'stimpack.experiment.data', 'BaseData')
+    cfg = dict(test_cfg, data_format='nwb', module_paths={'data': path})
+
+    assert config_tools.load_user_data_class(cfg).lab_marker == 'data.py'
+
+
+@pytest.mark.parametrize('data_format, expected', [('hdf5', 'data.py'), ('nwb', 'data_nwb.py')])
+def test_a_module_per_format_lets_data_format_choose_among_them(tmp_path, test_cfg,
+                                                                data_format, expected):
+    """The point of the mapping: a labpack keeping a class per format gets to keep its overrides
+    AND have the choice honoured, which naming one module cannot do."""
+    from stimpack.experiment.util import config_tools
+
+    cfg = dict(test_cfg, data_format=data_format, module_paths={'data': {
+        'hdf5': _write_data_module(tmp_path, 'data.py', 'stimpack.experiment.data', 'BaseData'),
+        'nwb': _write_data_module(tmp_path, 'data_nwb.py', 'stimpack.experiment.data_nwb', 'NWBData'),
+    }})
+
+    assert config_tools.load_user_data_class(cfg).lab_marker == expected
+
+
+def test_a_mapping_does_not_narrow_what_can_be_written(tmp_path, test_cfg):
+    """Which formats stimpack can write and which ones the labpack has customized are different
+    questions. Filtering the first by the second left a lab that customized HDF5 unable to reach
+    NWB from the dialog, though --data-format could still do it."""
+    from stimpack.experiment.util import config_tools
+
+    cfg = dict(test_cfg, module_paths={'data': {
+        'hdf5': _write_data_module(tmp_path, 'data.py', 'stimpack.experiment.data', 'BaseData'),
+    }})
+
+    assert config_tools.get_available_data_formats(cfg) == sorted(config_tools.BUILTIN_DATA_FORMATS)
+
+
+def test_a_mapping_can_add_a_format_stimpack_does_not_have(tmp_path, test_cfg):
+    """The class is loaded by path and only ever duck-typed, so a labpack can supply a backend of
+    its own. Validating data_format against the built-ins alone made that unreachable."""
+    from stimpack.experiment.util import config_tools
+
+    path = _write_data_module(tmp_path, 'data.py', 'stimpack.experiment.data', 'BaseData')
+    cfg = dict(test_cfg, data_format='parquet', module_paths={'data': {'parquet': path}})
+
+    assert 'parquet' in config_tools.get_available_data_formats(cfg)
+    assert config_tools.get_data_format(cfg) == 'parquet'
+    assert config_tools.load_user_data_class(cfg).lab_marker == 'data.py'
+
+
+def test_one_module_can_hold_a_class_per_format(tmp_path, test_cfg):
+    """The two HDF5 layouts differ by five strings, so a labpack supporting both would otherwise
+    put its overrides in a mixin and write two three-line modules importing it."""
+    from stimpack.experiment.util import config_tools
+
+    path = tmp_path / 'data.py'
+    path.write_text('from stimpack.experiment.data import BaseData\n'
+                    'from stimpack.experiment.data_legacy import LegacyHdf5Data\n\n'
+                    'class _Lab:\n    lab_marker = "shared"\n\n'
+                    'class Data(_Lab, BaseData): pass\n'
+                    'class DataLegacy(_Lab, LegacyHdf5Data): pass\n')
+    cfg = dict(test_cfg, module_paths={'data': {
+        'hdf5': str(path), 'legacy_hdf5': f'{path}:DataLegacy'}})
+
+    for data_format, expected_group in [('hdf5', 'series'), ('legacy_hdf5', 'epoch_runs')]:
+        data_class = config_tools.load_user_data_class(dict(cfg, data_format=data_format))
+        assert data_class.lab_marker == 'shared'
+        assert data_class.SERIES_GROUP == expected_group
+
+
+def test_a_mapping_without_the_requested_format_falls_back_to_the_builtin(tmp_path, test_cfg):
+    """A labpack that customizes HDF5 and not NWB should still be able to write NWB with
+    stimpack's own class, rather than being refused or handed the HDF5 one."""
+    from stimpack.experiment.util import config_tools
+
+    cfg = dict(test_cfg, data_format='nwb', module_paths={'data': {
+        'hdf5': _write_data_module(tmp_path, 'data.py', 'stimpack.experiment.data', 'BaseData'),
+    }})
+
+    with pytest.warns(UserWarning, match='has none for'):
+        assert config_tools.load_user_data_class(cfg) is None
 
 
 # --- the GUI adapts to the backend rather than being forked per backend --------------------------
 
 def test_the_backend_supplies_the_browser(experiment_gui, nwb_experiment_gui):
-    """HDF5 can be walked as a tree of groups; a directory of nwb files cannot. The GUI places
-    whatever the backend hands it rather than keeping one browser per format."""
+    """Both formats get one. An .nwb file is HDF5 underneath, so the same tree reads it; what
+    differs is that an NWB experiment is a directory of files, which the backend expresses through
+    browsable_files() rather than the browser knowing the format."""
     from stimpack.experiment.gui_data_browser import Hdf5DataBrowser
 
     assert isinstance(experiment_gui.data_browser, Hdf5DataBrowser)
-    assert nwb_experiment_gui.data_browser is None
+    assert isinstance(nwb_experiment_gui.data_browser, Hdf5DataBrowser)
 
     # and it is actually on the File tab, not merely constructed
     assert experiment_gui.data_browser.parent() is not None
@@ -217,12 +305,14 @@ def test_creating_a_subject_selects_and_displays_it(fixture, request):
 
     assert gui.data.current_subject == 'fly1'
     assert gui.data.current_subject_exists()
-    assert gui.current_subject_display.text() == 'fly1'
+    assert gui.existing_subject_input.currentText() == 'fly1'
 
 
 def test_subject_dropdown_lists_each_subject_once(nwb_experiment_gui):
     """NWB keeps subject metadata in every series file, so a subject run three times was reported
-    three times and appeared three times in the dropdown."""
+    three times and appeared three times in the dropdown. The backend keys by subject id now, so
+    the answer is right before the GUI ever sees it -- the dropdown's own deduplication stays as
+    the second line of defence."""
     gui = nwb_experiment_gui
     initialize(gui, 'dupes')
     add_subject(gui, 'fly1')
@@ -231,9 +321,9 @@ def test_subject_dropdown_lists_each_subject_once(nwb_experiment_gui):
         gui.data.prepare_series()
         gui.data.advance_series_count()
 
-    assert len(gui.data.get_existing_subject_data()) == 3      # backend reports one per series
+    assert [s['subject_id'] for s in gui.data.get_existing_subject_data()] == ['fly1']
     gui.update_existing_subject_input()
-    assert gui.existing_subject_input.count() == 1             # dropdown shows it once
+    assert gui.existing_subject_input.count() == 1
 
 
 def test_selecting_from_the_dropdown_selects_that_subject(nwb_experiment_gui):
@@ -255,18 +345,25 @@ def test_selecting_from_the_dropdown_selects_that_subject(nwb_experiment_gui):
     assert 'flyA' in str(gui.data.get_nwb_file_path())
 
 
-def test_note_before_initialization_is_flagged_not_written(nwb_experiment_gui):
+def test_note_before_initialization_is_refused(nwb_experiment_gui, monkeypatch):
+    """Refused before the dialog opens -- there is nowhere to leave typed text now."""
+    import stimpack.experiment.gui as gui_mod
+
     gui = nwb_experiment_gui
-    gui.notes_edit.setPlainText('too early')
-    button(gui, 'Enter note').click()
-    assert gui.notes_edit.toPlainText() == 'too early'      # not cleared -> not saved
+    monkeypatch.setattr(gui_mod, 'open_message_window', lambda title="", text="": None)
+
+    button(gui, 'Note').click()
+
+    assert gui.note_dialog is None, 'asked for a note with no NWB directory to save it in'
 
 
 def test_note_is_written_beside_the_nwb_files(nwb_experiment_gui, tmp_path):
     gui = nwb_experiment_gui
     initialize(gui, 'noted')
-    gui.notes_edit.setPlainText('stimulus looked dim')
-    button(gui, 'Enter note').click()
+
+    button(gui, 'Note').click()
+    gui.note_dialog.setTextValue('stimulus looked dim')
+    gui.note_dialog.accept()
 
     notes = tmp_path / 'noted' / 'notes.csv'
     assert notes.is_file() and 'stimulus looked dim' in notes.read_text()
@@ -423,7 +520,7 @@ def test_the_current_subject_shows_on_the_main_tab_too(experiment_gui):
     add_subject(experiment_gui, 'fly_42')
 
     assert experiment_gui.current_subject_main_label.text() == 'fly_42'
-    assert experiment_gui.current_subject_display.text() == 'fly_42'
+    assert experiment_gui.existing_subject_input.currentText() == 'fly_42'
 
 
 def test_selecting_an_existing_subject_updates_both_displays(nwb_experiment_gui):
@@ -439,4 +536,52 @@ def test_selecting_an_existing_subject_updates_both_displays(nwb_experiment_gui)
     gui.on_selected_existing_subject(labels.index('flyA'))
 
     assert gui.current_subject_main_label.text() == 'flyA'
-    assert gui.current_subject_display.text() == 'flyA'
+    assert gui.existing_subject_input.currentText() == 'flyA'
+
+
+def test_naming_no_data_module_is_not_worth_a_warning(test_cfg):
+    """Using a built-in is the normal configuration. load_user_module warns for any unspecified
+    module, so routing through it made every correct config print 'No user module specified for
+    data' at launch -- a warning that suggests a mistake where there is none."""
+    import warnings
+
+    from stimpack.experiment.util import config_tools
+
+    cfg = dict(test_cfg, module_paths={'protocol': []})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        assert config_tools.load_user_data_class(cfg) is None
+    assert [str(w.message) for w in caught] == []
+
+
+def test_a_created_subject_is_acknowledged_on_both_backends(experiment_gui, nwb_experiment_gui):
+    """The button and the field's styling both ask the backend whether this experiment has the
+    typed subject. NWB read that from written series files only, so a subject created but not yet
+    run did not exist as far as the GUI could tell: the button went on saying 'Create subject'
+    for a subject that had just been created, and the field never showed it had become a
+    selection."""
+    for gui, name in [(experiment_gui, 'hdf5'), (nwb_experiment_gui, 'nwb')]:
+        initialize(gui, f'subjects_{name}')
+        gui.subject_id_input.setText('fly1')
+        gui.refresh_subject_button()
+        assert gui.subject_button.text() == 'Create subject', name
+
+        add_subject(gui, 'fly1')
+
+        assert gui.typed_subject_is_new() is False, name
+        assert gui.subject_button.text() == 'Update subject', name
+        assert 'fly1' in [gui.existing_subject_input.itemText(i)
+                          for i in range(gui.existing_subject_input.count())], name
+
+
+def test_switching_experiments_forgets_subjects_of_the_previous_one(nwb_experiment_gui, tmp_path):
+    """Remembered subjects belong to the experiment they were created in, and must not follow the
+    user into another."""
+    gui = nwb_experiment_gui
+    initialize(gui, 'first')
+    add_subject(gui, 'fly1')
+    assert gui.data.get_existing_subject_data()
+
+    initialize(gui, 'second')
+
+    assert gui.data.get_existing_subject_data() == []

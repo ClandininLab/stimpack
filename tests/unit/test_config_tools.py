@@ -243,3 +243,49 @@ def test_nwb_data_class_is_resolved_on_demand():
     cls = config_tools.get_builtin_data_class({'data_format': 'nwb'})
     assert cls.__name__ == 'NWBData'
     assert cls.output_is_directory is True
+
+
+# --- writing files stimpack can read back --------------------------------------------------------
+
+def test_the_dumper_and_the_loader_agree_on_what_a_preset_may_hold():
+    """These files used to be written with the default yaml.Dumper, which serializes whatever type
+    it is handed, while the loader accepts plain YAML plus !!python/tuple. Anything else produced a
+    file stimpack could write and then refuse to load."""
+    import yaml
+
+    from stimpack.experiment.util import config_tools
+
+    class Rogue:
+        pass
+
+    with pytest.raises(yaml.representer.RepresenterError):
+        config_tools.safe_dump_yaml_with_tuples({'x': Rogue()})
+
+
+def test_a_tuple_stays_a_tuple_and_a_list_stays_a_list():
+    """Not decoration: a protocol parameter given as a list of more than one value is one that
+    varies from trial to trial, while a tuple is a single value with components. Writing
+    center: (5, -5) as [5, -5] would turn one centred stimulus into two trials at different
+    positions."""
+    from stimpack.experiment.util import config_tools
+
+    written = config_tools.safe_dump_yaml_with_tuples(
+        {'center': (5, -5), 'angle': [0, 90]}, default_flow_style=False)
+    read_back = config_tools.safe_load_yaml_with_tuples(written)
+
+    assert read_back['center'] == (5, -5) and isinstance(read_back['center'], tuple)
+    assert read_back['angle'] == [0, 90] and isinstance(read_back['angle'], list)
+
+
+def test_run_parameters_are_written_as_a_plain_mapping():
+    """A dict subclass, so the default dumper tagged it by type and the loader then refused it --
+    which is the failure this dumper exists to make impossible."""
+    from stimpack.experiment.deprecated_names import RunParameters
+    from stimpack.experiment.util import config_tools
+
+    written = config_tools.safe_dump_yaml_with_tuples(
+        {'run_parameters': RunParameters({'num_trials': 5})}, default_flow_style=False)
+
+    assert 'python/object' not in written
+    assert config_tools.safe_load_yaml_with_tuples(written) == {'run_parameters': {'num_trials': 5}}
+

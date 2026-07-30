@@ -9,7 +9,7 @@ Requires a working headless GL stack (software Mesa is fine); tests skip if one 
 """
 import pytest
 
-from helpers import wait_until
+from helpers import unobtrusive_screen, wait_until
 
 pytest.importorskip("numpy")
 pytest.importorskip("h5py")
@@ -24,10 +24,9 @@ SERVER_BOOT_TIMEOUT = 60
 def live_server():
     """A real BaseServer whose 'visual' module has launched a real screen subprocess."""
     from stimpack.experiment.server import BaseServer
-    from stimpack.visual_stim.screen import Screen
 
-    screen = Screen(fullscreen=False, vsync=False, display_index=0,
-                    pa=(-0.15, 0.15, -0.15), pb=(0.15, 0.15, -0.15), pc=(-0.15, 0.15, 0.15))
+    screen = unobtrusive_screen(display_index=0,
+                                pa=(-0.15, 0.15, -0.15), pb=(0.15, 0.15, -0.15), pc=(-0.15, 0.15, 0.15))
     try:
         server = BaseServer(host='127.0.0.1', port=None,
                             visual_stim_kwargs={'screens': [screen]},
@@ -78,6 +77,7 @@ def live_client(live_manager):
     c.server_messages = []
     c.server_error = None
     c.on_server_message = None
+    c.on_data_error = None
     c._message_counts = {}
     c.manager = live_manager
     c.trigger_device = None

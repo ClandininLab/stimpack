@@ -17,11 +17,11 @@ def experiment(tmp_path):
     from stimpack.experiment.data import BaseData
 
     class Proto:
-        run_parameters = {'num_epochs': 2, 'idle_color': 0.0}
+        run_parameters = {'num_trials': 2, 'idle_color': 0.0}
         protocol_parameters = {'angle': [0, 90]}
-        epoch_stim_parameters = {'name': 'DriftingSquareGrating'}
-        epoch_protocol_parameters = {'pre_time': 1.0, 'stim_time': 2.0, 'tail_time': 1.0}
-        num_epochs_completed = 0
+        trial_stim_parameters = {'name': 'DriftingSquareGrating'}
+        trial_protocol_parameters = {'pre_time': 1.0, 'stim_time': 2.0, 'tail_time': 1.0}
+        num_trials_completed = 0
 
     data = BaseData(cfg={})
     data.data_directory = str(tmp_path)
@@ -29,10 +29,10 @@ def experiment(tmp_path):
     data.initialize_experiment_file()
     data.create_subject({'subject_id': 'fly1', 'age': 3, 'notes': 'healthy'})
     proto = Proto()
-    data.create_epoch_run(proto)
-    data.create_epoch(proto)
-    data.end_epoch(proto)
-    data.end_epoch_run(proto)
+    data.create_series(proto)
+    data.create_trial(proto)
+    data.end_trial(proto)
+    data.end_series(proto)
     data.create_subject({'subject_id': 'fly2', 'age': 5, 'notes': ''})
     return data
 
@@ -77,13 +77,13 @@ def test_refresh_shows_the_experiment_hierarchy(browser):
     labels = tree_labels(browser.group_tree.invisibleRootItem())
     assert 'Subjects' in labels
     assert 'fly1' in labels and 'fly2' in labels
-    assert 'epoch_runs' in labels and 'series_001' in labels
+    assert browser.data.SERIES_GROUP in labels and 'series_001' in labels
 
 
 def test_noisy_groups_are_excluded(browser):
     """h5io hides the bulk data groups; the browser is for metadata."""
     labels = tree_labels(browser.group_tree.invisibleRootItem())
-    for hidden in ('epochs', 'acquisition', 'stimulus_timing', 'rois'):
+    for hidden in (browser.data.TRIALS_GROUP, 'acquisition', 'stimulus_timing', 'rois'):
         assert hidden not in labels
 
 
@@ -138,7 +138,7 @@ def test_subject_attributes_are_editable(browser):
 def test_series_attributes_are_read_only(browser):
     """A series records what was actually presented, so its parameters must not be editable."""
     from PyQt6.QtCore import Qt
-    select(browser, ['Subjects', 'fly1', 'epoch_runs', 'series_001'])
+    select(browser, ['Subjects', 'fly1', browser.data.SERIES_GROUP, 'series_001'])
     attrs = table_contents(browser)
     assert 'protocol_ID' in attrs
     for row in range(browser.table_attributes.rowCount()):
@@ -177,3 +177,137 @@ def test_populating_the_table_does_not_write_to_the_file(browser):
         after = dict(f['/Subjects/fly1'].attrs)
     assert after == before
     assert type(after['age']) is type(before['age'])     # and not turned into a string
+
+
+# --- one browser, three backends -------------------------------------------------------------
+
+def labels_under(browser):
+    """Every label in the tree, depth first."""
+    found = []
+
+    def walk(item):
+        for i in range(item.childCount()):
+            child = item.child(i)
+            found.append(child.text(0))
+            walk(child)
+
+    walk(browser.group_tree.invisibleRootItem())
+    return found
+
+
+def build(data_class, tmp_path, name, trials=2):
+    """Record one series of `trials` trials with the given backend."""
+    class Proto:
+        run_parameters = {'num_trials': trials, 'idle_color': 0.0}
+        protocol_parameters = {'angle': [0, 90]}
+        trial_stim_parameters = {'name': 'DriftingSquareGrating'}
+        trial_protocol_parameters = {'pre_time': 1.0, 'stim_time': 2.0, 'tail_time': 1.0}
+        num_trials_completed = 0
+        save_stringified_params = False
+
+    data = data_class(cfg={'experimenter': 't', 'lab': 'L', 'institution': 'I',
+                           'current_rig_name': 'r', 'rig_config': {'r': {'screen_center': [0, 0]}}})
+    data.data_directory = str(tmp_path)
+    data.experiment_file_name = name
+    data.initialize_experiment_file()
+    data.create_subject({'subject_id': 'fly1', 'age': 3, 'notes': ''})
+    data.prepare_series()
+    proto = Proto()
+    data.create_series(proto)
+    for i in range(trials):
+        proto.num_trials_completed = i
+        data.create_trial(proto)
+        data.end_trial(proto)
+    data.end_series(proto)
+    return data
+
+
+def test_the_browser_reads_the_legacy_hdf5_layout(qapp, tmp_path):
+    """A lab pinned to legacy_hdf5 must still be able to open its own files."""
+    from stimpack.experiment.data_legacy import LegacyHdf5Data
+
+    data = build(LegacyHdf5Data, tmp_path, 'legacy')
+    browser = data.make_data_browser()
+    browser.refresh()
+    try:
+        labels = labels_under(browser)
+        assert 'epoch_runs' in labels and 'series_001' in labels
+        assert 'trials' not in labels, 'the new layout leaked into the legacy file'
+    finally:
+        browser.close()
+
+
+def test_the_browser_reads_the_current_hdf5_layout(qapp, tmp_path):
+    from stimpack.experiment.data import BaseData
+
+    data = build(BaseData, tmp_path, 'current')
+    browser = data.make_data_browser()
+    browser.refresh()
+    try:
+        labels = labels_under(browser)
+        assert 'series' in labels and 'series_001' in labels
+        assert 'epoch_runs' not in labels
+    finally:
+        browser.close()
+
+
+def test_the_browser_shows_one_node_per_nwb_series_file(qapp, tmp_path):
+    """An NWB experiment is a directory of files, so the tree gains a level the single-file
+    formats do not have -- which is why the backend supplies the file list."""
+    pytest.importorskip('pynwb')
+    from stimpack.experiment.data_nwb import NWBData
+
+    data = build(NWBData, tmp_path, 'nwbdir')
+    data.advance_series_count()
+    data.prepare_series()                       # a second series file
+    browser = data.make_data_browser()
+    browser.refresh()
+    try:
+        labels = labels_under(browser)
+        files = [name for name in labels if name.endswith('.nwb')]
+        assert len(files) == 2, f'expected one node per series file, got {files}'
+        assert any('intervals' in name or 'acquisition' in name or 'general' in name
+                   for name in labels), 'the nwb file contents were not walked'
+    finally:
+        browser.close()
+
+
+def test_nwb_attributes_are_not_editable(qapp, tmp_path):
+    """pynwb validates a schema; a hand-edited attribute can make a file unreadable."""
+    pytest.importorskip('pynwb')
+    from stimpack.experiment.data_nwb import NWBData
+
+    data = build(NWBData, tmp_path, 'readonly')
+    assert data.browser_is_editable is False
+
+    browser = data.make_data_browser()
+    browser.refresh()
+    try:
+        # the write path must refuse even if something reaches it directly
+        before = sorted(p.read_bytes() for p in data.get_series_files())
+        browser.update_attrs_to_file(browser.table_attributes.item(0, 0))
+        after = sorted(p.read_bytes() for p in data.get_series_files())
+        assert before == after, 'an NWB file was written to through the browser'
+    finally:
+        browser.close()
+
+
+def test_the_tree_and_the_table_can_be_resized_against_each_other(browser, qapp):
+    """The table's 400 px minimum won it most of the space, leaving the tree a few rows -- the
+    wrong way round for finding a series in it."""
+    from PyQt6.QtWidgets import QSplitter
+
+    assert isinstance(browser.splitter, QSplitter)
+    assert browser.splitter.indexOf(browser.group_tree) == 0
+    assert browser.splitter.indexOf(browser.table_attributes) == 1
+
+    browser.resize(400, 600)
+    browser.show()                 # a splitter distributes nothing until it is laid out
+    qapp.processEvents()
+    tree_height, table_height = browser.splitter.sizes()
+    assert tree_height > table_height, 'the tree still starts smaller than the table'
+
+    # and a drag has to be able to reverse that, which the old minimum prevented
+    browser.splitter.setSizes([100, 500])
+    qapp.processEvents()
+    assert browser.splitter.sizes()[0] < browser.splitter.sizes()[1]

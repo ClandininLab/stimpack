@@ -45,7 +45,10 @@ def change_attribute(file_path, group_path, attr_key, attr_val):
 
 def recursively_load_dict_contents_from_group(h5file, path, additional_exclusions=None):
     # https://codereview.stackexchange.com/questions/120802/recursively-save-python-dictionaries-to-hdf5-files-using-h5py
-    exclusions = ['acquisition', 'Client', 'epochs', 'stimulus_timing', 'roipath', 'subpath']
+    # 'trials' and 'epochs' are the same group under stimpack's new and old names -- one file
+    # browser opens files written by either backend, so both are hidden. Per-trial groups are what
+    # makes a tree unreadable: one node per presentation, hundreds per series.
+    exclusions = ['acquisition', 'Client', 'trials', 'epochs', 'stimulus_timing', 'roipath', 'subpath']
     if additional_exclusions is not None:
         # extend, not append: appending a list put the list itself in as one element, and the
         # membership test below then did `['a', 'b'] in key`, which raises TypeError. So the

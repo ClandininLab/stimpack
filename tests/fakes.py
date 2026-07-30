@@ -1,5 +1,6 @@
 """Shared test doubles: stand in for the RPC link and the client, so real stimpack objects can be
 driven with no server, screens, GL, or hardware."""
+import time
 
 
 class FakeManager:
@@ -51,7 +52,7 @@ class FakeManager:
 
     def push_server_request(self, name, *args, **kwargs):
         """Queue any request as if the server had sent it -- the server calls functions on the
-        client too, not only report_server_message (see BaseServer.end_epoch)."""
+        client too, not only report_server_message (see BaseServer.end_trial)."""
         self.inbox.append((name, args, kwargs))
 
 
@@ -62,9 +63,14 @@ class FakeClient:
         self.cfg = cfg
         self.manager = FakeManager()
         self.on_server_message = None
+        self.on_data_error = None
         self.runs = []                 # (protocol class name, save_metadata_flag) per start_run
         self.stop = False
         self.pause = False
+        # Mirrors BaseClient's pause bookkeeping: the GUI reads both to decide what the status line
+        # says and how much of the elapsed time was spent idle.
+        self.paused_since = None
+        self.paused_duration = 0.0
 
     def start_run(self, protocol_object, data, save_metadata_flag=True):
         self.runs.append((protocol_object.__class__.__name__, save_metadata_flag))
@@ -77,6 +83,20 @@ class FakeClient:
 
     def resume_run(self):
         self.pause = False
+        self.paused_since = None
+
+    @property
+    def pause_state(self):
+        if not self.pause:
+            return 'running'
+        return 'paused' if self.paused_since is not None else 'pending'
+
+    @property
+    def paused_seconds(self):
+        total = self.paused_duration
+        if self.paused_since is not None:
+            total += time.monotonic() - self.paused_since
+        return total
 
     def close(self):
         pass

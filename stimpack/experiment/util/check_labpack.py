@@ -32,7 +32,9 @@ Two severities, and the distinction is about what happens next:
   warning  something is absent or ignored, which may well be deliberate for this rig
 """
 import contextlib
+import inspect
 import os
+import re
 import sys
 import tempfile
 import warnings
@@ -82,12 +84,30 @@ def check_config(cfg, cfg_name='', labpack_dir=None):
     # data_format picks a built-in backend, and the NWB one needs pynwb, which is an optional
     # dependency. Without this the config looks fine and the GUI dies on import at start-up --
     # at the rig, with an animal on it.
-    data_format = str(cfg.get('data_format', 'hdf5')).lower()
-    if data_format not in config_tools.BUILTIN_DATA_FORMATS:
+    mapped = config_tools.get_data_module_paths_by_format(cfg)
+    available = config_tools.get_available_data_formats(cfg)
+    default_format = config_tools.get_default_data_format(cfg)
+    declared = cfg.get('data_format')
+
+    if declared is not None and str(declared).lower() not in available:
         add('error', 'unknown-data-format',
-            f"data_format '{data_format}' is not one of "
-            f"{sorted(config_tools.BUILTIN_DATA_FORMATS)}; stimpack will fall back to hdf5")
-    else:
+            f"data_format '{str(declared).lower()}' is not one of {available}; stimpack will fall "
+            f"back to {default_format}")
+    elif declared is None and mapped:
+        # The lab supplied classes; which one runs is then decided by a default rather than by
+        # them. Unambiguous when they mapped one format, a coin toss when they mapped several.
+        add('warning', 'no-data-format-with-mapping',
+            f"module_paths.data maps {sorted(mapped)} but no data_format is set, so "
+            f"'{default_format}' is used by default. Set data_format to say which you mean.")
+    elif mapped and str(declared).lower() not in mapped:
+        # Legitimate -- custom HDF5 and stock NWB is a reasonable thing to want -- but it means
+        # every launch bypasses the labpack's classes, which is worth knowing on purpose.
+        add('warning', 'data-format-outside-mapping',
+            f"data_format is '{str(declared).lower()}' but module_paths.data supplies classes "
+            f"only for {sorted(mapped)}, so stimpack's built-in class is used")
+
+    data_format = config_tools.get_data_format(cfg)
+    if data_format in config_tools.BUILTIN_DATA_FORMATS:
         try:
             config_tools.get_builtin_data_class(cfg)
         except ImportError as e:
@@ -337,7 +357,6 @@ def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
     """Tiers 3 and 5 for one config. Returns a list of Findings."""
     from stimpack.experiment.protocol import BaseProtocol
     from stimpack.experiment.server import KNOWN_TARGETS, ROOT_FUNCTION_NAMES
-    from stimpack.util import get_all_subclasses
 
     if labpack_dir is None:
         labpack_dir = config_tools.get_labpack_directory()
@@ -418,6 +437,24 @@ def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
 
     skipped = None                    # set when the protocol could not be exercised at all
 
+    # --- an uninterruptible wait in start_stimuli -----------------------------------------------
+    # BaseProtocol.sleep drains the client's queue and returns early when the run is stopped;
+    # time.sleep cannot be interrupted, so Stop is not noticed until the trial ends -- on a long
+    # trial that is a long wait, and the same delay applies to an error the server reports
+    # mid-trial. A protocol overriding start_stimuli has to remember to use self.sleep, and
+    # stimpack's own example did not, which is what these were copied from.
+    if 'start_stimuli' in protocol_class.__dict__:
+        try:
+            source = inspect.getsource(protocol_class.start_stimuli)
+        except (OSError, TypeError):
+            source = ''
+        # A bare call, not self.sleep(...) or manager.sleep(...).
+        bare_sleeps = len(re.findall(r'(?<![.\w])sleep\s*\(', source))
+        if bare_sleeps:
+            add('warning', 'uninterruptible-sleep',
+                f'start_stimuli calls time.sleep {bare_sleeps} time(s); use self.sleep so Stop '
+                f'takes effect during a trial rather than at the end of it')
+
     # --- tier 3: does it construct, and can it produce an epoch? --------------------------------
     try:
         protocol = protocol_class(cfg=cfg)
@@ -432,11 +469,11 @@ def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
     # it is what fills in persistent_parameters (variable_protocol_parameter_names) and est_run_time,
     # and it precomputes each epoch's parameters. Skipping it makes every protocol look broken.
     #
-    # Shorten the run first: precompute calls get_epoch_parameters once per epoch, and a protocol
+    # Shorten the run first: precompute calls get_trial_parameters once per epoch, and a protocol
     # with hundreds of epochs would otherwise take real time to check. This is why the check covers
     # the first few epochs rather than the whole series.
-    epochs = min(int(protocol.run_parameters.get('num_epochs', 1) or 1), max_epochs)
-    protocol.run_parameters['num_epochs'] = epochs
+    epochs = min(int(protocol.run_parameters.get('num_trials', 1) or 1), max_epochs)
+    protocol.run_parameters['num_trials'] = epochs
 
     # Supply the run parameters a preset would. On a rig with locomotion, do_loco is required but
     # most protocol classes do not default it -- they expect the preset to. Without this, nearly
@@ -457,18 +494,18 @@ def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
             return findings, f'{name}: {type(e).__name__}: {e}'
 
         for epoch in range(epochs):
-            protocol.num_epochs_completed = epoch
+            protocol.num_trials_completed = epoch
             try:
-                if protocol.use_precomputed_epoch_parameters:
-                    protocol.load_precomputed_epoch_parameters()
+                if protocol.use_precomputed_trial_parameters:
+                    protocol.load_precomputed_trial_parameters()
                 else:
-                    protocol.get_epoch_parameters()
+                    protocol.get_trial_parameters()
             except Exception as e:
                 add('error', 'get-epoch-parameters-failed', f'{type(e).__name__}: {e}')
                 return findings, skipped
 
             # --- tier 4: would load_stim resolve the names this epoch asks for? -----------------
-            for stimulus in _stimulus_names_in(protocol.epoch_stim_parameters):
+            for stimulus in _stimulus_names_in(protocol.trial_stim_parameters):
                 if stimulus not in stimulus_names:
                     add('error', 'unknown-stimulus',
                         f"loads a stimulus named '{stimulus}', which is not among the stimuli this "
@@ -549,10 +586,10 @@ def _available_stimulus_names(cfg, labpack_dir, cfg_name):
     return names, findings
 
 
-def _stimulus_names_in(epoch_stim_parameters):
+def _stimulus_names_in(trial_stim_parameters):
     """The stimulus names one epoch would load. May be a single dict, a list of them, or None."""
-    entries = (epoch_stim_parameters if isinstance(epoch_stim_parameters, list)
-               else [epoch_stim_parameters])
+    entries = (trial_stim_parameters if isinstance(trial_stim_parameters, list)
+               else [trial_stim_parameters])
     return [entry['name'] for entry in entries
             if isinstance(entry, dict) and isinstance(entry.get('name'), str)]
 

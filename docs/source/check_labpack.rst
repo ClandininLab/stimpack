@@ -43,8 +43,8 @@ Tiers 1 and 2 import nothing, which is what lets them run on every GUI launch as
 
 ``--deep`` imports lab code and runs each protocol, so it is opt-in and never part of startup:
 
-3. each protocol module imports, and each protocol constructs and produces an epoch
-4. every stimulus name an epoch asks for resolves, as ``load_stim`` would resolve it
+3. each protocol module imports, and each protocol constructs and produces an trial
+4. every stimulus name an trial asks for resolves, as ``load_stim`` would resolve it
 5. every call a protocol makes is addressed somewhere that exists
 
 Tiers 4 and 5 run the protocol rather than reading it. Stimulus names and call sites are often

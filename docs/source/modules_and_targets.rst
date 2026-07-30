@@ -27,10 +27,13 @@ Untargeted calls go to root
 
    ``manager.some_function(...)`` with no ``target`` is delivered to the server's **root node**,
    not broadcast. Root has only a handful of functions, so an untargeted call meant for a module
-   lands nowhere -- and, because the link is one-way, nothing at the calling end notices.
+   lands nowhere. The server reports that back as an error and the run aborts (see below), but the
+   call itself still returns nothing, so nothing at the calling end distinguishes it from a call
+   that worked.
 
-   This is not hypothetical: it is how a set of protocols stopped delivering optogenetic stimulation
-   for months while everything else looked normal. ``stimpack --check-labpack --deep`` reports it.
+   This is not hypothetical: before the server reported it, this is how a set of protocols stopped
+   delivering optogenetic stimulation for months while everything else looked normal.
+   ``stimpack --check-labpack --deep`` reports it without running an experiment at all.
 
 One protocol, several rigs
 ==========================
@@ -38,7 +41,7 @@ One protocol, several rigs
 Rigs differ, and a protocol that assumes hardware will fail on the rig that lacks it. The server
 tells the client which modules it has when the connection opens, so a protocol can ask::
 
-    if self.has_module('voltage_out') and self.epoch_protocol_parameters['opto_amp'] > 0:
+    if self.has_module('voltage_out') and self.trial_protocol_parameters['opto_amp'] > 0:
         multicall.target('voltage_out').setup_pulse_wave_stream_out(
             channels_config={'name': 'DAC0', 'high': amp, 'low': 0.0},
             frequency_hz=50, pulse_width_s=0.01)

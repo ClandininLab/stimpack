@@ -22,7 +22,7 @@ import moderngl
 import numpy as np
 import pandas as pd
 from skimage.transform import downscale_local_mean
-from PyQt6 import QtWidgets, QtGui
+from PyQt6 import QtCore, QtWidgets, QtGui
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 
 from stimpack.util import get_all_subclasses, ICON_PATH
@@ -303,13 +303,21 @@ class StimDisplay(QOpenGLWidget):
         self.ctx.enable(moderngl.BLEND) # enable alpha blending
         self.ctx.enable(moderngl.DEPTH_TEST) # enable depth test
 
-        # Disable GL_FRAMEBUFFER_SRGB to prevent an sRGB gamma-encoding mismatch between rendered
-        # geometry and glClear.
-        # NOTE (verify on-rig): with some moderngl versions a raw GL enum passed to ctx.disable()
-        # may not take effect; ctx.disable_direct(GL_FRAMEBUFFER_SRGB) targets raw GL state. Confirm
-        # the gamma output is correct on your hardware before relying on this.
+        # Keep sRGB encoding off, so what a shader writes is what lands in the framebuffer. The
+        # default framebuffer here IS sRGB-capable (measured: its colour encoding reports GL_SRGB),
+        # so the enable bit genuinely matters -- it just happens to default to off.
+        #
+        # disable_direct, not disable. ctx.disable() takes moderngl's own flag bitmask, not a raw
+        # GL enum: GL_FRAMEBUFFER_SRGB is 0x8DB9 = 36281, and 36281 & moderngl.BLEND == 1, so
+        # ctx.disable(0x8DB9) was read as "disable BLEND" and switched off alpha blending on the
+        # line after it was switched on -- while leaving sRGB untouched. Every stimulus with
+        # alpha < 1 composited wrongly from 2026-05-18 until this was fixed. It went unnoticed
+        # because alpha = 1 renders identically either way (src*1 + dst*0 == src).
+        #
+        # tests/gl/test_render_smoke.py asserts the resulting GL state; a rendered-image test
+        # cannot catch this.
         GL_FRAMEBUFFER_SRGB = 0x8DB9
-        self.ctx.disable(GL_FRAMEBUFFER_SRGB)
+        self.ctx.disable_direct(GL_FRAMEBUFFER_SRGB)
 
         # Initialize attribute storage for the context
         self.ctx.extra = {}
@@ -885,6 +893,20 @@ def main():
     for function_name in SCREEN_FUNCTION_NAMES:
         server.register_function(getattr(stim_display, function_name))
     
+    # A new window normally activates itself and takes the keyboard. That is right on a rig, but
+    # disruptive when windowed screens open on a desktop somebody is working in -- above all during
+    # the test suite, which launches a great many of them. STIMPACK_NO_FOCUS=1 shows them without
+    # taking focus.
+    #
+    # Honoured under X11/XWayland, where Qt maps it to _NET_WM_USER_TIME=0 and the window manager
+    # respects that. NOT honoured under the wayland platform plugin: Wayland has no such hint, the
+    # compositor alone decides focus, and mutter activates new toplevels regardless (measured, not
+    # assumed). To get this under a Wayland session, run the screen on XWayland instead --
+    # Screen(x_display=os.environ['DISPLAY']) selects the xcb platform. See tests/conftest.py.
+    if os.environ.get('STIMPACK_NO_FOCUS', '') not in ('', '0'):
+        stim_display.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        stim_display.setWindowFlag(QtCore.Qt.WindowType.WindowDoesNotAcceptFocus, True)
+
     # display the stimulus
     if screen.fullscreen:
         stim_display.showFullScreen()

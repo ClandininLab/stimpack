@@ -93,12 +93,13 @@ def test_enter_note_writes_to_the_file(experiment_gui, tmp_path, monkeypatch):
     monkeypatch.setattr(gui_mod.QFileDialog, 'getOpenFileName', lambda *a, **k: (path, ''))
     button(gui, 'Load experiment').click()
 
-    gui.notes_edit.setPlainText('stimulus looked dim')
-    button(gui, 'Enter note').click()
+    gui.update_existing_subject_input()          # as the real Load handler does
+    button(gui, 'Note').click()
+    gui.note_dialog.setTextValue('stimulus looked dim')
+    gui.note_dialog.accept()
 
     with h5py.File(path, 'r') as f:
         assert 'stimulus looked dim' in list(f['/Notes'].attrs.values())
-    assert gui.notes_edit.toPlainText() == ''         # the box is cleared after saving
 
 
 # --- parameter presets ------------------------------------------------------------------------
@@ -109,12 +110,12 @@ def test_save_preset_via_input_dialog(experiment_gui, tmp_path, monkeypatch):
     select_protocol(gui)
     gui.protocol_object.parameter_preset_directory = str(tmp_path)   # don't write into the repo
 
-    gui.run_parameter_input['num_epochs'].setText('11')
+    gui.run_parameter_input['num_trials'].setText('11')
     monkeypatch.setattr(gui_mod.QInputDialog, 'getText', lambda *a, **k: ('my_preset', True))
     button(gui, 'Save preset').click()
 
     assert 'my_preset' in gui.protocol_object.parameter_presets
-    assert gui.protocol_object.parameter_presets['my_preset']['run_parameters']['num_epochs'] == 11
+    assert gui.protocol_object.parameter_presets['my_preset']['run_parameters']['num_trials'] == 11
     assert gui.parameter_preset_comboBox.findText('my_preset') >= 0   # offered in the dropdown
     assert (tmp_path / 'DriftingSquareGrating.yaml').exists()         # persisted to disk
 
@@ -241,3 +242,189 @@ def test_repeatedly_opening_the_experiment_dialog_is_safe(experiment_gui, tmp_pa
         assert dialog_ui.label_status.text() == 'Data entered'
 
     assert experiment_gui.data.experiment_file_name == 'expt_24'
+
+
+# --- choosing the data format at startup ----------------------------------------------------------
+
+def make_startup_dialog(qapp, tmp_path, cfg, data_format_override=None):
+    """An InitializeRigGUI with its UI built, standing in for the startup modal.
+
+    Constructed against a stub 'experiment GUI' rather than a real one: the dialog runs before the
+    real GUI exists, and what it produces (a cfg) is the whole of its contract.
+    """
+    import stimpack.experiment.gui as gui_mod
+
+    class StubGUI:
+        pass
+
+    stub = StubGUI()
+    stub.data_format_override = data_format_override
+    stub.cfg, stub.cfg_initialized = {}, False
+
+    dialog = gui_mod.InitializeRigGUI()
+    dialog.setupUI(stub, parent=None)
+    dialog.cfg = dict(cfg)
+    dialog.cfg_name = 'test_config.yaml'
+    dialog.update_data_format_selection()
+    return dialog, stub
+
+
+def test_the_startup_dialog_defaults_to_the_config_data_format(qapp, tmp_path):
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {'data_format': 'nwb'})
+    assert dialog.data_format_combobox.currentText() == 'nwb'
+
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {'data_format': 'hdf5'})
+    assert dialog.data_format_combobox.currentText() == 'hdf5'
+
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {})      # unset: the documented default
+    assert dialog.data_format_combobox.currentText() == 'hdf5'
+
+
+def test_the_startup_dialog_offers_every_built_in_format(qapp, tmp_path):
+    from stimpack.experiment.util import config_tools
+
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {})
+    offered = [dialog.data_format_combobox.itemText(i)
+               for i in range(dialog.data_format_combobox.count())]
+    assert sorted(offered) == sorted(config_tools.BUILTIN_DATA_FORMATS)
+
+
+def test_the_chosen_format_reaches_the_config(qapp, tmp_path):
+    """What the dialog produces is a cfg; the GUI reads data_format out of it to pick a backend."""
+    dialog, stub = make_startup_dialog(qapp, tmp_path, {'data_format': 'hdf5'})
+    dialog.rig_combobox.addItem('rig_a')
+    dialog.rig_combobox.setCurrentIndex(0)
+
+    index = dialog.data_format_combobox.findText('nwb')
+    dialog.data_format_combobox.setCurrentIndex(index)
+    dialog.on_pressed_enter_button()
+
+    assert stub.cfg['data_format'] == 'nwb'
+    assert stub.cfg_initialized is True
+
+
+def test_a_command_line_override_is_shown_and_locked(qapp, tmp_path):
+    """--data-format is applied after this dialog either way, so a dialog showing something else
+    would be worse than no dialog."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {'data_format': 'hdf5'},
+                                    data_format_override='nwb')
+
+    assert dialog.data_format_combobox.currentText() == 'nwb'
+    assert not dialog.data_format_combobox.isEnabled()
+
+
+def test_the_format_follows_the_selected_config(qapp, tmp_path):
+    """Picking a different config re-reads its data_format rather than leaving the last answer."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {'data_format': 'nwb'})
+    assert dialog.data_format_combobox.currentText() == 'nwb'
+
+    dialog.cfg = {'data_format': 'hdf5'}
+    dialog.update_data_format_selection()
+    assert dialog.data_format_combobox.currentText() == 'hdf5'
+
+
+def test_the_format_choice_is_disabled_when_the_labpack_supplies_a_data_module(qapp, tmp_path):
+    """The GUI takes module_paths.data when it is set and only falls back to data_format
+    otherwise. Offering the choice anyway is offering one that does nothing -- which is what it
+    did: a config naming its own HDF5 data module answered a request for NWB with an .hdf5 file
+    and said nothing about why."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path,
+                                    {'data_format': 'nwb',
+                                     'module_paths': {'data': 'labpack/data.py'}})
+
+    assert not dialog.data_format_combobox.isEnabled()
+    assert 'labpack/data.py' in dialog.data_format_combobox.toolTip()
+    assert 'labpack' in dialog.label_data_format.text().lower()
+
+
+def test_the_format_choice_is_offered_when_nothing_overrides_it(qapp, tmp_path):
+    dialog, _ = make_startup_dialog(qapp, tmp_path, {'data_format': 'nwb', 'module_paths': {}})
+
+    assert dialog.data_format_combobox.isEnabled()
+    assert dialog.data_format_combobox.currentText() == 'nwb'
+    assert dialog.label_data_format.text() == 'Data format'
+
+
+MAPPED_CFG = {'data_format': 'nwb',
+              'module_paths': {'data': {'hdf5': 'labpack/data.py',
+                                        'nwb': 'labpack/data_nwb.py'}}}
+
+
+def test_a_module_per_format_labels_who_writes_each(qapp, tmp_path):
+    """Every format stays on offer -- what stimpack can write and what the labpack has customized
+    are different questions, and filtering the first by the second left a lab that customized
+    HDF5 unable to reach NWB at all. The second question is answered by the label."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path, MAPPED_CFG)
+    combo = dialog.data_format_combobox
+
+    assert combo.isEnabled()
+    assert [combo.itemText(i) for i in range(combo.count())] == [
+        'hdf5 — labpack/data.py',
+        'legacy_hdf5 — stimpack built-in',
+        'nwb — labpack/data_nwb.py']
+    assert combo.currentData() == 'nwb'
+
+
+def test_choosing_a_format_the_labpack_skipped_says_what_is_missing(qapp, tmp_path):
+    """The risk is not the format -- a wrong extension is obvious in seconds -- but the overrides
+    that will not be in the file, which surface much later, in analysis. So the note names them
+    rather than just reporting which class is used."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path, MAPPED_CFG)
+
+    dialog.data_format_combobox.setCurrentIndex(
+        dialog.data_format_combobox.findData('legacy_hdf5'))
+
+    note = dialog.data_format_note.text()
+    assert dialog.data_format_note.isVisible()
+    assert 'legacy_hdf5' not in note.split('.')[0]    # first sentence names the class, not the format
+    assert 'labpack/data.py' in note and 'missing' in note
+
+
+def test_the_note_names_the_labpack_class_when_there_is_one(qapp, tmp_path):
+    """No warning then -- the labpack's own class is writing the file, which is what it asked
+    for -- but still an answer to 'what is writing this'."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path, MAPPED_CFG)
+
+    assert dialog.data_format_note.isVisible()
+    assert dialog.data_format_note.text() == 'Written by labpack/data_nwb.py.'
+
+
+@pytest.mark.parametrize('data_format, expected', [
+    ('nwb', "Written by stimpack's built-in NWBData."),
+    ('legacy_hdf5', "Written by stimpack's built-in LegacyHdf5Data."),
+])
+def test_which_class_writes_the_file_is_stated_even_with_no_labpack_module(
+        qapp, tmp_path, data_format, expected):
+    """The common case, and it said nothing at all: the note only appeared when something was
+    wrong, so a config with no data module of its own left 'what is writing this' answered only
+    by a line printed to the terminal at start-up, which nobody reads during a session."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path,
+                                    {'data_format': data_format, 'module_paths': {}})
+
+    assert dialog.data_format_note.isVisible()
+    assert dialog.data_format_note.text() == expected
+    assert [dialog.data_format_combobox.itemText(i)
+            for i in range(dialog.data_format_combobox.count())] == ['hdf5', 'legacy_hdf5', 'nwb']
+
+
+def test_one_data_module_names_itself_rather_than_claiming_a_format(qapp, tmp_path):
+    """Showing a disabled 'hdf5' would assert a format we have not imported the class to check.
+    Naming the module says only what is known."""
+    dialog, _ = make_startup_dialog(qapp, tmp_path,
+                                    {'data_format': 'nwb',
+                                     'module_paths': {'data': 'labpack/data.py'}})
+
+    assert dialog.data_format_combobox.currentText() == '(from labpack/data.py)'
+
+
+def test_the_placeholder_never_reaches_the_config(qapp, tmp_path):
+    """on_pressed_enter_button copies the combo into cfg['data_format']. With a single labpack
+    module the combo holds a module name, and writing that would leave a data_format nothing can
+    resolve -- get_data_format would warn and silently fall back to hdf5."""
+    cfg = {'data_format': 'nwb', 'module_paths': {'data': 'labpack/data.py'}}
+    dialog, stub = make_startup_dialog(qapp, tmp_path, cfg)
+    dialog.rig_combobox.addItem('rig1')
+
+    dialog.on_pressed_enter_button()
+
+    assert stub.cfg['data_format'] == 'nwb'

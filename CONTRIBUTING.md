@@ -56,8 +56,15 @@ Individual tiers, which is what CI runs so a failure says which layer broke:
 > pytest -m e2e                     # a live server with real screen subprocesses
 ```
 
-`-m e2e` launches real stimulus windows; run it under a virtual display (`xvfb-run -a pytest -m e2e`)
-if you would rather they did not appear. `-m hardware` needs an actual rig and is not run in CI.
+`-m hardware` needs an actual rig and is not run in CI.
+
+The suite tries not to take over the desktop it runs on. The process renders offscreen
+(`QT_QPA_PLATFORM=offscreen`), so the GUI, its dialogs and the KeyTrac window never appear. Screen
+subprocesses need a real GL context and so cannot be offscreen — those windows do appear, but they
+open without taking the keyboard (`STIMPACK_NO_FOCUS=1`, honoured under X11/XWayland; Wayland has no
+such hint, which is why tests name an X display via `helpers.unobtrusive_screen`). Both are
+`setdefault`, so `QT_QPA_PLATFORM=wayland pytest -m gui` still shows you a run. To make the stimulus
+windows invisible as well as unfocused, use a virtual display: `xvfb-run -a pytest`.
 
 Golden-image tests under `tests/gl/` compare renders against `tests/gl/reference/`. If you change
 a stimulus deliberately, regenerate them with `pytest -m gl --update-goldens` and review the diff.

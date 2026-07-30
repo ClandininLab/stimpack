@@ -37,7 +37,7 @@ Run it::
     python examples/1-hello_world.py
 
 A window opens and a checkerboard appears five times. On exit, ``print_profile=True`` prints the
-frame-time distribution for the epoch, which is the first thing to look at when timing matters.
+frame-time distribution for the trial, which is the first thing to look at when timing matters.
 
 What just happened
 ==================
@@ -49,8 +49,11 @@ socket.
 Two consequences follow, and they are worth absorbing early because neither announces itself:
 
 **Calls do not return anything.** ``load_stim`` does not report success, and a call naming a
-stimulus that does not exist is accepted, sent, and dropped. The server pushes errors back over the
-same connection, which is how they reach the GUI, but a script like the one above will not notice.
+stimulus that does not exist is still accepted and sent -- attribute access alone never fails. The
+screen does report the failure back over the same connection, which is how errors reach the GUI and
+abort a run, but that message arrives asynchronously rather than as a return value: a plain script
+like the one above sees it only if it registers a ``report_server_message`` handler and drains the
+queue.
 
 **The screen draws on its own clock.** ``start_stim`` tells the screen to begin; the script then
 sleeps while the screen renders. The two are not in lockstep. ``stop_stim(print_profile=True)`` is

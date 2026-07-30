@@ -253,14 +253,14 @@ from stimpack.rpc.multicall import MyMultiCall
 
 class {name}(BaseProtocol):
     def get_run_parameter_defaults(self):
-        return {{'num_epochs': 2, 'idle_color': 0.5, 'do_loco': False}}
+        return {{'num_trials': 2, 'idle_color': 0.5, 'do_loco': False}}
 
     def get_protocol_parameter_defaults(self):
         return {{'pre_time': 0.0, 'stim_time': 0.0, 'tail_time': 0.0}}
 
-    def get_epoch_parameters(self):
-        super().get_epoch_parameters()
-        self.epoch_stim_parameters = {{'name': 'MovingSpot'}}
+    def get_trial_parameters(self):
+        super().get_trial_parameters()
+        self.trial_stim_parameters = {{'name': 'MovingSpot'}}
 
     def load_stimuli(self, manager, multicall=None):
         multicall = multicall or MyMultiCall(manager)
@@ -370,7 +370,7 @@ def test_protocols_that_cannot_be_exercised_are_counted_not_hidden(tmp_path):
 def test_the_deep_check_does_not_sleep_through_the_stimulus(tmp_path):
     """start_stimuli sleeps for the real stimulus duration; checking must not take that long."""
     import time
-    cfg = labpack_with_protocol(tmp_path, "        pass")
+    labpack_with_protocol(tmp_path, "        pass")   # builds the labpack; the cfg is not needed here
     path = tmp_path / 'pack' / 'protocol' / 'my_protocol.py'
     path.write_text(path.read_text().replace("'pre_time': 0.0", "'pre_time': 30.0"))
 
@@ -447,13 +447,13 @@ def test_a_visual_stim_module_that_will_not_load_is_an_error(tmp_path):
     assert 'visual-stim-will-not-load' in codes(findings, level='error')
 
 
-def test_every_stimulus_in_a_multi_stimulus_epoch_is_checked(tmp_path):
-    """epoch_stim_parameters may be a list; a bad name later in it must not be missed."""
+def test_every_stimulus_in_a_multi_stimulus_trial_is_checked(tmp_path):
+    """trial_stim_parameters may be a list; a bad name later in it must not be missed."""
     labpack_with_protocol(tmp_path, "        pass")
     path = tmp_path / 'pack' / 'protocol' / 'my_protocol.py'
     path.write_text(path.read_text().replace(
-        "self.epoch_stim_parameters = {'name': 'MovingSpot'}",
-        "self.epoch_stim_parameters = [{'name': 'MovingSpot'}, {'name': 'AlsoNotReal'}]"))
+        "self.trial_stim_parameters = {'name': 'MovingSpot'}",
+        "self.trial_stim_parameters = [{'name': 'MovingSpot'}, {'name': 'AlsoNotReal'}]"))
 
     findings = deep_findings(tmp_path)
     assert codes(findings, level='error') == ['unknown-stimulus']
@@ -492,3 +492,124 @@ def test_nwb_with_pynwb_installed_passes():
     pytest.importorskip('pynwb')
     findings = check_labpack.check_config({'data_format': 'nwb', 'module_paths': {}}, 'c.yaml')
     assert [f for f in findings if f.code == 'data-backend-unavailable'] == []
+
+
+def test_a_data_module_mapped_per_format_checks_out(tmp_path):
+    """module_paths.data may map a class per format. That reached os.path as a dict, so the
+    checker raised TypeError on exactly the configs it exists to check."""
+    cfg = good_cfg()
+    cfg['data_format'] = 'nwb'
+    cfg['module_paths']['data'] = {'hdf5': 'pack/data.py', 'nwb': 'pack/data_nwb.py'}
+    root = make_labpack(tmp_path, cfg)
+    (root / 'pack' / 'data_nwb.py').write_text('')
+
+    findings, configs = check_labpack.check_labpack(str(tmp_path))
+
+    assert findings == []
+    assert configs == ['test_config.yaml']
+
+
+def test_a_missing_module_is_still_found_inside_a_mapping(tmp_path):
+    """Flattening the mapping must not cost the existence check that the flat form gets."""
+    cfg = good_cfg()
+    cfg['data_format'] = 'hdf5'
+    cfg['module_paths']['data'] = {'hdf5': 'pack/data.py', 'nwb': 'pack/nonexistent.py'}
+    make_labpack(tmp_path, cfg)
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+
+    assert codes(findings, level='error') == ['missing-module-path']
+    assert 'nonexistent.py' in findings[0].message
+
+
+def test_a_mapping_with_no_data_format_is_a_warning(tmp_path):
+    """The lab supplied classes; which one runs is then decided by a default rather than by them.
+    Unambiguous when they mapped one format, a coin toss when they mapped several."""
+    cfg = good_cfg()
+    cfg.pop('data_format', None)
+    cfg['module_paths']['data'] = {'hdf5': 'pack/data.py', 'nwb': 'pack/data_nwb.py'}
+    root = make_labpack(tmp_path, cfg)
+    (root / 'pack' / 'data_nwb.py').write_text('')
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+
+    assert codes(findings, level='warning') == ['no-data-format-with-mapping']
+
+
+def test_a_data_format_outside_the_mapping_is_a_warning(tmp_path):
+    """Legitimate -- custom HDF5 and stock NWB is a reasonable thing to want -- but it means every
+    launch bypasses the labpack's classes, which is worth knowing on purpose rather than at 2am."""
+    cfg = good_cfg()
+    cfg['data_format'] = 'nwb'
+    cfg['module_paths']['data'] = {'hdf5': 'pack/data.py'}
+    make_labpack(tmp_path, cfg)
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+
+    assert codes(findings, level='warning') == ['data-format-outside-mapping']
+    assert "built-in" in findings[0].message
+
+
+def test_a_labpack_defined_format_is_not_an_unknown_one(tmp_path):
+    """A mapping may name a format stimpack has never heard of -- the class is loaded by path and
+    only ever duck-typed. Validating against the built-ins alone rejected it."""
+    cfg = good_cfg()
+    cfg['data_format'] = 'parquet'
+    cfg['module_paths']['data'] = {'parquet': 'pack/data.py'}
+    make_labpack(tmp_path, cfg)
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+
+    assert findings == []
+
+
+def test_a_bare_sleep_in_start_stimuli_is_reported(tmp_path):
+    """BaseProtocol.sleep drains the client's queue and returns early when the run is stopped;
+    time.sleep cannot be interrupted, so Stop is not noticed until the trial ends. A protocol
+    overriding start_stimuli has to remember self.sleep, and stimpack's own example did not --
+    which is what one lab's ten protocols were copied from."""
+    cfg = good_cfg()
+    root = make_labpack(tmp_path, cfg)
+    (root / 'pack' / 'protocol' / 'my_protocol.py').write_text(
+        'from time import sleep\n'
+        'from stimpack.experiment.protocol import BaseProtocol\n\n'
+        'class Sleepy(BaseProtocol):\n'
+        '    def start_stimuli(self, manager, append_stim_frames=False, print_profile=True,\n'
+        '                      multicall=None):\n'
+        '        sleep(1)\n'
+        '        sleep(2)\n')
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path), deep=True)
+
+    sleepy = [f for f in findings if f.code == 'uninterruptible-sleep']
+    assert len(sleepy) == 1
+    assert 'Sleepy' in sleepy[0].message and '2 time(s)' in sleepy[0].message
+
+
+def test_self_sleep_is_not_reported(tmp_path):
+    """The fix must not still look like the fault -- 'self.sleep(' contains 'sleep('."""
+    cfg = good_cfg()
+    root = make_labpack(tmp_path, cfg)
+    (root / 'pack' / 'protocol' / 'my_protocol.py').write_text(
+        'from stimpack.experiment.protocol import BaseProtocol\n\n'
+        'class Awake(BaseProtocol):\n'
+        '    def start_stimuli(self, manager, append_stim_frames=False, print_profile=True,\n'
+        '                      multicall=None):\n'
+        '        self.sleep(1)\n')
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path), deep=True)
+
+    assert [f for f in findings if f.code == 'uninterruptible-sleep'] == []
+
+
+def test_a_protocol_that_does_not_override_start_stimuli_is_not_reported(tmp_path):
+    """BaseProtocol's own start_stimuli already uses self.sleep, and every protocol inherits it."""
+    make_labpack(tmp_path, good_cfg())
+    (tmp_path / 'pack' / 'protocol' / 'my_protocol.py').write_text(
+        'from stimpack.experiment.protocol import BaseProtocol\n\n'
+        'class Plain(BaseProtocol):\n'
+        '    pass\n')
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path), deep=True)
+
+    assert [f for f in findings if f.code == 'uninterruptible-sleep'] == []
