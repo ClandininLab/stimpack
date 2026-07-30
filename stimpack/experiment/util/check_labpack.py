@@ -32,7 +32,9 @@ Two severities, and the distinction is about what happens next:
   warning  something is absent or ignored, which may well be deliberate for this rig
 """
 import contextlib
+import inspect
 import os
+import re
 import sys
 import tempfile
 import warnings
@@ -434,6 +436,24 @@ def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
         findings.append(Finding(level, code, cfg_name, f'{name}{where}: {message}'))
 
     skipped = None                    # set when the protocol could not be exercised at all
+
+    # --- an uninterruptible wait in start_stimuli -----------------------------------------------
+    # BaseProtocol.sleep drains the client's queue and returns early when the run is stopped;
+    # time.sleep cannot be interrupted, so Stop is not noticed until the trial ends -- on a long
+    # trial that is a long wait, and the same delay applies to an error the server reports
+    # mid-trial. A protocol overriding start_stimuli has to remember to use self.sleep, and
+    # stimpack's own example did not, which is what these were copied from.
+    if 'start_stimuli' in protocol_class.__dict__:
+        try:
+            source = inspect.getsource(protocol_class.start_stimuli)
+        except (OSError, TypeError):
+            source = ''
+        # A bare call, not self.sleep(...) or manager.sleep(...).
+        bare_sleeps = len(re.findall(r'(?<![.\w])sleep\s*\(', source))
+        if bare_sleeps:
+            add('warning', 'uninterruptible-sleep',
+                f'start_stimuli calls time.sleep {bare_sleeps} time(s); use self.sleep so Stop '
+                f'takes effect during a trial rather than at the end of it')
 
     # --- tier 3: does it construct, and can it produce an epoch? --------------------------------
     try:

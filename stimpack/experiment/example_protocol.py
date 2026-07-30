@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
-from time import sleep
 
 from stimpack.rpc.transceiver import MySocketClient
 from stimpack.rpc.multicall import MyMultiCall
@@ -216,7 +215,10 @@ class LinearTrackWithTowers(BaseProtocol):
         super().process_input_parameters()
 
     def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
-        
+        # self.sleep, not time.sleep: a bare sleep cannot be interrupted, so Stop is not noticed
+        # until the trial ends -- on a long track that is a long wait, and the same delay applies
+        # to an error the server reports mid-trial. See BaseProtocol.sleep.
+
         # locomotion setting variables
         do_loco = self.run_parameters.get('do_loco', False)
         do_loco_closed_loop = do_loco and self.trial_protocol_parameters.get('loco_pos_closed_loop', False)
@@ -226,7 +228,7 @@ class LinearTrackWithTowers(BaseProtocol):
                                                 'y_pos_offset': self.trial_protocol_parameters['y_pos_offset']})
 
         ### pre time
-        sleep(self.trial_protocol_parameters['pre_time'])
+        self.sleep(self.trial_protocol_parameters['pre_time'])
         
         if multicall is None:
             multicall = MyMultiCall(manager)
@@ -244,7 +246,7 @@ class LinearTrackWithTowers(BaseProtocol):
         multicall.target('all').start_stim(append_stim_frames=append_stim_frames)
         multicall.target('visual').corner_square_toggle_start()
         multicall()
-        sleep(self.trial_protocol_parameters['stim_time'])
+        self.sleep(self.trial_protocol_parameters['stim_time'])
 
         ### tail time
         multicall = MyMultiCall(manager)
@@ -260,7 +262,7 @@ class LinearTrackWithTowers(BaseProtocol):
 
         multicall()
 
-        sleep(self.trial_protocol_parameters['tail_time'])
+        self.sleep(self.trial_protocol_parameters['tail_time'])
 
     def get_trial_parameters(self):
         super().get_trial_parameters()

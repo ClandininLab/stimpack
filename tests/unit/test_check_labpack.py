@@ -561,3 +561,55 @@ def test_a_labpack_defined_format_is_not_an_unknown_one(tmp_path):
     findings, _ = check_labpack.check_labpack(str(tmp_path))
 
     assert findings == []
+
+
+def test_a_bare_sleep_in_start_stimuli_is_reported(tmp_path):
+    """BaseProtocol.sleep drains the client's queue and returns early when the run is stopped;
+    time.sleep cannot be interrupted, so Stop is not noticed until the trial ends. A protocol
+    overriding start_stimuli has to remember self.sleep, and stimpack's own example did not --
+    which is what one lab's ten protocols were copied from."""
+    cfg = good_cfg()
+    root = make_labpack(tmp_path, cfg)
+    (root / 'pack' / 'protocol' / 'my_protocol.py').write_text(
+        'from time import sleep\n'
+        'from stimpack.experiment.protocol import BaseProtocol\n\n'
+        'class Sleepy(BaseProtocol):\n'
+        '    def start_stimuli(self, manager, append_stim_frames=False, print_profile=True,\n'
+        '                      multicall=None):\n'
+        '        sleep(1)\n'
+        '        sleep(2)\n')
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path), deep=True)
+
+    sleepy = [f for f in findings if f.code == 'uninterruptible-sleep']
+    assert len(sleepy) == 1
+    assert 'Sleepy' in sleepy[0].message and '2 time(s)' in sleepy[0].message
+
+
+def test_self_sleep_is_not_reported(tmp_path):
+    """The fix must not still look like the fault -- 'self.sleep(' contains 'sleep('."""
+    cfg = good_cfg()
+    root = make_labpack(tmp_path, cfg)
+    (root / 'pack' / 'protocol' / 'my_protocol.py').write_text(
+        'from stimpack.experiment.protocol import BaseProtocol\n\n'
+        'class Awake(BaseProtocol):\n'
+        '    def start_stimuli(self, manager, append_stim_frames=False, print_profile=True,\n'
+        '                      multicall=None):\n'
+        '        self.sleep(1)\n')
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path), deep=True)
+
+    assert [f for f in findings if f.code == 'uninterruptible-sleep'] == []
+
+
+def test_a_protocol_that_does_not_override_start_stimuli_is_not_reported(tmp_path):
+    """BaseProtocol's own start_stimuli already uses self.sleep, and every protocol inherits it."""
+    make_labpack(tmp_path, good_cfg())
+    (tmp_path / 'pack' / 'protocol' / 'my_protocol.py').write_text(
+        'from stimpack.experiment.protocol import BaseProtocol\n\n'
+        'class Plain(BaseProtocol):\n'
+        '    pass\n')
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path), deep=True)
+
+    assert [f for f in findings if f.code == 'uninterruptible-sleep'] == []
