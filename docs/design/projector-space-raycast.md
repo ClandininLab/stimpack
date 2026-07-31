@@ -161,10 +161,51 @@ intersection routine compiled into one shared tracer, and a labpack cannot injec
 stimpack's shader without a mechanism that does not exist. That is in direct tension with the
 labpack separation this project leads with everywhere else, including in its paper.
 
-That argues strongly for a second path rather than a replacement, and for the cube remaining the
-default that anything unusual falls back to. It also means the honest framing of this work is not
-"the cube was wrong" but "a fast path exists for the geometry we actually draw, and it costs
-extensibility, so it must be opt-in".
+That argues for a second path rather than a replacement, and for the cube remaining the fallback.
+But "a labpack cannot extend a ray-cast renderer" is too strong, and the rest of this section is
+why.
+
+### How a labpack could still add geometry
+
+Three mechanisms, in increasing order of how much they preserve.
+
+**1. The labpack ships GLSL.** An intersection function and a shading function with fixed
+signatures, composed into the tracer by stimpack. Separation is fully preserved. This is not
+hypothetical: it is what flystim 1.0 did, with `glsl.py` generating GLSL from Python declarations
+and substituting it into `base.template`. The mechanism existed in this lineage and was retired
+because 2.0 made it unnecessary, not because it failed. The cost is that labpack authors write
+GLSL, which is a steep barrier for people who write protocols in Python.
+
+**2. Primitives as data rather than code.** A labpack declares a quadric -- a 4x4 matrix Q -- and
+stimpack has one generic intersector, since ray-vs-quadric is a quadratic in t. That single routine
+covers spheres, ellipsoids, cylinders, cones and paraboloids; boxes are a CSG of half-spaces. No
+GLSL from the labpack. It covers everything in both libraries, `GlFly` included.
+
+**3. Shapes declare their own analytic form, and labpacks change nothing.** `GlIcosphere` already
+*is* a unit sphere and `GlCylinder` already *is* a cylinder. stimpack could derive the quadric from
+the objects a labpack already composes -- except that today every transform discards exactly that:
+
+```python
+def scale(self, amt):
+    return GlVertices(vertices=util.scale(self.vertices, amt), ...)
+```
+
+`GlIcosphere(...).scale(...)` returns a plain `GlVertices`, so both the identity and the transform
+are baked into vertex data and lost. Preserving the subclass and accumulating the transform matrix
+is a modest change in stimpack's own `shapes.py`, and independently worth it: a shape could then be
+re-transformed without regenerating 100k vertices.
+
+With (3), a labpack composing stock primitives gets the fast path having written nothing new, and
+anything built from raw `GlVertices` falls back to the cube automatically.
+
+So the residual cost is narrow: a labpack wanting a genuinely novel *kind* of surface, not
+expressible as a quadric or a CSG of quadrics, either writes GLSL or takes the cube path. Nothing
+becomes impossible. There is even an argument this improves matters -- `GlFly` as seven quadrics is
+exact, smaller and re-transformable, against 102,400 baked triangles today.
+
+The honest framing of this work is therefore not "the cube was wrong" but "a fast path exists for
+the geometry we actually draw, it needs primitives to be declarative rather than vertex soup, and
+the cube stays for everything else".
 
 ## What would have to be true
 
@@ -184,11 +225,10 @@ Open questions, in the order that would settle whether to continue.
    labpack could import one tomorrow, and the answer must be that the cube path remains available
    rather than that meshes become impossible.
 
-4. **How does a labpack add a primitive?** This is the sharpest question, and the section above is
-   why. Composition in Python survives; adding a *new kind of surface* does not, because its
-   intersection routine has to be inside stimpack's tracer shader. Either there is a mechanism for
-   a labpack to contribute GLSL to it, or new primitives become stimpack's job, which is a
-   regression against everything else the project does. Answer this before writing any renderer.
+4. **Do shapes keep their analytic identity through a transform?** This is the prerequisite for
+   the whole approach being extensible without labpacks writing GLSL -- see mechanism (3) above.
+   It is a change to `shapes.py`, it is small, and it is worth doing on its own merits. Do it
+   first, independently of any renderer, and the rest becomes possible rather than blocked.
 
 ## Recommendation
 
