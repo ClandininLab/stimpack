@@ -119,6 +119,53 @@ Depth and occlusion come from comparing intersection distances — no depth buff
 different radii work directly, and when the subject translates off centre in closed loop they give
 genuine parallax, which "painting on a sphere" cannot.
 
+## Is this undoing flystim 1.0 -> 2.0?
+
+Partly, and the part it undoes is the one worth arguing about.
+
+**flystim 1.0 was a direction-space renderer.** `base.py` describes `calc_color` as "GLSL shader
+code used to compute the monochromatic color of each pixel as a function of spherical coordinates
+(r, theta, phi)", and `glsl.py` is a small library for generating that GLSL from Python. A stimulus
+*was* a fragment program:
+
+```python
+class ConstantBackground(BaseProgram):
+    uniforms   = [Uniform('background', float)]
+    calc_color = 'color = background;\n'
+```
+
+All 14 of its stimuli are functions of direction — gratings, bars, patches, grids, checkerboards.
+There is no `Tower`, no `Forest`, no `Floor`, no `Box`, no textured surface, no colour.
+
+**2.0 replaced that with composable geometry** and went to 24 classes. What it bought:
+
+1. **3D scenes with parallax.** `Tower`, `Forest`, `Floor`, `CheckerboardFloor`, `MovingBox`,
+   `TexturedGround` cannot be written as f(theta, phi) at all. This is what made closed-loop
+   position experiments possible.
+2. **Composition in Python.** A stimulus assembles primitives instead of emitting GLSL. `GlFly` is
+   five ellipsoids and two discs, written by a labpack, in Python.
+3. **Textures and colour**, from vertex attributes, rather than monochrome analytic functions.
+4. **Extensibility without touching the core.** A labpack adds `GlIcosphere` and `GlFly` in its own
+   file. stimpack never sees them.
+
+Against that, this proposal is **not** a return to 1.0. Ray casting analytic surfaces keeps (1) —
+it does parallax and occlusion properly, from intersection distances, which 1.0's direction
+functions could not do at all. It keeps (2), provided intersection routines live in the shape
+library rather than in each stimulus: a stimulus still says "cylinder here, ellipsoid there". (3)
+is mostly fine, since sphere, cylinder and plane all have natural analytic parameterisations,
+though each primitive would need its UV written by hand instead of getting it from vertex data.
+
+**(4) is the real loss, and it is the one that matters most here.** In 2.0 a labpack adds geometry
+without stimpack's involvement. In a ray-cast renderer every primitive type must have an
+intersection routine compiled into one shared tracer, and a labpack cannot inject GLSL into
+stimpack's shader without a mechanism that does not exist. That is in direct tension with the
+labpack separation this project leads with everywhere else, including in its paper.
+
+That argues strongly for a second path rather than a replacement, and for the cube remaining the
+default that anything unusual falls back to. It also means the honest framing of this work is not
+"the cube was wrong" but "a fast path exists for the geometry we actually draw, and it costs
+extensibility, so it must be opt-in".
+
 ## What would have to be true
 
 Open questions, in the order that would settle whether to continue.
@@ -137,11 +184,20 @@ Open questions, in the order that would settle whether to continue.
    labpack could import one tomorrow, and the answer must be that the cube path remains available
    rather than that meshes become impossible.
 
-4. **What does it cost a labpack author?** Writing a stimulus becomes writing an intersection
-   routine, not assembling shapes. That is a real cost to the people who write the most stimuli,
-   and it is the strongest argument for keeping this as a second path rather than a replacement.
+4. **How does a labpack add a primitive?** This is the sharpest question, and the section above is
+   why. Composition in Python survives; adding a *new kind of surface* does not, because its
+   intersection routine has to be inside stimpack's tracer shader. Either there is a mechanism for
+   a labpack to contribute GLSL to it, or new primitives become stimpack's job, which is a
+   regression against everything else the project does. Answer this before writing any renderer.
 
 ## Recommendation
 
-Keep the cube. Add this beside it, chosen per stimulus, once (1) shows the resolution loss is real
-on a rig somebody runs. If it is not real, this note is the record of why we did not do it.
+Keep the cube as the default and the fallback. Add this beside it, chosen per stimulus, once (1)
+shows the resolution loss is real on a rig somebody runs and (4) has an answer that does not put
+labpack geometry back inside stimpack. If either fails, this note is the record of why we did not
+do it.
+
+The framing that survives scrutiny is not "the cube map was a mistake" -- it is the right general
+answer, and flystim 2.0 was right to move to composable geometry. It is that stimpack draws a
+narrow enough class of geometry that a faster path exists, and that path costs extensibility, so it
+has to be opt-in and cannot be the only one.
