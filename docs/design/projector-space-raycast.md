@@ -241,3 +241,84 @@ The framing that survives scrutiny is not "the cube map was a mistake" -- it is 
 answer, and flystim 2.0 was right to move to composable geometry. It is that stimpack draws a
 narrow enough class of geometry that a faster path exists, and that path costs extensibility, so it
 has to be opt-in and cannot be the only one.
+
+---
+
+## Phase 0 result: the case does not survive the real geometry
+
+*Added after running the diagnostic against flymax's actual rig parameters, from
+`stimgen/pmeshdf.m` and `stimgen/sphere2plane.m`. It contradicts the argument above, and the
+argument above was wrong.*
+
+The numbers this note was built on came from a **reconstruction of flymax's rig, not its rig**. I
+took `r`, `t` and `c` from `stimgen/calculatePixelsOnSphere.m` -- an exploratory script, with an
+"arbitrary starting point" in its own comments -- and, crucially, assumed the screen was a full
+hemisphere. It is not.
+
+The real parameters:
+
+```matlab
+% pmeshdf.m
+screen 's' (small, new) : r = 71.5 mm,  c = 110 mm arc      % -> 44.07 deg HALF-angle
+screen 'l' (large, old) : r = 77.5 mm,  c = 105 mm arc      % -> 38.81 deg half-angle
+t = 1.57523511   % throw ratio, measured rather than from specs
+a = 1.6          % aspect
+g = 2            % degrees between mesh vertices
+```
+
+`c` is an arc length in millimetres, converted by `sphere2plane.m` as `c = c/r/2` into a **half**
+subtended angle. So flymax's screen is a cap of roughly 40-44 degrees half-angle -- about 80-88
+degrees of visual angle across -- and not a hemisphere at all.
+
+Rebuilt from those, with the projector placed as `d = 2*r*t*a*sin(c) + r*cos(c)` puts it (302.1 mm
+for screen 's', which matches the 302 mm recorded independently in the brightness note):
+
+| screen | px/deg, 1st | median | 99th | spread | cube-limited |
+|---|---|---|---|---|---|
+| 's' small/new | 7.8 | 9.2 | 10.9 | **1.4x** | 0.0% |
+| 'l' large/old | 9.1 | 10.4 | 12.0 | **1.3x** | 18.3% |
+
+**The 138-fold spread was an artifact of my wrong screen extent.** A hemisphere runs out to grazing
+incidence at its rim, where a projector's pixels smear to nothing; a 44-degree cap never goes near
+it. The rig was designed so the projector matches the screen, which is what a rig designer would do.
+
+With the spread gone, both arguments for this branch collapse:
+
+- **Resolution.** Matching the projector needs 978-1076 px/face. The shipped default is 1024. The
+  cube is correctly sized, by accident or by judgement, and is the limit over 0% of screen 's'.
+- **Motion quantisation.** A cube texel is 0.088 deg and a projector pixel on these rigs is about
+  0.10 deg. The cube is *finer* than the optics, so it adds no quantisation the projector does not
+  already impose. The earlier table assumed 0.029 deg pixels, which came from the same bad
+  reconstruction.
+
+### What the real geometry did buy
+
+The cheap change already on `dev` turns out to matter far more than the expensive one proposed
+here. A 44-degree cap fits inside a single cube face:
+
+```
+screen 's': 1/6 faces ['+Z']   saves 83% of scene draws
+screen 'l': 1/6 faces ['+Z']   saves 83% of scene draws
+```
+
+`faces_for_mesh` finds this automatically, with no configuration. Against that, this branch's
+best case was 5x fill on a claim that has now evaporated.
+
+### Also corrected
+
+The tessellation default was changed to 5 degrees on this branch's premise that it "matched
+flymax". flymax uses **2** (`pmeshdf.m`, `g = 2`). The docstring no longer claims otherwise. The
+5-degree default is still defensible on its own terms -- flymax's mesh carries the stimulus, so its
+spacing is a real resolution limit there, and here it is only a geometry approximation -- but it
+was not the reason given.
+
+### Recommendation
+
+**Stop.** Do not build Phases 1-5. The diagnostic that was supposed to justify them refutes them
+instead, which is what a gate is for, and it cost days rather than the months a renderer would
+have.
+
+Keep: `ScreenMesh.projector_resolution()`, which is a rig-commissioning tool on its own and is how
+anyone can re-open this question with a rig whose numbers differ. Re-open only if a rig appears
+with a genuinely wide screen -- a real hemisphere, or one lit at a shallow angle -- where the
+spread returns.

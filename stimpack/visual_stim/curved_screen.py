@@ -184,12 +184,18 @@ class SphericalSurface(CurvedSurface):
     :param radius: meters
     :param azimuth_range: (min, max) degrees; the default is the full 360
     :param elevation_range: (min, max) degrees; the default is the upper hemisphere
-    :param n_azimuth: tessellation steps around. The default is 5 degrees a step, matching the
-        tessellation flymax settled on. Finer costs almost nothing -- the whole screen is one draw
-        call however many facets it has -- and it buys geometric accuracy, not sharpness: a flat
-        facet sags inside the true sphere, so the direction a fragment samples along is wrong by
-        about 0.055 degrees mid-facet at 5 degrees, against 0.218 at 10. Sharpness comes from the
-        cube map instead (see CubeMapRenderer.resolution).
+    :param n_azimuth: tessellation steps around; 5 degrees a step by default. Finer costs almost
+        nothing -- the whole screen is one draw call however many facets it has -- and it buys
+        geometric accuracy, not sharpness: a flat facet sags inside the true sphere, so the
+        direction a fragment samples along is wrong by about 0.055 degrees mid-facet at 5 degrees,
+        against 0.218 at 10. Sharpness comes from the cube map instead (see
+        CubeMapRenderer.resolution).
+
+        For reference, flymax uses 2 degrees (`stimgen/pmeshdf.m`, `g = 2`), and says of it that
+        the mesh "should be as small as possible (for speed) while maintaining the resolution you
+        want (you must judge this by eye, on the spherical screen)". Their mesh carries the
+        stimulus, so its spacing is a resolution limit there; here it is not, which is why the
+        default is looser.
     :param n_elevation: tessellation steps up
     :param pole: rig-frame direction of the surface's own +z axis, about which the ranges above are
         measured; the default (0, 0, 1) leaves the patch where the ranges put it
