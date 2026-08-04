@@ -113,3 +113,53 @@ Whether MSAA can simply be made to work. If a multisampled FBO can be resolved i
 QOpenGLWidget's, §1 improves everywhere for a much smaller change, though it would not fix §2 and
 would cost fill. Worth half a day before committing to shader work, and worth knowing either way,
 since the code currently asks for 24x and silently receives none.
+
+---
+
+## Measured: can MSAA simply be made to work?
+
+*Answering the "what to check before starting" question above.*
+
+**Yes, through an explicit multisampled framebuffer.** The surface-format route is a dead end --
+`setSamples(24)` is ignored because QOpenGLWidget renders into its own FBO -- but rendering into a
+multisampled renderbuffer and resolving with `copy_framebuffer` works:
+
+```
+samples= 0 -> 0 partially-covered pixels on a slanted edge   (aliased)
+samples= 4 -> 1 partially-covered pixels                     (antialiased)
+samples=16 -> 2 partially-covered pixels                     (antialiased)
+```
+
+`ctx.detect_framebuffer()` already resolves Qt's widget FBO correctly, so the change is to render
+into the multisampled one and resolve into the detected one at the end of `paintGL`.
+
+**But it does not fit the 360 Hz budget.** 1280x800, 200 triangles, Mesa Intel:
+
+| samples | ms/frame | max Hz | headroom at 360 Hz |
+|---|---|---|---|
+| 0 | 1.348 | 742 | 2.1x |
+| 2 | 2.021 | 495 | 1.4x |
+| 4 | 2.129 | 470 | 1.3x |
+| 8 | 3.251 | 308 | **0.9x** |
+| 16 | 6.428 | 156 | **0.4x** |
+
+At 360 Hz the frame budget is 2.78 ms. 4x samples leaves 1.3x headroom on an integrated GPU with a
+trivial scene -- before the cube pass, before a real stimulus, before the subframe multiplexing
+that draws the scene three times per frame. 8x does not fit at all.
+
+So MSAA is affordable at 120 Hz and marginal at 360. That is an argument for analytic coverage
+rather than against antialiasing: `smoothstep` over `fwidth` costs a few instructions in a shader
+that already runs, has no framebuffer cost, and does not multiply with the subframe count.
+
+**Worth doing anyway, in one respect.** `make_qt_format` currently asks for 24x and silently
+receives none. Whatever is decided about antialiasing, that request should either be made to work
+or be removed with a comment saying why -- leaving it is a claim the code does not deliver.
+
+### Revised recommendation
+
+1. Fix or remove the ineffective `setSamples(24)`, and report the granted count at start-up.
+2. Write the two edge tests (transition width; per-frame edge movement).
+3. Analytic edges for `GlSphericalCirc` and `GlCircle`. This is the main event: it fixes the
+   polygon error, which MSAA cannot, and buys sub-pixel edge position without a per-frame cost.
+4. Consider 4x MSAA as a per-rig option for 120 Hz rigs, off by default. It antialiases everything
+   including geometry that has no analytic form, which is a genuine complement to (3).
