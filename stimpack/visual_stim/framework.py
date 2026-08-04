@@ -221,6 +221,25 @@ class StimDisplay(QOpenGLWidget):
         if reporter is not None:
             reporter('info', f'frame_count={self.frame_count}')
 
+    def report_subframe_mode(self):
+        """Say whether this screen is multiplexing, and at what rate.
+
+        Printed because it is a claim about hardware that software cannot check. subframes=3 packs
+        three timepoints into the colour channels for a projector configured to unpack them; if the
+        projector is in ordinary video mode instead, the result is a plausible-looking colour image
+        rather than an error. Saying it out loud at start-up is the only warning available, and it
+        is what a commissioning run (see SubframeTimingCheck) is checked against.
+        """
+        if self.screen.subframes <= 1:
+            print(f'Screen {self.screen.name}: 1 subframe per frame (ordinary rendering)')
+            return
+        order = ''.join('RGB'[c] for c in self.screen.subframe_channel_order[:self.screen.subframes])
+        print(f'Screen {self.screen.name}: {self.screen.subframes} subframes per frame, '
+              f'channel order {order}, {self.screen.refresh_rate} Hz video -> '
+              f'{self.screen.refresh_rate * self.screen.subframes} Hz')
+        print(f'Screen {self.screen.name}: this assumes the projector is in a matching pattern '
+              f'mode -- stimpack cannot verify it. Check with SubframeTimingCheck.')
+
     def report_surface_format(self):
         """Say what the GL surface actually granted, next to what make_qt_format asked for.
 
@@ -315,6 +334,7 @@ class StimDisplay(QOpenGLWidget):
         print(f"OpenGL vendor: {self.ctx.info['GL_VENDOR']}")
         print(f"OpenGL renderer: {self.ctx.info['GL_RENDERER']}")
         self.report_surface_format()
+        self.report_subframe_mode()
 
         self.ctx.enable(moderngl.BLEND) # enable alpha blending
         self.ctx.enable(moderngl.DEPTH_TEST) # enable depth test

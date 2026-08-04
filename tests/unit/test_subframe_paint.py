@@ -248,3 +248,43 @@ def test_the_check_stimulus_declares_what_the_rig_was_told():
     assert defaults['subframe_rate'] == 360.0
     assert SubframeTimingCheck.get_run_parameter_defaults(None)['idle_color'] == 0.0, \
         'a photodiode should see the corner square, not the background'
+
+
+def test_a_multiplexing_screen_says_so_and_says_it_cannot_be_verified(capsys):
+    """subframes=3 is a claim about the projector, not about stimpack. If the projector is in
+    ordinary video mode the result is a plausible colour image rather than an error, so the only
+    warning available is saying it out loud."""
+    from stimpack.visual_stim.framework import StimDisplay
+
+    display = StimDisplay.__new__(StimDisplay)
+    display.screen = Screen(subframes=3, refresh_rate=120)
+    display.report_subframe_mode()
+
+    printed = capsys.readouterr().out
+    assert '3 subframes' in printed
+    assert '360' in printed, 'the resulting rate should be stated, not left to arithmetic'
+    assert 'cannot verify' in printed
+
+
+def test_an_ordinary_screen_says_that_too(capsys):
+    """Silence would be ambiguous: nothing configures subframes today, so 'no message' and
+    'not multiplexing' would look the same."""
+    from stimpack.visual_stim.framework import StimDisplay
+
+    display = StimDisplay.__new__(StimDisplay)
+    display.screen = Screen()
+    display.report_subframe_mode()
+
+    assert '1 subframe' in capsys.readouterr().out
+
+
+def test_the_reported_channel_order_is_the_configured_one(capsys):
+    """A wrong order reorders three frames in time and still looks like motion, so it is worth
+    printing rather than assuming."""
+    from stimpack.visual_stim.framework import StimDisplay
+
+    display = StimDisplay.__new__(StimDisplay)
+    display.screen = Screen(subframes=3, refresh_rate=120, subframe_channel_order=(2, 1, 0))
+    display.report_subframe_mode()
+
+    assert 'channel order BGR' in capsys.readouterr().out
