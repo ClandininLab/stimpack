@@ -184,12 +184,18 @@ class SphericalSurface(CurvedSurface):
     :param radius: meters
     :param azimuth_range: (min, max) degrees; the default is the full 360
     :param elevation_range: (min, max) degrees; the default is the upper hemisphere
-    :param n_azimuth: tessellation steps around. The default is 5 degrees a step, matching the
-        tessellation flymax settled on. Finer costs almost nothing -- the whole screen is one draw
-        call however many facets it has -- and it buys geometric accuracy, not sharpness: a flat
-        facet sags inside the true sphere, so the direction a fragment samples along is wrong by
-        about 0.055 degrees mid-facet at 5 degrees, against 0.218 at 10. Sharpness comes from the
-        cube map instead (see CubeMapRenderer.resolution).
+    :param n_azimuth: tessellation steps around; 5 degrees a step by default. Finer costs almost
+        nothing -- the whole screen is one draw call however many facets it has -- and it buys
+        geometric accuracy, not sharpness: a flat facet sags inside the true sphere, so the
+        direction a fragment samples along is wrong by about 0.055 degrees mid-facet at 5 degrees,
+        against 0.218 at 10. Sharpness comes from the cube map instead (see
+        CubeMapRenderer.resolution).
+
+        For reference, flymax uses 2 degrees (`stimgen/pmeshdf.m`, `g = 2`), and says of it that
+        the mesh "should be as small as possible (for speed) while maintaining the resolution you
+        want (you must judge this by eye, on the spherical screen)". Their mesh carries the
+        stimulus, so its spacing is a resolution limit there; here it is not, which is why the
+        default is looser.
     :param n_elevation: tessellation steps up
     :param pole: rig-frame direction of the surface's own +z axis, about which the ranges above are
         measured; the default (0, 0, 1) leaves the patch where the ranges put it
@@ -283,6 +289,11 @@ def deserialize_surface(data):
     return SURFACE_KINDS[kind](**data)
 
 
+# Below this, a triangle is a sliver of the tessellation rather than a piece of screen, and the
+# pixels-per-solid-angle ratio stops meaning anything. See ScreenMesh.projector_resolution.
+DEGENERATE_SOLID_ANGLE = 1e-9
+
+
 class ScreenMesh:
     """The screen as the renderer needs it: where each point projects, and where it lies.
 
@@ -322,6 +333,108 @@ class ScreenMesh:
         flat = self.triangles.reshape(-1)
         return np.hstack([self.ndc[flat], self.directions[flat],
                           self.gain[flat, None]]).astype(np.float32)
+
+    def projector_resolution(self, projector_pixels, cube_resolution=None):
+        """How finely the projector resolves each part of the screen, in pixels per degree.
+
+        This is the number that says whether an intermediate is throwing information away. A
+        projector throwing onto a curved surface spreads its pixels wildly: the same panel that
+        resolves tens of pixels per degree near its optical axis may deliver a fraction of one at
+        grazing incidence, so a single figure for "the resolution of the rig" does not exist.
+
+        Measured, not modelled twice over. Each triangle of the mesh already carries both halves of
+        the map -- where its corners land in the projector image (``ndc``) and which way they lie
+        from the subject (``directions``) -- so the local density is the ratio of the two areas,
+        and needs no assumption the renderer does not already make.
+
+        Linear density rather than areal: a patch subtending an angle t on a side holds (t*d)^2
+        pixels, so d = sqrt(pixels / solid angle) is the pixels-per-radian a feature of that size
+        actually gets.
+
+        :param projector_pixels: (width, height) of the projector panel, in pixels
+        :param cube_resolution: pixels per cube-map face to compare against; defaults to the
+            renderer's own default, so the answer is about the rig as it would actually run
+        :return: dict with the per-triangle densities, their spread, and what a cube map would
+            have to be to keep up
+
+        The comparison to draw from the result is between ``best`` and ``cube_px_per_deg``. Where
+        the projector is finer than the cube, the intermediate is the limit and detail the optics
+        could deliver is being discarded; where it is coarser, the cube is spending fill on
+        resolution the screen cannot show.
+        """
+        from stimpack.visual_stim.cubemap import CUBE_FACE_DEGREES, DEFAULT_CUBE_RESOLUTION
+
+        if cube_resolution is None:
+            cube_resolution = DEFAULT_CUBE_RESOLUTION
+        width, height = (float(v) for v in projector_pixels)
+
+        corners = self.triangles.reshape(-1, 3)
+        lit = self.lit[corners].all(axis=1)
+        if not lit.any():
+            return {'lit_triangles': 0, 'best': None, 'worst': None, 'ratio': None,
+                    'cube_px_per_deg': cube_resolution / CUBE_FACE_DEGREES,
+                    'cube_resolution_to_match': None, 'fraction_cube_limited': None}
+        corners = corners[lit]
+
+        # area in the projector image, converted to pixels. NDC spans [-1, 1] on each axis, so the
+        # whole image is 4 units of area and holds width*height pixels.
+        a, b, c = (self.ndc[corners[:, i]].astype(float) for i in range(3))
+        edge1, edge2 = b - a, c - a
+        ndc_area = 0.5 * np.abs(edge1[:, 0] * edge2[:, 1] - edge1[:, 1] * edge2[:, 0])
+        pixels = ndc_area * (width * height / 4.0)
+
+        # solid angle the same triangle subtends at the subject (Van Oosterom & Strackee)
+        da, db, dc = (self.directions[corners[:, i]].astype(float) for i in range(3))
+        for v in (da, db, dc):
+            v /= np.linalg.norm(v, axis=1, keepdims=True)
+        numerator = np.abs(np.einsum('ij,ij->i', da, np.cross(db, dc)))
+        denominator = (1.0 + np.einsum('ij,ij->i', da, db)
+                       + np.einsum('ij,ij->i', db, dc)
+                       + np.einsum('ij,ij->i', dc, da))
+        solid_angle = 2.0 * np.arctan2(numerator, denominator)
+
+        # A spherical tessellation collapses at its pole: triangles there have vanishing solid
+        # angle, so the ratio below is a division of two near-zeros and lands anywhere. On the
+        # default bowl 72 of 1896 triangles are such slivers, carrying 0.0000% of the screen's
+        # solid angle between them -- and left in, they set the reported maximum, which is how a
+        # first version of this reported 187 px/deg for a rig that reaches about 11.
+        usable = (solid_angle > DEGENERATE_SOLID_ANGLE) & (ndc_area > 0)
+        if not usable.any():
+            return {'lit_triangles': 0, 'best': None, 'worst': None, 'ratio': None,
+                    'cube_px_per_deg': cube_resolution / CUBE_FACE_DEGREES,
+                    'cube_resolution_to_match': None, 'fraction_cube_limited': None}
+
+        density = np.sqrt(pixels[usable] / solid_angle[usable]) * np.pi / 180.0
+        weight = solid_angle[usable]
+
+        # Percentiles, weighted by how much screen each triangle actually covers, rather than
+        # min and max: an extremum over a mesh is a property of the tessellation as much as of
+        # the optics, and every consumer of this wants "what does most of the screen get".
+        order = np.argsort(density)
+        cumulative = np.cumsum(weight[order]) / weight.sum()
+        def at(fraction):
+            return float(density[order][np.searchsorted(cumulative, fraction)])
+
+        cube_px_per_deg = cube_resolution / CUBE_FACE_DEGREES
+        best, worst = at(0.99), at(0.01)
+        return {
+            'lit_triangles': int(usable.sum()),
+            'degenerate_triangles': int((~usable).sum()),
+            'px_per_deg': density,
+            'solid_angle': weight,
+            # 99th and 1st percentiles by screen area, not extrema -- see above
+            'best': best,
+            'worst': worst,
+            'median': at(0.5),
+            'ratio': best / worst if worst > 0 else float('inf'),
+            'cube_px_per_deg': cube_px_per_deg,
+            # what the cube would have to be to stop limiting the screen's best region
+            'cube_resolution_to_match': float(best * CUBE_FACE_DEGREES),
+            # share of the screen, by solid angle, where the cube rather than the optics is the
+            # limit -- i.e. where the experimenter is getting less than the rig could deliver
+            'fraction_cube_limited': float(weight[density > cube_px_per_deg].sum() / weight.sum()),
+        }
+
 
     def coverage(self, radius=None):
         """What part of the screen this projector actually lights, as a dict.

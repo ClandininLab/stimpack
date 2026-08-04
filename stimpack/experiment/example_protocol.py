@@ -199,6 +199,97 @@ class MovingPatch(BaseProtocol):
 
 #%%
 
+class SubframeTimingCheck(BaseProtocol):
+    """
+    Commissioning stimulus: is the display really showing three subframes, in the right order?
+
+    The subframe path packs three timepoints into a frame's colour channels for a projector that
+    unpacks them as successive patterns -- 360 Hz from a 120 Hz video link. Whether that actually
+    happens depends on the projector being in pattern mode, on the channel order matching, and on
+    every subframe reaching the screen. None of it can be checked from the client, and the unit
+    tests cannot check it either: they read pixels back from an offscreen buffer, which says the
+    packing is right and nothing about the display.
+
+    This puts the spot at a *different azimuth in each subframe*, cycling once per video frame, so
+    the answer is visible rather than inferred:
+
+    - **all subframes displayed** -- ``n_subframes`` spots, evenly spaced by ``separation``, and
+      with a high-speed camera they appear in order left to right
+    - **only one channel reaching the screen** -- a single spot, not three
+    - **channel order wrong** -- the right number of spots, in the wrong sequence, which a camera
+      sees and the eye does not
+
+    Alongside it the corner square toggles once per subframe (see StimDisplay.paint_subframe), so a
+    photodiode on the square reports the rate directly: transitions at ``subframe_rate``, not at the
+    video frame rate. That is the measurement to trust; the spots say what is wrong when the rate is
+    not what it should be.
+
+    ``subframe_rate`` and ``n_subframes`` are parameters rather than read from the screen, because
+    this is the stimulus you run when you do not yet believe the screen is doing what it was told.
+    Set them to what the rig's configuration asks for, and see whether the display agrees.
+    """
+    def __init__(self, cfg):
+        super().__init__(cfg)
+
+        self.run_parameters = self.get_run_parameter_defaults()
+        self.protocol_parameters = self.get_protocol_parameter_defaults()
+
+    def subframe_positions(self, stim_time, n_subframes, subframe_rate, separation, center):
+        """A staircase in azimuth, one step per subframe, cycling every video frame.
+
+        Held rather than interpolated: each subframe must land on one position, not slide between
+        two. The step boundaries sit half an interval early so that a subframe rendered at exactly
+        k / subframe_rate samples the middle of step k rather than its edge, where floating point
+        could put it on either side.
+        """
+        interval = 1.0 / subframe_rate
+        steps = int(np.ceil(stim_time * subframe_rate)) + 2
+        return [((k - 0.5) * interval, center + separation * (k % n_subframes))
+                for k in range(steps)]
+
+    def get_trial_parameters(self):
+        super().get_trial_parameters()
+
+        center = self.adjust_center(self.trial_protocol_parameters['center'])
+        theta = self.subframe_positions(
+            stim_time=self.trial_protocol_parameters['stim_time'],
+            n_subframes=int(self.trial_protocol_parameters['n_subframes']),
+            subframe_rate=float(self.trial_protocol_parameters['subframe_rate']),
+            separation=float(self.trial_protocol_parameters['separation']),
+            center=center[0])
+
+        self.trial_stim_parameters = {'name': 'MovingSpot',
+                                      'radius': self.trial_protocol_parameters['radius'],
+                                      'sphere_radius': 1,
+                                      'color': self.trial_protocol_parameters['color'],
+                                      'theta': {'name': 'TVPairs',
+                                                'tv_pairs': theta,
+                                                'kind': 'previous'},
+                                      'phi': center[1]}
+
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 1.0,
+                'stim_time': 4.0,
+                'tail_time': 1.0,
+
+                'n_subframes': 3,        # match the screen's `subframes`
+                'subframe_rate': 360.0,  # Hz; the video rate times n_subframes
+                'separation': 10.0,      # degrees between consecutive subframe positions
+                'radius': 2.5,
+                'color': 1.0,
+                'center': (0, 0),
+                }
+
+    def get_run_parameter_defaults(self):
+        return {'num_trials': 5,
+                'idle_color': 0.0,       # dark, so a photodiode sees only the corner square
+                'pre_run_time': 0,
+                'post_run_time': 0,
+                'all_combinations': True,
+                'randomize_order': False}
+
+# %%
+
 class LinearTrackWithTowers(BaseProtocol):
     """
     Linear track with towers. Towers can be rotating or stationary, and can be sine or square wave gratings.

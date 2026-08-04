@@ -809,3 +809,78 @@ def test_the_default_tessellation_is_five_degrees():
 
     assert 360 / surface.n_azimuth == 5
     assert 90 / surface.n_elevation == 5
+
+
+# --- how finely the projector resolves the screen ------------------------------------------------
+
+def _flymax_like_mesh():
+    from stimpack.visual_stim.curved_screen import (PinholeProjector, SphericalSurface,
+                                                    build_screen_mesh)
+    radius, distance, tilt = 0.0762, 0.302067, 39.5
+    axis = np.array([0, -np.sin(np.radians(tilt)), -np.cos(np.radians(tilt))])
+    return build_screen_mesh(
+        SphericalSurface(radius=radius, elevation_range=(0, 90), pole=axis),
+        PinholeProjector(position=tuple(distance * axis), look_at=(0, 0, 0),
+                         throw_ratio=1.4, aspect_ratio=1.6))
+
+
+def test_pixel_areas_sum_to_the_part_of_the_image_the_screen_covers():
+    """The check that validates the arithmetic without appealing to any outside convention: the
+    triangles' areas in the projector image, converted to pixels, must add up to the panel times
+    the fraction of the image the screen occupies."""
+    mesh = _flymax_like_mesh()
+    panel = (1140, 912)
+
+    result = mesh.projector_resolution(panel)
+    total_pixels = (result['px_per_deg'] * 180 / np.pi) ** 2 * result['solid_angle']
+
+    covered = total_pixels.sum() / (panel[0] * panel[1])
+    assert 0.05 < covered < 1.0, 'a bowl should cover some but not all of the projector image'
+
+
+def test_a_sliver_of_the_tessellation_cannot_set_the_reported_resolution():
+    """A spherical mesh collapses at its pole, and those triangles divide two near-zeros. Left in,
+    they reported 187 px/deg for a rig that reaches about 11 -- and they were simultaneously the
+    densest AND sparsest triangles, which is the signature of the bug."""
+    mesh = _flymax_like_mesh()
+
+    result = mesh.projector_resolution((1140, 912))
+
+    assert result['degenerate_triangles'] > 0, 'this geometry should have polar slivers to exclude'
+    assert result['best'] < 10 * result['median'], 'an extremum of the mesh is setting the answer'
+
+
+def test_resolution_is_reported_by_screen_area_not_by_triangle_count():
+    """Triangles are not equal-area, so an unweighted percentile answers a question about the
+    tessellation rather than about the screen."""
+    mesh = _flymax_like_mesh()
+
+    result = mesh.projector_resolution((1140, 912))
+    density = result['px_per_deg']
+
+    unweighted = float(np.percentile(density, 50))
+    assert abs(result['median'] - unweighted) > 1e-9, 'median appears to ignore triangle area'
+    assert result['worst'] <= result['median'] <= result['best']
+
+
+def test_a_finer_cube_moves_the_comparison_and_nothing_else():
+    """cube_resolution only changes what the projector is measured against."""
+    mesh = _flymax_like_mesh()
+
+    coarse = mesh.projector_resolution((1140, 912), cube_resolution=256)
+    fine = mesh.projector_resolution((1140, 912), cube_resolution=4096)
+
+    assert coarse['median'] == fine['median'], 'the rig does not change with the intermediate'
+    assert coarse['fraction_cube_limited'] > fine['fraction_cube_limited']
+
+
+def test_an_unlit_screen_reports_nothing_rather_than_dividing_by_zero():
+    from stimpack.visual_stim.curved_screen import ScreenMesh
+
+    empty = ScreenMesh(ndc=np.zeros((3, 2)), directions=np.eye(3), positions=np.eye(3),
+                       triangles=np.array([[0, 1, 2]], dtype=np.int32),
+                       lit=np.zeros(3, dtype=bool))
+
+    result = empty.projector_resolution((1140, 912))
+
+    assert result['lit_triangles'] == 0 and result['best'] is None

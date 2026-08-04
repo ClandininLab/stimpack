@@ -192,3 +192,59 @@ def test_the_corner_square_returns_when_the_spot_is_hidden():
         display.paint_subframe(subframe * screen.subframe_interval, 8, 8)
 
     assert display.square_program.paints == 3
+
+
+# --- the commissioning stimulus -------------------------------------------------------------------
+
+def test_each_subframe_lands_on_its_own_position():
+    """The whole point of SubframeTimingCheck: three subframes, three azimuths, in order. If two
+    subframes sampled the same step the stimulus could not tell a working display from a broken
+    one."""
+    from scipy.interpolate import interp1d
+
+    from stimpack.experiment.example_protocol import SubframeTimingCheck
+
+    protocol = SubframeTimingCheck.__new__(SubframeTimingCheck)
+    rate, n, separation = 360.0, 3, 10.0
+    pairs = protocol.subframe_positions(stim_time=0.1, n_subframes=n, subframe_rate=rate,
+                                        separation=separation, center=0.0)
+
+    times, values = zip(*pairs)
+    held = interp1d(times, values, kind='previous', fill_value='extrapolate')
+
+    # the times a frame's subframes are actually rendered at, for a few video frames
+    for frame in range(4):
+        sampled = [float(held(frame / (rate / n) + k / rate)) for k in range(n)]
+        assert sampled == [0.0, separation, 2 * separation], f'frame {frame} gave {sampled}'
+
+
+def test_the_staircase_holds_rather_than_slides():
+    """Interpolating between steps would put a subframe between two positions, which is exactly the
+    smearing this stimulus exists to detect."""
+    from scipy.interpolate import interp1d
+
+    from stimpack.experiment.example_protocol import SubframeTimingCheck
+
+    protocol = SubframeTimingCheck.__new__(SubframeTimingCheck)
+    pairs = protocol.subframe_positions(0.05, 3, 360.0, 10.0, 0.0)
+    times, values = zip(*pairs)
+    held = interp1d(times, values, kind='previous', fill_value='extrapolate')
+
+    # Step k spans (k-0.5, k+0.5) intervals, so it is centred on the instant subframe k renders.
+    # Sample either side of that centre and the value must not change.
+    interval = 1 / 360.0
+    within = [float(held((1 + f) * interval)) for f in (-0.4, -0.2, 0.0, 0.2, 0.4)]
+    assert len(set(within)) == 1, f'position moved within a single subframe: {within}'
+
+
+def test_the_check_stimulus_declares_what_the_rig_was_told():
+    """subframe_rate and n_subframes are parameters, not read from the screen -- this is the
+    stimulus you run when you do not yet believe the screen is doing what it was told."""
+    from stimpack.experiment.example_protocol import SubframeTimingCheck
+
+    defaults = SubframeTimingCheck.get_protocol_parameter_defaults(None)
+
+    assert defaults['n_subframes'] == 3
+    assert defaults['subframe_rate'] == 360.0
+    assert SubframeTimingCheck.get_run_parameter_defaults(None)['idle_color'] == 0.0, \
+        'a photodiode should see the corner square, not the background'
