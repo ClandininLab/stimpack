@@ -1,7 +1,12 @@
 # Rendering in projector space, by ray-casting analytic geometry
 
-*Design note for the `projector-space-raycast` branch. Nothing here is implemented; this records
-why the branch exists and what would have to be true for it to be worth finishing.*
+*Design note for the `projector-space-raycast` branch. Nothing here is implemented.*
+
+**Superseded.** Phase 0 refuted the argument below (see the last section), and the defect it was
+reaching for turned out to be neither the cube's fault nor fixable by removing it: stimulus edges
+are quantised by the projector's own pixel grid, on every rig, because multisampling is requested
+and not granted. `analytic-edges.md` addresses that at its actual cause. Read this note for the
+measurements and for the record of a wrong turn; act on that one.
 
 The current curved-screen path renders the scene into a cube map and then warps the screen mesh,
 each fragment sampling the cube along its own interpolated direction. That works, is committed on
