@@ -18,6 +18,13 @@ and seams on a stimulus display are a data problem, not a cosmetic one.
 """
 import numpy as np
 
+# One face of a cube map spans a right angle, edge to edge through its centre. Named because the
+# resolution arithmetic reads as nonsense without it: px/deg is resolution / CUBE_FACE_DEGREES.
+CUBE_FACE_DEGREES = 90.0
+
+# Pixels per face unless a rig says otherwise. See CubeMapRenderer for what it costs.
+DEFAULT_CUBE_RESOLUTION = 1024
+
 # Face order matches GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, which is what the attachment call wants.
 #
 # The up vectors are not free: a cube map is sampled in a left-handed frame, so the +Y and -Y faces
@@ -199,7 +206,7 @@ class CubeMapRenderer:
         always has six faces; this decides how many times the scene is drawn.
     """
 
-    def __init__(self, ctx, mesh, resolution=1024, faces=None):
+    def __init__(self, ctx, mesh, resolution=DEFAULT_CUBE_RESOLUTION, faces=None):
         from OpenGL import GL
 
         if int(resolution) < 1:
