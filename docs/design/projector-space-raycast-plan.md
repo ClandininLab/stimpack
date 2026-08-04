@@ -128,12 +128,37 @@ translucent primitives on the fast path.
 
 ## Phase 5 — selection and fallback
 
-**Deliverable.** Automatic path choice: if every shape in the scene yields an analytic form and no
-unsupported feature is present, trace; otherwise render through the cube exactly as today.
+Fallback is what makes this safe, and the question is what granularity it works at. Three answers,
+only one of which is right.
 
-Never silent. The GUI already prints the data class that will write the file; this should say which
-render path a stimulus took and why the other was not available. A stimulus that quietly falls back
-and runs at a third of the resolution the experimenter expected is worse than one that refuses.
+**Per shape, mixed within a scene: possible, and not worth it.** The cube pass can write a depth
+cube beside the colour cube; warp both into the projector framebuffer, then run the ray-cast pass
+with depth testing, and the two composite correctly. Nothing becomes unrenderable. But a scene
+containing one non-analytic shape already pays five scene draws and 5.24 Mpx of fill, so the traced
+pass is added cost rather than saved cost -- mixed is *slower* than pure cube. It also makes
+transparency much harder, since blending needs an ordering the two paths do not share.
+
+**Per stimulus, chosen automatically: correct, and quietly dangerous.** Consider a protocol whose
+conditions include a moving patch and something the cube must draw. The patch arrives with 0.029
+degree edges and smooth motion; the other with 0.088 degree edges and a motion staircase below
+32 deg/s. Those conditions now differ in a way that has nothing to do with the experiment, and it
+would pass every test, because each image is correct in isolation. In a game engine that is a
+quality setting. Here it is a confound.
+
+**Per experiment, declared: the rule to adopt.** The render path is a property of the run, not of
+each stimulus. If anything in a protocol -- or in an ensemble -- needs the cube, everything uses the
+cube, so every condition an animal sees is rendered identically. Uniformity across conditions
+matters more than the quality of any single one.
+
+**Deliverable.**
+
+- resolve the path once, from the whole set of stimuli a run will present, before the run starts
+- refuse rather than silently downgrade: if the config asks for the traced path and a stimulus
+  cannot take it, say which stimulus and why, at protocol-check time, not mid-run
+- record the path in the data file next to `stimpack_version` and `data_format`, so analysis can
+  tell how a series was rendered without being told
+- report it in `--check-labpack`, which already exercises every protocol: which would trace, which
+  would not, and what stopped them
 
 ---
 
