@@ -34,3 +34,13 @@ coordinates, as a photodiode timing signal.
 ``paintGL`` is what drains the RPC queue, so a screen whose render loop has stopped accepts every
 command and does nothing. ``report_frame_count`` asks a screen how many frames it has actually
 drawn, which is the way to tell those two states apart from the client.
+
+A frame can carry more than one timepoint. With a projector that reads a frame's colour channels as
+successive patterns, ``stimpack`` draws up to three timepoints per frame and masks each into one
+channel -- a 120 Hz video link driving a 360 Hz monochrome display. The renderer's half is here; the
+projector's half is a labpack's. See :doc:`subframes`.
+
+.. toctree::
+    :maxdepth: 1
+
+    subframes
