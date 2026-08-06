@@ -23,7 +23,8 @@ pytest.importorskip("moderngl")
 import moderngl  # noqa: E402
 import numpy as np  # noqa: E402
 
-from stimpack.visual_stim.screen import Screen  # noqa: E402
+from stimpack.visual_stim.screen import (  # noqa: E402
+    CHANNEL_NAMES, Screen, channel_indices, channel_names)
 
 pytestmark = pytest.mark.gl
 
@@ -84,12 +85,63 @@ def test_channel_order_is_configuration_not_a_constant():
 
 
 @pytest.mark.parametrize('kwargs, reason', [
-    (dict(subframes=2), 'only 1 or 3 map onto 8-bit channels'),
+    (dict(subframes=4), 'a frame has only three channels to carry timepoints in'),
+    (dict(subframes=0), 'a frame carries at least one'),
     (dict(subframes=3, refresh_rate=120, subframe_channel_order=(0, 0, 1)), 'not a permutation'),
 ])
 def test_nonsense_configurations_are_rejected(kwargs, reason):
     with pytest.raises(ValueError):
         Screen(**kwargs)
+
+
+def test_two_subframes_are_allowed():
+    """The ceiling is the three channels of a frame, not a choice of 1 or 3: a rig with two usable
+    LEDs, or one trading rate for exposure, wants two."""
+    screen = Screen(subframes=2, refresh_rate=120)
+
+    assert 1 / screen.subframe_interval == pytest.approx(240)
+    assert screen.subframe_color_masks() == [(True, False, False, True),
+                                             (False, True, False, True)]
+    assert screen.subframe_channel_names() == ('red', 'green')
+
+
+def test_the_channel_order_survives_a_change_of_subframes():
+    """It stays a full permutation at any count, so switching 3 -> 2 -> 3 does not quietly lose
+    which channel goes first."""
+    screen = Screen(subframes=3, refresh_rate=120, subframe_channel_order=(2, 1, 0))
+
+    screen.set_subframes(2)
+    assert screen.subframe_channel_names() == ('blue', 'green')
+
+    screen.set_subframes(3)
+    assert screen.subframe_channel_names() == ('blue', 'green', 'red')
+
+
+def test_names_and_masks_describe_the_same_permutation():
+    """The two readings of one permutation. A rig configures its projector by name and the renderer
+    by index; if these could disagree, a labpack setting both would have no way to notice."""
+    screen = Screen(subframes=3, refresh_rate=120, subframe_channel_order=(2, 0, 1))
+
+    for name, mask in zip(screen.subframe_channel_names(), screen.subframe_color_masks()):
+        written = [CHANNEL_NAMES[i] for i, writable in enumerate(mask[:3]) if writable]
+        assert written == [name], f'mask {mask} does not write {name}'
+
+
+def test_names_and_indices_are_inverses():
+    order = (2, 0, 1)
+    assert channel_names(order) == ('blue', 'red', 'green')
+    assert channel_indices(channel_names(order)) == order
+
+
+@pytest.mark.parametrize('bad', [
+    lambda: channel_names((0, 3)),
+    lambda: channel_names((0, -1)),        # a legal Python index that quietly means 'blue'
+    lambda: channel_names(('red',)),       # names where indices belong
+    lambda: channel_indices(('red', 'infrared')),
+])
+def test_a_mistyped_channel_is_refused_rather_than_guessed(bad):
+    with pytest.raises(ValueError):
+        bad()
 
 
 def test_an_unstated_refresh_rate_is_deferred_rather_than_refused():
@@ -164,6 +216,17 @@ def test_a_masked_pass_leaves_the_other_channels_alone(headless_gl):
 
     assert px[0] > 250 and px[2] > 250, f'a masked pass touched other channels: {px}'
     assert px[1] < 5, f'the masked channel was not written: {px}'
+
+
+def test_two_subframes_leave_the_third_channel_untouched(headless_gl):
+    """Below the ceiling, the unused channel keeps what the frame was cleared to -- so a projector
+    reading two patterns per frame gets two, and nothing stray in the third."""
+    ctx = headless_gl
+    packed = render_packed(ctx, Screen(subframes=2, refresh_rate=120),
+                           brightness_at=lambda dt: 0.2 + 100.0 * dt)
+
+    assert packed[0] < packed[1], f'not increasing with time: {packed}'
+    assert packed[2] == pytest.approx(0.0, abs=0.01), f'the unused channel was written: {packed}'
 
 
 def test_a_single_subframe_screen_renders_greyscale_as_before(headless_gl):

@@ -248,7 +248,9 @@ class StimDisplay(QOpenGLWidget):
 
         This changes stimpack's half only. The projector has to be told the matching pattern count
         separately -- stimpack cannot see it -- so a labpack wanting to switch at run time should
-        register one function that does both, in the manner of set_dlpc_current.
+        register one function that does both, in the manner of set_dlpc_current. Pass that function
+        one permutation and let it derive the projector's half with screen.channel_names, rather
+        than writing the order out twice in two vocabularies.
         """
         if self.stim_started:
             raise RuntimeError('cannot change subframes while a stimulus is running: the trial '
@@ -269,7 +271,7 @@ class StimDisplay(QOpenGLWidget):
         if self.screen.subframes <= 1:
             print(f'Screen {self.screen.name}: 1 subframe per frame (ordinary rendering)')
             return
-        order = ''.join('RGB'[c] for c in self.screen.subframe_channel_order[:self.screen.subframes])
+        order = ''.join(name[0].upper() for name in self.screen.subframe_channel_names())
         print(f'Screen {self.screen.name}: {self.screen.subframes} subframes per frame, '
               f'channel order {order}, {self.screen.refresh_rate} Hz video -> '
               f'{self.screen.refresh_rate * self.screen.subframes} Hz')

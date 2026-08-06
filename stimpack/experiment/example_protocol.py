@@ -201,10 +201,10 @@ class MovingPatch(BaseProtocol):
 
 class SubframeTimingCheck(BaseProtocol):
     """
-    Commissioning stimulus: is the display really showing three subframes, in the right order?
+    Commissioning stimulus: is the display really showing every subframe, in the right order?
 
-    The subframe path packs three timepoints into a frame's colour channels for a projector that
-    unpacks them as successive patterns -- 360 Hz from a 120 Hz video link. Whether that actually
+    The subframe path packs up to three timepoints into a frame's colour channels for a projector
+    that unpacks them as successive patterns -- 360 Hz from a 120 Hz video link. Whether that
     happens depends on the projector being in pattern mode, on the channel order matching, and on
     every subframe reaching the screen. None of it can be checked from the client, and the unit
     tests cannot check it either: they read pixels back from an offscreen buffer, which says the
@@ -215,7 +215,7 @@ class SubframeTimingCheck(BaseProtocol):
 
     - **all subframes displayed** -- ``n_subframes`` spots, evenly spaced by ``separation``, and
       with a high-speed camera they appear in order left to right
-    - **only one channel reaching the screen** -- a single spot, not three
+    - **only one channel reaching the screen** -- a single spot, not ``n_subframes`` of them
     - **channel order wrong** -- the right number of spots, in the wrong sequence, which a camera
       sees and the eye does not
 

@@ -10,6 +10,42 @@ Several subscreens may share one display, and several screens may make up a rig.
 """
 from math import sqrt
 
+# The colour channels of a frame, in index order.
+#
+# Under subframe multiplexing the same permutation has to be told to two things in two vocabularies:
+# the renderer works in indices, because a colour write mask is positional, while a projector's
+# pattern LUT is configured by channel name. Writing it out twice is how a rig ends up with the two
+# halves transposed -- which reorders timepoints without producing an error, since scrambled motion
+# is still motion. These two functions let a rig hold one permutation and derive the other reading.
+CHANNEL_NAMES = ('red', 'green', 'blue')
+
+
+def channel_names(channel_order):
+    """Name the channels in `channel_order`, e.g. (2, 0, 1) -> ('blue', 'red', 'green').
+
+    For handing a screen's ``subframe_channel_order`` to a projector driver that takes names.
+    """
+    # Checked by membership rather than by indexing and catching IndexError: CHANNEL_NAMES[-1] is a
+    # legal lookup that quietly answers 'blue', and a wrong name here is a wrong pattern LUT. `in`
+    # rejects negatives and non-integers while still accepting a numpy integer.
+    try:
+        valid = all(index in range(len(CHANNEL_NAMES)) for index in channel_order)
+    except TypeError:
+        valid = False
+    if not valid:
+        raise ValueError(f'channel indices must be drawn from 0, 1, 2 ({", ".join(CHANNEL_NAMES)}), '
+                         f'not {channel_order}')
+    return tuple(CHANNEL_NAMES[index] for index in channel_order)
+
+
+def channel_indices(names):
+    """The inverse of :func:`channel_names`: ('blue', 'red') -> (2, 0)."""
+    unknown = [name for name in names if name not in CHANNEL_NAMES]
+    if unknown:
+        raise ValueError(f'unknown channel name(s) {unknown}; expected from {list(CHANNEL_NAMES)}')
+    return tuple(CHANNEL_NAMES.index(name) for name in names)
+
+
 class SubScreen:
     """
     SubScreen of a Screen object
@@ -118,8 +154,8 @@ class Screen:
 
         # Temporal multiplexing: a DLPC350 in video-pattern mode can read the three 8-bit colour
         # channels of one frame as three successive patterns, turning a 120 Hz video link into a
-        # 360 Hz monochrome display. subframes=3 makes the renderer draw three timepoints per frame
-        # and write each to one channel; subframes=1 is ordinary rendering and changes nothing.
+        # 360 Hz monochrome display. subframes=n makes the renderer draw n timepoints per frame and
+        # write each to one channel; subframes=1 is ordinary rendering and changes nothing.
         #
         # Colour is what pays for it. Each channel becomes a slice of time rather than a colour, so
         # stimuli have to be greyscale.
@@ -152,18 +188,21 @@ class Screen:
         in. Called at run time it takes effect on the next frame: paintGL asks for the masks and
         the interval every frame and caches neither, so nothing is rebuilt.
 
-        :param subframes: 1 for ordinary rendering, 3 to read the colour channels as successive
-            patterns
+        :param subframes: 1 for ordinary rendering, or 2-3 to read that many colour channels as
+            successive patterns. 3 is the usual case; 2 suits a rig with only two usable LEDs, or
+            one trading rate for exposure per subframe.
         :param refresh_rate: video link rate in Hz. None means ask the display -- StimDisplay
             resolves it from the Qt screen at start-up, which is a number the system already knows
             and an experimenter should not have to repeat. Pass one only to override, and expect a
             warning if it disagrees with what the display reports.
-        :param channel_order: which colour channel carries each successive subframe. None keeps
-            the current order.
+        :param channel_order: which colour channel carries each successive subframe. Always a full
+            permutation of (0, 1, 2), even at 2 subframes -- the trailing entries just name the
+            channels that go unused, which is what lets the order survive a change of `subframes`.
+            None keeps the current order.
         """
-        if subframes not in (1, 3):
-            raise ValueError(f'subframes must be 1 or 3 (the three 8-bit channels of a frame), '
-                             f'not {subframes}')
+        if subframes not in (1, 2, 3):
+            raise ValueError(f'subframes must be 1, 2 or 3: a frame has three 8-bit colour '
+                             f'channels, so it can carry at most three timepoints. Got {subframes}')
         if channel_order is None:
             channel_order = getattr(self, 'subframe_channel_order', (0, 1, 2))
         if sorted(channel_order) != [0, 1, 2]:
@@ -205,11 +244,25 @@ class Screen:
         is configuration rather than a constant. Getting it wrong reorders three frames in time --
         motion still looks like motion, just wrong -- so it wants checking with a photodiode rather
         than by eye.
+
+        Only the first `subframes` entries of the order are used; any channel past that is never
+        written, and keeps whatever the frame was cleared to.
         """
         if self.subframes <= 1:
             return [(True, True, True, True)]
         return [tuple(i == channel for i in range(3)) + (True,)
                 for channel in self.subframe_channel_order[:self.subframes]]
+
+    def subframe_channel_names(self):
+        """The same thing :meth:`subframe_color_masks` returns, named rather than positional.
+
+        This is what a projector's pattern LUT is configured with, so a rig can set both halves
+        from one permutation instead of writing it out twice and risking a transposition. Empty
+        when not multiplexing, since there is then no per-channel ordering to preserve.
+        """
+        if self.subframes <= 1:
+            return ()
+        return channel_names(self.subframe_channel_order[:self.subframes])
 
     def serialize(self):
         # get all variables needed to reconstruct the screen object

@@ -343,7 +343,7 @@ def test_a_rejected_value_leaves_the_screen_untouched():
     display = _display_with(Screen(subframes=3, refresh_rate=120))
 
     with pytest.raises(ValueError):
-        display.set_subframes(2)
+        display.set_subframes(4)
     with pytest.raises(ValueError):
         display.set_subframes(3, channel_order=(0, 0, 1))
 
