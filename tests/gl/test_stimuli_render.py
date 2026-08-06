@@ -261,3 +261,58 @@ def test_dynamic_texture_update_accepts_non_contiguous_arrays(headless_gl):
     assert not non_contiguous.flags['C_CONTIGUOUS']
     stim.update_texture_gl(non_contiguous)              # .tobytes() fallback
     assert ctx.error == 'GL_NO_ERROR'
+
+
+# --- specification for analytic edges (docs/design/analytic-edges.md) ----------------------------
+#
+# Not implemented. These state the requirement precisely so that whoever builds it knows when it is
+# done, and so the two failure modes that would pass a visual check cannot pass silently.
+
+@pytest.mark.xfail(strict=True, reason='analytic edges not implemented; see '
+                                       'docs/design/analytic-edges.md')
+def test_a_disc_renders_at_the_radius_it_was_asked_for(headless_gl):
+    """Today GlSphericalCirc puts its vertices ON the circle, so the chords between them cut
+    0.38% inside it and every disc is drawn slightly small.
+
+    Under analytic edges the polygon becomes a *bound* that must contain the true circle -- pushed
+    out by 1/cos(pi/n) -- and the shader clips it back. If someone later tidies that factor away,
+    the disc silently reverts to a smooth-looking polygon 0.38% too small: fine to the eye, wrong
+    to a measurement. This is the test that catches it.
+    """
+    from stimpack.visual_stim.shapes import GlSphericalCirc
+
+    requested = np.radians(20.0)
+    shape = GlSphericalCirc(circle_radius=20.0, sphere_radius=1.0)
+
+    # every vertex must lie at or outside the requested radius, never inside it
+    directions = shape.vertices.T / np.linalg.norm(shape.vertices.T, axis=1, keepdims=True)
+    centre = directions[np.argmin(np.linalg.norm(shape.vertices.T, axis=1))]  # the fan's hub
+    edge = directions[np.linalg.norm(shape.vertices.T, axis=1) > 1e-6]
+    angles = np.arccos(np.clip(edge @ centre, -1, 1))
+    rim = angles[angles > 0.5 * requested]
+
+    assert rim.min() >= requested - 1e-9, (
+        f'polygon inscribes the circle: closest vertex at {np.degrees(rim.min()):.4f} deg, '
+        f'requested {np.degrees(requested):.4f} deg')
+
+
+@pytest.mark.xfail(strict=True, reason='analytic edges not implemented; see '
+                                       'docs/design/analytic-edges.md')
+def test_edge_coverage_is_linear_in_position_not_smoothstep():
+    """The graphics convention is smoothstep. It is wrong for a stimulus: a pixel 30% covered
+    should emit 30% of the light, and smoothstep emits 22% -- up to 9.6 percentage points of
+    luminance error.
+
+    The consequence that matters is temporal. Because the map from edge position to emitted
+    intensity is non-linear, a constant-velocity edge appears to stall and then hurry once per
+    pixel crossed -- reintroducing, smaller, the very motion artefact analytic edges exist to
+    remove. Coverage must be linear in distance from the edge.
+    """
+    from stimpack.visual_stim.shapes import edge_coverage      # to be written
+
+    # a straight edge crossing a pixel: coverage must equal the covered fraction
+    for offset, expected in [(-0.5, 1.0), (-0.2, 0.7), (0.0, 0.5), (0.2, 0.3), (0.5, 0.0)]:
+        got = edge_coverage(distance=offset, pixel=1.0)
+        assert abs(got - expected) < 1e-6, (
+            f'at {offset:+.1f} px from the edge, coverage {got:.3f} != {expected:.3f}; '
+            f'smoothstep would give {1 - (offset+0.5)**2 * (3 - 2*(offset+0.5)):.3f}')

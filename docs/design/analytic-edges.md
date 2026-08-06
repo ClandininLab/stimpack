@@ -60,8 +60,16 @@ cover -- and compute the true edge per fragment:
 // disc of angular radius R about direction c; d is this fragment's direction
 float angle = acos(clamp(dot(normalize(d), c), -1.0, 1.0));
 float px    = fwidth(angle);                       // angular size of one pixel, here
-float alpha = 1.0 - smoothstep(R - 0.5*px, R + 0.5*px, angle);
+float alpha = clamp(0.5 - (angle - R)/px, 0.0, 1.0);
 ```
+
+**Linear, not `smoothstep`.** The graphics convention is `smoothstep`, whose S-curve makes edges
+look soft rather than creased. It is wrong here in two ways. A pixel 30% covered should emit 30% of
+the light; `smoothstep` emits 22%, and the worst luminance error is 9.6 percentage points. Worse,
+the mapping from edge position to emitted intensity is then non-linear, so a constant-velocity edge
+appears to stall and then hurry once per pixel crossed -- reintroducing, in miniature, the very
+motion artefact this exists to remove. The linear form is the true covered fraction for a straight
+edge, which is what a photoreceptor integrating over that pixel receives.
 
 Three things fall out of those three lines.
 
