@@ -85,12 +85,30 @@ def test_channel_order_is_configuration_not_a_constant():
 
 @pytest.mark.parametrize('kwargs, reason', [
     (dict(subframes=2), 'only 1 or 3 map onto 8-bit channels'),
-    (dict(subframes=3), 'refresh_rate is needed to space them in time'),
     (dict(subframes=3, refresh_rate=120, subframe_channel_order=(0, 0, 1)), 'not a permutation'),
 ])
 def test_nonsense_configurations_are_rejected(kwargs, reason):
     with pytest.raises(ValueError):
         Screen(**kwargs)
+
+
+def test_an_unstated_refresh_rate_is_deferred_rather_than_refused():
+    """None means "ask the display", which StimDisplay resolves from the Qt screen at start-up.
+    Requiring it in configuration was asking an experimenter to repeat a number the system already
+    knows, and one they could get wrong."""
+    screen = Screen(subframes=3)
+
+    assert screen.subframes == 3
+    assert screen.refresh_rate is None
+
+
+def test_asking_for_the_interval_before_it_is_resolved_says_so():
+    """The error moves from construction to use, so it has to name the screen and say where the
+    number normally comes from."""
+    screen = Screen(subframes=3, name='bowl')
+
+    with pytest.raises(ValueError, match='no refresh_rate'):
+        screen.subframe_interval
 
 
 # --- what actually lands in the framebuffer ------------------------------------------------------

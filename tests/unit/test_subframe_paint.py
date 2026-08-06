@@ -288,3 +288,73 @@ def test_the_reported_channel_order_is_the_configured_one(capsys):
     display.report_subframe_mode()
 
     assert 'channel order BGR' in capsys.readouterr().out
+
+
+# --- changing subframes at run time ---------------------------------------------------------------
+
+def _display_with(screen):
+    from stimpack.visual_stim.framework import StimDisplay
+    display = StimDisplay.__new__(StimDisplay)
+    display.screen = screen
+    display.stim_started = False
+    return display
+
+
+def test_the_next_frame_follows_immediately(capsys):
+    """paintGL asks for the masks and the interval every frame and caches neither, so there is
+    nothing to rebuild -- which is what makes a run-time switch possible at all."""
+    display = _display_with(Screen(subframes=1, refresh_rate=120))
+    assert display.screen.subframe_color_masks() == [(True, True, True, True)]
+    assert display.screen.subframe_interval == 0.0
+
+    display.set_subframes(3)
+
+    assert len(display.screen.subframe_color_masks()) == 3
+    assert display.screen.subframe_interval == pytest.approx(1 / 360)
+
+
+def test_it_refuses_mid_stimulus(capsys):
+    """Half a trial at one temporal structure and half at another is not recoverable from the
+    data, and nothing downstream would report it."""
+    display = _display_with(Screen(subframes=1, refresh_rate=120))
+    display.stim_started = True
+
+    with pytest.raises(RuntimeError, match='while a stimulus is running'):
+        display.set_subframes(3)
+
+    assert display.screen.subframes == 1, 'the screen must be left alone when refused'
+
+
+def test_switching_announces_the_new_state(capsys):
+    """The claim about the projector is worth repeating every time it changes, not only at
+    start-up: nothing in stimpack can check it."""
+    display = _display_with(Screen(subframes=1, refresh_rate=120))
+    capsys.readouterr()
+
+    display.set_subframes(3)
+
+    printed = capsys.readouterr().out
+    assert '3 subframes' in printed and '360' in printed
+
+
+def test_a_rejected_value_leaves_the_screen_untouched():
+    """set_subframes validates through the same path as the constructor, so a screen cannot reach
+    a state it could not have been built in."""
+    display = _display_with(Screen(subframes=3, refresh_rate=120))
+
+    with pytest.raises(ValueError):
+        display.set_subframes(2)
+    with pytest.raises(ValueError):
+        display.set_subframes(3, channel_order=(0, 0, 1))
+
+    assert display.screen.subframes == 3
+    assert display.screen.subframe_channel_order == (0, 1, 2)
+
+
+def test_the_name_is_advertised_so_a_labpack_can_ask_first():
+    """SCREEN_FUNCTION_NAMES is what VisualStimServer advertises, so has_server_function can answer
+    without a round trip -- which is how a labpack degrades gracefully on an older stimpack."""
+    from stimpack.visual_stim.framework import SCREEN_FUNCTION_NAMES, StimDisplay
+
+    assert 'set_subframes' in SCREEN_FUNCTION_NAMES
+    assert callable(getattr(StimDisplay, 'set_subframes'))

@@ -70,6 +70,7 @@ SCREEN_FUNCTION_NAMES = (
     'import_stim_module',
     'unload_stim_module',
     'report_frame_count',
+    'set_subframes',
     'show_calibration_spot',
     'hide_calibration_spot',
 )
@@ -110,6 +111,19 @@ class StimDisplay(QOpenGLWidget):
             # If multiple screens are detected, index the screen with screen.display_index
             assert len(qscreens) > screen.display_index, f'ERROR: Display index ({screen.display_index}) must be less than # of screens ({len(qscreens)} detected).'
             qscreen = qscreens[screen.display_index]
+
+        # The video link rate, which decides how far apart in time the subframes are. Taken from
+        # the display rather than from configuration: it is a number the system already knows, and
+        # one an experimenter can get wrong. An explicitly configured value still wins, but says so
+        # when it disagrees -- a config claiming 120 on a 60 Hz link gives subtly wrong timing and
+        # no error.
+        reported = qscreen.refreshRate()
+        if screen.refresh_rate is None:
+            screen.refresh_rate = reported
+        elif reported and abs(screen.refresh_rate - reported) > 1.0:
+            warnings.warn(f'Screen {screen.name}: configured refresh_rate '
+                          f'{screen.refresh_rate} Hz, but the display reports {reported} Hz. '
+                          f'Subframe timing follows the configured value.')
 
         if screen.fullscreen:
             screen_geometry = qscreen.geometry() # Get hardware display size
@@ -220,6 +234,28 @@ class StimDisplay(QOpenGLWidget):
         reporter = getattr(self.server, 'error_reporter', None)
         if reporter is not None:
             reporter('info', f'frame_count={self.frame_count}')
+
+    def set_subframes(self, subframes, refresh_rate=None, channel_order=None):
+        """Change how many subframes a frame carries, between trials.
+
+        Takes effect on the next frame: paintGL asks the screen for its masks and interval every
+        frame and caches neither, so there is no framebuffer to resize and no GL state to reset.
+
+        Refused while a stimulus is running. Changing part-way through would leave some frames of a
+        trial carrying one timepoint and some three, which nothing downstream reports and no
+        analysis could recover. Under multiplexing each colour channel is a slice of time rather
+        than a colour, so a loaded colour stimulus would also be silently reinterpreted.
+
+        This changes stimpack's half only. The projector has to be told the matching pattern count
+        separately -- stimpack cannot see it -- so a labpack wanting to switch at run time should
+        register one function that does both, in the manner of set_dlpc_current.
+        """
+        if self.stim_started:
+            raise RuntimeError('cannot change subframes while a stimulus is running: the trial '
+                               'would carry two different temporal structures')
+        self.screen.set_subframes(subframes, refresh_rate=refresh_rate,
+                                  channel_order=channel_order)
+        self.report_subframe_mode()
 
     def report_subframe_mode(self):
         """Say whether this screen is multiplexing, and at what rate.

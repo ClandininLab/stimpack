@@ -123,20 +123,8 @@ class Screen:
         #
         # Colour is what pays for it. Each channel becomes a slice of time rather than a colour, so
         # stimuli have to be greyscale.
-        if subframes not in (1, 3):
-            raise ValueError(f'subframes must be 1 or 3 (the three 8-bit channels of a frame), '
-                             f'not {subframes}')
-        if subframes > 1 and refresh_rate is None:
-            raise ValueError('subframes > 1 needs refresh_rate (the video link rate, e.g. 120), '
-                             'to know how far apart in time the subframes are')
-        if sorted(subframe_channel_order) != [0, 1, 2]:
-            raise ValueError(f'subframe_channel_order must be a permutation of (0, 1, 2) -- which '
-                             f'colour channel carries each successive subframe -- not '
-                             f'{subframe_channel_order}')
-
-        self.subframes = int(subframes)
-        self.subframe_channel_order = tuple(int(c) for c in subframe_channel_order)
-        self.refresh_rate = refresh_rate
+        self.set_subframes(subframes, refresh_rate=refresh_rate,
+                           channel_order=subframe_channel_order)
 
         # Save settings
         self.subscreens=subscreens
@@ -157,11 +145,57 @@ class Screen:
         self.width = sqrt((pa[0]-pb[0])**2 + (pa[1]-pb[1])**2 + (pa[2]-pb[2])**2)
         self.height = sqrt((pa[0]-pc[0])**2 + (pa[1]-pc[1])**2 + (pa[2]-pc[2])**2)
 
+    def set_subframes(self, subframes, refresh_rate=None, channel_order=None):
+        """Change how many subframes a frame carries, validating as the constructor does.
+
+        Shared with __init__ so a screen cannot be put into a state it could not have been built
+        in. Called at run time it takes effect on the next frame: paintGL asks for the masks and
+        the interval every frame and caches neither, so nothing is rebuilt.
+
+        :param subframes: 1 for ordinary rendering, 3 to read the colour channels as successive
+            patterns
+        :param refresh_rate: video link rate in Hz. None means ask the display -- StimDisplay
+            resolves it from the Qt screen at start-up, which is a number the system already knows
+            and an experimenter should not have to repeat. Pass one only to override, and expect a
+            warning if it disagrees with what the display reports.
+        :param channel_order: which colour channel carries each successive subframe. None keeps
+            the current order.
+        """
+        if subframes not in (1, 3):
+            raise ValueError(f'subframes must be 1 or 3 (the three 8-bit channels of a frame), '
+                             f'not {subframes}')
+        if channel_order is None:
+            channel_order = getattr(self, 'subframe_channel_order', (0, 1, 2))
+        if sorted(channel_order) != [0, 1, 2]:
+            raise ValueError(f'subframe_channel_order must be a permutation of (0, 1, 2) -- which '
+                             f'colour channel carries each successive subframe -- not '
+                             f'{channel_order}')
+
+        self.subframes = int(subframes)
+        self.subframe_channel_order = tuple(int(c) for c in channel_order)
+        if refresh_rate is not None or not hasattr(self, 'refresh_rate'):
+            self.refresh_rate = refresh_rate
+
     @property
     def subframe_interval(self):
-        """Seconds between successive subframes, or 0 when not multiplexing."""
+        """Seconds between successive subframes, or 0 when not multiplexing.
+
+        This is not "the frame divided by n". It is how far into the future subframe k will be
+        photons, which is set by the projector's pattern exposure rather than by anything stimpack
+        can see -- so it is taken from the video link rate, which the two agree on whenever the
+        projector was configured with pattern_mode(fps=<link rate>).
+
+        Deliberately not measured from stimpack's own frame times: that number jitters, has nothing
+        to measure on the first frame, and doubles when a frame is dropped -- while the projector's
+        exposure does not move at all.
+        """
         if self.subframes <= 1:
             return 0.0
+        if self.refresh_rate is None:
+            raise ValueError(
+                f'screen {self.name!r} carries {self.subframes} subframes but has no refresh_rate. '
+                f'It is normally resolved from the display at start-up; set it explicitly if this '
+                f'screen is used outside a StimDisplay.')
         return 1.0 / (self.refresh_rate * self.subframes)
 
     def subframe_color_masks(self):
