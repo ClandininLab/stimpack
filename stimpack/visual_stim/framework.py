@@ -590,6 +590,18 @@ class StimDisplay(QOpenGLWidget):
             # grew for as long as a loaded-but-never-started stimulus sat there.
             if self.stim_started:
                 self.profile_frame_times.append(t)
+        elif self.cube_renderer is not None:
+            # Standby and tail-time go through the cube map too, with nothing drawn into the faces.
+            #
+            # Only the warp knows where the screen is. Clearing the window directly lights the whole
+            # projector image -- including the parts that miss the screen entirely, which on a bowl
+            # is nearly half the frame -- and skips the mesh's per-vertex brightness gain. So the
+            # background a subject saw between trials differed from the one the same idle_color
+            # produced during them, in extent and, with brightness_correction on, in level.
+            #
+            # A CurvedScreen still inherits a full-viewport SubScreen it never uses, so the branch
+            # below would happily paint through it and look like it was working.
+            self.paint_through_cube_map(0.0, display_width, display_height)
         else: # Clear when there is no stim loaded (tail-time and when on standby)
             self.clear_viewports(color=self.idle_background, viewports=self.subscreen_viewports)
 
