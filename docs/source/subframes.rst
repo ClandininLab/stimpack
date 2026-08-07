@@ -194,3 +194,17 @@ you run when you do not yet believe the screen is doing what it was told.
 ``StimDisplay`` also prints its subframe state at start-up and on every change — the channel order,
 the video rate, and the resulting display rate — followed by the reminder that it is a claim about
 hardware that stimpack cannot verify.
+
+.. note::
+
+   Expect commissioning to be the hard part. On a DLPC350 the renderer's half went in without
+   incident and the projector's half took a day of measurement, because a misconfigured pattern
+   sequence validates, plays, and displays *something*. The failures that cost time were: a bit
+   depth the hardware cannot run at that rate; LED current, which is a separate knob from LED
+   select and is inherited from whatever the server booted with; and patterns after the first
+   silently not displaying at all.
+
+   The photodiode is what distinguishes them. Count up-states per 100 ms against the expected
+   ``refresh_rate × subframes / 2``, and compare the mean against a one-subframe run — the duty
+   cycle should be 50% in both, so a mean that falls to a third says how many patterns are really
+   reaching the screen.
