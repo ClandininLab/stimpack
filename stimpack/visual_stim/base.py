@@ -50,6 +50,13 @@ class BaseProgram:
         self.prog['use_texture'].value = False
         self.prog['rgb_texture'].value = False
 
+        # No analytic edge unless a shape asks for one, so an unconverted stimulus renders exactly
+        # as it did. The other two are never read while this is 0, but GL wants them initialised.
+        self.prog['edge_kind'].value = 0
+        self.prog['edge_center'].value = (0.0, 1.0, 0.0)
+        self.prog['edge_radius'].value = 0.0
+        self.prog['subject_position'].value = (0.0, 0.0, 0.0)
+
     def configure(self, *args, **kwargs):
         """
         Set this stimulus's parameters. Called once, before the trial starts.
@@ -105,6 +112,18 @@ class BaseProgram:
             # millisecond against a 16.7 ms budget at 60 Hz, so the cap is not worth keeping to
             # save it.
             self.texture.use(0)
+
+        # Hand the shader this shape's own edge equation, if it has one. Read off the object
+        # rather than configured per stimulus: converting a shape converts every stimulus that
+        # draws it, and one that declares nothing keeps the geometry-defined edge.
+        edge_kind = getattr(self.stim_object, 'edge_kind', 0)
+        self.prog['edge_kind'].value = edge_kind
+        if edge_kind:
+            self.prog['edge_center'].value = tuple(self.stim_object.edge_center)
+            self.prog['edge_radius'].value = float(self.stim_object.edge_radius)
+            self.prog['subject_position'].value = (float(subject_position['x']),
+                                                   float(subject_position['y']),
+                                                   float(subject_position['z']))
 
         # Render to each subscreen
         for v_ind, vp in enumerate(viewports):
@@ -187,12 +206,17 @@ class BaseProgram:
 
             out vec4 v_color;
             out vec2 v_tex_coord;
+            // The vertex before projection. gl_Position has been flattened onto the screen and
+            // cannot say which direction this point lies in from the subject, which is what an
+            // angular edge test needs.
+            out vec3 v_world;
 
             uniform mat4 Mvp;
 
             void main() {
                 v_color = in_color;
                 v_tex_coord = in_tex_coord;
+                v_world = in_vert;
                 gl_Position = Mvp * vec4(in_vert, 1.0);
             }
         '''
@@ -205,12 +229,42 @@ class BaseProgram:
 
             in vec4 v_color;
             in vec2 v_tex_coord;
+            in vec3 v_world;
 
             uniform bool use_texture;
             uniform bool rgb_texture;
             uniform sampler2D texture_matrix;
 
+            // A shape may hand the shader an equation for its true boundary instead of relying on
+            // its triangles to describe it. edge_kind 0 means it has not, which is every shape
+            // that has not opted in -- the geometry defines the edge, exactly as it always has.
+            uniform int edge_kind;
+            uniform vec3 edge_center;
+            uniform float edge_radius;
+            uniform vec3 subject_position;
+
             out vec4 f_color;
+
+            // What fraction of this pixel the shape covers.
+            //
+            // fwidth is the change in a value between neighbouring pixels -- GPUs shade in 2x2
+            // quads so that derivative exists -- so it gives the angular size of one pixel right
+            // here, without anyone having to know the projector's resolution, the screen's shape,
+            // or whether this is being drawn through a cube face.
+            //
+            // Linear rather than smoothstep: see shapes.edge_coverage for why. A pixel 30% covered
+            // must emit 30% of the light, and the mapping from edge position to intensity has to
+            // stay linear or a constant-velocity edge stalls and hurries once per pixel.
+            float edge_coverage() {
+                if (edge_kind == 0) return 1.0;
+                vec3 dir = normalize(v_world - subject_position);
+                // clamp before acos: rounding can push the dot product just past 1, and acos of
+                // that is NaN -- one black pixel at the exact centre of the disc, on some drivers.
+                float angle = acos(clamp(dot(dir, edge_center), -1.0, 1.0));
+                float pixel = fwidth(angle);
+                if (pixel <= 0.0) return angle <= edge_radius ? 1.0 : 0.0;
+                return clamp(0.5 - (angle - edge_radius) / pixel, 0.0, 1.0);
+            }
 
             void main() {
                 if (use_texture) {
@@ -226,6 +280,9 @@ class BaseProgram:
                     f_color.rgb = v_color.rgb;
                     f_color.a = v_color.a;
                 }
+                // Multiplied in, not assigned: a shape may already be translucent (GlCylinder's
+                // alpha_by_face), and coverage composes with that rather than overwriting it.
+                f_color.a *= edge_coverage();
             }
         '''
 

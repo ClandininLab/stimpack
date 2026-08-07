@@ -263,56 +263,79 @@ def test_dynamic_texture_update_accepts_non_contiguous_arrays(headless_gl):
     assert ctx.error == 'GL_NO_ERROR'
 
 
-# --- specification for analytic edges (docs/design/analytic-edges.md) ----------------------------
+# --- analytic edges (docs/design/analytic-edges.md) ----------------------------------------------
 #
-# Not implemented. These state the requirement precisely so that whoever builds it knows when it is
-# done, and so the two failure modes that would pass a visual check cannot pass silently.
+# Both of these guard failures that pass a visual check: a disc drawn 0.38% small looks perfect,
+# and so does an edge that ramps on an S-curve.
 
-@pytest.mark.xfail(strict=True, reason='analytic edges not implemented; see '
-                                       'docs/design/analytic-edges.md')
-def test_a_disc_renders_at_the_radius_it_was_asked_for(headless_gl):
-    """Today GlSphericalCirc puts its vertices ON the circle, so the chords between them cut
-    0.38% inside it and every disc is drawn slightly small.
+def test_a_disc_bound_contains_the_radius_it_was_asked_for():
+    """The triangles are a bound now, not the shape, so they must CONTAIN the true circle.
 
-    Under analytic edges the polygon becomes a *bound* that must contain the true circle -- pushed
-    out by 1/cos(pi/n) -- and the shader clips it back. If someone later tidies that factor away,
-    the disc silently reverts to a smooth-looking polygon 0.38% too small: fine to the eye, wrong
-    to a measurement. This is the test that catches it.
+    They used to sit on it, which put the chords between them 0.38% inside -- 0.076 degrees on a
+    20 degree disc, nearly twice a pixel on a flat rig. A fragment shader can only remove coverage,
+    never add it, so an inscribed bound would clip the exact circle straight back to a polygon and
+    the whole exercise would be silently pointless.
     """
     from stimpack.visual_stim.shapes import GlSphericalCirc
 
-    requested = np.radians(20.0)
     shape = GlSphericalCirc(circle_radius=20.0, sphere_radius=1.0)
 
-    # every vertex must lie at or outside the requested radius, never inside it
     directions = shape.vertices.T / np.linalg.norm(shape.vertices.T, axis=1, keepdims=True)
-    centre = directions[np.argmin(np.linalg.norm(shape.vertices.T, axis=1))]  # the fan's hub
-    edge = directions[np.linalg.norm(shape.vertices.T, axis=1) > 1e-6]
-    angles = np.arccos(np.clip(edge @ centre, -1, 1))
-    rim = angles[angles > 0.5 * requested]
+    angles = np.degrees(np.arccos(np.clip(directions @ np.array(shape.edge_center), -1, 1)))
+    rim = angles[angles > 1.0]                      # everything but the fan's hub
 
-    assert rim.min() >= requested - 1e-9, (
-        f'polygon inscribes the circle: closest vertex at {np.degrees(rim.min()):.4f} deg, '
-        f'requested {np.degrees(requested):.4f} deg')
+    assert rim.min() >= 20.0, (
+        f'bound inscribes the circle: closest rim vertex at {rim.min():.4f} deg, needs >= 20')
+    assert rim.max() < 20.0 * 1.2, 'bound is wastefully large'
 
 
-@pytest.mark.xfail(strict=True, reason='analytic edges not implemented; see '
-                                       'docs/design/analytic-edges.md')
 def test_edge_coverage_is_linear_in_position_not_smoothstep():
-    """The graphics convention is smoothstep. It is wrong for a stimulus: a pixel 30% covered
-    should emit 30% of the light, and smoothstep emits 22% -- up to 9.6 percentage points of
-    luminance error.
+    """A pixel 30% covered must emit 30% of the light. smoothstep emits 22%, and worse, makes
+    emitted intensity a non-linear function of edge position -- so a constant-velocity edge would
+    stall and then hurry once per pixel crossed, a smaller copy of the artefact this removes."""
+    from stimpack.visual_stim.shapes import edge_coverage
 
-    The consequence that matters is temporal. Because the map from edge position to emitted
-    intensity is non-linear, a constant-velocity edge appears to stall and then hurry once per
-    pixel crossed -- reintroducing, smaller, the very motion artefact analytic edges exist to
-    remove. Coverage must be linear in distance from the edge.
-    """
-    from stimpack.visual_stim.shapes import edge_coverage      # to be written
-
-    # a straight edge crossing a pixel: coverage must equal the covered fraction
     for offset, expected in [(-0.5, 1.0), (-0.2, 0.7), (0.0, 0.5), (0.2, 0.3), (0.5, 0.0)]:
         got = edge_coverage(distance=offset, pixel=1.0)
+        smoothstep = 1 - (offset + 0.5)**2 * (3 - 2*(offset + 0.5))
         assert abs(got - expected) < 1e-6, (
-            f'at {offset:+.1f} px from the edge, coverage {got:.3f} != {expected:.3f}; '
-            f'smoothstep would give {1 - (offset+0.5)**2 * (3 - 2*(offset+0.5)):.3f}')
+            f'at {offset:+.1f} px, coverage {got:.3f} != {expected:.3f} '
+            f'(smoothstep would give {smoothstep:.3f})')
+
+
+def test_the_disc_bound_is_cheaper_than_the_polygon_it_replaces():
+    """n_steps stopped setting accuracy and started setting only surplus area, so it can fall."""
+    from stimpack.visual_stim.shapes import GlSphericalCirc
+
+    assert GlSphericalCirc(circle_radius=10.0).vertices.shape[1] // 3 == 8
+
+
+def test_a_shape_that_declares_no_edge_is_untouched():
+    """The path is strictly additive: every existing shape keeps a geometry-defined edge."""
+    from stimpack.visual_stim.shapes import GlCylinder, GlSphericalRect
+
+    for shape in (GlSphericalRect(), GlCylinder()):
+        assert getattr(shape, 'EDGE_KIND', 0) == 0
+
+
+def test_a_rendered_disc_has_a_soft_edge_carrying_sub_pixel_position(headless_gl):
+    """The end-to-end claim: through the real render path, a disc's boundary spans partially-lit
+    pixels rather than jumping from lit to unlit.
+
+    That intensity ramp is what carries edge position below the pixel grid. Without it an edge
+    cannot sit between pixels, so at 5 deg/s it stays on one for about three frames and then jumps
+    -- which is the temporal resolution 360 Hz exists to provide, discarded at the last step.
+    """
+    frame = _render(headless_gl, 'MovingSpot',
+                    {'radius': 10.0, 'color': [1, 1, 1, 1], 'theta': 0, 'phi': 0,
+                     'sphere_radius': 1.0})
+    grey = frame[..., 0].astype(int)
+
+    lit = (grey > 250).sum()
+    dark = (grey < 5).sum()
+    partial = grey.size - lit - dark
+
+    assert lit > 0, 'the spot did not render'
+    assert partial > 0, 'edge is hard: no partially-lit pixels, so position cannot go sub-pixel'
+    # a ring one pixel wide around a disc, not a general haze over the image
+    assert partial < lit, f'edge is implausibly soft: {partial} partial vs {lit} fully-lit pixels'

@@ -401,10 +401,11 @@ class MovingSpot(BaseProgram):
         phi = return_for_time_t(self.phi, t)
         color = return_for_time_t(self.color, t)
         # TODO: is there a way to make this object once in configure then update with radius in eval_at?
+        # n_steps left at its default: it bounds the disc rather than approximating it now, so 36
+        # sides buy nothing that the shader is not already computing exactly.
         self.stim_object = shapes.GlSphericalCirc(circle_radius=radius,
                                                 sphere_radius=self.sphere_radius,
-                                                color=color,
-                                                n_steps=36).rotate(np.radians(theta), np.radians(phi), 0)
+                                                color=color).rotate(np.radians(theta), np.radians(phi), 0)
 
 class LoomingCircle(BaseProgram):
     """

@@ -18,6 +18,60 @@ import numpy as np
 from math import radians
 from . import util
 
+# Edge kinds the fragment shader can evaluate. A shape declaring one hands the shader an equation
+# for its true boundary; the triangles then only have to *cover* that boundary, and the shader
+# clips them back to it. NONE is every shape that has not opted in: the geometry defines the edge,
+# exactly as it always has.
+EDGE_NONE = 0
+EDGE_ANGULAR_DISC = 1
+
+
+def _as_column(vector):
+    """A 3-vector as the (3, 1) array the transform helpers in util expect."""
+    return np.asarray(vector, dtype=float).reshape(3, 1)
+
+
+def _carry_edge(source, result, turned=None):
+    """Move a declared analytic edge onto a transformed copy, when the transform preserves it.
+
+    Rotations preserve angles, so a disc of angular radius R about direction c is still one about
+    the rotated c. Translation and scaling are not: they move the shape off the sphere its angular
+    radius was measured on, or stretch it out of being a disc at all. Those simply do not carry the
+    declaration, and the shape falls back to a geometry-defined edge -- which is what every
+    unconverted shape uses, so the fallback is the well-trodden path rather than a special case.
+    """
+    if turned is None:
+        return result
+    result.EDGE_KIND = source.EDGE_KIND
+    result.edge_center = tuple(np.asarray(turned, dtype=float).reshape(3))
+    result.edge_radius = source.edge_radius
+    return result
+
+
+def edge_coverage(distance, pixel):
+    """What fraction of a pixel a shape covers, given how far its edge is from the pixel centre.
+
+    The reference implementation of what the fragment shader computes, kept in Python so the rule
+    can be stated and tested without a GL context.
+
+    Linear, not ``smoothstep``. The graphics convention is the latter, whose S-curve makes edges
+    look soft rather than creased, and it is wrong here twice over. A pixel 30% covered should emit
+    30% of the light and smoothstep emits 22%, worst case 9.6 percentage points of luminance. Worse,
+    it makes emitted intensity a non-linear function of edge position, so a constant-velocity edge
+    appears to stall and then hurry once per pixel crossed -- which is a smaller copy of the motion
+    artefact analytic coverage exists to remove. This form is the true covered fraction for a
+    straight edge, which is what a photoreceptor integrating over that pixel receives.
+
+    :param distance: how far the edge is beyond the pixel, in the same units as `pixel`;
+        negative is inside the shape
+    :param pixel: the size of one pixel in those units
+    """
+    import numpy as np
+    if pixel <= 0:
+        return float(distance <= 0)
+    return float(np.clip(0.5 - distance / pixel, 0.0, 1.0))
+
+
 class GlVertices:
     """
     A triangle mesh: vertices, per-vertex RGBA colours, and texture coordinates.
@@ -29,6 +83,13 @@ class GlVertices:
     :param colors: 4 x n array of RGBA values, one per vertex
     :param tex_coords: 2 x n array of texture coordinates, for textured shapes
     """
+    EDGE_KIND = EDGE_NONE
+
+    @property
+    def edge_kind(self):
+        """Which edge equation the fragment shader should evaluate for this shape, if any."""
+        return self.EDGE_KIND
+
     def __init__(self, vertices=None, colors=None, tex_coords=None):
         self.vertices = vertices
         self.colors = colors
@@ -60,19 +121,27 @@ class GlVertices:
         :param x: rotation around x axis (pitch), radians
         :param y: rotation around y axis (roll), radians
         """
-        return GlVertices(vertices=util.rotate(self.vertices, z, x, y), colors=self.colors, tex_coords=self.tex_coords)
+        return _carry_edge(self, GlVertices(vertices=util.rotate(self.vertices, z, x, y), colors=self.colors,
+                                            tex_coords=self.tex_coords),
+                          turned=util.rotate(_as_column(self.edge_center), z, x, y) if self.edge_kind else None)
 
     def rotx(self, th):
         """Rotate about the x axis by ``th`` radians. Returns self, so calls chain."""
-        return GlVertices(vertices=util.rotx(self.vertices, th), colors=self.colors, tex_coords=self.tex_coords)
+        return _carry_edge(self, GlVertices(vertices=util.rotx(self.vertices, th), colors=self.colors,
+                                            tex_coords=self.tex_coords),
+                          turned=util.rotx(_as_column(self.edge_center), th) if self.edge_kind else None)
 
     def roty(self, th):
         """Rotate about the y axis by ``th`` radians. Returns self, so calls chain."""
-        return GlVertices(vertices=util.roty(self.vertices, th), colors=self.colors, tex_coords=self.tex_coords)
+        return _carry_edge(self, GlVertices(vertices=util.roty(self.vertices, th), colors=self.colors,
+                                            tex_coords=self.tex_coords),
+                          turned=util.roty(_as_column(self.edge_center), th) if self.edge_kind else None)
 
     def rotz(self, th):
         """Rotate about the z axis by ``th`` radians. Returns self, so calls chain."""
-        return GlVertices(vertices=util.rotz(self.vertices, th), colors=self.colors, tex_coords=self.tex_coords)
+        return _carry_edge(self, GlVertices(vertices=util.rotz(self.vertices, th), colors=self.colors,
+                                            tex_coords=self.tex_coords),
+                          turned=util.rotz(_as_column(self.edge_center), th) if self.edge_kind else None)
 
     def scale(self, amt):
         """Scale about the origin. Returns self, so calls chain."""
@@ -393,32 +462,56 @@ class GlSphericalCirc(GlVertices):
     """
     A circular patch on the surface of a sphere, of fixed angular radius.
 
+    The triangles are a *bound*, not the shape. They are pushed out until their edges are tangent
+    to the true circle, and the fragment shader clips them back to it -- so the disc is exact at
+    any radius, and its edge carries sub-pixel coverage rather than snapping to whole pixels.
+
+    That inverts what `n_steps` is for. It used to set accuracy: vertices sat on the circle, so the
+    chords between them cut 1 - cos(pi/n) inside it -- 0.38% of the radius at 36 steps, which is
+    0.076 degrees on a 20 degree disc and nearly twice a pixel on a flat rig. Now it only sets how
+    much surplus area is drawn and then found to be outside, so 8 is enough and cheaper than 36.
+
     :param circle_radius: degrees subtended at the subject
-    :param n_steps: triangles in the fan approximating the circle
+    :param n_steps: sides of the bounding polygon. Not the accuracy of the disc.
     """
+    EDGE_KIND = EDGE_ANGULAR_DISC
+
     def __init__(self,
                  circle_radius=10,  # degrees in spherical coordinates
                  sphere_radius=1,  # meters
                  color=[1, 1, 1, 1],  # [r,g,b,a] or single value for monochrome, alpha = 1
                  sphere_location=(0, 0, 0),  # (x,y,z) meters. (0,0,0) is center of sphere
-                 n_steps=36):
+                 n_steps=8):
         super().__init__()
         color = util.get_rgba(color)
 
         v_center = util.spherical_to_cartesian(sphere_radius, np.pi/2, np.pi/2)
+
+        # A regular n-gon with its vertices at radius r has its *edges* at r*cos(pi/n). Pinning the
+        # vertices to the circle therefore leaves the edges inside it, and a fragment shader can
+        # only remove coverage, never add it -- so an inscribed bound would clip the exact circle
+        # back to a polygon and this would all be for nothing. Pin the edges instead.
+        bound = radians(circle_radius) / np.cos(np.pi / n_steps)
 
         angles = np.linspace(0, 2*np.pi, n_steps+1)
         for wedge in range(n_steps):
             # render circle at the equator (phi=pi/2) so it's not near the poles
             # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
             v1 = util.spherical_to_cartesian(sphere_radius,
-                                        np.pi/2 + radians(circle_radius)*np.cos(angles[wedge]),
-                                        np.pi/2 + radians(circle_radius)*np.sin(angles[wedge]))
+                                        np.pi/2 + bound*np.cos(angles[wedge]),
+                                        np.pi/2 + bound*np.sin(angles[wedge]))
             v2 = util.spherical_to_cartesian(sphere_radius,
-                                        np.pi/2 + radians(circle_radius)*np.cos(angles[wedge+1]),
-                                        np.pi/2 + radians(circle_radius)*np.sin(angles[wedge+1]))
+                                        np.pi/2 + bound*np.cos(angles[wedge+1]),
+                                        np.pi/2 + bound*np.sin(angles[wedge+1]))
 
             self.add(GlTri(v1, v2, v_center, color).translate(sphere_location))
+
+        # What the shader needs to find the true edge: the direction to the disc's centre, and how
+        # far from it the disc reaches.
+        self.edge_center = tuple(np.asarray(v_center, dtype=float).reshape(3)
+                                 / np.linalg.norm(v_center))
+        self.edge_radius = float(radians(circle_radius))
+
 
 class GlCylindricalPoints(GlVertices):
     """
