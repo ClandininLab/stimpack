@@ -46,6 +46,23 @@ An example may look like:
     for your lab (recommended), use your own name here — these are file paths relative to your
     labpack directory, so they must match the directory on disk.
 
+.. note::
+
+    A path may also be **absolute**, or carry a ``stimpack:`` prefix to name one of stimpack's own
+    modules — most usefully its example protocols, alongside your lab's::
+
+        module_paths:
+          protocol:
+            - template_labpack/protocol/JBM_protocol.py
+            - stimpack:experiment/example_protocol.py
+
+    Prefer the prefix over an absolute path here. A config is shared across the machines a lab runs
+    on, and stimpack sits at a different path on each; the prefix resolves against wherever stimpack
+    is actually installed, the way ``path_to_labpack.txt`` does for the labpack.
+
+    Listing more than one protocol module also makes the GUI label each protocol with the module it
+    came from, which is what keeps two same-named protocols apart.
+
 .. warning::
 
     Custom stimuli belong under ``module_paths.visual_stim``. An older layout put them in

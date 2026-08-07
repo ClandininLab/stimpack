@@ -23,6 +23,8 @@ import types
 from typing import Any, Optional
 import warnings
 
+from stimpack.util import ROOT_DIR
+
 from deepmerge import Merger
 from importlib.util import spec_from_file_location, module_from_spec
 
@@ -369,9 +371,27 @@ def get_module_paths(cfg, module_name: str) -> list[str]:
         module_paths = [module_paths]
     return module_paths
 
+#: Prefix marking a ``module_paths`` entry as relative to stimpack's own package directory rather
+#: than to the labpack, e.g. ``stimpack:experiment/example_protocol.py``.
+#:
+#: A labpack that wants stimpack's own modules alongside its own -- the example protocols, most
+#: usefully -- cannot name them relatively, since they are not in the labpack, and cannot name them
+#: absolutely either: a config is shared across the machines a lab runs on, and stimpack sits at a
+#: different path on each. The labpack directory has ``path_to_labpack.txt`` to solve exactly this;
+#: this is the equivalent for stimpack, which needs no file because it can find itself.
+STIMPACK_PATH_PREFIX = 'stimpack:'
+
+
 def convert_labpack_relative_path_to_full_path(path):
-    """Converts a path relative to the labpack directory to a full path"""
-    if os.path.isabs(path):
+    """Resolve a ``module_paths`` entry to a full path.
+
+    Absolute paths are used as given; a ``stimpack:`` prefix resolves against stimpack's package
+    directory; anything else is relative to the labpack directory.
+    """
+    if path.startswith(STIMPACK_PATH_PREFIX):
+        relative = path[len(STIMPACK_PATH_PREFIX):].lstrip('/')
+        full_path = os.path.join(ROOT_DIR, relative)
+    elif os.path.isabs(path):
         full_path = path
     else:
         full_path = os.path.join(get_labpack_directory(), path)

@@ -289,3 +289,37 @@ def test_run_parameters_are_written_as_a_plain_mapping():
     assert 'python/object' not in written
     assert config_tools.safe_load_yaml_with_tuples(written) == {'run_parameters': {'num_trials': 5}}
 
+
+
+# --- resolving module_paths entries ----------------------------------------------------------------
+
+def test_a_stimpack_prefixed_path_resolves_against_stimpack():
+    """So a labpack can list stimpack's own example protocols beside its own.
+
+    Not an absolute path: a config is shared across the machines a lab runs on, and stimpack sits at
+    a different path on each. This is the equivalent of path_to_labpack.txt for stimpack itself,
+    which needs no file because it can find itself.
+    """
+    import os
+
+    from stimpack.util import ROOT_DIR
+
+    resolved = config_tools.convert_labpack_relative_path_to_full_path(
+        'stimpack:experiment/example_protocol.py')
+
+    assert resolved == os.path.join(ROOT_DIR, 'experiment', 'example_protocol.py')
+    assert os.path.exists(resolved), 'the path a config would name must actually be there'
+
+
+def test_an_absolute_path_is_left_alone():
+    resolved = config_tools.convert_labpack_relative_path_to_full_path('/srv/rig/protocol.py')
+    assert resolved == '/srv/rig/protocol.py'
+
+
+def test_a_plain_path_is_relative_to_the_labpack(monkeypatch):
+    """The default, and what every existing config uses."""
+    monkeypatch.setattr(config_tools, 'get_labpack_directory', lambda: '/labpacks/mine')
+
+    resolved = config_tools.convert_labpack_relative_path_to_full_path('labpack/protocol/p.py')
+
+    assert resolved == '/labpacks/mine/labpack/protocol/p.py'
