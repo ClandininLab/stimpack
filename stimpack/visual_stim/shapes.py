@@ -543,6 +543,83 @@ class GlSphericalCirc(GlVertices):
         self.edge_extent = (float(radians(circle_radius)), 0.0)
 
 
+class GlSphericalAnnuli(GlVertices):
+    """
+    Concentric annuli of equal angular width about the forward axis, in alternating colours.
+
+    A commissioning pattern rather than an experimental stimulus. Every band subtends the same
+    angle at the subject, so on a screen that is a sphere centred on the subject every band is the
+    same *physical* width on the surface -- which makes a ruler or a photograph a direct test of
+    the renderer's geometry, needing no model of the rig to interpret. In the projector image the
+    same bands are emphatically not equal: they compress towards the rim, and that compression is
+    the warp doing its job.
+
+    Built exactly, from the angle-from-axis definition, rather than by offsetting theta and phi
+    around the canonical patch centre the way :class:`GlSphericalCirc` does. That parameterisation
+    is a tangent-plane approximation, exact only to first order in the offset -- fine for a patch a
+    few degrees across, and wrong by a degree or so at the 45 degrees these rings are meant to
+    reach, which is exactly the error this pattern exists to detect.
+
+    No analytic edge: the shader carries one edge equation per draw, and this is many rings. The
+    boundaries are therefore polygonal, and ``n_azimuth`` says how finely. The radial error is
+    ``1 - cos(pi / n_azimuth)`` of the ring radius -- at the default 128 that is 0.03% of it, about
+    0.01 degrees at 45, well under a projector pixel on any rig this is useful for.
+
+    :param band_width: angular width of each band, in degrees
+    :param max_radius: how far out to draw, in degrees from the axis. Rounded up to a whole band,
+        so the outermost band is never a partial one masquerading as a full one.
+    :param sphere_radius: metres. Only has to put the pattern outside anything else in the scene.
+    :param colors: the two colours to alternate, innermost first. ``[r,g,b,a]`` or mono.
+    :param n_azimuth: steps around the axis. See above for what it costs.
+    """
+
+    def __init__(self,
+                 band_width=5.0,
+                 max_radius=45.0,
+                 sphere_radius=1.0,
+                 colors=(1.0, 0.0),
+                 n_azimuth=128):
+        super().__init__()
+
+        if band_width <= 0:
+            raise ValueError(f'band_width must be positive, got {band_width}')
+        if max_radius <= 0:
+            raise ValueError(f'max_radius must be positive, got {max_radius}')
+        if n_azimuth < 3:
+            raise ValueError(f'n_azimuth must be at least 3, got {n_azimuth}')
+
+        # Whole bands only. A truncated outer band reads as a band of its own, and someone checking
+        # that the widths are equal would find one that is not and go looking for a bug in the warp.
+        n_bands = int(np.ceil(max_radius / band_width))
+        edges = np.radians(np.arange(n_bands + 1) * band_width)
+
+        inner, outer = edges[:-1, None], edges[1:, None]            # (B, 1)
+        azimuth = np.linspace(0, 2 * np.pi, n_azimuth + 1)
+        left, right = azimuth[None, :-1], azimuth[None, 1:]         # (1, A)
+
+        def direction(angle, around):
+            """Unit vectors `angle` from +y, at `around` about it. Exact at any angle."""
+            angle, around = np.broadcast_arrays(angle, around)
+            return np.stack([np.sin(angle) * np.cos(around),
+                             np.cos(angle) * np.ones_like(around),
+                             np.sin(angle) * np.sin(around)])       # (3, B, A)
+
+        # Each cell of the (band, azimuth) grid becomes two triangles. The innermost band's inner
+        # edge is a point, so its first triangle is degenerate and draws nothing -- cheaper than
+        # special-casing a fan, and it keeps one array shape for the whole pattern.
+        corners = (direction(inner, left), direction(inner, right),
+                   direction(outer, right), direction(outer, left))
+        a, b, c, d = corners
+        triangles = np.stack([a, b, c, a, c, d], axis=-1)           # (3, B, A, 6)
+
+        band_colors = np.stack([util.get_rgba(colors[index % len(colors)])
+                                for index in range(n_bands)], axis=1)   # (4, B)
+
+        self.vertices = (sphere_radius * triangles).reshape(3, -1)
+        self.colors = np.broadcast_to(band_colors[:, :, None, None],
+                                      (4, n_bands, n_azimuth, 6)).reshape(4, -1)
+
+
 class GlCylindricalPoints(GlVertices):
     """
     Points placed on a cylinder wall at given azimuths and elevations.

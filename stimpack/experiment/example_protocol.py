@@ -333,6 +333,172 @@ class SubframeTimingCheck(BaseProtocol):
 
 # %%
 
+class ScreenAlignmentCheck(BaseProtocol):
+    """
+    Commissioning stimulus: concentric rings of equal angular width, to check the warp and the
+    screen's centring.
+
+    Two questions, one pattern.
+
+    **Is the warp right?** Every band subtends the same angle at the subject. On a screen that is a
+    sphere centred on the subject, equal angle is equal arc, so every band is the same *physical*
+    width on the surface -- a ruler laid across the screen, or a photograph of it, answers directly,
+    with no model of the rig needed to interpret the reading. Look at the projector image instead
+    and the same bands are visibly unequal, crowding towards the rim. That difference *is* the warp;
+    seeing it is how you know the screen mesh is being used rather than bypassed.
+
+    **Is the screen centred on the projector?** The rings are concentric about
+    ``center``, which defaults to the rig's own ``screen_center`` -- on a rig whose screen has an
+    axis of symmetry, that is the axis, and the rings should come out concentric with the rim. An
+    offset shows up as rings crowding one side, and every ring is a fresh chance to see it, which
+    beats eyeballing a single edge. If they are eccentric, either the screen is off the projector's
+    axis or ``screen_center`` does not describe this rig.
+
+    Static and non-random on purpose: this is a target to photograph and measure, so nothing here
+    varies across trials, and one trial is enough. It is left up for ``stim_time``, so make that as
+    long as you need to take the picture.
+
+    Run :class:`ProjectorCenterBeam` alongside it. The beam marks the centre of the projector image;
+    the rings should be concentric about that mark, which turns "is it centred" into a comparison of
+    two things on the same photograph rather than a judgement about one.
+    """
+    def __init__(self, cfg):
+        super().__init__(cfg)
+
+        self.run_parameters = self.get_run_parameter_defaults()
+        self.protocol_parameters = self.get_protocol_parameter_defaults()
+
+    def get_trial_parameters(self):
+        super().get_trial_parameters()
+
+        center = self.adjust_center(self.trial_protocol_parameters['center'])
+
+        # Two scalars rather than one 'colors' pair, because a list in a protocol parameter is
+        # stimpack's notation for a value that varies across trials -- so a colour pair written as
+        # a list would be read as two trials, each with one colour, and the pattern would come out
+        # a flat disc.
+        colors = (self.trial_protocol_parameters['bright'],
+                  self.trial_protocol_parameters['dark'])
+
+        self.trial_stim_parameters = {'name': 'AlternatingAnnuli',
+                                      'band_width': self.trial_protocol_parameters['band_width'],
+                                      'max_radius': self.trial_protocol_parameters['max_radius'],
+                                      'sphere_radius': 1,
+                                      'colors': colors,
+                                      'theta': center[0],
+                                      'phi': center[1],
+                                      'n_azimuth': self.trial_protocol_parameters['n_azimuth']}
+
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 0.5,
+                'stim_time': 60.0,       # long: this is a target to photograph, not a trial
+                'tail_time': 0.5,
+
+                'band_width': 5.0,       # degrees; the quantity the whole check is about
+                # Past the edge of the screen on purpose. A ring that runs off the screen shows
+                # where the edge is; one that stops short of it does not.
+                'max_radius': 60.0,
+                'bright': 1.0,
+                'dark': 0.0,
+                'center': (0, 0),        # relative to screen_center -- see the class docstring
+                'n_azimuth': 128,
+                }
+
+    def get_run_parameter_defaults(self):
+        return {'num_trials': 1,
+                'idle_color': 0.0,       # dark, so the rings are the only thing on the screen
+                'pre_run_time': 0,
+                'post_run_time': 0,
+                'all_combinations': True,
+                'randomize_order': False}
+
+# %%
+
+class ProjectorCenterBeam(BaseProtocol):
+    """
+    Commissioning stimulus: a narrow spot at the centre of the projector image, for aligning the
+    projector against the subject.
+
+    Drawn in *projector* coordinates, after the warp, on an otherwise black screen -- so it marks a
+    known position in the image rather than a direction in the world, and no part of the rendering
+    geometry can move it. That is what makes it an independent reference: everything else on the
+    screen has been through the mesh, and this has not.
+
+    On a rig whose projector is aimed at the subject, the centre ray goes from the projector, through
+    the screen, to the subject. So with ``ndc`` at the default (0, 0) the beam should land on the
+    subject itself. Watch it on the behaviour camera and move the projector until it does.
+
+    The beam stays lit for the whole run rather than per trial, because what you do with it is
+    physically adjust the rig while looking at it. Press Stop when you are done -- it is taken down
+    from the run loop's finally block, so a stopped or errored run does not leave the screen black
+    with a dot on it.
+
+    Two things it deliberately does: it blacks out the rest of the screen (see
+    :class:`~stimpack.visual_stim.calibration.CalibrationSpot` -- the same mechanism the brightness
+    calibration uses), and while it is up the corner square is suppressed, so a photodiode sees
+    nothing during this protocol. Neither matters for alignment, and both would matter if you tried
+    to use this while recording.
+    """
+    def __init__(self, cfg):
+        super().__init__(cfg)
+
+        self.run_parameters = self.get_run_parameter_defaults()
+        self.protocol_parameters = self.get_protocol_parameter_defaults()
+
+    def on_run_start(self, manager, multicall=None):
+        super().on_run_start(manager, multicall)
+
+        if not self.has_server_function('show_calibration_spot', target='visual'):
+            warnings.warn('This screen server does not answer to show_calibration_spot, so no beam '
+                          'will appear. It is stimpack 0.3+; check the server version.')
+            return
+
+        manager.target('visual').show_calibration_spot(
+            ndc_x=self.protocol_parameters['ndc_x'],
+            ndc_y=self.protocol_parameters['ndc_y'],
+            radius=self.protocol_parameters['radius'],
+            intensity=self.protocol_parameters['intensity'])
+
+    def on_run_finish(self, manager, multicall=None):
+        super().on_run_finish(manager, multicall)
+
+        # From the run loop's finally block, so Stop and an error both take the beam down. A screen
+        # left showing nothing but a dot is not an error anyone would recognise as one.
+        if self.has_server_function('hide_calibration_spot', target='visual'):
+            manager.target('visual').hide_calibration_spot()
+
+    def get_trial_parameters(self):
+        super().get_trial_parameters()
+
+        # No stimulus: the beam is not drawn through the rendering path at all. The trial exists
+        # only to hold the run open while the projector is being moved.
+        self.trial_stim_parameters = None
+
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 0.0,
+                'stim_time': 300.0,      # long: you are adjusting hardware. Stop when done.
+                'tail_time': 0.0,
+
+                # Projector image coordinates, [-1, +1] in each axis. (0, 0) is the centre of the
+                # image, which is the point this protocol exists to find.
+                'ndc_x': 0.0,
+                'ndc_y': 0.0,
+                # Radius as a fraction of the image half-width, corrected to be round in the image
+                # rather than in NDC. 0.01 is about 9 px across a 912 px panel.
+                'radius': 0.01,
+                'intensity': 1.0,
+                }
+
+    def get_run_parameter_defaults(self):
+        return {'num_trials': 1,
+                'idle_color': 0.0,
+                'pre_run_time': 0,
+                'post_run_time': 0,
+                'all_combinations': True,
+                'randomize_order': False}
+
+# %%
+
 class LinearTrackWithTowers(BaseProtocol):
     """
     Linear track with towers. Towers can be rotating or stationary, and can be sine or square wave gratings.

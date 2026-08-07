@@ -447,6 +447,63 @@ class LoomingCircle(BaseProgram):
                                 ).set_color(util.get_rgba(color))
         self.t_prev = t
 
+class AlternatingAnnuli(BaseProgram):
+    """
+    Concentric rings of equal angular width, in alternating colours. A commissioning pattern.
+
+    What it is for, on a curved screen:
+
+    - **is the warp right?** Every band subtends the same angle at the subject, so on a screen that
+      is a sphere centred on the subject every band is the same width *on the screen surface*. A
+      ruler across the bowl, or a photograph of it, checks that directly -- no model of the rig is
+      needed to read the answer. In the projector image the same bands are visibly unequal,
+      compressing towards the rim; that difference is the warp, and seeing it is how you know the
+      mesh is being used at all.
+    - **is the screen centred on the projector?** Point ``theta``/``phi`` along the screen's own
+      axis of symmetry and the rings become concentric with its rim. An offset between the two
+      shows up as rings crowding one side, at a sensitivity far better than eyeballing an edge --
+      each ring is a fresh chance to see the eccentricity.
+
+    On a flat screen the rings are conic sections, so widths are equal only in angle. The physical
+    check above is specific to a spherical screen.
+
+    The pattern is static, so it is built once in :meth:`configure` rather than per frame.
+
+    .. note::
+       ``theta`` and ``phi`` aim the *axis* of the pattern and are ordinary numbers, not
+       trajectories. This is an alignment target: a moving one would be harder to photograph and
+       impossible to measure with a ruler.
+    """
+    def __init__(self, screen):
+        # Enough for the default 45 degrees at 5 degree bands and 128 azimuth steps (2304), with
+        # room to make the bands finer or the rings smoother before this has to be revisited.
+        super().__init__(screen=screen, num_tri=20000)
+
+    def configure(self, band_width=5.0, max_radius=45.0, sphere_radius=1, colors=(1.0, 0.0),
+                  theta=0, phi=0, n_azimuth=128):
+        """
+        :param band_width: degrees. The width of every band, and the quantity the whole check is
+            about -- see the class docstring.
+        :param max_radius: degrees from the axis to draw out to, rounded up to a whole band. Set it
+            past the edge of the screen: a ring that runs off the screen tells you where the edge
+            is, and one that stops short of it does not.
+        :param sphere_radius: meters. Only has to sit outside anything else in the scene.
+        :param colors: the two colours to alternate, innermost first. Each ``[r,g,b,a]`` or mono.
+        :param theta: degrees, azimuth of the pattern's axis
+        :param phi: degrees, elevation of the pattern's axis. For a screen whose axis is tilted
+            away from the subject's horizontal -- a bowl below the animal, say -- put the axis
+            along it, and the rings come out concentric with the screen's rim.
+        :param n_azimuth: steps around the axis; sets how polygonal the ring boundaries are.
+        """
+        self.stim_object = shapes.GlSphericalAnnuli(
+            band_width=band_width, max_radius=max_radius, sphere_radius=sphere_radius,
+            colors=colors, n_azimuth=n_azimuth,
+        ).rotate(np.radians(theta), np.radians(phi), 0)
+
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
+        pass
+
+
 class UniformWhiteNoise(BaseProgram):
     """
     A patch whose intensity is redrawn from a distribution at a fixed rate.
