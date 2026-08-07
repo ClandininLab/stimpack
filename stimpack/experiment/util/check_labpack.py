@@ -11,7 +11,8 @@ Two groups of checks, split by what they cost.
 The cheap ones import nothing, which is what lets them run on every GUI launch:
 
   tier 1  config keys stimpack no longer reads
-  tier 2  every module_paths entry resolves on disk, and visual_stim directories look loadable
+  tier 2  every module_paths entry resolves on disk, visual_stim directories look loadable, and
+          `import <package>` reaches this labpack rather than another copy of it
 
 The rest import lab code and run each protocol, so they are opt-in (--deep) and never part of
 startup -- executing arbitrary lab code on the launch path is not something a startup check should
@@ -32,6 +33,7 @@ Two severities, and the distinction is about what happens next:
   warning  something is absent or ignored, which may well be deliberate for this rig
 """
 import contextlib
+import importlib.util
 import inspect
 import os
 import re
@@ -171,6 +173,7 @@ def check_labpack(labpack_dir=None, cfg_names=None, deep=False):
                         f"no configs found in {os.path.join(labpack_dir, 'configs')}")], []
 
     findings = []
+    package_names = set()
     for cfg_name in sorted(cfg_names):
         try:
             # get_configuration_file warns about legacy keys itself. Silence that here: this check
@@ -183,6 +186,7 @@ def check_labpack(labpack_dir=None, cfg_names=None, deep=False):
             findings.append(Finding('error', 'unreadable-config', cfg_name,
                                     f"could not be read: {type(e).__name__}: {e}"))
             continue
+        package_names.update(_labpack_package_names(cfg, labpack_dir))
         findings.extend(check_config(cfg, cfg_name, labpack_dir))
         if deep:
             try:
@@ -196,6 +200,10 @@ def check_labpack(labpack_dir=None, cfg_names=None, deep=False):
                 # findings from the others.
                 findings.append(Finding('warning', 'deep-check-failed', cfg_name,
                                         f'could not be checked deeply: {type(e).__name__}: {e}'))
+
+    # Labpack-wide, so once rather than per config: every config in a labpack names the same
+    # package, and reporting it fourteen times would bury everything else.
+    findings.extend(_check_package_imports(package_names, labpack_dir))
 
     return findings, sorted(cfg_names)
 
@@ -237,6 +245,90 @@ def _resolve(path, labpack_dir):
     loads without complaint, which is the opposite of what a checker is for.
     """
     return config_tools.convert_labpack_relative_path_to_full_path(path, labpack_dir=labpack_dir)
+
+
+def _labpack_package_names(cfg, labpack_dir):
+    """Top-level package names the config's own module files sit inside.
+
+    Taken from module_paths rather than from a directory listing: these are exactly the directories
+    stimpack loads code out of, so they are exactly the packages that code's own ``import``
+    statements will name. ``stimpack:``-prefixed entries are somebody else's package and are
+    skipped, as are absolute paths, which are not in the labpack by definition.
+    """
+    names = set()
+    for module_name in (cfg.get('module_paths') or {}):
+        for path in config_tools.get_module_paths(cfg, module_name):
+            if not isinstance(path, str) or path.startswith(config_tools.STIMPACK_PATH_PREFIX):
+                continue
+            if os.path.isabs(path):
+                continue
+            head = path.replace('\\', '/').split('/')[0]
+            if head.isidentifier() and os.path.isdir(os.path.join(labpack_dir, head)):
+                names.add(head)
+    return names
+
+
+def _check_package_imports(package_names, labpack_dir):
+    """Does ``import <package>`` reach *this* labpack, or a different copy of it?
+
+    The failure this catches is the nastiest one in this module, because nothing else can see it.
+    Stimpack loads protocol modules **by file path** out of the configured labpack, but the
+    ``from labpack.protocol import base_protocol`` inside such a file is an ordinary import,
+    resolved through ``sys.path``. Point those two at different checkouts -- an editable install
+    left behind from an older clone is all it takes -- and a protocol class from one inherits its
+    base class, its DAQ and its data module from the other. Both halves look right on their own.
+    Observed at a rig as ``'MovingPatch' object has no attribute 'voltage_out'``, a helper the
+    subclass's own repo defines and the imported one, eighteen months older, does not.
+
+    Cheap enough for the shallow tier: find_spec runs the path finders without executing anything.
+
+    A package that is not importable at all is deliberately not reported. That fails loudly the
+    moment a protocol imports it, and tier 3 says so with the real traceback -- this module is for
+    what stays quiet.
+    """
+    findings = []
+    for name in sorted(package_names):
+        expected = os.path.join(labpack_dir, name)
+        try:
+            spec = importlib.util.find_spec(name)
+        except Exception:
+            # A name that cannot even be looked up (a broken parent, a finder that raises) is not
+            # something this check can improve on; the deep tier reports the real import error.
+            continue
+        if spec is None:
+            continue
+
+        locations = [str(location) for location in
+                     (getattr(spec, 'submodule_search_locations', None) or [])]
+        if spec.origin and spec.origin != 'namespace':
+            resolved = os.path.dirname(spec.origin)
+        elif locations:
+            # A namespace package: the portions are searched in order, so the first one wins.
+            resolved = locations[0]
+        else:
+            continue
+
+        if os.path.realpath(resolved) != os.path.realpath(expected):
+            findings.append(Finding(
+                'error', 'labpack-package-shadowed', '',
+                f"'{name}' imports from {resolved}, not from this labpack ({expected}). Protocol "
+                f"modules are loaded by file path out of this labpack, but their own "
+                f"'import {name}' statements resolve through sys.path -- so a protocol from here "
+                f"inherits its base class, DAQ and data module from there, and the two copies can "
+                f"be different versions. Reinstall with: pip install -e {labpack_dir}"))
+            continue
+
+        extra = [location for location in locations
+                 if os.path.realpath(location) != os.path.realpath(expected)]
+        if extra:
+            findings.append(Finding(
+                'warning', 'labpack-package-split', '',
+                f"'{name}' resolves to this labpack, but is a namespace package also spanning "
+                f"{', '.join(extra)}. Submodules this labpack does not define will be imported "
+                f"from there instead, mixing two copies. Reinstall with: "
+                f"pip install -e {labpack_dir}"))
+
+    return findings
 
 
 def _legacy_keys(cfg):

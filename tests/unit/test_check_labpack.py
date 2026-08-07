@@ -636,3 +636,128 @@ def test_the_checker_resolves_paths_the_way_the_loader_does(tmp_path):
     resolved = check_labpack._resolve('stimpack:experiment/example_protocol.py', str(tmp_path))
     assert resolved == os.path.join(ROOT_DIR, 'experiment', 'example_protocol.py')
     assert os.path.exists(resolved), 'the checker must find a file that is really there'
+
+
+# --- tier 2: does `import <package>` reach this labpack, or a different copy of it? ---------------
+#
+# The failure these cover is invisible to every other check. Stimpack loads protocol modules by file
+# path out of the configured labpack, but the imports *inside* those files go through sys.path. When
+# the two point at different checkouts, a protocol class from one inherits its base class from the
+# other and both halves look correct in isolation.
+
+import importlib  # noqa: E402
+import sys  # noqa: E402
+
+
+@pytest.fixture
+def isolated_sys_path():
+    """Restore sys.path and the import caches, so one test cannot leak a package into another."""
+    original = list(sys.path)
+    yield sys.path
+    sys.path[:] = original
+    importlib.invalidate_caches()
+
+
+def install_package(root, name, namespace=False):
+    """Put an importable package called `name` at `root/name`. Namespace packages have no
+    __init__.py -- which real labpacks often are, so the check has to handle both."""
+    pkg = root / name
+    (pkg / 'protocol').mkdir(parents=True, exist_ok=True)
+    if not namespace:
+        (pkg / '__init__.py').write_text('')
+    return pkg
+
+
+def check_with_path_entry(labpack_root, path_entry, package):
+    """Run the shallow check with `path_entry` ahead of everything on sys.path."""
+    sys.path.insert(0, str(path_entry))
+    importlib.invalidate_caches()
+    findings, _ = check_labpack.check_labpack(str(labpack_root))
+    return [f for f in findings if f.code.startswith('labpack-package')]
+
+
+def test_a_package_imported_from_another_checkout_is_an_error(tmp_path, isolated_sys_path):
+    """The rig failure this exists for: two checkouts of one labpack, mixed inside one class.
+
+    Seen as `'MovingPatch' object has no attribute 'voltage_out'` -- a helper the subclass's own
+    repo defines and the imported copy, eighteen months older, does not.
+    """
+    here, elsewhere = tmp_path / 'live', tmp_path / 'stale'
+    (here / 'configs').mkdir(parents=True)
+    make_labpack(here, good_cfg(package='riglib'), package='riglib')
+    install_package(here, 'riglib')
+    install_package(elsewhere, 'riglib')
+
+    findings = check_with_path_entry(here, elsewhere, 'riglib')
+
+    assert codes(findings) == ['labpack-package-shadowed']
+    assert findings[0].level == 'error'
+    message = findings[0].message
+    assert str(elsewhere / 'riglib') in message, 'must say where it is importing from instead'
+    assert f'pip install -e {here}' in message, 'must say how to fix it'
+
+
+def test_a_package_imported_from_this_labpack_is_fine(tmp_path, isolated_sys_path):
+    here = tmp_path / 'live'
+    (here / 'configs').mkdir(parents=True)
+    make_labpack(here, good_cfg(package='riglib'), package='riglib')
+    install_package(here, 'riglib')
+
+    assert check_with_path_entry(here, here, 'riglib') == []
+
+
+def test_a_namespace_package_is_checked_the_same_way(tmp_path, isolated_sys_path):
+    """Real labpacks are often namespace packages -- no __init__.py -- and find_spec reports those
+    through submodule_search_locations with origin None. Missing that would make the check silently
+    pass on exactly the labpacks that hit this."""
+    here, elsewhere = tmp_path / 'live', tmp_path / 'stale'
+    (here / 'configs').mkdir(parents=True)
+    make_labpack(here, good_cfg(package='riglib'), package='riglib')
+    install_package(here, 'riglib', namespace=True)
+    install_package(elsewhere, 'riglib', namespace=True)
+
+    findings = check_with_path_entry(here, elsewhere, 'riglib')
+    assert codes(findings) == ['labpack-package-shadowed']
+
+
+def test_a_namespace_package_spanning_both_is_a_warning(tmp_path, isolated_sys_path):
+    """This labpack wins, but submodules it does not define come from the other copy."""
+    here, elsewhere = tmp_path / 'live', tmp_path / 'stale'
+    (here / 'configs').mkdir(parents=True)
+    make_labpack(here, good_cfg(package='riglib'), package='riglib')
+    install_package(here, 'riglib', namespace=True)
+    install_package(elsewhere, 'riglib', namespace=True)
+
+    # This labpack first, so it wins -- but the stale copy is still a portion of the namespace.
+    sys.path.insert(0, str(elsewhere))
+    findings = check_with_path_entry(here, here, 'riglib')
+
+    assert codes(findings) == ['labpack-package-split']
+    assert findings[0].level == 'warning'
+    assert str(elsewhere / 'riglib') in findings[0].message
+
+
+def test_a_package_that_is_not_installed_is_not_reported(tmp_path, isolated_sys_path):
+    """Deliberately quiet. A missing package fails loudly the moment a protocol imports it, and the
+    deep tier reports that with the real traceback; this module is for what stays silent. Reporting
+    it here would fire on every laptop that has a labpack checked out but not installed."""
+    here = tmp_path / 'live'
+    (here / 'configs').mkdir(parents=True)
+    make_labpack(here, good_cfg(package='riglib'), package='riglib')
+
+    findings, _ = check_labpack.check_labpack(str(here))
+    assert [f for f in findings if f.code.startswith('labpack-package')] == []
+
+
+def test_the_stimpack_prefix_is_not_mistaken_for_a_labpack_package(tmp_path, isolated_sys_path):
+    """`stimpack:experiment/example_protocol.py` names stimpack's own package, which lives
+    somewhere else by design -- flagging it would fire on every labpack using the examples."""
+    here = tmp_path / 'live'
+    (here / 'configs').mkdir(parents=True)
+    cfg = good_cfg(package='riglib')
+    cfg['module_paths']['protocol'] = ['riglib/protocol/my_protocol.py',
+                                       'stimpack:experiment/example_protocol.py']
+    make_labpack(here, cfg, package='riglib')
+    install_package(here, 'riglib')
+
+    assert check_with_path_entry(here, here, 'riglib') == []
