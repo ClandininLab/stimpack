@@ -358,3 +358,40 @@ def test_a_huge_undecodable_line_is_truncated_in_the_warning():
 
     assert len(str(record[0].message)) < 500
     assert '5000 chars' in str(record[0].message)
+
+
+def test_a_port_can_be_reused_immediately_after_a_server_shuts_down():
+    """Restarting a local server should not mean waiting out TIME_WAIT.
+
+    A server shut down with a client still attached closes its end first, so that endpoint holds
+    the port for ~60s -- which is exactly what closing the GUI does to a local server it started.
+    Without SO_REUSEADDR the relaunch is refused with "Address already in use", and the only
+    remedy is to wait.
+    """
+    server = MySocketServer(host='127.0.0.1', port=0, threaded=False, auto_stop=False)
+    port = server.listener.getsockname()[1]
+
+    client = socket.create_connection(('127.0.0.1', port))
+    accepted, _ = server.listener.accept()
+    accepted.close()                 # server end closes first: its endpoint enters TIME_WAIT
+    server.listener.close()
+    client.close()
+
+    again = MySocketServer(host='127.0.0.1', port=port, threaded=False, auto_stop=False)
+    try:
+        assert again.listener.getsockname()[1] == port
+    finally:
+        again.listener.close()
+
+
+def test_two_live_servers_still_cannot_share_a_port():
+    """SO_REUSEADDR permits reusing a port whose previous owner is gone -- not two live listeners.
+    Sharing would be SO_REUSEPORT, and silently accepting a second server on the same port would
+    split requests between them."""
+    first = MySocketServer(host='127.0.0.1', port=0, threaded=False, auto_stop=False)
+    port = first.listener.getsockname()[1]
+    try:
+        with pytest.raises(OSError):
+            MySocketServer(host='127.0.0.1', port=port, threaded=False, auto_stop=False)
+    finally:
+        first.listener.close()

@@ -363,6 +363,17 @@ class MySocketServer(MyTransceiver):
 
         # create the listener
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        # A server shut down with a client still attached closes its end first, so that endpoint
+        # sits in TIME_WAIT for ~60s still holding the port -- which is exactly what closing the
+        # GUI does to a local server it started. Without this, relaunching inside that window is
+        # refused with "Address already in use" and the only remedy is to wait it out.
+        #
+        # This does not let two live servers share a port: that would be SO_REUSEPORT, and a second
+        # bind against a listening socket is still refused (measured, both ways). It permits only
+        # the case where the previous owner is already gone.
+        self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
         self.listener.bind((host, port))
         self.listener.listen()
         self.listener.settimeout(accept_timeout)
