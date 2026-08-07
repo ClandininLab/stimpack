@@ -262,15 +262,24 @@ class BaseProgram:
             // How far outside the shape this fragment is, in radians. Negative is inside. Every
             // kind answers in the same currency, so the coverage arithmetic below is shared.
             float edge_excess(vec3 dir) {
-                if (edge_kind == 1) {            // disc: angle from the forward axis
-                    // clamp before acos: rounding can push the dot product just past 1, and acos
-                    // of that is NaN -- one black pixel at the centre of the disc, on some drivers.
-                    return acos(clamp(dot(dir, edge_frame[2]), -1.0, 1.0)) - edge_extent.x;
-                }
-                // rectangle: azimuth and elevation in the shape's own frame, whichever is worse
                 float across = dot(dir, edge_frame[0]);
                 float up     = dot(dir, edge_frame[1]);
                 float ahead  = dot(dir, edge_frame[2]);
+
+                if (edge_kind == 1) {
+                    // Cone: the shape is a flat ellipse projected outward from the subject, so
+                    // divide out the forward component to get that flat card's own coordinates and
+                    // ask how far out on it this fragment lands. 1.0 is exactly on the boundary.
+                    //
+                    // A disc is the equal-extent case, which is why there is no separate branch
+                    // for it -- and why an ellipse with equal axes really is a disc.
+                    if (ahead <= 0.0) return 1.0;                 // behind the shoulder, so outside
+                    float u = across / (ahead * tan(edge_extent.x));
+                    float v = up     / (ahead * tan(edge_extent.y));
+                    return sqrt(u*u + v*v) - 1.0;
+                }
+
+                // Rectangle: azimuth and elevation in the shape's own frame, whichever is worse.
                 float azimuth   = atan(across, ahead);
                 float elevation = asin(clamp(up, -1.0, 1.0));
                 return max(abs(azimuth) - edge_extent.x, abs(elevation) - edge_extent.y);
@@ -279,9 +288,12 @@ class BaseProgram:
             // What fraction of this pixel the shape covers.
             //
             // fwidth is the change in a value between neighbouring pixels -- GPUs shade in 2x2
-            // quads so that derivative exists -- so it gives the angular size of one pixel right
-            // here, without anyone having to know the projector's resolution, the screen's shape,
-            // or whether this is being drawn through a cube face.
+            // quads so that derivative exists -- so dividing by it converts `excess` into a
+            // distance in pixels, right here, without anyone having to know the projector's
+            // resolution, the screen's shape, or whether this is drawn through a cube face.
+            //
+            // It also means each kind may answer in whatever units suit it: numerator and
+            // denominator scale together, so the ratio is always "how many pixels outside".
             //
             // Linear rather than smoothstep: see shapes.edge_coverage for why. A pixel 30% covered
             // must emit 30% of the light, and the mapping from edge position to intensity has to

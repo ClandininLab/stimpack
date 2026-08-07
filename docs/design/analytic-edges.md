@@ -107,8 +107,21 @@ correct in kind, slightly off in width. Worth knowing; not worth architecture.
 
 ## Scope
 
-Smallest useful change: `GlSphericalCirc` and `GlCircle`, which cover `MovingSpot`,
-`LoomingCircle`, and the fly's wings. Then `GlSphericalRect` and the cylindrical patches.
+Smallest useful change: `GlSphericalCirc`, covering `MovingSpot` and `LoomingCircle`. Then
+`GlSphericalRect`, `GlSphericalEllipse`, and the cylindrical patches.
+
+**Not the fly's wings**, which an earlier draft of this note claimed. Two independent things put
+them out of reach, and both are properties of the design rather than oversights:
+
+- the wing is `GlCircle(radius=1.0).scale([0.25, 0.5, 0.5])`, a *non-uniform* scale, so it is not a
+  circle by the time it is drawn;
+- it is then `add()`ed into `GlFly.Thorax`, and `add()` concatenates vertex arrays into one mesh.
+  One draw call carries one set of uniforms, so **a composite cannot hold per-shape edges at all**.
+
+That second point is the boundary of what this approach reaches: a shape can declare an edge only
+if it is drawn as itself. It costs nothing here -- the fly is 102,400 triangles of icosphere, and
+its wings are not where its quality lives -- but it is worth stating, because it is the question to
+ask of any future candidate before converting it.
 
 ### What a shape declares
 
@@ -134,8 +147,61 @@ shader can only remove coverage, never add it. The disc needs no margin: its bou
 circumscribing the circle, so only the eight tangent points come close.
 
 The two kinds share their arithmetic. Each answers one question -- how far outside the shape this
-fragment is, in radians -- and the coverage step is then the same three lines for both, which is
-what keeps this from becoming a shader per shape.
+fragment is -- and the coverage step is then the same three lines for both, which is what keeps
+this from becoming a shader per shape. The units are the kind's own choice, because `excess` is
+divided by `fwidth(excess)` and both scale together: the ratio is always "how many pixels outside".
+
+### Which ellipse
+
+Making the boundary an equation forces a definition where there was only an accident. The old
+`GlSphericalEllipse` was an ellipse drawn on the azimuth/elevation grid -- and that grid is not
+uniform, since a degree of azimuth is a shorter arc the higher you go. So it came out right at its
+four extreme points and pinched in between. Setting the axes equal did not give a disc:
+
+| shape | rim, angle from centre | should be |
+|---|---|---|
+| `GlSphericalEllipse(45, 45)` | 22.358 to 22.500 deg | flat at 22.5 |
+| `GlSphericalEllipse(60, 60)` | 29.649 to 30.000 deg | flat at 30 |
+
+0.35 degrees at 60 degrees is four pixels on the bowl, and it means `MovingEllipse(w, w)` was not
+`MovingSpot(w/2)`.
+
+Three definitions were considered, all normalised to the same width and height: the chart ellipse
+above; the **cone**, a flat ellipse projected outward from the subject -- what an elliptical hole
+held in front of the eye leaves unblocked, and what an ellipse drawn on a flat screen subtends; and
+the **true spherical ellipse**, constant sum of great-circle distances to two foci. How far the
+edge moves between them:
+
+| width x height | cone vs chart | true vs chart | in pixels (bowl) |
+|---|---|---|---|
+| 10 x 5 | 0.0005 deg | 0.0006 deg | 0.0 |
+| 20 x 10 | 0.0041 deg | 0.0052 deg | 0.0 |
+| 45 x 22 | 0.0434 deg | 0.0627 deg | 0.5 - 0.7 |
+| 90 x 45 | 0.3165 deg | 0.5388 deg | 3.6 - 6.1 |
+
+Across every size configured in `clandinin_labpack` (5-40 degrees) all three agree to well under a
+pixel, so this was not a fidelity decision. **The cone was adopted**, on three grounds:
+
+- **It is what the disc already is.** `GlSphericalCirc` means "every direction within angle R of
+  forward", which is a circular cone. So the disc is the equal-extent case of the ellipse, one
+  branch serves both, and the kind count stays at two rather than going to three.
+- **It is the one you can build.** A card with an elliptical hole. Nothing in a lab produces a
+  constant-sum-of-geodesics curve.
+- **No special cases.** The foci construction needs `acos(cos a / cos b)`, so it requires width
+  >= height and an axis swap otherwise.
+
+Both the cone and the true ellipse degenerate exactly to the disc; only the chart version does not.
+
+### Why the bound needs no fudge factor
+
+Gnomonic projection -- divide a direction by its forward component -- takes great circles to
+straight lines, and the edge the GPU rasterises between two vertices on a sphere sweeps a great
+circle. In those coordinates the drawn polygon *is* the polygon, so an octagon circumscribing the
+ellipse there circumscribes the real shape exactly, at any size, with nothing to tune. That is why
+`EDGE_BOUND_MARGIN` applies to the rectangle and not to the cone.
+
+A cone cannot describe more than a hemisphere, so a half-extent at or past 90 degrees has no
+analytic form to declare; those fall back to the fan and to a geometry-defined edge.
 
 The test to write first is the one that would have caught this: render a disc, measure the width of
 its intensity transition in degrees, and assert it is about one pixel rather than zero. A companion

@@ -23,12 +23,13 @@ from . import util
 # clips them back to it. NONE is every shape that has not opted in: the geometry defines the edge,
 # exactly as it always has.
 EDGE_NONE = 0
-EDGE_ANGULAR_DISC = 1        # |angle from forward| <= extent.x
+EDGE_CONE = 1                # the sphere cut by the cone of a flat ellipse of half-extents `extent`
 EDGE_SPHERICAL_RECT = 2      # |azimuth| <= extent.x and |elevation| <= extent.y, in the shape's frame
 
 
-#: How far past its true bound a shape draws, as a fraction. Only has to swallow rounding: the
-#: geometry is a cover, and every surplus fragment is given zero coverage by the shader.
+#: How far past its true bound a spherical rectangle draws, as a fraction. Only has to swallow
+#: rounding: the geometry is a cover, and every surplus fragment is given zero coverage by the
+#: shader. The cone shapes need no margin at all -- see :func:`cone_bound_directions` for why.
 EDGE_BOUND_MARGIN = 0.01
 
 #: Rows are the axes a sphere patch is built against at theta = phi = pi/2: the azimuth tangent,
@@ -37,6 +38,68 @@ EDGE_BOUND_MARGIN = 0.01
 CANONICAL_PATCH_FRAME = ((-1.0, 0.0, 0.0),     # +azimuth  (d/dtheta)
                          (0.0, 0.0, -1.0),     # +elevation (d/dphi)
                          (0.0, 1.0, 0.0))      # forward
+
+
+def cone_bound_directions(extent_x, extent_y, n_steps, frame=CANONICAL_PATCH_FRAME):
+    """Directions of a polygon whose edges are tangent to the cone of the given half-extents.
+
+    Gnomonic projection -- divide a direction by its forward component, giving the coordinates of
+    the flat card the cone is projected from -- takes great circles to straight lines. The edge the
+    GPU rasterises between two vertices on a sphere sweeps a great circle, so it *is* a straight
+    line in these coordinates. That makes the bound exact rather than approximate: a polygon
+    circumscribing the ellipse on the card circumscribes the real shape, at any size, with no
+    margin needed and nothing to tune.
+
+    A regular n-gon with its vertices at radius 1/cos(pi/n) has its edges tangent to the unit
+    circle, and scaling that by (tan extent_x, tan extent_y) is an affine map, which preserves both
+    the tangency and the containment.
+
+    :param extent_x: half-extent across, radians; must be under 90 degrees, since a cone cannot
+        describe more than a hemisphere
+    :param extent_y: half-extent up, radians
+    :param n_steps: sides of the polygon. Sets surplus area only, never accuracy.
+    """
+    reach = 1.0 / np.cos(np.pi / n_steps)
+    bearings = np.linspace(0, 2*np.pi, n_steps, endpoint=False)
+    x = np.tan(extent_x) * reach * np.cos(bearings)
+    y = np.tan(extent_y) * reach * np.sin(bearings)
+    frame = np.asarray(frame, dtype=float)
+    directions = x[:, None]*frame[0] + y[:, None]*frame[1] + frame[2]
+    return directions / np.linalg.norm(directions, axis=1, keepdims=True)
+
+
+def _add_cone_patch(shape, extent_x, extent_y, sphere_radius, color, location, n_steps):
+    """Fill `shape` with a bounding fan for a cone patch, and declare its analytic edge.
+
+    Shared by :class:`GlSphericalCirc` and :class:`GlSphericalEllipse`, because a disc *is* the
+    equal-extent case of an ellipse -- the same cone with different numbers, which is why one
+    shader branch serves both.
+    """
+    v_center = util.spherical_to_cartesian(sphere_radius, np.pi/2, np.pi/2)
+
+    if not (0 < max(extent_x, extent_y) < np.pi/2):
+        # A cone cannot describe more than a hemisphere, so past that there is no analytic form to
+        # declare. Fall back to the inscribed fan this drew before, and to a geometry-defined edge
+        # -- the path every unconverted shape takes.
+        shape.EDGE_KIND = EDGE_NONE
+        bearings = np.linspace(0, 2*np.pi, n_steps+1)
+        for wedge in range(n_steps):
+            v1 = util.spherical_to_cartesian(sphere_radius, np.pi/2 + extent_x*np.cos(bearings[wedge]),
+                                             np.pi/2 + extent_y*np.sin(bearings[wedge]))
+            v2 = util.spherical_to_cartesian(sphere_radius, np.pi/2 + extent_x*np.cos(bearings[wedge+1]),
+                                             np.pi/2 + extent_y*np.sin(bearings[wedge+1]))
+            shape.add(GlTri(v1, v2, v_center, color).translate(location))
+        return
+
+    directions = sphere_radius * cone_bound_directions(extent_x, extent_y, n_steps)
+    for wedge in range(n_steps):
+        shape.add(GlTri(directions[wedge], directions[(wedge + 1) % n_steps], v_center,
+                        color).translate(location))
+
+    # What the shader needs to rebuild the cone: the frame the patch was built in, and how far out
+    # on the flat card its ellipse reaches in each axis.
+    shape.edge_frame = CANONICAL_PATCH_FRAME
+    shape.edge_extent = (float(extent_x), float(extent_y))
 
 
 def _carry_edge(source, result, rotation=None):
@@ -428,34 +491,35 @@ class GlSphericalTexturedRect(GlVertices):
 
 class GlSphericalEllipse(GlVertices):
     """
-    An ellipse on the surface of a sphere, its axes given as angles subtended at the subject.
+    An elliptical patch, of fixed angular width and height, on the surface of a sphere.
 
-    Approximated by a fan of ``n_steps`` triangles.
+    Defined as the sphere cut by the cone of a flat ellipse: the shape an elliptical hole held in
+    front of the subject would leave unblocked, and the shape an ellipse drawn on a flat screen
+    subtends. As with :class:`GlSphericalCirc`, the triangles are a *bound* and the fragment shader
+    clips them to the true boundary, so the edge is exact at any size and carries sub-pixel
+    coverage.
+
+    This is the same cone as the disc, with the two half-extents allowed to differ -- so
+    ``GlSphericalEllipse(w, w)`` is exactly ``GlSphericalCirc(w/2)``, which was not true of the
+    ellipse this replaces. That one was built on the azimuth/elevation grid, which is not uniform,
+    and so came out pinched at the diagonals: 0.35 degrees, four pixels, on a 60 degree shape.
+
+    :param width: degrees of azimuth subtended at the subject
+    :param height: degrees of elevation subtended at the subject
+    :param n_steps: sides of the bounding polygon. Not the accuracy of the ellipse.
     """
+    EDGE_KIND = EDGE_CONE
+
     def __init__(self,
                  width=20,  # degrees in spherical coordinates
                  height=10,  # degrees in spherical coordinates
                  sphere_radius=1,  # meters
                  color=[1, 1, 1, 1],  # [r,g,b,a] or single value for monochrome, alpha = 1
                  sphere_location=(0, 0, 0),  # (x,y,z) meters. (0,0,0) is center of sphere
-                 n_steps=36):
+                 n_steps=8):
         super().__init__()
-        color = util.get_rgba(color)
-
-        v_center = util.spherical_to_cartesian(sphere_radius, np.pi/2, np.pi/2)
-
-        angles = np.linspace(0, 2*np.pi, n_steps+1)
-        for wedge in range(n_steps):
-            # render circle at the equator (phi=pi/2) so it's not near the poles
-            # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-            v1 = util.spherical_to_cartesian(sphere_radius,
-                                        np.pi/2 + radians(width/2)*np.cos(angles[wedge]),
-                                        np.pi/2 + radians(height/2)*np.sin(angles[wedge]))
-            v2 = util.spherical_to_cartesian(sphere_radius,
-                                        np.pi/2 + radians(width/2)*np.cos(angles[wedge+1]),
-                                        np.pi/2 + radians(height/2)*np.sin(angles[wedge+1]))
-
-            self.add(GlTri(v1, v2, v_center, color).translate(sphere_location))
+        _add_cone_patch(self, radians(width/2), radians(height/2), sphere_radius,
+                        util.get_rgba(color), sphere_location, n_steps)
 
 class GlCylindricalWithPhiEllipse(GlVertices):
     """
@@ -505,7 +569,7 @@ class GlSphericalCirc(GlVertices):
     :param circle_radius: degrees subtended at the subject
     :param n_steps: sides of the bounding polygon. Not the accuracy of the disc.
     """
-    EDGE_KIND = EDGE_ANGULAR_DISC
+    EDGE_KIND = EDGE_CONE
 
     def __init__(self,
                  circle_radius=10,  # degrees in spherical coordinates
@@ -514,33 +578,8 @@ class GlSphericalCirc(GlVertices):
                  sphere_location=(0, 0, 0),  # (x,y,z) meters. (0,0,0) is center of sphere
                  n_steps=8):
         super().__init__()
-        color = util.get_rgba(color)
-
-        v_center = util.spherical_to_cartesian(sphere_radius, np.pi/2, np.pi/2)
-
-        # A regular n-gon with its vertices at radius r has its *edges* at r*cos(pi/n). Pinning the
-        # vertices to the circle therefore leaves the edges inside it, and a fragment shader can
-        # only remove coverage, never add it -- so an inscribed bound would clip the exact circle
-        # back to a polygon and this would all be for nothing. Pin the edges instead.
-        bound = radians(circle_radius) / np.cos(np.pi / n_steps)
-
-        angles = np.linspace(0, 2*np.pi, n_steps+1)
-        for wedge in range(n_steps):
-            # render circle at the equator (phi=pi/2) so it's not near the poles
-            # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-            v1 = util.spherical_to_cartesian(sphere_radius,
-                                        np.pi/2 + bound*np.cos(angles[wedge]),
-                                        np.pi/2 + bound*np.sin(angles[wedge]))
-            v2 = util.spherical_to_cartesian(sphere_radius,
-                                        np.pi/2 + bound*np.cos(angles[wedge+1]),
-                                        np.pi/2 + bound*np.sin(angles[wedge+1]))
-
-            self.add(GlTri(v1, v2, v_center, color).translate(sphere_location))
-
-        # What the shader needs to find the true edge: the frame the disc was built in, and how
-        # far from its forward axis the disc reaches.
-        self.edge_frame = CANONICAL_PATCH_FRAME
-        self.edge_extent = (float(radians(circle_radius)), 0.0)
+        _add_cone_patch(self, radians(circle_radius), radians(circle_radius), sphere_radius,
+                        util.get_rgba(color), sphere_location, n_steps)
 
 
 class GlSphericalAnnuli(GlVertices):

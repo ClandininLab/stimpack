@@ -290,6 +290,60 @@ def test_a_disc_bound_contains_the_radius_it_was_asked_for():
     assert rim.max() < 20.0 * 1.2, 'bound is wastefully large'
 
 
+def test_the_bound_is_tangent_to_the_shape_not_merely_near_it():
+    """The bound has no fudge factor, and this is why it does not need one.
+
+    Gnomonic projection -- divide a direction by its forward component -- takes great circles to
+    straight lines, and a triangle edge between two points on a sphere sweeps a great circle. So in
+    those coordinates the drawn polygon IS the polygon, and circumscribing the ellipse there
+    circumscribes the real shape exactly, at any size.
+    """
+    from stimpack.visual_stim.shapes import GlSphericalCirc, GlSphericalEllipse, CANONICAL_PATCH_FRAME
+
+    frame = np.array(CANONICAL_PATCH_FRAME)
+    for shape, half_width, half_height in [(GlSphericalCirc(circle_radius=20), 20.0, 20.0),
+                                           (GlSphericalCirc(circle_radius=70), 70.0, 70.0),
+                                           (GlSphericalEllipse(width=45, height=22), 22.5, 11.0),
+                                           (GlSphericalEllipse(width=110, height=8), 55.0, 4.0)]:
+        directions = shape.vertices.T / np.linalg.norm(shape.vertices.T, axis=1, keepdims=True)
+        ahead = directions @ frame[2]
+        u = (directions @ frame[0]) / ahead / np.tan(np.radians(half_width))
+        v = (directions @ frame[1]) / ahead / np.tan(np.radians(half_height))
+        reach = np.sqrt(u**2 + v**2)
+        rim = reach[reach > 0.3]                    # everything but the fan's hub
+
+        # every rim vertex at exactly 1/cos(pi/8): the octagon whose EDGES touch the shape
+        assert np.allclose(rim, 1 / np.cos(np.pi / 8)), (
+            f'bound is not tangent: reach spans {rim.min():.4f} to {rim.max():.4f}')
+
+
+def test_an_ellipse_with_equal_axes_is_exactly_the_disc():
+    """The property that picked this definition over the one it replaces.
+
+    The old ellipse was built on the azimuth/elevation grid, which is not uniform, so setting the
+    axes equal gave a shape pinched at the diagonals by 0.35 deg -- four pixels -- rather than a
+    circle. A cone has no such preferred direction, so the two shapes are now the same object.
+    """
+    from stimpack.visual_stim.shapes import GlSphericalCirc, GlSphericalEllipse
+
+    for size in (10.0, 45.0, 60.0):
+        disc = GlSphericalCirc(circle_radius=size/2)
+        ellipse = GlSphericalEllipse(width=size, height=size)
+        assert np.allclose(ellipse.vertices, disc.vertices), f'{size} deg: geometry differs'
+        assert np.allclose(ellipse.edge_extent, disc.edge_extent), f'{size} deg: declaration differs'
+
+
+def test_a_shape_too_big_for_a_cone_keeps_its_geometry():
+    """A cone cannot describe more than a hemisphere. Past that there is no analytic form to
+    declare, so the shape falls back to the fan and the geometry-defined edge rather than handing
+    the shader an equation that would clip it to nothing."""
+    from stimpack.visual_stim.shapes import GlSphericalCirc
+
+    assert GlSphericalCirc(circle_radius=89).edge_kind == 1
+    assert GlSphericalCirc(circle_radius=90).edge_kind == 0
+    assert GlSphericalCirc(circle_radius=120).edge_kind == 0
+
+
 def test_edge_coverage_is_linear_in_position_not_smoothstep():
     """A pixel 30% covered must emit 30% of the light. smoothstep emits 22%, and worse, makes
     emitted intensity a non-linear function of edge position -- so a constant-velocity edge would
@@ -304,18 +358,19 @@ def test_edge_coverage_is_linear_in_position_not_smoothstep():
             f'(smoothstep would give {smoothstep:.3f})')
 
 
-def test_the_disc_bound_is_cheaper_than_the_polygon_it_replaces():
+def test_the_bounds_are_cheaper_than_the_polygons_they_replace():
     """n_steps stopped setting accuracy and started setting only surplus area, so it can fall."""
-    from stimpack.visual_stim.shapes import GlSphericalCirc
+    from stimpack.visual_stim.shapes import GlSphericalCirc, GlSphericalEllipse
 
     assert GlSphericalCirc(circle_radius=10.0).vertices.shape[1] // 3 == 8
+    assert GlSphericalEllipse(width=45, height=22).vertices.shape[1] // 3 == 8
 
 
 def test_a_shape_that_declares_no_edge_is_untouched():
     """The path is strictly additive: an unconverted shape keeps a geometry-defined edge."""
-    from stimpack.visual_stim.shapes import GlCircle, GlCylinder, GlSphericalEllipse
+    from stimpack.visual_stim.shapes import GlCircle, GlCylinder, GlSphericalTexturedRect
 
-    for shape in (GlSphericalEllipse(), GlCylinder(), GlCircle()):
+    for shape in (GlSphericalTexturedRect(), GlCylinder(), GlCircle()):
         assert shape.edge_kind == 0
 
 
@@ -375,6 +430,40 @@ def test_recolouring_keeps_the_edge_but_moving_off_the_sphere_drops_it():
     assert disc.set_color([1, 0, 0, 1]).edge_kind == disc.edge_kind
     assert disc.translate((0, 1, 0)).edge_kind == 0
     assert disc.scale(np.full((3, 1), 2.0)).edge_kind == 0
+
+
+def _subtended_half_angle(row, screen_half_size=0.15, distance=0.15):
+    """Half-angle of a lit run, reading the partial end pixels as fractional coverage.
+
+    The whole point of analytic edges is that the boundary's position is carried by intensity
+    rather than by which pixel is lit, so measuring it means using that intensity. Counting whole
+    lit pixels instead would only ever be accurate to +/- half a pixel, which is the resolution
+    this exists to beat.
+    """
+    lit = np.nonzero(row > 5)[0]
+    coverage = (row[lit[0]] + row[lit[-1]]) / 255.0        # the two partial pixels, as fractions
+    span = (len(lit) - 2 + coverage) / 2                   # in pixels, from the centre
+    return math.degrees(math.atan(span / (len(row) / 2) * screen_half_size / distance))
+
+
+@pytest.mark.parametrize('name,kwargs,want_width,want_height', [
+    ('MovingSpot', dict(radius=15, sphere_radius=1, color=[1, 1, 1, 1], theta=0, phi=0), 15.0, 15.0),
+    ('MovingEllipse', dict(width=45, height=22, sphere_radius=1, color=[1, 1, 1, 1],
+                           theta=0, phi=0, angle=0), 22.5, 11.0),
+])
+def test_a_rendered_cone_patch_subtends_exactly_the_angle_it_was_asked_for(
+        headless_gl, name, kwargs, want_width, want_height):
+    """End to end, through the real render path: ask for 45 x 22 degrees and get 45 x 22 degrees.
+
+    This is what the whole exercise buys. The polygon it replaces could not pass this -- it sat
+    inside the true shape by 1 - cos(pi/n), and its `n_steps` was a free parameter that quietly set
+    the answer. Here the size is set by the declaration and read back to a hundredth of a degree,
+    from an image whose pixels are 0.35 degrees apart.
+    """
+    frame = _render(headless_gl, name, kwargs)[..., 0].astype(float)
+
+    assert abs(_subtended_half_angle(frame[frame.shape[0] // 2]) - want_width) < 0.05
+    assert abs(_subtended_half_angle(frame[:, frame.shape[1] // 2]) - want_height) < 0.05
 
 
 def test_a_rendered_rect_has_soft_edges_on_both_axes(headless_gl):
