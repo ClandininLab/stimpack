@@ -250,6 +250,80 @@ def test_the_check_stimulus_declares_what_the_rig_was_told():
         'a photodiode should see the corner square, not the background'
 
 
+# --- the check stimulus switching the rig ---------------------------------------------------------
+
+class FakeTarget:
+    def __init__(self, log):
+        self.log = log
+
+    def set_subframes(self, n):
+        self.log.append(n)
+
+
+class FakeManager:
+    """Records set_subframes; every other call is dropped, as a real link drops a name the server
+    does not define."""
+
+    def __init__(self):
+        self.subframe_calls = []
+
+    def target(self, _name):
+        return FakeTarget(self.subframe_calls)
+
+    def __getattr__(self, _name):
+        return lambda *args, **kwargs: None
+
+
+@pytest.fixture
+def check_stimulus(monkeypatch):
+    from stimpack.experiment.example_protocol import SubframeTimingCheck
+    from stimpack.experiment.protocol import BaseProtocol
+
+    # Silence the base implementations: what is under test is only what this protocol adds to them.
+    monkeypatch.setattr(BaseProtocol, 'prepare_run', lambda *a, **k: None)
+    monkeypatch.setattr(BaseProtocol, 'on_run_finish', lambda *a, **k: None)
+
+    protocol = SubframeTimingCheck.__new__(SubframeTimingCheck)
+    protocol.protocol_parameters = SubframeTimingCheck.get_protocol_parameter_defaults(None)
+    protocol.available_server_functions = None
+    return protocol
+
+
+def test_it_switches_the_rig_in_and_back_out(check_stimulus, monkeypatch):
+    """The whole check in one run rather than a server edit either side of it. The way back matters
+    more than the way in: on_run_finish is called from the run loop's finally block, so a stopped or
+    errored run still leaves the rig in ordinary rendering."""
+    monkeypatch.setattr(check_stimulus, 'has_server_function', lambda *a, **k: True)
+    manager = FakeManager()
+
+    check_stimulus.prepare_run(manager)
+    assert manager.subframe_calls == [3], 'the rig should be told what the stimulus assumes'
+
+    check_stimulus.on_run_finish(manager)
+    assert manager.subframe_calls == [3, 1], 'a rig left multiplexing reinterprets colour as time'
+
+
+def test_a_rig_that_cannot_switch_is_told_what_it_will_see(check_stimulus, monkeypatch, recwarn):
+    """Most rigs register no set_subframes. Running there is legitimate -- it shows one spot -- but
+    silently showing one spot when three were asked for is the failure this stimulus reports."""
+    monkeypatch.setattr(check_stimulus, 'has_server_function', lambda *a, **k: False)
+    manager = FakeManager()
+
+    check_stimulus.prepare_run(manager)
+
+    assert manager.subframe_calls == []
+    assert any('single spot' in str(w.message) for w in recwarn)
+
+
+def test_a_varying_subframe_count_is_refused(check_stimulus):
+    """A list is stimpack's notation for a parameter that varies across trials, and a screen cannot
+    change its temporal structure between trials of one run."""
+    check_stimulus.protocol_parameters['n_subframes'] = [1, 3]
+
+    with pytest.raises(ValueError, match='single value'):
+        check_stimulus.n_subframes()
+
+
 def test_a_multiplexing_screen_says_so_and_says_it_cannot_be_verified(capsys):
     """subframes=3 is a claim about the projector, not about stimpack. If the projector is in
     ordinary video mode the result is a plausible colour image rather than an error, so the only

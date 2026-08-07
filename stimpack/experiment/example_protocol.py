@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import warnings
+
 import numpy as np
 
 from stimpack.rpc.transceiver import MySocketClient
@@ -227,12 +229,53 @@ class SubframeTimingCheck(BaseProtocol):
     ``subframe_rate`` and ``n_subframes`` are parameters rather than read from the screen, because
     this is the stimulus you run when you do not yet believe the screen is doing what it was told.
     Set them to what the rig's configuration asks for, and see whether the display agrees.
+
+    It also *switches the rig*, on rigs that can be switched: a labpack registering ``set_subframes``
+    on root -- see the "Subframe multiplexing" page -- gets the whole check in one run rather than a
+    server edit either side of it. Where no such function is registered, this runs at whatever the
+    server was started with, which on most rigs means one subframe and one spot.
     """
     def __init__(self, cfg):
         super().__init__(cfg)
 
         self.run_parameters = self.get_run_parameter_defaults()
         self.protocol_parameters = self.get_protocol_parameter_defaults()
+
+    def n_subframes(self):
+        """The count this run asks the rig for, as an int.
+
+        Refused as a list: a list is stimpack's notation for a parameter that varies across trials,
+        and a screen cannot change its temporal structure part-way through a run -- StimDisplay
+        refuses mid-stimulus, and nothing in the data file would record that trial 1 differed from
+        trial 2. Better said before the run starts than discovered afterwards.
+        """
+        value = self.protocol_parameters['n_subframes']
+        if isinstance(value, (list, tuple)):
+            raise ValueError(f'n_subframes must be a single value, not {value}: the screen cannot '
+                             f'change how many subframes it carries between trials of one run.')
+        return int(value)
+
+    def prepare_run(self, manager, recompute_epoch_parameters=True):
+        super().prepare_run(manager, recompute_epoch_parameters)
+
+        # After super(), so a run that fails its parameter checks does not leave the rig switched.
+        if self.has_server_function('set_subframes'):
+            manager.target('root').set_subframes(self.n_subframes())
+        elif self.n_subframes() != 1:
+            warnings.warn(f'This rig registers no set_subframes, so the display stays as the server '
+                          f'started it while the stimulus is drawn for {self.n_subframes()} '
+                          f'subframes. Expect a single spot unless the server was started '
+                          f'multiplexing.')
+
+    def on_run_finish(self, manager, multicall=None):
+        super().on_run_finish(manager, multicall)
+
+        # Back to ordinary rendering. Called from the run loop's finally block, so a stopped or
+        # errored run leaves the rig as it was found -- and a rig left multiplexing is not an error
+        # anyone would see, since the next protocol's colour channels are simply reinterpreted as
+        # slices of time.
+        if self.has_server_function('set_subframes'):
+            manager.target('root').set_subframes(1)
 
     def subframe_positions(self, stim_time, n_subframes, subframe_rate, separation, center):
         """A staircase in azimuth, one step per subframe, cycling every video frame.
