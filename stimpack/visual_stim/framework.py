@@ -452,6 +452,19 @@ class StimDisplay(QOpenGLWidget):
         matrices = face_matrices(self.subject_position)
         face_viewport = [(0, 0, renderer.resolution, renderer.resolution)]
 
+        # Grab the display framebuffer now, before the face loop rebinds anything. It cannot be
+        # recovered afterwards: ctx.detect_framebuffer() with no argument reports whatever is bound
+        # at the moment it is called, which by the end of the loop is the last cube face -- so the
+        # warp went into a cube face, the display kept the black it had been cleared to, and so did
+        # everything drawn after this (the photodiode square, the calibration spot). Nor is the
+        # display glo 0: a QOpenGLWidget renders into a framebuffer of its own.
+        #
+        # ctx.fbo rather than a fresh detect_framebuffer of the same glo, because this is the very
+        # object paintGL set color_mask on for this subframe, and moderngl re-applies a
+        # framebuffer's stored mask on use(). A fresh wrapper carries the default all-channels mask
+        # and would quietly undo subframe multiplexing.
+        display_fbo = self.ctx.fbo
+
         # Only the faces the screen samples. A bowl above the animal never looks down, so -Z would
         # be a whole scene draw feeding a face nothing reads.
         for face in renderer.face_indices:
@@ -466,7 +479,7 @@ class StimDisplay(QOpenGLWidget):
         # Back to the display, then the screen mesh in one draw call. No horizontal flip here even
         # for a rear-projected screen: the mesh already says where each direction lands on the
         # projector, worked out from the physical geometry, so the handedness is built in.
-        self.ctx.detect_framebuffer().use()
+        display_fbo.use()
         self.ctx.viewport = (0, 0, display_width, display_height)
         renderer.render_warp()
 
