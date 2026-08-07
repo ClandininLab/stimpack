@@ -70,11 +70,12 @@ recoverable from the data.
 What a labpack must provide
 ===========================
 
-**1. A projector that can be told to read** *n* **patterns per video frame.** For a DLPC350 that is
-video-pattern mode with an *n*-entry pattern LUT: the first entry triggers on VSYNC and the rest
-continue from it, so all *n* land inside one video frame. A driver that triggers every pattern on
-VSYNC instead gives one pattern per frame, *n* times over — which validates, plays, and looks like
-it is working.
+**1. A projector that can be told to read** *n* **patterns per video frame, at a bit depth that
+permits the rate.** For a DLPC350 that is video-pattern mode with an *n*-entry pattern LUT: the
+first entry triggers on VSYNC and the rest continue from it, so all *n* land inside one video frame.
+A driver that triggers every pattern on VSYNC instead gives one pattern per frame, *n* times over —
+which validates, plays, and looks like it is working. The depth matters as much as the count: see
+`Limits`_ — 8-bit patterns cannot exceed 120 Hz, so multiplexing means 4-bit.
 
 **2. A driver for it.** ``labpack-template`` ships a DLPC350 driver at
 ``template_labpack/device/dlpc350.py`` with a tested ``pattern_mode()``; a lab with that projector
@@ -156,9 +157,13 @@ Limits
 - **Greyscale stimuli only**, as above.
 - **Between trials only.** ``set_subframes`` is refused while a stimulus is running. A driver's
   pattern-mode call also runs a validation sequence, which is not a per-trial-latency operation.
-- **8 bits per subframe.** Each pattern is one whole channel. Deeper multiplexing — 1-bit patterns
-  for ~2880 Hz — would need bitplane packing in the renderer as well as a different LUT, and is not
-  implemented.
+- **Multiplexing costs grey levels, on DMD hardware.** Not a stimpack limit, but the one that
+  surprises people, so it belongs here. A DMD makes grey by pulse-width modulating bit-planes, so
+  bit depth *is* time: on a DLPC350 an 8-bit pattern occupies 8333 µs and cannot be shown faster
+  than 120 Hz however it is sequenced. Two or three timepoints per frame therefore have to be
+  4-bit — 16 grey levels rather than 256. **The renderer is unaffected**: it writes ordinary 8-bit
+  greyscale and the projector displays the top nibble of each channel. Ask your projector driver
+  for the depth explicitly; it is a property of the experiment, not a detail.
 - **The stimulus has to actually vary within a frame.** A stimulus that moves a degree per second
   gains nothing from being drawn three times 1/360 s apart. This buys temporal resolution, and only
   for stimuli that have some.
