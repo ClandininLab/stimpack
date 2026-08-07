@@ -230,8 +230,13 @@ def format_report(findings, configs_checked, labpack_dir=None):
 # --- internals ----------------------------------------------------------------------------------
 
 def _resolve(path, labpack_dir):
-    """Config paths are relative to the labpack directory unless absolute."""
-    return path if os.path.isabs(path) else os.path.join(labpack_dir, path)
+    """Resolve a config path the way the loader will.
+
+    Delegated rather than reimplemented: this had its own copy of the rule, which meant the checker
+    could disagree with the loader about what a config names -- reporting a file as missing that
+    loads without complaint, which is the opposite of what a checker is for.
+    """
+    return config_tools.convert_labpack_relative_path_to_full_path(path, labpack_dir=labpack_dir)
 
 
 def _legacy_keys(cfg):

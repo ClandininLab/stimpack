@@ -613,3 +613,26 @@ def test_a_protocol_that_does_not_override_start_stimuli_is_not_reported(tmp_pat
     findings, _ = check_labpack.check_labpack(str(tmp_path), deep=True)
 
     assert [f for f in findings if f.code == 'uninterruptible-sleep'] == []
+
+
+def test_the_checker_resolves_paths_the_way_the_loader_does(tmp_path):
+    """A checker that disagrees with the loader is worse than no checker.
+
+    check_labpack kept its own copy of the path rule and never learned the `stimpack:` prefix, so a
+    config whose modules load perfectly well was reported as naming a file that does not exist --
+    and the report is the thing people trust when something is wrong.
+    """
+    import os
+
+    from stimpack.experiment.util import check_labpack, config_tools
+    from stimpack.util import ROOT_DIR
+
+    for path in ('stimpack:experiment/example_protocol.py',
+                 '/srv/rig/protocol.py',
+                 'labpack/protocol/mine.py'):
+        assert check_labpack._resolve(path, str(tmp_path)) == \
+            config_tools.convert_labpack_relative_path_to_full_path(path, labpack_dir=str(tmp_path))
+
+    resolved = check_labpack._resolve('stimpack:experiment/example_protocol.py', str(tmp_path))
+    assert resolved == os.path.join(ROOT_DIR, 'experiment', 'example_protocol.py')
+    assert os.path.exists(resolved), 'the checker must find a file that is really there'

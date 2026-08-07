@@ -382,11 +382,18 @@ def get_module_paths(cfg, module_name: str) -> list[str]:
 STIMPACK_PATH_PREFIX = 'stimpack:'
 
 
-def convert_labpack_relative_path_to_full_path(path):
+def convert_labpack_relative_path_to_full_path(path, labpack_dir=None):
     """Resolve a ``module_paths`` entry to a full path.
 
     Absolute paths are used as given; a ``stimpack:`` prefix resolves against stimpack's package
     directory; anything else is relative to the labpack directory.
+
+    The one place this is decided. It was briefly two -- check_labpack kept its own copy -- and the
+    copy did not learn about the ``stimpack:`` prefix, so a config that loaded perfectly well was
+    reported as naming a file that does not exist.
+
+    :param labpack_dir: resolve relative paths against this directory rather than the configured
+        one, which is how ``--check-labpack`` checks a labpack that is not the current one.
     """
     if path.startswith(STIMPACK_PATH_PREFIX):
         relative = path[len(STIMPACK_PATH_PREFIX):].lstrip('/')
@@ -394,7 +401,8 @@ def convert_labpack_relative_path_to_full_path(path):
     elif os.path.isabs(path):
         full_path = path
     else:
-        full_path = os.path.join(get_labpack_directory(), path)
+        full_path = os.path.join(labpack_dir if labpack_dir is not None
+                                 else get_labpack_directory(), path)
 
     return full_path
 
