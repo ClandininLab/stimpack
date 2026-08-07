@@ -110,6 +110,33 @@ correct in kind, slightly off in width. Worth knowing; not worth architecture.
 Smallest useful change: `GlSphericalCirc` and `GlCircle`, which cover `MovingSpot`,
 `LoomingCircle`, and the fly's wings. Then `GlSphericalRect` and the cylindrical patches.
 
+### What a shape declares
+
+The disc needed a centre direction and an angle. A rectangle needs an *orientation* -- "20 degrees
+wide" is a statement about a frame, not about a point -- so the declaration is a frame and a pair
+of half-extents, which covers both:
+
+```python
+EDGE_KIND = EDGE_SPHERICAL_RECT
+self.edge_frame = CANONICAL_PATCH_FRAME          # azimuth, elevation, forward; rows
+self.edge_extent = (radians(width) / 2, radians(height) / 2)
+```
+
+Every shape here is built facing forward and rotated into place by its stimulus, so the frame has
+to turn with it. Rotations carry the declaration and rotate the frame; translation and scaling drop
+it, because they move the shape off the sphere its angular size was measured against, and a wrong
+analytic edge is worse than none.
+
+The bound is widened by `EDGE_BOUND_MARGIN` rather than being exact. A rectangle's constant-azimuth
+sides are great circles, which triangle edges follow *exactly* -- flush against the bound with
+nothing to spare -- so rounding at a corner could nick a real sliver off the patch, and a fragment
+shader can only remove coverage, never add it. The disc needs no margin: its bound is an octagon
+circumscribing the circle, so only the eight tangent points come close.
+
+The two kinds share their arithmetic. Each answers one question -- how far outside the shape this
+fragment is, in radians -- and the coverage step is then the same three lines for both, which is
+what keeps this from becoming a shader per shape.
+
 The test to write first is the one that would have caught this: render a disc, measure the width of
 its intensity transition in degrees, and assert it is about one pixel rather than zero. A companion
 test steps a disc across the screen at 5 °/s and asserts the measured edge position changes every

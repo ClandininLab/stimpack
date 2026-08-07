@@ -23,28 +23,43 @@ from . import util
 # clips them back to it. NONE is every shape that has not opted in: the geometry defines the edge,
 # exactly as it always has.
 EDGE_NONE = 0
-EDGE_ANGULAR_DISC = 1
+EDGE_ANGULAR_DISC = 1        # |angle from forward| <= extent.x
+EDGE_SPHERICAL_RECT = 2      # |azimuth| <= extent.x and |elevation| <= extent.y, in the shape's frame
 
 
-def _as_column(vector):
-    """A 3-vector as the (3, 1) array the transform helpers in util expect."""
-    return np.asarray(vector, dtype=float).reshape(3, 1)
+#: How far past its true bound a shape draws, as a fraction. Only has to swallow rounding: the
+#: geometry is a cover, and every surplus fragment is given zero coverage by the shader.
+EDGE_BOUND_MARGIN = 0.01
+
+#: Rows are the axes a sphere patch is built against at theta = phi = pi/2: the azimuth tangent,
+#: the elevation tangent, and the outward direction. Every shape here is constructed in this frame
+#: and rotated into place by its caller, so the frame turns with the shape.
+CANONICAL_PATCH_FRAME = ((-1.0, 0.0, 0.0),     # +azimuth  (d/dtheta)
+                         (0.0, 0.0, -1.0),     # +elevation (d/dphi)
+                         (0.0, 1.0, 0.0))      # forward
 
 
-def _carry_edge(source, result, turned=None):
-    """Move a declared analytic edge onto a transformed copy, when the transform preserves it.
+def _carry_edge(source, result, rotation=None):
+    """Move a declared analytic edge onto a transformed copy.
 
-    Rotations preserve angles, so a disc of angular radius R about direction c is still one about
-    the rotated c. Translation and scaling are not: they move the shape off the sphere its angular
-    radius was measured on, or stretch it out of being a disc at all. Those simply do not carry the
-    declaration, and the shape falls back to a geometry-defined edge -- which is what every
-    unconverted shape uses, so the fallback is the well-trodden path rather than a special case.
+    Call this from a transform that leaves the shape *being that shape*: rotations, and the
+    appearance-only ones. Rotations preserve angles, so a patch of a given angular size is still
+    one of that size afterwards -- the whole frame turns with it. Translation and scaling are not,
+    since they move the shape off the sphere its angular size was measured on or stretch it out of
+    being that shape at all, so those simply do not call this and the result falls back to a
+    geometry-defined edge -- the path every unconverted shape already takes.
+
+    :param rotation: a callable turning a (3, N) array of directions, or None if the transform
+        does not move the shape at all
     """
-    if turned is None:
+    if source.edge_kind == EDGE_NONE:
         return result
     result.EDGE_KIND = source.EDGE_KIND
-    result.edge_center = tuple(np.asarray(turned, dtype=float).reshape(3))
-    result.edge_radius = source.edge_radius
+    frame = np.asarray(source.edge_frame)
+    if rotation is not None:
+        frame = np.asarray(rotation(frame.T)).T
+    result.edge_frame = tuple(tuple(axis) for axis in frame)
+    result.edge_extent = source.edge_extent
     return result
 
 
@@ -66,7 +81,6 @@ def edge_coverage(distance, pixel):
         negative is inside the shape
     :param pixel: the size of one pixel in those units
     """
-    import numpy as np
     if pixel <= 0:
         return float(distance <= 0)
     return float(np.clip(0.5 - distance / pixel, 0.0, 1.0))
@@ -84,6 +98,8 @@ class GlVertices:
     :param tex_coords: 2 x n array of texture coordinates, for textured shapes
     """
     EDGE_KIND = EDGE_NONE
+    edge_frame = CANONICAL_PATCH_FRAME
+    edge_extent = (0.0, 0.0)
 
     @property
     def edge_kind(self):
@@ -123,25 +139,25 @@ class GlVertices:
         """
         return _carry_edge(self, GlVertices(vertices=util.rotate(self.vertices, z, x, y), colors=self.colors,
                                             tex_coords=self.tex_coords),
-                          turned=util.rotate(_as_column(self.edge_center), z, x, y) if self.edge_kind else None)
+                          rotation=lambda v: util.rotate(v, z, x, y))
 
     def rotx(self, th):
         """Rotate about the x axis by ``th`` radians. Returns self, so calls chain."""
         return _carry_edge(self, GlVertices(vertices=util.rotx(self.vertices, th), colors=self.colors,
                                             tex_coords=self.tex_coords),
-                          turned=util.rotx(_as_column(self.edge_center), th) if self.edge_kind else None)
+                          rotation=lambda v: util.rotx(v, th))
 
     def roty(self, th):
         """Rotate about the y axis by ``th`` radians. Returns self, so calls chain."""
         return _carry_edge(self, GlVertices(vertices=util.roty(self.vertices, th), colors=self.colors,
                                             tex_coords=self.tex_coords),
-                          turned=util.roty(_as_column(self.edge_center), th) if self.edge_kind else None)
+                          rotation=lambda v: util.roty(v, th))
 
     def rotz(self, th):
         """Rotate about the z axis by ``th`` radians. Returns self, so calls chain."""
         return _carry_edge(self, GlVertices(vertices=util.rotz(self.vertices, th), colors=self.colors,
                                             tex_coords=self.tex_coords),
-                          turned=util.rotz(_as_column(self.edge_center), th) if self.edge_kind else None)
+                          rotation=lambda v: util.rotz(v, th))
 
     def scale(self, amt):
         """Scale about the origin. Returns self, so calls chain."""
@@ -154,12 +170,14 @@ class GlVertices:
     def set_color(self, color):
         """Set every vertex to one colour."""
         new_colors = np.tile(np.array(color), (self.vertices.shape[1], 1)).T
-        return GlVertices(vertices=self.vertices, colors=new_colors, tex_coords=self.tex_coords)
+        return _carry_edge(self, GlVertices(vertices=self.vertices, colors=new_colors,
+                                            tex_coords=self.tex_coords))
 
     def shift_texture(self, shift):
         """Offset texture coordinates by (u, v) -- how a texture is scrolled across a shape."""
         new_tex_coords = self.tex_coords + np.tile(shift, (self.tex_coords.shape[1], 1)).T
-        return GlVertices(vertices=self.vertices, colors=self.colors, tex_coords=new_tex_coords)
+        return _carry_edge(self, GlVertices(vertices=self.vertices, colors=self.colors,
+                                            tex_coords=new_tex_coords))
 
     @property
     def data(self):
@@ -326,6 +344,8 @@ class GlSphericalRect(GlVertices):
         curvature more closely, at the cost of vertices
     :param n_steps_y: subdivisions down the height
     """
+    EDGE_KIND = EDGE_SPHERICAL_RECT
+
     def __init__(self,
                  width=20,  # degrees, theta
                  height=20,  # degrees, phi
@@ -336,20 +356,31 @@ class GlSphericalRect(GlVertices):
         super().__init__()
         color = util.get_rgba(color)
 
-        d_theta = (1/n_steps_x) * radians(width)
-        d_phi = (1/n_steps_y) * radians(height)
+        # The grid is a bound, and the shader clips it to the true rectangle. Its sides already
+        # cover: a constant-azimuth boundary is a great circle, which a triangle edge reproduces
+        # exactly, and a constant-elevation one is a small circle, which the great-circle arc
+        # between two of its points bulges outside. Only the four corners land exactly on the
+        # bound, so widen by a whisker to keep rounding from nicking them.
+        drawn_width = radians(width) * (1.0 + EDGE_BOUND_MARGIN)
+        drawn_height = radians(height) * (1.0 + EDGE_BOUND_MARGIN)
+
+        d_theta = (1/n_steps_x) * drawn_width
+        d_phi = (1/n_steps_y) * drawn_height
         for rr in range(n_steps_y):
             for cc in range(n_steps_x):
                 # render patch at the equator (phi=pi/2) so it's not near the poles
                 # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-                theta = np.pi/2 + radians(width) * (-1/2 + (cc/n_steps_x))
-                phi = np.pi/2 + radians(height) * (-1/2 + (rr/n_steps_y))
+                theta = np.pi/2 + drawn_width * (-1/2 + (cc/n_steps_x))
+                phi = np.pi/2 + drawn_height * (-1/2 + (rr/n_steps_y))
                 v1 = util.spherical_to_cartesian(sphere_radius, theta, phi)
                 v2 = util.spherical_to_cartesian(sphere_radius, theta, phi + d_phi)
                 v3 = util.spherical_to_cartesian(sphere_radius, theta + d_theta, phi)
                 v4 = util.spherical_to_cartesian(sphere_radius, theta + d_theta, phi + d_phi)
                 self.add(GlTri(v1, v2, v4, color))
                 self.add(GlTri(v1, v3, v4, color))
+
+        self.edge_frame = CANONICAL_PATCH_FRAME
+        self.edge_extent = (float(radians(width) / 2), float(radians(height) / 2))
 
 class GlSphericalTexturedRect(GlVertices):
     """
@@ -506,11 +537,10 @@ class GlSphericalCirc(GlVertices):
 
             self.add(GlTri(v1, v2, v_center, color).translate(sphere_location))
 
-        # What the shader needs to find the true edge: the direction to the disc's centre, and how
-        # far from it the disc reaches.
-        self.edge_center = tuple(np.asarray(v_center, dtype=float).reshape(3)
-                                 / np.linalg.norm(v_center))
-        self.edge_radius = float(radians(circle_radius))
+        # What the shader needs to find the true edge: the frame the disc was built in, and how
+        # far from its forward axis the disc reaches.
+        self.edge_frame = CANONICAL_PATCH_FRAME
+        self.edge_extent = (float(radians(circle_radius)), 0.0)
 
 
 class GlCylindricalPoints(GlVertices):

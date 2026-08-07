@@ -280,8 +280,9 @@ def test_a_disc_bound_contains_the_radius_it_was_asked_for():
 
     shape = GlSphericalCirc(circle_radius=20.0, sphere_radius=1.0)
 
+    forward = np.array(shape.edge_frame)[2]
     directions = shape.vertices.T / np.linalg.norm(shape.vertices.T, axis=1, keepdims=True)
-    angles = np.degrees(np.arccos(np.clip(directions @ np.array(shape.edge_center), -1, 1)))
+    angles = np.degrees(np.arccos(np.clip(directions @ forward, -1, 1)))
     rim = angles[angles > 1.0]                      # everything but the fan's hub
 
     assert rim.min() >= 20.0, (
@@ -311,11 +312,84 @@ def test_the_disc_bound_is_cheaper_than_the_polygon_it_replaces():
 
 
 def test_a_shape_that_declares_no_edge_is_untouched():
-    """The path is strictly additive: every existing shape keeps a geometry-defined edge."""
-    from stimpack.visual_stim.shapes import GlCylinder, GlSphericalRect
+    """The path is strictly additive: an unconverted shape keeps a geometry-defined edge."""
+    from stimpack.visual_stim.shapes import GlCircle, GlCylinder, GlSphericalEllipse
 
-    for shape in (GlSphericalRect(), GlCylinder()):
-        assert getattr(shape, 'EDGE_KIND', 0) == 0
+    for shape in (GlSphericalEllipse(), GlCylinder(), GlCircle()):
+        assert shape.edge_kind == 0
+
+
+def test_a_rect_bound_contains_the_angles_it_was_asked_for():
+    """Same argument as the disc, in two axes: the drawn grid must contain the true rectangle.
+
+    Its constant-azimuth sides are great circles, which triangle edges follow exactly, so those
+    would be flush against the bound with nothing to spare -- and a shader can only remove
+    coverage, never add it, so a rounding error at a corner would nick a real sliver off the
+    patch. Hence the margin, and hence this test that the margin is on the outside.
+    """
+    from stimpack.visual_stim.shapes import GlSphericalRect
+
+    shape = GlSphericalRect(width=20.0, height=30.0)
+
+    frame = np.array(shape.edge_frame)
+    directions = shape.vertices.T / np.linalg.norm(shape.vertices.T, axis=1, keepdims=True)
+    azimuth = np.degrees(np.arctan2(directions @ frame[0], directions @ frame[2]))
+    elevation = np.degrees(np.arcsin(np.clip(directions @ frame[1], -1, 1)))
+
+    assert abs(azimuth).max() >= 10.0, f'bound cuts into the width at {abs(azimuth).max():.4f} deg'
+    assert abs(elevation).max() >= 15.0, f'bound cuts into the height at {abs(elevation).max():.4f}'
+    assert abs(azimuth).max() < 11.0 and abs(elevation).max() < 16.5, 'bound is wastefully large'
+
+    assert np.allclose(np.degrees(shape.edge_extent), (10.0, 15.0)), (
+        'edge_extent is the true half-extent the shader clips to, not the widened bound')
+
+
+def test_a_rotation_turns_the_edge_frame_with_the_shape():
+    """Every stimulus builds its patch facing forward and then rotates it into place, so if the
+    frame did not turn too the shader would clip against a rectangle still sitting at the origin --
+    which is most of the patch gone, and only for stimuli that move.
+    """
+    from stimpack.visual_stim.shapes import GlSphericalRect
+
+    turned = GlSphericalRect(width=20.0, height=30.0).rotz(np.radians(90.0))
+
+    frame = np.array(turned.edge_frame)
+    assert np.allclose(frame @ frame.T, np.eye(3), atol=1e-9), 'rotation left the frame non-orthonormal'
+    assert np.allclose(frame[2], (-1, 0, 0), atol=1e-9), (
+        f'forward should have turned from +y to -x, got {frame[2]}')
+
+    directions = turned.vertices.T / np.linalg.norm(turned.vertices.T, axis=1, keepdims=True)
+    azimuth = np.degrees(np.arctan2(directions @ frame[0], directions @ frame[2]))
+    assert abs(azimuth).max() < 11.0, 'the frame did not follow the geometry'
+
+
+def test_recolouring_keeps_the_edge_but_moving_off_the_sphere_drops_it():
+    """The declaration is an angular statement about a sphere centred on the subject. Colour does
+    not touch that; translating or scaling invalidates it, and a wrong analytic edge is worse than
+    none, so those fall back to the geometry rather than carrying a stale frame.
+    """
+    from stimpack.visual_stim.shapes import GlSphericalCirc
+
+    disc = GlSphericalCirc(circle_radius=10.0)
+
+    assert disc.set_color([1, 0, 0, 1]).edge_kind == disc.edge_kind
+    assert disc.translate((0, 1, 0)).edge_kind == 0
+    assert disc.scale(np.full((3, 1), 2.0)).edge_kind == 0
+
+
+def test_a_rendered_rect_has_soft_edges_on_both_axes(headless_gl):
+    """A patch straddling the screen centre, so both its width and its height are in view."""
+    frame = _render(headless_gl, 'MovingPatch',
+                    {'width': 30.0, 'height': 20.0, 'color': [1, 1, 1, 1],
+                     'theta': 0, 'phi': 0, 'angle': 0, 'sphere_radius': 1.0})
+    grey = frame[..., 0].astype(int)
+
+    lit = (grey > 250).sum()
+    partial = grey.size - lit - (grey < 5).sum()
+
+    assert lit > 0, 'the patch did not render'
+    assert partial > 0, 'edges are hard: no partially-lit pixels'
+    assert partial < lit, f'edges implausibly soft: {partial} partial vs {lit} fully-lit pixels'
 
 
 def test_a_rendered_disc_has_a_soft_edge_carrying_sub_pixel_position(headless_gl):

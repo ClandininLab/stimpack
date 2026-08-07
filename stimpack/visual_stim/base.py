@@ -11,6 +11,17 @@ See stimpack.visual_stim.stimuli for available child stimulus classes. Overwrite
 """
 
 import moderngl
+import numpy as np
+
+
+def _frame_bytes(frame):
+    """A shape's edge frame as the bytes a GLSL mat3 uniform wants.
+
+    A frame is stored one axis per row in Python, because that is how it reads -- azimuth,
+    elevation, forward. GLSL indexes a mat3 by *column* and takes its bytes column-major, so
+    writing the rows out in order is what makes ``edge_frame[2]`` the forward axis in the shader.
+    """
+    return np.ascontiguousarray(frame, dtype='f4').tobytes()
 
 
 class BaseProgram:
@@ -53,8 +64,8 @@ class BaseProgram:
         # No analytic edge unless a shape asks for one, so an unconverted stimulus renders exactly
         # as it did. The other two are never read while this is 0, but GL wants them initialised.
         self.prog['edge_kind'].value = 0
-        self.prog['edge_center'].value = (0.0, 1.0, 0.0)
-        self.prog['edge_radius'].value = 0.0
+        self.prog['edge_frame'].write(_frame_bytes(np.eye(3)))
+        self.prog['edge_extent'].value = (0.0, 0.0)
         self.prog['subject_position'].value = (0.0, 0.0, 0.0)
 
     def configure(self, *args, **kwargs):
@@ -119,8 +130,8 @@ class BaseProgram:
         edge_kind = getattr(self.stim_object, 'edge_kind', 0)
         self.prog['edge_kind'].value = edge_kind
         if edge_kind:
-            self.prog['edge_center'].value = tuple(self.stim_object.edge_center)
-            self.prog['edge_radius'].value = float(self.stim_object.edge_radius)
+            self.prog['edge_frame'].write(_frame_bytes(self.stim_object.edge_frame))
+            self.prog['edge_extent'].value = tuple(float(v) for v in self.stim_object.edge_extent)
             self.prog['subject_position'].value = (float(subject_position['x']),
                                                    float(subject_position['y']),
                                                    float(subject_position['z']))
@@ -239,11 +250,31 @@ class BaseProgram:
             // its triangles to describe it. edge_kind 0 means it has not, which is every shape
             // that has not opted in -- the geometry defines the edge, exactly as it always has.
             uniform int edge_kind;
-            uniform vec3 edge_center;
-            uniform float edge_radius;
+            // Rows: the shape's azimuth axis, elevation axis, and forward direction. A disc needs
+            // only the last; a rectangle needs all three, because "20 degrees wide" is a statement
+            // about a frame, not about a point.
+            uniform mat3 edge_frame;
+            uniform vec2 edge_extent;
             uniform vec3 subject_position;
 
             out vec4 f_color;
+
+            // How far outside the shape this fragment is, in radians. Negative is inside. Every
+            // kind answers in the same currency, so the coverage arithmetic below is shared.
+            float edge_excess(vec3 dir) {
+                if (edge_kind == 1) {            // disc: angle from the forward axis
+                    // clamp before acos: rounding can push the dot product just past 1, and acos
+                    // of that is NaN -- one black pixel at the centre of the disc, on some drivers.
+                    return acos(clamp(dot(dir, edge_frame[2]), -1.0, 1.0)) - edge_extent.x;
+                }
+                // rectangle: azimuth and elevation in the shape's own frame, whichever is worse
+                float across = dot(dir, edge_frame[0]);
+                float up     = dot(dir, edge_frame[1]);
+                float ahead  = dot(dir, edge_frame[2]);
+                float azimuth   = atan(across, ahead);
+                float elevation = asin(clamp(up, -1.0, 1.0));
+                return max(abs(azimuth) - edge_extent.x, abs(elevation) - edge_extent.y);
+            }
 
             // What fraction of this pixel the shape covers.
             //
@@ -258,12 +289,10 @@ class BaseProgram:
             float edge_coverage() {
                 if (edge_kind == 0) return 1.0;
                 vec3 dir = normalize(v_world - subject_position);
-                // clamp before acos: rounding can push the dot product just past 1, and acos of
-                // that is NaN -- one black pixel at the exact centre of the disc, on some drivers.
-                float angle = acos(clamp(dot(dir, edge_center), -1.0, 1.0));
-                float pixel = fwidth(angle);
-                if (pixel <= 0.0) return angle <= edge_radius ? 1.0 : 0.0;
-                return clamp(0.5 - (angle - edge_radius) / pixel, 0.0, 1.0);
+                float excess = edge_excess(dir);
+                float pixel = fwidth(excess);
+                if (pixel <= 0.0) return excess <= 0.0 ? 1.0 : 0.0;
+                return clamp(0.5 - excess / pixel, 0.0, 1.0);
             }
 
             void main() {
