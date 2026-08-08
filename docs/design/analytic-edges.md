@@ -331,10 +331,23 @@ keep a bound and change `edge_extent` per frame. Verified: a single 40 degree bo
 20 and 40 degree discs correctly, agreeing with purpose-built ones to 0.5% of area. This was
 impossible when the triangles *were* the shape.
 
-Which stimuli this touches is narrower than it sounds. `LoomingCircle` is not one of them: it draws
-a flat disc built once in `configure` and only translated afterwards, so it never rebuilds and its
-size changes because it *approaches*. The case is `MovingSpot` and friends given a size trajectory,
-which rebuild every frame because their radius changes.
+**A bound needs resizing when the declaration changes, not when the picture changes.** That is a
+narrower condition than it first sounds, and it is worth stating carefully, because "the shape gets
+bigger" is true of a loom in a way that does not imply the declaration moves at all:
+
+| stimulus | what it declares | changes per frame? | needs a bound policy? |
+|---|---|---|---|
+| `MovingSpot` with a Loom radius | an angle | yes -- the angle *is* the parameter | yes |
+| `LoomingCircle`, if given a world-space kind | a radius in metres | no -- a rigid object | **no** |
+
+`LoomingCircle` draws a flat disc of fixed physical radius, built once in `configure` and only
+translated afterwards; its geometry never changes and only its distance does. Were it given the
+world-space kind sketched above, its declaration would be metric too, and perspective scales a
+circle and its circumscribing polygon by the same factor -- so the bound contains the disc at every
+distance, verified from 2 m down to 0.1 m, and never needs rebuilding. Build once, translate, done.
+
+So the policy question below is about angular declarations on shapes whose angle is a trajectory:
+`MovingSpot` and its relatives.
 
 Three policies, 360 frames at 1920x1080, draw time isolated from readback:
 
