@@ -95,7 +95,121 @@ def face_projection_matrix(near=1e-4, far=1000.0):
     return projection
 
 
-def face_view_projections(subject_position=None, near=1e-4, far=1000.0):
+def region_planes_and_corners(face):
+    """The four inward plane normals and four corners bounding one face's region on the sphere.
+
+    A cube map samples by dominant axis, so face +Z owns {d : d_z >= |d_x| and d_z >= |d_y|} -- a
+    spherical square cut by four planes through the origin, with corners at (+-1, +-1, 1)/sqrt(3).
+    """
+    axis, sign = ((0, +1), (0, -1), (1, +1), (1, -1), (2, +1), (2, -1))[face]
+    centre = np.zeros(3)
+    centre[axis] = sign
+    others = [i for i in range(3) if i != axis]
+
+    normals = []
+    for other, side in itertools.product(others, (+1, -1)):
+        normal = centre.copy()
+        normal[other] = -side
+        normals.append(normal / np.linalg.norm(normal))
+
+    corners = []
+    for s1, s2 in itertools.product((+1, -1), repeat=2):
+        corner = centre.copy()
+        corner[others[0]], corner[others[1]] = s1, s2
+        corners.append(corner / np.linalg.norm(corner))
+
+    return np.array(normals), np.array(corners)
+
+
+def distance_to_face_region(direction, face):
+    """Angular distance in radians from a unit vector to a face's region; 0 if inside it."""
+    normals, corners = region_planes_and_corners(face)
+    direction = np.asarray(direction, dtype=float)
+    direction = direction / np.linalg.norm(direction)
+    if np.all(normals @ direction >= -1e-12):
+        return 0.0
+
+    best = np.inf
+    for normal in normals:                      # perpendicular foot on each bounding edge
+        foot = direction - (direction @ normal) * normal
+        length = np.linalg.norm(foot)
+        if length > 1e-12:
+            foot = foot / length
+            if np.all(normals @ foot >= -1e-9):     # ...but only if it lands on the edge itself
+                best = min(best, np.arccos(np.clip(direction @ foot, -1.0, 1.0)))
+    for corner in corners:
+        best = min(best, np.arccos(np.clip(direction @ corner, -1.0, 1.0)))
+    return float(best)
+
+
+def faces_for_cap(axis, half_angle):
+    """Exactly the faces a spherical cap needs, without sampling anything.
+
+    A cap of this half-angle about `axis` reaches face f precisely when f's region lies closer than
+    half_angle. Used to choose an orientation; faces_for_directions is what the renderer actually
+    asks, since a real screen need not be a cap.
+    """
+    return tuple(f for f in range(6) if distance_to_face_region(axis, f) < half_angle)
+
+
+def orientation_for_cap(axis, half_angle, prefer='auto'):
+    """A cube orientation that puts a cap on as few faces as possible, with margin to spare.
+
+    Only two things matter, and neither is found by searching. A cap is rotationally symmetric about
+    its own axis, so only the direction of that axis relative to the cube counts -- two degrees of
+    freedom, not three, and any answer quoting a roll angle is quoting noise. And a face's region is
+    an intersection of half-spaces, so "does the cap reach this face" is a distance from a point to
+    a spherical square, which is closed-form.
+
+    That leaves three alignments, with exact thresholds:
+
+        cap axis at a face centre    5 faces for 45 deg   < half_angle <= 125.26 deg
+        cap axis at an edge midpoint 4 faces for 35.26    < half_angle <= 90
+        cap axis at a corner         3 faces for            half_angle <  70.53 = arccos(1/3)
+
+    'auto' takes the corner when the cap fits it with room -- below 65 degrees, leaving over 5
+    degrees of margin -- and the edge otherwise. Margin matters as much as the count: a cap just
+    under 70.53 gets three faces on a knife edge, and falling off it costs three faces at once.
+
+    :param axis: the cap's axis, in rig coordinates
+    :param half_angle: radians
+    :param prefer: 'auto', 'corner', 'edge', or 'none' for no rotation
+    :returns: a 3x3 rotation taking rig directions to cube directions, or None for no rotation
+    """
+    if prefer == 'none':
+        return None
+    if prefer not in ('auto', 'corner', 'edge'):
+        raise ValueError(f"prefer must be 'auto', 'corner', 'edge' or 'none', not {prefer!r}")
+
+    corner_fits = half_angle < np.radians(65.0)
+    target = {'corner': (1, 1, 1), 'edge': (0, 1, 1)}.get(
+        prefer, (1, 1, 1) if corner_fits else (0, 1, 1))
+
+    return rotation_taking(np.asarray(axis, dtype=float), np.asarray(target, dtype=float))
+
+
+def rotation_taking(source, target):
+    """The shortest rotation taking unit vector `source` onto `target`. Identity if already there."""
+    a = np.asarray(source, dtype=float); a = a / np.linalg.norm(a)
+    b = np.asarray(target, dtype=float); b = b / np.linalg.norm(b)
+    v = np.cross(a, b)
+    c = float(a @ b)
+    if np.linalg.norm(v) < 1e-12:
+        # Parallel or antiparallel: no unique axis, so pick any perpendicular one for the flip.
+        if c > 0:
+            return np.eye(3)
+        perp = np.eye(3)[int(np.argmin(np.abs(a)))]
+        v = np.cross(a, perp); v = v / np.linalg.norm(v)
+        return -np.eye(3) + 2 * np.outer(v, v)
+    skew = _skew_matrix(v)
+    return np.eye(3) + skew + skew @ skew / (1.0 + c)
+
+
+def _skew_matrix(v):
+    return np.array([[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]], [-v[1], v[0], 0.0]])
+
+
+def face_view_projections(subject_position=None, near=1e-4, far=1000.0, orientation=None):
     """The six view-projection matrices that fill a cube map, as arrays, in GL face order.
 
     :param subject_position: the same dict the planar path uses -- {'x','y','z','theta','phi','roll'}

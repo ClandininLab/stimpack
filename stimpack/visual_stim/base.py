@@ -60,6 +60,7 @@ class BaseProgram:
         # Default texture booleans for the shader program
         self.prog['use_texture'].value = False
         self.prog['rgb_texture'].value = False
+        self.prog['sharp_texels'].value = False
 
         # No analytic edge unless a shape asks for one, so an unconverted stimulus renders exactly
         # as it did. The other two are never read while this is 0, but GL wants them initialised.
@@ -157,7 +158,9 @@ class BaseProgram:
         :param texture_image: 2D array for monochrome, or x-by-y-by-3 for RGB
         :param texture_interpolation: ``'LINEAR'`` to smooth between texels, ``'NEAREST'`` to keep
             hard edges -- the right choice for checkerboards and random grids, where interpolation
-            would blur the pattern
+            would blur the pattern. ``'NEAREST'`` keeps the edge hard but antialiases where it
+            falls, so a drifting pattern's edges move smoothly rather than snapping to the pixel
+            grid; it does not blur the pattern.
         """
         # Update the texture booleans for the shader program
         self.prog['rgb_texture'].value = self.rgb_texture
@@ -174,12 +177,12 @@ class BaseProgram:
                                         components=components,
                                         data=texture_image.tobytes())  # size = (width, height)
 
-        if texture_interpolation == 'NEAREST':
-            self.texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
-        elif texture_interpolation == 'LINEAR':
-            self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
-        else:
-            self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
+        # Both modes filter LINEAR. 'NEAREST' asks for hard texel edges, and the shader delivers
+        # them by moving the sample point onto the texel centre everywhere except within one pixel
+        # of a boundary -- which keeps the hard edge and antialiases it, where the NEAREST filter
+        # keeps the hard edge and aliases it. See sample_texture in the fragment shader.
+        self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
+        self.prog['sharp_texels'].value = (texture_interpolation == 'NEAREST')
 
         # Every stimulus samples from unit 0; paint_at binds this texture there before drawing.
         # This uniform belongs to this stimulus's own program, so it never needs to change again.
@@ -245,6 +248,9 @@ class BaseProgram:
             uniform bool use_texture;
             uniform bool rgb_texture;
             uniform sampler2D texture_matrix;
+            // Whether this texture's texels are meant to read as hard-edged -- what a caller asks
+            // for with texture_interpolation='NEAREST'. See sample_texture below.
+            uniform bool sharp_texels;
 
             // A shape may hand the shader an equation for its true boundary instead of relying on
             // its triangles to describe it. edge_kind 0 means it has not, which is every shape
@@ -258,6 +264,33 @@ class BaseProgram:
             uniform vec3 subject_position;
 
             out vec4 f_color;
+
+            // A texture sample that keeps hard texel edges without letting them alias.
+            //
+            // NEAREST filtering exists so a checkerboard stays a checkerboard rather than being
+            // blurred into a gradient, and that is the right intent. What it costs is exactly what
+            // an unantialiased polygon costs: a texel boundary cannot sit between pixels, so it
+            // stays on one and then jumps. On a square grating drifting at 10 deg/s the edge is
+            // frozen for 17 frames in 19.
+            //
+            // So filter LINEAR and move the sample point instead. Everywhere but within one pixel
+            // of a boundary this lands exactly on a texel centre, which is what NEAREST would have
+            // returned; across the boundary it ramps, and the hardware's own interpolation then
+            // mixes the two texels in the proportion the pixel is covered by each. Same
+            // covered-fraction rule as the shape edges, reached through the filter rather than
+            // through alpha. See shapes.sharp_texel_coord for the reference implementation.
+            vec4 sample_texture() {
+                if (!sharp_texels) return texture(texture_matrix, v_tex_coord);
+                vec2 size = vec2(textureSize(texture_matrix, 0));
+                vec2 texel = v_tex_coord * size;
+                // clamped to one texel: past that the texture is minified, there is no single
+                // boundary to antialias, and this becomes ordinary bilinear filtering -- which is
+                // the right thing to become.
+                vec2 pixel = clamp(fwidth(texel), 1e-6, 1.0);
+                vec2 boundary = floor(texel + 0.5);
+                vec2 across = clamp((texel - boundary) / pixel + 0.5, 0.0, 1.0);
+                return texture(texture_matrix, (boundary - 0.5 + across) / size);
+            }
 
             // How far outside the shape this fragment is, in radians. Negative is inside. Every
             // kind answers in the same currency, so the coverage arithmetic below is shared.
@@ -309,7 +342,7 @@ class BaseProgram:
 
             void main() {
                 if (use_texture) {
-                    vec4 texFrag = texture(texture_matrix, v_tex_coord);
+                    vec4 texFrag = sample_texture();
                     if (rgb_texture) {
                         f_color.rgb = texFrag.rgb * v_color.rgb;
                     } else {

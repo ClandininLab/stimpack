@@ -117,7 +117,8 @@ def _add_cone_patch(shape, extent_x, extent_y, surface_radius, color, location, 
 
 
 def _add_angular_rect_patch(shape, width, height, surface_radius, color, n_steps_x, n_steps_y,
-                            to_cartesian=util.spherical_to_cartesian):
+                            to_cartesian=util.spherical_to_cartesian,
+                            texture=False, texture_shift=(0, 0)):
     """Fill `shape` with a bounding grid for a rectangular patch, and declare its analytic edge.
 
     Shared by the spherical and cylindrical rectangles, for the same reason the cone builder is:
@@ -146,8 +147,19 @@ def _add_angular_rect_patch(shape, width, height, surface_radius, color, n_steps
             v2 = to_cartesian(surface_radius, theta, phi + d_phi)
             v3 = to_cartesian(surface_radius, theta + d_theta, phi)
             v4 = to_cartesian(surface_radius, theta + d_theta, phi + d_phi)
-            shape.add(GlTri(v1, v2, v4, color))
-            shape.add(GlTri(v1, v3, v4, color))
+            if not texture:
+                shape.add(GlTri(v1, v2, v4, color))
+                shape.add(GlTri(v1, v3, v4, color))
+                continue
+            # The picture spans the *true* rectangle, not the widened grid it is drawn on --
+            # otherwise the margin would scale the image by a percent, which is far more than the
+            # pixel the margin exists to protect. Coordinates therefore run slightly outside [0, 1]
+            # in the margin, on fragments the shader gives zero coverage to anyway.
+            def tc(across, up):
+                return (0.5 + (1.0 + EDGE_BOUND_MARGIN) * (across/n_steps_x - 0.5) + texture_shift[0],
+                        0.5 + (1.0 + EDGE_BOUND_MARGIN) * (up/n_steps_y - 0.5) + texture_shift[1])
+            shape.add(GlTri(v1, v2, v4, color, tc(cc, rr), tc(cc, rr+1), tc(cc+1, rr+1)))
+            shape.add(GlTri(v1, v3, v4, color, tc(cc, rr), tc(cc+1, rr), tc(cc+1, rr+1)))
 
     shape.edge_frame = CANONICAL_PATCH_FRAME
     shape.edge_extent = (float(radians(width) / 2), float(radians(height) / 2))
@@ -198,6 +210,36 @@ def edge_coverage(distance, pixel):
     if pixel <= 0:
         return float(distance <= 0)
     return float(np.clip(0.5 - distance / pixel, 0.0, 1.0))
+
+
+def sharp_texel_coord(texel_position, texels_per_pixel):
+    """Where to sample a texture so a hard-edged pattern keeps its edges but not their aliasing.
+
+    The reference implementation of what the fragment shader computes, kept in Python so the rule
+    can be stated and tested without a GL context.
+
+    ``NEAREST`` filtering exists so a checkerboard stays a checkerboard rather than being blurred
+    into a gradient, and that intent is right. What it costs is the same thing an unantialiased
+    polygon costs: a texel boundary cannot sit between pixels, so it stays on one and then jumps.
+    Measured on a drifting square grating at 10 deg/s, the edge is frozen for 17 frames in 19.
+
+    So sample with ``LINEAR`` filtering, but move the sample point. Everywhere but within one pixel
+    of a texel boundary this lands exactly on a texel centre, which is what ``NEAREST`` would have
+    returned. Across the boundary it ramps, and the hardware's own interpolation then mixes the two
+    texels in exactly the proportion the pixel is covered by each -- the same covered-fraction rule
+    :func:`edge_coverage` states for shapes, arrived at through the filter rather than through alpha.
+
+    :param texel_position: the fragment's position in texels, i.e. texture coordinate times size
+    :param texels_per_pixel: how much of the texture one pixel spans, ``fwidth`` of the above.
+        Clamped to 1 texel: past that the texture is minified rather than magnified, there is no
+        single boundary to antialias, and this degrades to ordinary bilinear filtering, which is
+        the right thing to degrade to.
+    :returns: the position, in texels, to sample at
+    """
+    width = np.clip(texels_per_pixel, 1e-6, 1.0)
+    boundary = np.floor(texel_position + 0.5)          # the texel edge this fragment is nearest
+    across = np.clip((texel_position - boundary) / width + 0.5, 0.0, 1.0)
+    return boundary - 0.5 + across
 
 
 class GlVertices:
@@ -474,7 +516,13 @@ class GlSphericalRect(GlVertices):
 class GlSphericalTexturedRect(GlVertices):
     """
     :class:`GlSphericalRect` carrying texture coordinates, for image and grating stimuli.
+
+    Takes the same analytic edge, since it has the same boundary. That antialiases the patch's
+    outer border only -- the texture's own texel boundaries are a separate matter, handled by the
+    fragment shader's sharp-texel sampling rather than by a shape declaration.
     """
+    EDGE_KIND = EDGE_ANGULAR_RECT
+
     def __init__(self,
                  width=20,  # degrees, theta
                  height=20,  # degrees, phi
@@ -485,35 +533,9 @@ class GlSphericalTexturedRect(GlVertices):
                  texture=False,
                  texture_shift=(0, 0)):
         super().__init__()
-        color = util.get_rgba(color)
+        _add_angular_rect_patch(self, width, height, sphere_radius, util.get_rgba(color),
+                                n_steps_x, n_steps_y, texture=texture, texture_shift=texture_shift)
 
-        d_theta = (1/n_steps_x) * radians(width)
-        d_phi = (1/n_steps_y) * radians(height)
-        for rr in range(n_steps_y):
-            for cc in range(n_steps_x):
-                # render patch at the equator (phi=pi/2) so it's not near the poles
-                # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-                theta = np.pi/2 + radians(width) * (-1/2 + (cc/n_steps_x))
-                phi = np.pi/2 + radians(height) * (-1/2 + (rr/n_steps_y))
-                v1 = util.spherical_to_cartesian(sphere_radius, theta, phi)
-                v2 = util.spherical_to_cartesian(sphere_radius, theta, phi + d_phi)
-                v3 = util.spherical_to_cartesian(sphere_radius, theta + d_theta, phi)
-                v4 = util.spherical_to_cartesian(sphere_radius, theta + d_theta, phi + d_phi)
-                if texture:
-                    tc1 = (cc/n_steps_x, rr/n_steps_y)
-                    tc2 = (cc/n_steps_x, (rr+1)/n_steps_y)
-                    tc3 = ((cc+1)/n_steps_x, rr/n_steps_y)
-                    tc4 = ((cc+1)/n_steps_x, (rr+1)/n_steps_y)
-                    self.add(GlTri(v1, v2, v4, color, [sum(x) for x in zip(tc1, texture_shift)],
-                                                      [sum(x) for x in zip(tc2, texture_shift)],
-                                                      [sum(x) for x in zip(tc4, texture_shift)]))
-
-                    self.add(GlTri(v1, v3, v4, color, [sum(x) for x in zip(tc1, texture_shift)],
-                                                      [sum(x) for x in zip(tc3, texture_shift)],
-                                                      [sum(x) for x in zip(tc4, texture_shift)]))
-                else:
-                    self.add(GlTri(v1, v2, v4, color))
-                    self.add(GlTri(v1, v3, v4, color))
 
 class GlSphericalEllipse(GlVertices):
     """
