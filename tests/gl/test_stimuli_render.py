@@ -377,9 +377,9 @@ def test_the_bounds_are_cheaper_than_the_polygons_they_replace():
 
 def test_a_shape_that_declares_no_edge_is_untouched():
     """The path is strictly additive: an unconverted shape keeps a geometry-defined edge."""
-    from stimpack.visual_stim.shapes import GlCircle, GlCylinder, GlSphericalTexturedRect
+    from stimpack.visual_stim.shapes import GlBox, GlCircle, GlCylinder
 
-    for shape in (GlSphericalTexturedRect(), GlCylinder(), GlCircle()):
+    for shape in (GlBox(), GlCylinder(), GlCircle()):
         assert shape.edge_kind == 0
 
 
@@ -505,6 +505,147 @@ def test_a_cylindrical_patch_declares_what_its_spherical_twin_does():
         # ...and the vertices really are on different surfaces, so this is not a trivial pass
         assert not np.allclose(cylindrical.vertices, spherical.vertices)
 
+
+@pytest.mark.parametrize('offset', [0.0, 0.02, 0.05, 0.10])
+def test_a_declared_edge_does_not_move_when_the_subject_does(headless_gl, offset):
+    """A VR-only defect that every golden here is blind to, because they all sit at the origin.
+
+    A shape that declares an edge is built on a sphere centred at the origin -- translating one
+    drops the declaration precisely because it would stop being true -- so the origin is where its
+    frame and extents are anchored. Measuring the fragment's direction from a subject who has
+    walked away instead would test the shape against a cone it was never built to fill, and clip
+    into it: at 10 cm off-centre a 15 degree spot lost 21% of its area.
+    """
+    import moderngl
+
+    screen = _make_screen()
+    width = height = 256
+    headless_gl.enable(moderngl.BLEND)
+    headless_gl.enable(moderngl.DEPTH_TEST)
+    headless_gl.extra = {}
+    fbo = headless_gl.framebuffer(
+        color_attachments=[headless_gl.renderbuffer((width, height))],
+        depth_attachment=headless_gl.depth_renderbuffer((width, height)))
+
+    subject = dict(SUBJECT_AT_ORIGIN, x=offset)
+    viewports = [s.get_viewport(width, height) for s in screen.subscreens]
+    perspectives = [_perspective(subject, s.pa, s.pb, s.pc, screen.horizontal_flip)
+                    for s in screen.subscreens]
+
+    from stimpack.util import get_all_subclasses
+    from stimpack.visual_stim import stimuli
+    stim = [c for c in get_all_subclasses(stimuli.BaseProgram)
+            if c.__name__ == 'MovingSpot'][0](screen=screen)
+    stim.initialize(headless_gl)
+    stim.configure(radius=15, sphere_radius=1, color=[1, 1, 1, 1], theta=0, phi=0)
+    fbo.use()
+    fbo.clear(0, 0, 0, 1)
+    stim.paint_at(0, viewports, perspectives, subject_position=subject)
+    headless_gl.finish()
+
+    grey = np.flipud(np.frombuffer(fbo.read(components=3, alignment=1),
+                                   dtype=np.uint8).reshape(height, width, 3))[..., 0].astype(float)
+    # total light, which counts the partial edge pixels for the fraction they actually are
+    area = grey.sum() / 255.0
+
+    # the disc sits on a 1 m sphere, so 10 cm of subject travel barely changes its projected area;
+    # the geometry alone gave 3672 -> 3664 px across this range
+    assert 3600 < area < 3760, f'subject at x={offset} m renders {area:.0f} px of light'
+
+
+def test_sharp_texel_sampling_lands_on_texel_centres_and_ramps_only_at_boundaries():
+    """The rule, stated without a GL context: NEAREST's result everywhere but the boundary.
+
+    Sampling at these coordinates with LINEAR filtering must return the texel itself through the
+    interior -- otherwise this blurs the pattern, which is the thing NEAREST exists to prevent --
+    and a covered-fraction blend across one pixel at the boundary.
+    """
+    from stimpack.visual_stim.shapes import sharp_texel_coord
+
+    texels_per_pixel = 1/8                          # magnified: one texel spans eight pixels
+
+    # interior of texel 2 sits on its centre, 2.5, so LINEAR returns texel 2 exactly
+    for offset in (-3, -2, -1, 1, 2, 3):
+        assert sharp_texel_coord(2.5 + offset*texels_per_pixel, texels_per_pixel) == pytest.approx(2.5)
+
+    # the boundary between texel 2 and 3 is at 3.0, and lands halfway between their centres
+    assert sharp_texel_coord(3.0, texels_per_pixel) == pytest.approx(3.0)
+    # half a pixel either side is fully one texel or fully the other
+    assert sharp_texel_coord(3.0 - 0.5*texels_per_pixel, texels_per_pixel) == pytest.approx(2.5)
+    assert sharp_texel_coord(3.0 + 0.5*texels_per_pixel, texels_per_pixel) == pytest.approx(3.5)
+
+    # minified, it must become ordinary bilinear filtering rather than something worse
+    positions = np.linspace(0, 5, 41)
+    assert np.allclose(sharp_texel_coord(positions, 4.0), positions)
+
+
+def test_a_hard_edged_texture_is_antialiased_where_it_falls(headless_gl):
+    """A checkerboard must still be a checkerboard -- two levels, not a gradient -- but its
+    boundaries must land on partially-lit pixels rather than snapping to the pixel grid."""
+    grey = _render(headless_gl, 'Checkerboard', dict(patch_width=15, patch_height=15))[..., 0].astype(int)
+
+    partial = ((grey > 5) & (grey < 250)).sum()
+    assert partial > 0, 'texture boundaries are hard: no partially-lit pixels'
+    # a thin seam along the checker boundaries, not a wash over the image
+    assert partial < 0.15 * grey.size, f'pattern looks blurred: {partial} of {grey.size} px intermediate'
+
+
+def test_a_drifting_grating_edge_moves_every_frame(headless_gl):
+    """The defect this exists to remove, on the stimulus class where it bit hardest.
+
+    A square grating drifting at 10 deg/s moves its edge 0.079 px per frame at 360 Hz. Without
+    coverage the edge cannot sit between pixels, so it stayed on one for twelve frames and then
+    jumped a whole pixel -- 27 of 29 frames frozen, three distinct positions in thirty. That
+    discards exactly the temporal resolution 360 Hz exists to provide.
+    """
+    import moderngl
+
+    screen = _make_screen()
+    width = height = 256
+    headless_gl.enable(moderngl.BLEND)
+    headless_gl.enable(moderngl.DEPTH_TEST)
+    headless_gl.extra = {}
+    fbo = headless_gl.framebuffer(
+        color_attachments=[headless_gl.renderbuffer((width, height))],
+        depth_attachment=headless_gl.depth_renderbuffer((width, height)))
+    viewports = [s.get_viewport(width, height) for s in screen.subscreens]
+    perspectives = [_perspective(SUBJECT_AT_ORIGIN, s.pa, s.pb, s.pc, screen.horizontal_flip)
+                    for s in screen.subscreens]
+
+    from stimpack.util import get_all_subclasses
+    from stimpack.visual_stim import stimuli
+    stim = [c for c in get_all_subclasses(stimuli.BaseProgram)
+            if c.__name__ == 'RotatingGrating'][0](screen=screen)
+    stim.initialize(headless_gl)
+    stim.configure(rate=10, period=20, mean=0.5, contrast=1.0, profile='square')
+
+    def edge_positions(row):
+        """Sub-pixel position of every dark-to-light crossing, by linear interpolation."""
+        mid = (row.max() + row.min()) / 2
+        found = []
+        for k in np.nonzero((row[:-1] < mid) & (row[1:] >= mid))[0]:
+            low, high = row[k], row[k+1]
+            found.append(k + (0.5 if high == low else (mid - low) / (high - low)))
+        return np.array(found)
+
+    positions = []
+    for frame in range(30):                              # 30 frames at 360 Hz
+        fbo.use()
+        fbo.clear(0, 0, 0, 1)
+        stim.paint_at(frame / 360.0, viewports, perspectives, subject_position=SUBJECT_AT_ORIGIN)
+        headless_gl.finish()
+        img = np.flipud(np.frombuffer(fbo.read(components=3, alignment=1),
+                                      dtype=np.uint8).reshape(height, width, 3))
+        # track one bar by index; the bar count is stable over this many frames
+        positions.append(edge_positions(img[height // 2, :, 0].astype(float))[3])
+
+    positions = np.array(positions)
+    steps = np.abs(np.diff(positions))
+
+    assert (steps < 1e-3).sum() == 0, (
+        f'edge frozen in {(steps < 1e-3).sum()} of {len(steps)} frames -- motion is quantised '
+        f'to the pixel grid')
+    assert steps.max() < 0.5, f'edge jumped {steps.max():.3f} px in one frame; smooth is 0.079'
 
 @pytest.mark.parametrize('name,kwargs', [
     ('MovingPatchOnCylinder', dict(width=25, height=25, cylinder_radius=1, color=[1, 1, 1, 1],

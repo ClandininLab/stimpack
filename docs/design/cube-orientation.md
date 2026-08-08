@@ -1,8 +1,11 @@
 # Orienting the cube map to the screen
 
 *How many cube faces a curved screen needs is a function of where the cube is pointed, and the
-answer is closed-form rather than something to search for. Recorded because the derivation is worth
-more than the optimisation: measured, the optimisation is not currently worth building.*
+answer is closed-form rather than something to search for.*
+
+**Built.** `CurvedScreen(cube_orientation='auto')`, off by default. The derivation below is the
+whole of the design; what changed since it was first written is the measurement, which had said the
+saving was not worth having.
 
 ## The question
 
@@ -72,35 +75,29 @@ A cap close to 70.53° gets three faces on a knife edge; falling off it costs *t
 not one. Edge alignment is the robust choice, and the one to prefer unless the cap is comfortably
 under about 65°.
 
-## Why this is not built
+## What it measures, and why the first answer was wrong
 
-Measured on the BrukerJr flymax bowl (12,600-triangle mesh, 1536² faces, Mesa Intel):
-
-```
-scene                     tri/face   3 faces      4       5       6   5->4 saves
-background only                  0     1.95    1.58    2.01    2.28      0.43 ms
-+ Forest, 30 towers            960     1.80    2.20    2.48    2.73      0.28 ms
-+ Forest, 150 towers          4800     2.75    3.40    3.68    3.98      0.28 ms
-+ Forest, 600 towers         19200     7.28    8.67    9.09    9.58      0.41 ms
-                                                          120 Hz budget = 8.33 ms
-```
-
-Turning the cube saves **0.28–0.41 ms** at every scene complexity tested. That is 3–5% of a frame
-budget with 4× headroom in ordinary use. And at the one complexity that does exceed the budget —
-600 towers, 9.09 ms — going from five faces to four still leaves it over; only the knife-edge
-three-face alignment clears it.
-
-Cube resolution is the lever that works, by an order of magnitude:
+Measured on the BrukerJr flymax bowl at a 65-degree cap (five faces to three), **interleaving the
+two conditions frame by frame** so thermal drift on the test GPU hits both equally:
 
 ```
-600-tower Forest, 5 faces
-  1536²   9.67 ms   over budget    17.1 px/deg supplied
-  1024²   4.64 ms   ok             11.4
-   768²   3.24 ms   ok              8.5
+background    2.75 -> 1.85 ms                       -33%
+Forest 400   10.82 ->  7.40 ms   92% of frames dropped -> 9%
 ```
 
-Halving the face size halves the cost, against optics delivering about 12 px/deg — so 1024 gives up
-almost nothing real. Rotation buys 4%; resolution buys 52%.
+An earlier round of measurement concluded the opposite -- that turning the cube saved 0.28-0.41 ms
+and was not worth the code. Two things were wrong with it.
+
+**It compared `5 -> 4` and reported it as the saving from turning the cube.** The alignment that
+matters is `5 -> 3`, and at heavy load those differ by an order of magnitude.
+
+**It ran the two conditions in sequence on a thermally throttling GPU.** Consecutive runs of the
+same configuration varied between 8.95 and 12.13 ms -- more than the effect being measured. One run
+even showed turning the cube making things worse. Interleaving removes it; without interleaving,
+nothing at this scale is measurable on that hardware.
+
+The general point: a benchmark comparing two configurations must alternate between them, not run one
+after the other, whenever the machine's speed can drift on the timescale of the run.
 
 ## What would change the verdict
 
@@ -111,9 +108,9 @@ almost nothing real. Rotation buys 4%; resolution buys 52%.
 - **A rig where the cube pass is measured to be the frame-rate limit.** It has not been, on any rig.
   `report_frame_count` over a known interval is the check.
 
-## Implementation sketch
+## How it is implemented
 
-Four pieces, none large:
+Four pieces, all in place:
 
 1. **`CubeMapRenderer.__init__` takes an orientation.** `face_view_projections` already accepts one
    — yaw about z, pitch about x, roll about y, matching `get_perspective` — so the scene can be

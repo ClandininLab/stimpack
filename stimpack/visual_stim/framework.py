@@ -402,7 +402,8 @@ class StimDisplay(QOpenGLWidget):
             from stimpack.visual_stim.cubemap import CubeMapRenderer
             mesh = self.screen.build_mesh()
             self.cube_renderer = CubeMapRenderer(self.ctx, mesh,
-                                                 resolution=self.screen.cube_resolution)
+                                                 resolution=self.screen.cube_resolution,
+                                                 orientation=self.screen.resolve_cube_orientation())
             coverage = mesh.coverage()
             print(f'Curved screen: {mesh.n_triangles} triangles, '
                   f'{coverage["fraction"]:.0%} of the surface lit by the projector')
@@ -449,7 +450,7 @@ class StimDisplay(QOpenGLWidget):
         from stimpack.visual_stim.cubemap import face_matrices
 
         renderer = self.cube_renderer
-        matrices = face_matrices(self.subject_position)
+        matrices = face_matrices(self.subject_position, orientation=renderer.orientation)
         face_viewport = [(0, 0, renderer.resolution, renderer.resolution)]
 
         # Grab the display framebuffer now, before the face loop rebinds anything. It cannot be

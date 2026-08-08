@@ -16,6 +16,8 @@ drops to raw GL through PyOpenGL. Everything else stays managed. The alternative
 textures -- would mean giving up hardware seamless filtering and hand-rolling the face selection,
 and seams on a stimulus display are a data problem, not a cosmetic one.
 """
+import itertools
+
 import numpy as np
 
 # One face of a cube map spans a right angle, edge to edge through its centre. Named because the
@@ -95,7 +97,133 @@ def face_projection_matrix(near=1e-4, far=1000.0):
     return projection
 
 
-def face_view_projections(subject_position=None, near=1e-4, far=1000.0):
+def region_planes_and_corners(face):
+    """The four inward plane normals and four corners bounding one face's region on the sphere.
+
+    A cube map samples by dominant axis, so face +Z owns {d : d_z >= |d_x| and d_z >= |d_y|} -- a
+    spherical square cut by four planes through the origin, with corners at (+-1, +-1, 1)/sqrt(3).
+    """
+    axis, sign = ((0, +1), (0, -1), (1, +1), (1, -1), (2, +1), (2, -1))[face]
+    centre = np.zeros(3)
+    centre[axis] = sign
+    others = [i for i in range(3) if i != axis]
+
+    normals = []
+    for other, side in itertools.product(others, (+1, -1)):
+        normal = centre.copy()
+        normal[other] = -side
+        normals.append(normal / np.linalg.norm(normal))
+
+    corners = []
+    for s1, s2 in itertools.product((+1, -1), repeat=2):
+        corner = centre.copy()
+        corner[others[0]], corner[others[1]] = s1, s2
+        corners.append(corner / np.linalg.norm(corner))
+
+    return np.array(normals), np.array(corners)
+
+
+def distance_to_face_region(direction, face):
+    """Angular distance in radians from a unit vector to a face's region; 0 if inside it."""
+    normals, corners = region_planes_and_corners(face)
+    direction = np.asarray(direction, dtype=float)
+    direction = direction / np.linalg.norm(direction)
+    if np.all(normals @ direction >= -1e-12):
+        return 0.0
+
+    best = np.inf
+    for normal in normals:                      # perpendicular foot on each bounding edge
+        foot = direction - (direction @ normal) * normal
+        length = np.linalg.norm(foot)
+        if length > 1e-12:
+            foot = foot / length
+            if np.all(normals @ foot >= -1e-9):     # ...but only if it lands on the edge itself
+                best = min(best, np.arccos(np.clip(direction @ foot, -1.0, 1.0)))
+    for corner in corners:
+        best = min(best, np.arccos(np.clip(direction @ corner, -1.0, 1.0)))
+    return float(best)
+
+
+def faces_for_cap(axis, half_angle):
+    """Exactly the faces a spherical cap needs, without sampling anything.
+
+    A cap of this half-angle about `axis` reaches face f precisely when f's region lies closer than
+    half_angle. Used to choose an orientation; faces_for_directions is what the renderer actually
+    asks, since a real screen need not be a cap.
+    """
+    return tuple(f for f in range(6) if distance_to_face_region(axis, f) < half_angle)
+
+
+# A cap on a cube corner touches three faces until exactly this half-angle, and six immediately
+# after -- the corner (1,1,1)/sqrt(3) sees its nearest opposite region at arccos(1/3).
+CORNER_THRESHOLD = float(np.arccos(1.0 / 3.0))          # 70.53 degrees
+
+# How much of that threshold 'auto' insists on keeping in hand. The cliff costs three faces at once,
+# and BOWL_TILT-style constants are known to a few degrees at best, so a few degrees is the least
+# that means anything.
+CORNER_MARGIN = float(np.radians(5.0))
+
+
+def orientation_for_cap(axis, half_angle, prefer='auto'):
+    """A cube orientation that puts a cap on as few faces as possible, with margin to spare.
+
+    Only two things matter, and neither is found by searching. A cap is rotationally symmetric about
+    its own axis, so only the direction of that axis relative to the cube counts -- two degrees of
+    freedom, not three, and any answer quoting a roll angle is quoting noise. And a face's region is
+    an intersection of half-spaces, so "does the cap reach this face" is a distance from a point to
+    a spherical square, which is closed-form.
+
+    That leaves three alignments, with exact thresholds:
+
+        cap axis at a face centre    5 faces for 45 deg   < half_angle <= 125.26 deg
+        cap axis at an edge midpoint 4 faces for 35.26    < half_angle <= 90
+        cap axis at a corner         3 faces for            half_angle <  70.53 = arccos(1/3)
+
+    'auto' takes the corner when the cap clears its threshold by CORNER_MARGIN, and the edge
+    otherwise. Margin matters as much as the count: a cap just under 70.53 degrees gets three faces
+    on a knife edge, and falling off it costs three faces at once, not one. Requiring the margin
+    explicitly is what keeps a cap of exactly 65 -- which has 5.5 degrees in hand -- from being
+    excluded by an arbitrary round number.
+
+    :param axis: the cap's axis, in rig coordinates
+    :param half_angle: radians
+    :param prefer: 'auto', 'corner', 'edge', or 'none' for no rotation
+    :returns: a 3x3 rotation taking rig directions to cube directions, or None for no rotation
+    """
+    if prefer == 'none':
+        return None
+    if prefer not in ('auto', 'corner', 'edge'):
+        raise ValueError(f"prefer must be 'auto', 'corner', 'edge' or 'none', not {prefer!r}")
+
+    corner_fits = half_angle <= CORNER_THRESHOLD - CORNER_MARGIN
+    target = {'corner': (1, 1, 1), 'edge': (0, 1, 1)}.get(
+        prefer, (1, 1, 1) if corner_fits else (0, 1, 1))
+
+    return rotation_taking(np.asarray(axis, dtype=float), np.asarray(target, dtype=float))
+
+
+def rotation_taking(source, target):
+    """The shortest rotation taking unit vector `source` onto `target`. Identity if already there."""
+    a = np.asarray(source, dtype=float); a = a / np.linalg.norm(a)
+    b = np.asarray(target, dtype=float); b = b / np.linalg.norm(b)
+    v = np.cross(a, b)
+    c = float(a @ b)
+    if np.linalg.norm(v) < 1e-12:
+        # Parallel or antiparallel: no unique axis, so pick any perpendicular one for the flip.
+        if c > 0:
+            return np.eye(3)
+        perp = np.eye(3)[int(np.argmin(np.abs(a)))]
+        v = np.cross(a, perp); v = v / np.linalg.norm(v)
+        return -np.eye(3) + 2 * np.outer(v, v)
+    skew = _skew_matrix(v)
+    return np.eye(3) + skew + skew @ skew / (1.0 + c)
+
+
+def _skew_matrix(v):
+    return np.array([[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]], [-v[1], v[0], 0.0]])
+
+
+def face_view_projections(subject_position=None, near=1e-4, far=1000.0, orientation=None):
     """The six view-projection matrices that fill a cube map, as arrays, in GL face order.
 
     :param subject_position: the same dict the planar path uses -- {'x','y','z','theta','phi','roll'}
@@ -122,8 +250,19 @@ def face_view_projections(subject_position=None, near=1e-4, far=1000.0):
         def rotate(v):                                            # noqa: F811
             return roty(rotx(rotz(np.asarray(v, dtype=float), theta), phi), roll)
 
+    # A cube turned to suit the screen: `orientation` takes rig directions to cube directions, so a
+    # face whose axis is `a` in cube space looks along `orientation.T @ a` in the rig. Applied
+    # before the heading rotation, because heading turns the rig frame and the cube's orientation
+    # is fixed relative to the screen -- composing them the other way round gives a picture that is
+    # plausible and rotated, which is exactly what the CUBE_FACES comment above warns about.
+    if orientation is None:
+        to_rig = lambda v: np.asarray(v, dtype=float)             # noqa: E731
+    else:
+        inverse = np.asarray(orientation, dtype=float).T
+        to_rig = lambda v: inverse @ np.asarray(v, dtype=float)   # noqa: E731
+
     projection = face_projection_matrix(near, far)
-    return [projection @ face_view_matrix(eye, rotate(forward), rotate(up))
+    return [projection @ face_view_matrix(eye, rotate(to_rig(forward)), rotate(to_rig(up)))
             for forward, up in CUBE_FACES]
 
 
@@ -165,14 +304,14 @@ def faces_for_mesh(mesh):
     return faces_for_directions(mesh.directions, getattr(mesh, 'triangles', None))
 
 
-def face_matrices(subject_position=None, near=1e-4, far=1000.0):
+def face_matrices(subject_position=None, near=1e-4, far=1000.0, orientation=None):
     """The same six matrices as bytes, laid out exactly as get_perspective returns them.
 
     Column-major float32, so a stimulus's `paint_at` can take these in place of the planar
     perspectives with no change to any stimulus.
     """
     return [m.astype('f4').tobytes(order='F')
-            for m in face_view_projections(subject_position, near, far)]
+            for m in face_view_projections(subject_position, near, far, orientation)]
 
 
 def drain_gl_errors(GL):
@@ -206,13 +345,28 @@ class CubeMapRenderer:
         always has six faces; this decides how many times the scene is drawn.
     """
 
-    def __init__(self, ctx, mesh, resolution=DEFAULT_CUBE_RESOLUTION, faces=None):
+    def __init__(self, ctx, mesh, resolution=DEFAULT_CUBE_RESOLUTION, faces=None,
+                 orientation=None):
         from OpenGL import GL
 
         if int(resolution) < 1:
             raise ValueError(f'cube resolution must be at least 1 pixel, got {resolution}')
+        # Everything below is in CUBE space. `orientation` takes rig directions to cube directions,
+        # so the mesh's directions -- fixed rig geometry -- are rotated once here rather than per
+        # fragment, and face selection has to be asked in the same frame or it answers about a cube
+        # that is not the one being rendered.
+        self.orientation = None if orientation is None else np.asarray(orientation, dtype=float)
+        if self.orientation is not None:
+            if self.orientation.shape != (3, 3):
+                raise ValueError(f'orientation must be a 3x3 rotation, got shape '
+                                 f'{self.orientation.shape}')
+            if not np.allclose(self.orientation @ self.orientation.T, np.eye(3), atol=1e-6):
+                raise ValueError('orientation must be a rotation: R @ R.T is not the identity')
+        directions = (mesh.directions if self.orientation is None
+                      else mesh.directions @ self.orientation.T)
+
         if faces is None:
-            face_indices = faces_for_mesh(mesh)
+            face_indices = faces_for_directions(directions, getattr(mesh, 'triangles', None))
         elif isinstance(faces, (int, np.integer)):
             # The legacy spelling: a count, taken from the front of GL face order. Kept because it
             # is what the tests reach for, but it cannot express most real answers -- a front-facing
@@ -255,7 +409,10 @@ class CubeMapRenderer:
 
         self.program = ctx.program(vertex_shader=WARP_VERTEX_SHADER,
                                    fragment_shader=WARP_FRAGMENT_SHADER)
-        self._vbo = ctx.buffer(mesh.interleaved().tobytes())
+        interleaved = mesh.interleaved()
+        if self.orientation is not None:
+            interleaved[:, 2:5] = directions[mesh.triangles.reshape(-1)].astype('f4')
+        self._vbo = ctx.buffer(interleaved.tobytes())
         self.vao = ctx.vertex_array(
             self.program, [(self._vbo, '2f 3f 1f', 'in_ndc', 'in_direction', 'in_gain')])
         self.n_vertices = mesh.n_triangles * 3

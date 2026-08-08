@@ -21,6 +21,8 @@ because each facet gets its own planar frustum. Here it only sets how well the m
 surface's shape, because direction is interpolated across each triangle and sampled per fragment. So
 a modest tessellation goes a long way -- flystim1.0 used 10x10 over a whole hemisphere.
 """
+import warnings
+
 import numpy as np
 
 from stimpack.visual_stim.screen import Screen, SubScreen
@@ -800,10 +802,21 @@ class CurvedScreen(Screen):
         correcting. The default of 1.0 says the projector is linear, which is very likely wrong:
         nothing in stimpack measures this, and until a rig does, its correction is directionally
         right and quantitatively off. Measuring it is one photometer and eight levels.
+    :param cube_orientation: how the cube map is turned relative to the rig. None (the default)
+        leaves it axis-aligned, which is what every rig ran before this existed. ``'auto'`` turns it
+        to suit this screen, which costs nothing and can drop a face or two -- each face avoided is
+        a whole scene draw saved every frame. A 3x3 rotation may be given instead, taking rig
+        directions to cube directions.
+
+        Worth switching on only when the cube pass is the frame-rate limit, which it usually is not:
+        measured on a 70-degree bowl, turning the cube saves 0.3 ms of an 8.33 ms budget on ordinary
+        scenes. Where it does matter is at complexities that already drop frames, and there halving
+        ``cube_resolution`` does more. See docs/design/cube-orientation.md.
     """
 
     def __init__(self, surface=None, projector=None, cube_resolution=1024,
-                 brightness_correction=None, gamma=1.0, measured_falloff=None, **kwargs):
+                 brightness_correction=None, gamma=1.0, measured_falloff=None,
+                 cube_orientation=None, **kwargs):
         super().__init__(**kwargs)
         self.surface = surface if surface is not None else SphericalSurface()
         self.projector = projector if projector is not None else PinholeProjector()
@@ -812,6 +825,38 @@ class CurvedScreen(Screen):
                                       else float(brightness_correction))
         self.gamma = float(gamma)
         self.measured_falloff = measured_falloff
+        self.cube_orientation = cube_orientation
+
+    def resolve_cube_orientation(self):
+        """The 3x3 rotation this screen wants for its cube, or None to leave it axis-aligned.
+
+        'auto' is resolved here rather than at construction because it depends on the surface, and a
+        surface that is not a cap has no single axis to align to -- in which case there is nothing to
+        choose and None is the honest answer.
+        """
+        from stimpack.visual_stim.cubemap import orientation_for_cap
+
+        if self.cube_orientation is None:
+            return None
+        if isinstance(self.cube_orientation, str):
+            surface = self.surface
+            if not isinstance(surface, SphericalSurface):
+                warnings.warn(f'cube_orientation={self.cube_orientation!r} needs a spherical cap to '
+                              f'aim at; {type(surface).__name__} has no single axis, so the cube is '
+                              f'left axis-aligned.')
+                return None
+            low, high = sorted(surface.elevation_range)
+            half_angle = np.radians(90.0 - low)          # a cap reaching to `low` about its pole
+            if high < 90.0 - 1e-9:
+                warnings.warn('cube_orientation="auto" assumes the surface is a cap about its pole '
+                              f'(elevation_range ending at 90); got {surface.elevation_range}. The '
+                              'cube is aimed at the pole anyway, which may not be the best choice.')
+            return orientation_for_cap(surface.pole, half_angle, prefer=self.cube_orientation)
+        orientation = np.asarray(self.cube_orientation, dtype=float)
+        if orientation.shape != (3, 3):
+            raise ValueError(f'cube_orientation must be None, a string, or a 3x3 rotation; got '
+                             f'shape {orientation.shape}')
+        return orientation
 
     def build_mesh(self, subject_position=(0, 0, 0)):
         """The screen mesh. subject_position is where the subject physically sits, not where it is
@@ -839,6 +884,9 @@ class CurvedScreen(Screen):
         data['gamma'] = self.gamma
         data['measured_falloff'] = (None if self.measured_falloff is None
                                     else self.measured_falloff.serialize())
+        data['cube_orientation'] = (self.cube_orientation.tolist()
+                                    if isinstance(self.cube_orientation, np.ndarray)
+                                    else self.cube_orientation)
         return data
 
     @classmethod

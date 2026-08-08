@@ -226,16 +226,54 @@ so shapes covering the same directions produce the same image.
 
 This is why the kind is called `EDGE_ANGULAR_RECT` and not `EDGE_SPHERICAL_RECT`.
 
+## The same idea inside a texture
+
+The panoramic stimuli -- `CylindricalGrating`, `Checkerboard`, `RandomGrid`, `RandomBars`,
+`PixMap` -- paint a texture on a wall that fills the visual field. Their edges are not the shape's
+boundary but boundaries between texels, which is data rather than an equation, so no shape
+declaration reaches them. Measured on a scanline through a 256x256 render, before:
+
+| stimulus | intermediate pixels in the scanline |
+|---|---|
+| Checkerboard | 0 |
+| CylindricalGrating, square | 0 |
+| RandomGrid | 0 |
+| CylindricalGrating, sine | 124 (a gradient; it has no edges) |
+
+And it carried the same motion cost, on a square grating drifting at 10 deg/s at 360 Hz. Tracking
+one bar:
+
+```
+before:  edge frozen in 27 of 29 frames; 3 distinct positions in 30 frames; jumps of a whole pixel
+after:   edge frozen in  0 of 29 frames; 30 distinct positions in 30; largest jump 0.121 px
+```
+
+`NEAREST` filtering is why, and it is *not* a mistake: it exists so a checkerboard stays a
+checkerboard rather than being blurred into a gradient. `LINEAR` is not the fix -- it ramps over a
+whole texel, and a texel here is 0.69 degrees (grating) to 15 degrees (checkerboard) against a
+0.088 degree pixel, so it would smear the pattern across 8 to 170 pixels.
+
+The fix keeps the intent and drops the aliasing: filter `LINEAR`, but move the sample point.
+Everywhere but within one pixel of a boundary the sample lands exactly on a texel centre, which is
+what `NEAREST` would have returned; across the boundary it ramps, and the hardware's own
+interpolation then mixes the two texels in the proportion the pixel is covered by each. Same
+covered-fraction rule as the shape edges, reached through the filter rather than through alpha.
+See `shapes.sharp_texel_coord` for the rule and `sample_texture` in the fragment shader.
+
+Clamping the ramp to one texel makes it degrade to ordinary bilinear filtering under minification,
+where there is no single boundary to antialias and mipmaps would be the answer instead.
+
+Cost: 0.028 to 0.029 ms per frame on a full-field checkerboard at 1280x800 -- about a microsecond,
+against a 2.78 ms budget at 360 Hz.
+
 ## What is left, and what is out of reach
 
 `GlCylinder` is the remaining cylindrical shape, and it is a different animal -- a world-space
 solid, not an angular patch, so its boundary would be an equation in metres about its axis rather
 than in degrees about the subject. Its ten users split three ways:
 
-- **The panoramic textured stimuli** -- `CylindricalGrating`, `Checkerboard`, `RandomGrid`,
-  `RandomBars`, `PixMap` -- paint a texture on a wall that fills the visual field. Their edges are
-  *inside* the texture, not at the shape's silhouette, so analytic coverage does not touch them.
-  That is real aliasing and worth its own note, but it is a texture-filtering problem.
+- **The panoramic textured stimuli** are handled by the sharp-texel sampling above rather than by
+  a shape declaration, since their edges are inside the texture.
 - **`Forest`** builds one cylinder and `add()`s a translated copy per tree. Both of those drop the
   declaration, for the reasons above. Out of reach, exactly like the fly's wings.
 - **`Tower`** is the one genuine candidate: a single cylinder, whose 32-gon silhouette sits inside
