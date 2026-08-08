@@ -66,6 +66,7 @@ class BaseProgram:
         # as it did. The other two are never read while this is 0, but GL wants them initialised.
         self.prog['edge_kind'].value = 0
         self.prog['edge_frame'].write(_frame_bytes(np.eye(3)))
+        self.prog['edge_anchor'].value = (0.0, 0.0, 0.0)
         self.prog['edge_extent'].value = (0.0, 0.0)
 
     def configure(self, *args, **kwargs):
@@ -159,6 +160,7 @@ class BaseProgram:
         self.prog['edge_kind'].value = edge_kind
         if edge_kind:
             self.prog['edge_frame'].write(_frame_bytes(self.stim_object.edge_frame))
+            self.prog['edge_anchor'].value = tuple(float(v) for v in self.stim_object.edge_anchor)
             self.prog['edge_extent'].value = tuple(float(v) for v in self.stim_object.edge_extent)
 
         # Render to each subscreen
@@ -285,6 +287,9 @@ class BaseProgram:
             // about a frame, not about a point.
             uniform mat3 edge_frame;
             uniform vec2 edge_extent;
+            // Where the declaration is measured from. Carrying this rather than assuming the origin
+            // is what lets a shape be moved without invalidating what it declared.
+            uniform vec3 edge_anchor;
 
             out vec4 f_color;
 
@@ -315,17 +320,29 @@ class BaseProgram:
                 return texture(texture_matrix, (boundary - 0.5 + across) / size);
             }
 
-            // How far outside the shape this fragment is, in radians. Negative is inside. Every
-            // kind answers in the same currency, so the coverage arithmetic below is shared.
-            float edge_excess(vec3 dir) {
+            // How far outside the shape this fragment is. Negative is inside, zero on the
+            // boundary. Each kind picks its own units -- the coverage step below divides by
+            // fwidth of this same value, so the units cancel and only the shape matters.
+            float edge_excess() {
+                vec3 offset = v_world - edge_anchor;
+
+                // A metric kind asks how FAR away a fragment is; an angular one asks WHICH WAY it
+                // lies. That is the whole difference between them, and it is one branch.
+                if (edge_kind == 3) {
+                    // A flat disc's fragments all lie in the disc's plane, so this distance in
+                    // three dimensions is the radius in two.
+                    return length(offset) - edge_extent.x;
+                }
+
+                vec3 dir = normalize(offset);
                 float across = dot(dir, edge_frame[0]);
                 float up     = dot(dir, edge_frame[1]);
                 float ahead  = dot(dir, edge_frame[2]);
 
                 if (edge_kind == 1) {
-                    // Cone: the shape is a flat ellipse projected outward from the subject, so
-                    // divide out the forward component to get that flat card's own coordinates and
-                    // ask how far out on it this fragment lands. 1.0 is exactly on the boundary.
+                    // Cone: the shape is a flat ellipse projected outward, so divide out the
+                    // forward component to get that flat card's own coordinates and ask how far
+                    // out on it this fragment lands. 1.0 is exactly on the boundary.
                     //
                     // A disc is the equal-extent case, which is why there is no separate branch
                     // for it -- and why an ellipse with equal axes really is a disc.
@@ -335,10 +352,12 @@ class BaseProgram:
                     return sqrt(u*u + v*v) - 1.0;
                 }
 
-                // Rectangle: azimuth and elevation in the shape's own frame, whichever is worse.
-                float azimuth   = atan(across, ahead);
-                float elevation = asin(clamp(up, -1.0, 1.0));
-                return max(abs(azimuth) - edge_extent.x, abs(elevation) - edge_extent.y);
+                // Rectangle: the exact distance outside an axis-aligned box. Taking max() of the
+                // two axes instead would be the Chebyshev distance, which past a corner reports
+                // the longer leg where the truth is the hypotenuse -- under-reporting by up to
+                // sqrt(2), so corners would read as extended by 0.4 of a pixel.
+                vec2 d = abs(vec2(atan(across, ahead), asin(clamp(up, -1.0, 1.0)))) - edge_extent;
+                return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
             }
 
             // What fraction of this pixel the shape covers.
@@ -356,14 +375,7 @@ class BaseProgram:
             // stay linear or a constant-velocity edge stalls and hurries once per pixel.
             float edge_coverage() {
                 if (edge_kind == 0) return 1.0;
-                // Direction from the ORIGIN, not from the subject. A shape that declares an edge
-                // was built on a sphere centred at the origin -- translating one drops the
-                // declaration precisely because it would stop being true -- so the origin is where
-                // its frame and extents are anchored. Measuring from a subject who has walked away
-                // in VR would test the shape against a cone it was never built to fill, and clip
-                // into it: at 10 cm off-centre that cost a 15 degree spot 21% of its area.
-                vec3 dir = normalize(v_world);
-                float excess = edge_excess(dir);
+                float excess = edge_excess();
                 float pixel = fwidth(excess);
                 if (pixel <= 0.0) return excess <= 0.0 ? 1.0 : 0.0;
                 return clamp(0.5 - excess / pixel, 0.0, 1.0);

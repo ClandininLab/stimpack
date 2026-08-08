@@ -25,6 +25,11 @@ from . import util
 EDGE_NONE = 0
 EDGE_CONE = 1                # inside the cone of a flat ellipse of half-extents `extent`
 EDGE_ANGULAR_RECT = 2        # |azimuth| <= extent.x and |elevation| <= extent.y, in the shape's frame
+EDGE_WORLD_DISC = 3          # within extent.x metres of the anchor, for a flat disc
+
+# Kinds 1 and 2 are *angular*: they ask which direction a fragment lies in. Kind 3 is *metric*: it
+# asks how far away it is, in metres. Both measure from the shape's anchor, which is what lets one
+# shader serve them and what lets a transform move a shape without invalidating its declaration.
 
 # Both are statements about *direction*, so neither mentions the surface the triangles sit on. A
 # patch on a cylinder covers exactly the directions its spherical twin does -- only the distance
@@ -110,9 +115,11 @@ def _add_cone_patch(shape, extent_x, extent_y, surface_radius, color, location, 
         shape.add(GlTri(corners[wedge], corners[(wedge + 1) % n_steps], v_center,
                         color).translate(location))
 
-    # What the shader needs to rebuild the cone: the frame the patch was built in, and how far out
-    # on the flat card its ellipse reaches in each axis.
+    # What the shader needs to rebuild the cone: where it is measured from, the frame the patch was
+    # built in, and how far out on the flat card its ellipse reaches in each axis. The anchor is
+    # `location` and not the origin -- a patch put somewhere else subtends its angles from there.
     shape.edge_frame = CANONICAL_PATCH_FRAME
+    shape.edge_anchor = tuple(float(v) for v in location)
     shape.edge_extent = (float(extent_x), float(extent_y))
 
 
@@ -165,28 +172,54 @@ def _add_angular_rect_patch(shape, width, height, surface_radius, color, n_steps
     shape.edge_extent = (float(radians(width) / 2), float(radians(height) / 2))
 
 
-def _carry_edge(source, result, rotation=None):
+def _carry_edge(source, result, rotation=None, translation=None, scale=None):
     """Move a declared analytic edge onto a transformed copy.
 
-    Call this from a transform that leaves the shape *being that shape*: rotations, and the
-    appearance-only ones. Rotations preserve angles, so a patch of a given angular size is still
-    one of that size afterwards -- the whole frame turns with it. Translation and scaling are not,
-    since they move the shape off the sphere its angular size was measured on or stretch it out of
-    being that shape at all, so those simply do not call this and the result falls back to a
-    geometry-defined edge -- the path every unconverted shape already takes.
+    Because a declaration is anchored -- it says where it is measured from, not just what it
+    measures -- a rigid motion carries it exactly: move the anchor with the shape and every
+    direction and distance from it is unchanged. So rotation, translation and uniform scaling all
+    survive, as do the appearance-only transforms.
 
-    :param rotation: a callable turning a (3, N) array of directions, or None if the transform
-        does not move the shape at all
+    Only a *non-uniform* scale drops the declaration, and it has to: it turns a disc into an
+    ellipse and a spherical patch into something this file has no equation for. A wrong analytic
+    edge is worse than none, so that case falls back to the geometry-defined edge -- the path every
+    unconverted shape already takes.
+
+    :param rotation: a callable turning a (3, N) array, or None
+    :param translation: an (x, y, z) offset in metres, or None
+    :param scale: a single factor, or None. Callers must not pass a non-uniform one -- it turns a
+        disc into an ellipse and a cone into something with no name here, so those drop instead.
     """
     if source.edge_kind == EDGE_NONE:
         return result
-    result.EDGE_KIND = source.EDGE_KIND
-    frame = np.asarray(source.edge_frame)
+    frame = np.asarray(source.edge_frame, dtype=float)
+    anchor = np.asarray(source.edge_anchor, dtype=float)
+    extent = np.asarray(source.edge_extent, dtype=float)
+
     if rotation is not None:
         frame = np.asarray(rotation(frame.T)).T
+        anchor = np.asarray(rotation(anchor.reshape(3, 1))).reshape(3)
+    if scale is not None:
+        # Scaling is about the origin, and the anchor rides along, so every direction from the
+        # anchor is unchanged and an angular declaration survives untouched. A metric one does not:
+        # its extent is a length, and lengths scale.
+        anchor = anchor * scale
+        if source.EDGE_KIND == EDGE_WORLD_DISC:
+            extent = extent * scale
+    if translation is not None:
+        anchor = anchor + np.asarray(translation, dtype=float)
+
+    result.EDGE_KIND = source.EDGE_KIND
     result.edge_frame = tuple(tuple(axis) for axis in frame)
-    result.edge_extent = source.edge_extent
+    result.edge_anchor = tuple(float(v) for v in anchor)
+    result.edge_extent = tuple(float(v) for v in extent)
     return result
+
+
+def _uniform_scale(amt):
+    """The single factor `amt` scales by, or None if it scales the axes differently."""
+    values = np.unique(np.asarray(amt, dtype=float).reshape(-1))
+    return float(values[0]) if values.size == 1 else None
 
 
 def edge_coverage(distance, pixel):
@@ -255,6 +288,7 @@ class GlVertices:
     """
     EDGE_KIND = EDGE_NONE
     edge_frame = CANONICAL_PATCH_FRAME
+    edge_anchor = (0.0, 0.0, 0.0)
     edge_extent = (0.0, 0.0)
 
     @property
@@ -317,11 +351,18 @@ class GlVertices:
 
     def scale(self, amt):
         """Scale about the origin. Returns self, so calls chain."""
-        return GlVertices(vertices=util.scale(self.vertices, amt), colors=self.colors, tex_coords=self.tex_coords)
+        result = GlVertices(vertices=util.scale(self.vertices, amt), colors=self.colors,
+                            tex_coords=self.tex_coords)
+        uniform = _uniform_scale(amt)
+        # A non-uniform scale is the one transform that stops a shape being the shape it declared,
+        # so it alone drops the declaration.
+        return result if uniform is None else _carry_edge(self, result, scale=uniform)
 
     def translate(self, amt):
         """Translate by an (x, y, z) offset in metres. Returns self, so calls chain."""
-        return GlVertices(vertices=util.translate(self.vertices, amt), colors=self.colors, tex_coords=self.tex_coords)
+        return _carry_edge(self, GlVertices(vertices=util.translate(self.vertices, amt),
+                                            colors=self.colors, tex_coords=self.tex_coords),
+                          translation=amt)
 
     def set_color(self, color):
         """Set every vertex to one colour."""
@@ -385,27 +426,40 @@ class GlQuad(GlVertices):
 
 class GlCircle(GlVertices):
     """
-    A flat disc parallel to the xz plane, built as a fan of ``n_steps`` wedges.
+    A flat disc parallel to the xz plane, of a radius in metres.
 
-    Flat rather than spherical: its apparent size changes with the subject's distance from it.
-    For a patch that subtends a fixed angle, use :class:`GlSphericalCirc`.
+    Flat rather than spherical: it is an object at a place, so its apparent size changes with the
+    subject's distance from it. For a patch that subtends a fixed angle wherever it is put, use
+    :class:`GlSphericalCirc`.
+
+    Its edge is analytic and *metric* rather than angular -- every fragment of a flat disc lies in
+    the disc's plane, so the distance from the centre in three dimensions is the radius in two, and
+    ``length(v_world - anchor) - radius`` is the boundary exactly. That makes the triangles a bound
+    here too, so ``n_steps`` sets surplus area rather than roundness.
+
+    The bound needs no margin. Polygon and circle are both planar and a triangle edge is a straight
+    line in that plane, so a circumscribing polygon contains the circle exactly -- and perspective
+    scales both by the same factor, so it keeps containing it at every distance.
+
+    :param center: (x, y, z) of the disc's centre, metres
+    :param radius: metres
+    :param n_steps: sides of the bounding polygon. Not the accuracy of the disc.
     """
-    def __init__(self, color=(1, 1, 1, 1), center=(0, 0, 0), radius=1.0, n_steps=36):
-        # call the super constructor
-        super().__init__()
+    EDGE_KIND = EDGE_WORLD_DISC
 
+    def __init__(self, color=(1, 1, 1, 1), center=(0, 0, 0), radius=1.0, n_steps=8):
+        super().__init__()
         color = util.get_rgba(color)
 
-        angles = np.linspace(0, 2*np.pi, n_steps+1)
+        bound = radius / np.cos(np.pi / n_steps)     # edges tangent to the circle, not vertices on it
+        angles = np.linspace(0, 2*np.pi, n_steps, endpoint=False)
+        rim = [(bound*np.sin(a), 0.0, bound*np.cos(a)) for a in angles]
         for wedge in range(n_steps):
-            v1 = (radius*np.sin(angles[wedge]),
-                  0,
-                  radius*np.cos(angles[wedge]))
-            v2 = (radius*np.sin(angles[wedge+1]),
-                  0,
-                  radius*np.cos(angles[wedge+1]))
+            self.add(GlTri(rim[wedge], rim[(wedge + 1) % n_steps], (0, 0, 0), color).translate(center))
 
-            self.add(GlTri(v1, v2, (0,0,0), color).translate(center))
+        self.edge_anchor = tuple(float(v) for v in center)
+        self.edge_extent = (float(radius), 0.0)
+
 
 class GlCube(GlVertices):
     """

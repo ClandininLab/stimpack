@@ -135,10 +135,17 @@ self.edge_frame = CANONICAL_PATCH_FRAME          # azimuth, elevation, forward; 
 self.edge_extent = (radians(width) / 2, radians(height) / 2)
 ```
 
-Every shape here is built facing forward and rotated into place by its stimulus, so the frame has
-to turn with it. Rotations carry the declaration and rotate the frame; translation and scaling drop
-it, because they move the shape off the sphere its angular size was measured against, and a wrong
-analytic edge is worse than none.
+A declaration also says **where it is measured from**. That anchor is what lets a shape be moved
+without invalidating what it declared: move the anchor with the shape and every direction and
+distance from it is unchanged, so rotation, translation and uniform scaling all carry exactly.
+Only a *non-uniform* scale drops the declaration, and it has to -- it turns a disc into an ellipse
+and a spherical patch into something with no equation here, and a wrong analytic edge is worse than
+none.
+
+Without the anchor this was not merely a restriction but a latent bug:
+`GlSphericalCirc(circle_radius=15, sphere_location=(0.5, 0, 0))` put its geometry at the location
+and declared an angle measured from the origin, where the rim spans 13 to 39 degrees rather than a
+constant 15. Nothing passed a non-zero location, so it never fired.
 
 The bound is widened by `EDGE_BOUND_MARGIN` rather than being exact. A rectangle's constant-azimuth
 sides are great circles, which triangle edges follow *exactly* -- flush against the bound with
@@ -146,10 +153,30 @@ nothing to spare -- so rounding at a corner could nick a real sliver off the pat
 shader can only remove coverage, never add it. The disc needs no margin: its bound is an octagon
 circumscribing the circle, so only the eight tangent points come close.
 
-The two kinds share their arithmetic. Each answers one question -- how far outside the shape this
-fragment is -- and the coverage step is then the same three lines for both, which is what keeps
-this from becoming a shader per shape. The units are the kind's own choice, because `excess` is
-divided by `fwidth(excess)` and both scale together: the ratio is always "how many pixels outside".
+The kinds share their arithmetic. Each answers one question -- how far outside the shape this
+fragment is -- and the coverage step is then the same three lines for all of them, which is what
+keeps this from becoming a shader per shape. The units are the kind's own choice, because `excess`
+is divided by `fwidth(excess)` and both scale together: the ratio is always "how many pixels
+outside".
+
+There is one branch above that, and it is the only taxonomy the shader has:
+
+```glsl
+vec3 offset = v_world - edge_anchor;
+if (edge_kind == EDGE_WORLD_DISC) return length(offset) - edge_extent.x;   // metric: how FAR
+vec3 dir = normalize(offset);                                              // angular: which WAY
+```
+
+An **angular** kind asks which direction a fragment lies in and answers in angle; a **metric** kind
+asks how far away it is and answers in metres. `GlCircle` is the metric one: a flat disc's
+fragments all lie in the disc's plane, so the distance from its centre in three dimensions is the
+radius in two, and one line is its boundary exactly. Its bound needs no margin either -- polygon
+and circle are both planar, a triangle edge is a straight line in that plane, and perspective
+scales both by the same factor, so a circumscribing polygon contains the circle at every distance.
+
+The rectangle uses the exact distance outside a box rather than `max()` of the two axes. `max()` is
+the Chebyshev distance, which past a corner reports the longer leg where the truth is the
+hypotenuse -- under-reporting by up to sqrt(2), so corners read as extended by 0.4 of a pixel.
 
 ### Which ellipse
 

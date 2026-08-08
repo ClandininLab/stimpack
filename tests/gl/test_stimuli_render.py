@@ -383,9 +383,9 @@ def test_the_bounds_are_cheaper_than_the_polygons_they_replace():
 
 def test_a_shape_that_declares_no_edge_is_untouched():
     """The path is strictly additive: an unconverted shape keeps a geometry-defined edge."""
-    from stimpack.visual_stim.shapes import GlBox, GlCircle, GlCylinder
+    from stimpack.visual_stim.shapes import GlBox, GlCube, GlCylinder
 
-    for shape in (GlBox(), GlCylinder(), GlCircle()):
+    for shape in (GlBox(), GlCylinder(), GlCube()):
         assert shape.edge_kind == 0
 
 
@@ -433,18 +433,53 @@ def test_a_rotation_turns_the_edge_frame_with_the_shape():
     assert abs(azimuth).max() < 11.0, 'the frame did not follow the geometry'
 
 
-def test_recolouring_keeps_the_edge_but_moving_off_the_sphere_drops_it():
-    """The declaration is an angular statement about a sphere centred on the subject. Colour does
-    not touch that; translating or scaling invalidates it, and a wrong analytic edge is worse than
-    none, so those fall back to the geometry rather than carrying a stale frame.
+def test_a_rigid_motion_carries_the_declaration_and_a_squash_drops_it():
+    """A declaration says where it is measured from, not only what it measures. So moving a shape
+    moves its anchor, every direction and distance from that anchor is unchanged, and the
+    declaration is still exactly true -- for rotation, translation and uniform scaling alike.
+
+    A non-uniform scale is the one transform that has to drop it: it turns a disc into an ellipse
+    and a spherical patch into something this file has no equation for, and a wrong analytic edge
+    is worse than none.
     """
+    from stimpack.visual_stim.shapes import GlCircle, GlSphericalCirc
+
+    angular = GlSphericalCirc(circle_radius=10.0)
+    metric = GlCircle(radius=0.5, center=(0, 1, 0))
+
+    for shape in (angular, metric):
+        assert shape.translate((0.3, -0.2, 0.1)).edge_kind == shape.edge_kind
+        assert shape.rotz(np.radians(35.0)).edge_kind == shape.edge_kind
+        assert shape.scale(2.0).edge_kind == shape.edge_kind
+        assert shape.set_color([1, 0, 0, 1]).edge_kind == shape.edge_kind
+        assert shape.scale(np.array([0.25, 0.5, 0.5]).reshape(3, 1)).edge_kind == 0
+
+    # the anchor follows the shape...
+    assert np.allclose(metric.translate((0, -0.3, 0)).edge_anchor, (0, 0.7, 0))
+    assert np.allclose(metric.rotz(np.radians(90)).edge_anchor, (-1, 0, 0), atol=1e-12)
+    # ...and a metric extent is a length, so it scales with the shape; an angular one does not
+    assert metric.scale(2.0).edge_extent[0] == pytest.approx(1.0)
+    assert angular.scale(2.0).edge_extent == angular.edge_extent
+
+
+def test_a_moved_patch_still_subtends_what_it_declares():
+    """The property the anchor buys, and the bug its absence caused: a patch built somewhere other
+    than the origin used to declare an angle measured from the origin, which is not where it is."""
     from stimpack.visual_stim.shapes import GlSphericalCirc
 
-    disc = GlSphericalCirc(circle_radius=10.0)
+    shape = GlSphericalCirc(circle_radius=15.0, sphere_location=(0.5, 0.0, 0.0))
 
-    assert disc.set_color([1, 0, 0, 1]).edge_kind == disc.edge_kind
-    assert disc.translate((0, 1, 0)).edge_kind == 0
-    assert disc.scale(np.full((3, 1), 2.0)).edge_kind == 0
+    directions = shape.vertices.T - np.array(shape.edge_anchor)
+    directions /= np.linalg.norm(directions, axis=1, keepdims=True)
+    angles = np.degrees(np.arccos(np.clip(directions @ np.array(shape.edge_frame)[2], -1, 1)))
+    rim = angles[angles > 1.0]
+
+    # the bound is the circumscribing octagon of a 15 degree cone, measured from the anchor
+    assert np.allclose(rim, np.degrees(np.arctan(np.tan(np.radians(15.0)) / np.cos(np.pi / 8))))
+    # measured from the origin instead -- what it did before -- the rim is not even constant
+    from_origin = shape.vertices.T / np.linalg.norm(shape.vertices.T, axis=1, keepdims=True)
+    spread = np.degrees(np.arccos(np.clip(from_origin @ np.array(shape.edge_frame)[2], -1, 1)))
+    assert spread.max() - spread.min() > 10.0, 'this test no longer demonstrates anything'
 
 
 def _subtended_half_angle(row, screen_half_size=0.15, distance=0.15):
@@ -559,36 +594,40 @@ def test_a_declared_edge_does_not_move_when_the_subject_does(headless_gl, offset
     assert 3600 < area < 3760, f'subject at x={offset} m renders {area:.0f} px of light'
 
 
-def test_the_looming_polygon_does_not_bias_the_area_it_reports():
-    """`LoomingCircle` has no analytic edge -- its disc is flat and world-space, so the polygon
-    really is the shape. That makes `n_steps` matter in a way it no longer does anywhere else.
-
-    An inscribed n-gon holds ``(n/2pi)*sin(2pi/n)`` of its circle's area, so at the old 36 steps
-    every frame of every approach under-reported the disc by 0.51%. Not noise -- a constant bias,
-    in one direction, on the quantity a looming experiment reads. The shape is built once in
-    configure and only translated afterwards, so sides cost nothing per frame.
-
-    Measured on the geometry rather than on a render: a rendered disc's pixel count carries its own
-    discretisation error of several percent at these sizes, which would swamp what is being tested.
+def test_the_flat_disc_bound_circumscribes_and_needs_no_margin():
+    """`GlCircle`'s edge is metric, not angular -- a radius in metres about an anchor. Its bound is
+    exact with no fudge factor: polygon and circle are both planar and a triangle edge is a
+    straight line in that plane, so a circumscribing polygon contains the circle, and perspective
+    scales both by the same factor so it keeps containing it at every distance.
     """
     from stimpack.visual_stim.shapes import GlCircle
 
     radius = 0.5
-    for n_steps, tolerance in [(36, 0.006), (128, 0.0005)]:
-        vertices = GlCircle(radius=radius, n_steps=n_steps).vertices.T.reshape(-1, 3, 3)
-        # the fan's wedges lie in the xz plane; sum their areas by the cross product
-        a, b, c = vertices[:, 0], vertices[:, 1], vertices[:, 2]
-        area = 0.5 * np.abs(np.cross(b - a, c - a)).sum()
-        deficit = 1 - area / (np.pi * radius**2)
+    for n_steps in (8, 12, 36):
+        shape = GlCircle(radius=radius, n_steps=n_steps)
+        rim = np.linalg.norm(shape.vertices.T, axis=1)
+        rim = rim[rim > radius / 2]                       # everything but the fan's hub
 
-        expected = 1 - (n_steps / (2*np.pi)) * np.sin(2*np.pi / n_steps)
-        assert abs(deficit - expected) < 1e-9, f'{n_steps}: {deficit:.6f} != {expected:.6f}'
-        assert deficit < tolerance, f'n_steps={n_steps} loses {deficit*100:.3f}% of the area'
+        assert np.allclose(rim, radius / np.cos(np.pi / n_steps)), (
+            'bound is not tangent to the circle')
+        assert rim.min() >= radius, 'an inscribed bound would clip the exact disc back to a polygon'
 
-    # and the default the stimulus now asks for is on the good side of that
-    import inspect
-    from stimpack.visual_stim import stimuli
-    assert inspect.signature(stimuli.LoomingCircle.configure).parameters['n_steps'].default >= 128
+
+def test_a_rendered_flat_disc_subtends_its_angle_and_has_a_soft_edge(headless_gl):
+    """End to end for the metric kind: a disc of a radius in metres, at a distance in metres,
+    subtending the angle that geometry implies -- with a coverage ramp, which the polygon it
+    replaces could not have."""
+    radius, distance = 0.05, 0.5
+    frame = _render(headless_gl, 'LoomingCircle',
+                    dict(radius=radius, color=(1, 1, 1, 1), starting_distance=distance, speed=0))
+    grey = frame[..., 0].astype(float)
+
+    partial = ((grey > 5) & (grey < 250)).sum()
+    assert partial > 0, 'edge is hard: the metric kind is not reaching the shader'
+    assert partial < (grey > 250).sum(), 'edge implausibly soft'
+
+    want = math.degrees(math.atan(radius / distance))
+    assert abs(_subtended_half_angle(grey[grey.shape[0] // 2]) - want) < 0.05
 
 
 def test_sharp_texel_sampling_lands_on_texel_centres_and_ramps_only_at_boundaries():
