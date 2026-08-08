@@ -282,11 +282,14 @@ class StimDisplay(QOpenGLWidget):
         """Say what the GL surface actually granted, next to what make_qt_format asked for.
 
         A driver silently downgrades a surface format it cannot provide, so a request is not a
-        setting. Measured here, setSamples(24) yields samples=0 on Mesa/Intel and on an RTX A4500 --
-        QOpenGLWidget renders into an FBO, where the surface sample count does not apply -- and
-        setAlphaBufferSize(24) yields 8 on Mesa but 0 under NVIDIA/XWayland, despite the comment
-        saying alpha is "needed to enable transparency". Print both so the difference is visible
-        rather than assumed.
+        setting. setAlphaBufferSize(24) yields 8 on Mesa but 0 under NVIDIA/XWayland, despite the
+        comment saying alpha is "needed to enable transparency". Print requested and granted side by
+        side so the difference is visible rather than assumed.
+
+        make_qt_format used to ask for 24 samples here too and was granted 0 on every GPU measured,
+        because QOpenGLWidget renders into its own FBO where the surface sample count does not
+        apply. That request has been removed rather than left as a claim the code cannot deliver;
+        samples is still reported, so a driver that grants some anyway would show up.
         """
         try:
             granted = self.context().format()
@@ -1020,8 +1023,11 @@ def make_qt_format(vsync):
     else:
         format.setSwapInterval(0)
 
-    # TODO: determine what these lines do and whether they are necessary
-    format.setSamples(24)
+    # No multisampling is requested here, and asking for it would not get it: QOpenGLWidget renders
+    # into its own FBO, where the surface sample count does not apply. This asked for 24 samples for
+    # years and was granted 0 on every GPU measured -- see report_surface_format, which prints what
+    # was actually granted at start-up. Multisampling that works has to be an explicit multisampled
+    # framebuffer resolved with copy_framebuffer; docs/design/analytic-edges.md has the costs.
     format.setDepthBufferSize(24)
 
     # needed to enable transparency
