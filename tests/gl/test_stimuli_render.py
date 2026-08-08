@@ -506,6 +506,53 @@ def test_a_cylindrical_patch_declares_what_its_spherical_twin_does():
         assert not np.allclose(cylindrical.vertices, spherical.vertices)
 
 
+@pytest.mark.parametrize('offset', [0.0, 0.02, 0.05, 0.10])
+def test_a_declared_edge_does_not_move_when_the_subject_does(headless_gl, offset):
+    """A VR-only defect that every golden here is blind to, because they all sit at the origin.
+
+    A shape that declares an edge is built on a sphere centred at the origin -- translating one
+    drops the declaration precisely because it would stop being true -- so the origin is where its
+    frame and extents are anchored. Measuring the fragment's direction from a subject who has
+    walked away instead would test the shape against a cone it was never built to fill, and clip
+    into it: at 10 cm off-centre a 15 degree spot lost 21% of its area.
+    """
+    import moderngl
+
+    screen = _make_screen()
+    width = height = 256
+    headless_gl.enable(moderngl.BLEND)
+    headless_gl.enable(moderngl.DEPTH_TEST)
+    headless_gl.extra = {}
+    fbo = headless_gl.framebuffer(
+        color_attachments=[headless_gl.renderbuffer((width, height))],
+        depth_attachment=headless_gl.depth_renderbuffer((width, height)))
+
+    subject = dict(SUBJECT_AT_ORIGIN, x=offset)
+    viewports = [s.get_viewport(width, height) for s in screen.subscreens]
+    perspectives = [_perspective(subject, s.pa, s.pb, s.pc, screen.horizontal_flip)
+                    for s in screen.subscreens]
+
+    from stimpack.util import get_all_subclasses
+    from stimpack.visual_stim import stimuli
+    stim = [c for c in get_all_subclasses(stimuli.BaseProgram)
+            if c.__name__ == 'MovingSpot'][0](screen=screen)
+    stim.initialize(headless_gl)
+    stim.configure(radius=15, sphere_radius=1, color=[1, 1, 1, 1], theta=0, phi=0)
+    fbo.use()
+    fbo.clear(0, 0, 0, 1)
+    stim.paint_at(0, viewports, perspectives, subject_position=subject)
+    headless_gl.finish()
+
+    grey = np.flipud(np.frombuffer(fbo.read(components=3, alignment=1),
+                                   dtype=np.uint8).reshape(height, width, 3))[..., 0].astype(float)
+    # total light, which counts the partial edge pixels for the fraction they actually are
+    area = grey.sum() / 255.0
+
+    # the disc sits on a 1 m sphere, so 10 cm of subject travel barely changes its projected area;
+    # the geometry alone gave 3672 -> 3664 px across this range
+    assert 3600 < area < 3760, f'subject at x={offset} m renders {area:.0f} px of light'
+
+
 def test_sharp_texel_sampling_lands_on_texel_centres_and_ramps_only_at_boundaries():
     """The rule, stated without a GL context: NEAREST's result everywhere but the boundary.
 
