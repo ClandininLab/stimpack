@@ -324,32 +324,46 @@ origin. Off-axis the two diverge (0.115 degrees at 2 cm, 0.586 at 10 cm), and no
 would enforce or report the precondition. A wrong analytic edge is worse than none, which is why
 `translate` and `scale` drop their declarations in the first place.
 
-## Measured and rejected: reusing one bound across sizes
+## Measured: reusing one bound across sizes
 
 Because the geometry now only *bounds*, a shape whose size changes need not be rebuilt at all --
-build one bound at the largest size and change `edge_extent` per frame. Verified: a single 40 degree
-bound renders 5, 10, 20 and 40 degree discs correctly, agreeing with purpose-built ones to 0.5% of
-area. This was impossible when the triangles *were* the shape.
+keep a bound and change `edge_extent` per frame. Verified: a single 40 degree bound renders 5, 10,
+20 and 40 degree discs correctly, agreeing with purpose-built ones to 0.5% of area. This was
+impossible when the triangles *were* the shape.
 
-**It is not worth doing.** A 1 s loom, 10 to 40 degrees, 360 frames at 1920x1080:
+Which stimuli this touches is narrower than it sounds. `LoomingCircle` is not one of them: it draws
+a flat disc built once in `configure` and only translated afterwards, so it never rebuilds and its
+size changes because it *approaches*. The case is `MovingSpot` and friends given a size trajectory,
+which rebuild every frame because their radius changes.
 
-| policy | RTX A4500 | llvmpipe |
-|---|---|---|
-| rebuild every frame (what the code does) | 0.0753 ms/frame | **0.2763** |
-| one bound at 40 degrees | 0.0193 | 0.4419 |
-| bound at 1.5x, rebuilt on hysteresis | **0.0172** | 0.3426 |
+Three policies, 360 frames at 1920x1080, draw time isolated from readback:
 
-The same 92x-overdraw case costs +0.012 ms on the A4500 and +0.428 ms on llvmpipe -- 35x apart, and
-it crosses the 0.064 ms rebuild cost in opposite directions. So no fixed policy is right for both,
-the maximum-sized bound is never a safe default, and the best available saving is 0.058 ms against
-a 2.78 ms budget: 2%, on the machine that already has headroom. On the machine that does not, the
-current code is already the best of the three.
+| trajectory | renderer | rebuild every frame | one bound at the maximum | bound 1.5x, hysteresis |
+|---|---|---|---|---|
+| Loom, 5-40 deg | RTX A4500 | 0.0740 ms | 0.0191 | **0.0114** |
+| Loom, 5-40 deg | llvmpipe | 0.1686 | 0.4432 | **0.1340** |
+| linear, 10-40 deg | RTX A4500 | 0.0764 | 0.0194 | **0.0146** |
+| linear, 10-40 deg | llvmpipe | **0.2233** | 0.4455 | 0.2417 |
 
-If the optimisation is ever wanted, **hysteresis is the wrong form of it.** Most trials hold a
-patch's size fixed and only move it, and there the bound never needs resizing: build once, rotate
-per frame. That is 6x cheaper in Python *and* has no overdraw penalty on any renderer, because the
-bound stays exactly the right size. Hysteresis is only needed for the resizing case, which is
-precisely where the renderer coin-flip lives.
+**Hysteresis is the right policy for a resizing shape**, and on a real loom it wins on both
+renderers -- 6.5x on the A4500, 1.26x on llvmpipe -- rebuilding 6 times instead of 360. A loom's
+angular size grows slowly and then explosively, so it spends most of its frames small and a
+1.5x-of-current bound is small with it. A linear ramp spends far longer large, which is where an
+oversized bound starts costing fill, and there it is a wash on the fill-limited renderer.
+
+**A bound sized for the maximum is never a safe default.** 92x overdraw on the first frame of that
+loom: +0.012 ms on the A4500, +0.428 ms on llvmpipe. Thirty-five times apart, crossing the 0.064 ms
+rebuild cost in opposite directions.
+
+**For a shape that moves but keeps its size there is no bound question at all.** Build once, rotate
+per frame -- `_carry_edge` already carries the declaration through a rotation. That is 6x cheaper
+in Python than rebuilding *and* has no overdraw, since the bound stays exactly right. The two are
+complementary, keyed on whether the size changes, not alternatives.
+
+**Whether to build either is still a judgement call on magnitude.** The saving is 0.063 ms/frame on
+the A4500 and 0.035 on llvmpipe -- about 2% of the 2.78 ms budget at 360 Hz -- against caching state
+added to `eval_at` for six stimuli. Worth having if a protocol ever runs many analytic stimuli at
+once, or if the per-frame budget gets tight. Not urgent.
 
 ## What to check before starting
 
