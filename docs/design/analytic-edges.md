@@ -288,7 +288,42 @@ covered-fraction rule as the shape edges, reached through the filter rather than
 See `shapes.sharp_texel_coord` for the rule and `sample_texture` in the fragment shader.
 
 Clamping the ramp to one texel makes it degrade to ordinary bilinear filtering under minification,
-where there is no single boundary to antialias and mipmaps would be the answer instead.
+where there is no single boundary to antialias and mipmaps are the answer instead.
+
+### But a texture can be jagged before it is ever sampled
+
+None of the above reaches a boundary that was quantised when the texture was *written*. An angled
+`CylindricalGrating` thresholded a sampled sine, which puts every bar edge on a texel boundary, so
+a diagonal came out as a staircase. Measured at bowl scale, one bar edge's deviation from a
+straight line:
+
+| `n_steps` | texels/period | edge RMS | worst |
+|---|---|---|---|
+| 512 (the old default) | 43 | 2.512 px | 5.68 px |
+| 2048 | 171 | 0.553 px | 1.33 px |
+| 2048, storing coverage | 171 | **0.142 px** | 0.62 px |
+
+Three things, and together they cost *less* than what they replace:
+
+- **The tile was built by a nested Python loop**, one scalar `np.sin` per texel, which is what made
+  resolution expensive: 17.3 ms at 2048. Vectorised it is 0.21 ms.
+- **The square profile stores coverage rather than a threshold.** The phase field is linear, so the
+  covered fraction of a texel is the same `clamp(0.5 - d/w, 0, 1)` rule the fragment shader uses --
+  matching 16x16 supersampling to a mean of 0.004 for 1/200th of its cost.
+- **Texels are sampled at their centres.** A texel's value is displayed across the whole texel, so
+  it has to describe the texel. Sampling at the leading edge shifted every grating by half a texel,
+  which was 0.35 degrees of phase at the old resolution.
+
+Storing coverage changes which filter is right, and the drifting-edge test caught it: a
+pre-antialiased texture must be sampled `LINEAR`, not snapped to texel centres. Snapping quantises
+the edge position back onto the texel grid -- the staircase again, one texel wide. `NEAREST` stays
+right where a texel *is* the datum, a checker square or a noise cell, with no sub-texel structure
+to recover.
+
+And a texture generated finer than the display needs **mipmaps**. At 2048 texels a drifting square
+grating froze for 12 frames of 29 when rendered at 0.35 degrees per pixel, because one sample per
+pixel of a finer texture is aliasing; with mipmaps, none. They are built for the smooth path only --
+on the sharp-texel path a mipmap would blur exactly what those textures encode.
 
 Cost: 0.028 to 0.029 ms per frame on a full-field checkerboard at 1280x800 -- about a microsecond,
 against a 2.78 ms budget at 360 Hz.

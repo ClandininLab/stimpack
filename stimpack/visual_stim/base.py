@@ -207,8 +207,23 @@ class BaseProgram:
         # them by moving the sample point onto the texel centre everywhere except within one pixel
         # of a boundary -- which keeps the hard edge and antialiases it, where the NEAREST filter
         # keeps the hard edge and aliases it. See sample_texture in the fragment shader.
-        self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
-        self.prog['sharp_texels'].value = (texture_interpolation == 'NEAREST')
+        self.sharp_texels = (texture_interpolation == 'NEAREST')
+        self.prog['sharp_texels'].value = self.sharp_texels
+
+        if self.sharp_texels:
+            self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
+        else:
+            # A smooth texture can end up finer than a screen pixel -- a ground plane running to the
+            # horizon always does, and a grating does whenever it is generated at more texels than
+            # the projector has pixels. One sample per pixel of a texture that fine is aliasing, and
+            # no amount of filtering at the base level fixes it. Mipmaps do, and they cost a third
+            # again of the texture's memory. Measured on a drifting square grating at 2048 texels:
+            # 12 of 29 frames had a frozen edge without them and none with.
+            #
+            # Not for the sharp-texel path: those textures are magnified, their texels ARE the datum
+            # -- a checker square, a noise cell -- and a mipmap would blur exactly what they encode.
+            self.texture.build_mipmaps()
+            self.texture.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
 
         # Every stimulus samples from unit 0; paint_at binds this texture there before drawing.
         # This uniform belongs to this stimulus's own program, so it never needs to change again.
@@ -227,6 +242,8 @@ class BaseProgram:
         # costs 1.6 ms and dominates anyway.
         data = texture_image if texture_image.flags['C_CONTIGUOUS'] else texture_image.tobytes()
         self.texture.write(data=data)
+        if not getattr(self, 'sharp_texels', True):
+            self.texture.build_mipmaps()      # else the smaller levels still hold the old frame
 
     def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
         """

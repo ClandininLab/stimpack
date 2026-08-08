@@ -719,6 +719,38 @@ class TexturedCylinder(BaseProgram):
         # overwrite in subclass
         pass
 
+def _texel_centres(extent, n):
+    """The `n` texel centres spanning `extent`.
+
+    A texel's stored value is displayed across the whole texel, so it has to describe the texel --
+    which means sampling at its centre. Sampling at its leading edge instead, as this did, shifts
+    the whole pattern by half a texel: 0.35 degrees of a 30 degree grating at the old resolution.
+    """
+    return (np.arange(n) + 0.5) * (extent / n)
+
+
+def _square_wave_coverage(phase, phase_per_texel):
+    """A square wave stored as the fraction of each texel the bar covers, not a threshold at a point.
+
+    Thresholding a sampled sine puts every bar edge on a texel boundary, so a bar edge that should
+    run diagonally comes out as a staircase, and no amount of filtering downstream recovers the
+    line -- the jaggedness is in the data. Storing coverage puts the edge where it belongs, to a
+    fraction of a texel.
+
+    The phase field is linear, so this is the same rule the fragment shader uses for shape edges:
+    the covered fraction is the distance to the boundary over the width of one texel, clamped. See
+    shapes.edge_coverage. Matches 16x16 supersampling to a mean of 0.004 for 1/200th of the cost.
+    """
+    if phase_per_texel <= 0:
+        return np.where(np.sin(phase) >= 0, 1.0, -1.0)
+    within = np.mod(phase, 2*np.pi)
+    # signed distance to the nearest bar edge, positive inside the bright half of the cycle
+    distance = np.where(within < np.pi,
+                        np.minimum(within, np.pi - within),
+                        -np.minimum(within - np.pi, 2*np.pi - within))
+    return 2*np.clip(0.5 + distance/phase_per_texel, 0.0, 1.0) - 1.0
+
+
 class CylindricalGrating(TexturedCylinder):
     """
     A grating wrapped around the subject, square or sinusoidal.
@@ -730,7 +762,7 @@ class CylindricalGrating(TexturedCylinder):
 
     def configure(self, period=20, mean=0.5, contrast=1.0, offset=0.0, grating_angle=0.0, profile='sine',
                   color=[1, 1, 1, 1], cylinder_radius=1, cylinder_location=(0,0,0), cylinder_height=10, theta=0, phi=0, angle=0.0,
-                  n_steps_x=512, n_steps_y=512):
+                  n_steps_x=2048, n_steps_y=2048):
         """
         Grating texture painted on a cylinder.
 
@@ -739,8 +771,13 @@ class CylindricalGrating(TexturedCylinder):
         :param contrast: Weber contrast of grating texture
         :param offset: phase offset of grating texture, degrees
         :param profile: 'sine' or 'square'; spatial profile of grating texture
-        :param n_steps_x: number of steps in x direction to draw the texture (approximate; lowerbound)
-        :param n_steps_y: number of steps in y direction to draw the texture (approximate; lowerbound)
+        :param n_steps_x: texels across the whole cylinder in x (approximate; a lower bound, since the
+            texture is one tile repeated a whole number of times). This is the resolution the bar
+            edges are stored at, and for an angled grating it is what makes them straight: at the
+            old 512 an edge wandered 2.5 pixels RMS from a straight line on a bowl rig, at 2048 it
+            is 0.55. Larger is not automatically better -- past about 4096 a texel is finer than a
+            projector pixel, and a minified texture aliases where a magnified one does not.
+        :param n_steps_y: texels in y, as above
 
         :params color, cylinder_radius, cylinder_height, theta, phi, angle: see parent class
 
@@ -778,14 +815,15 @@ class CylindricalGrating(TexturedCylinder):
             n_patches_x = cylinder_x_angular_extent_rad / period_x_rad
             n_patches_y = 1 # placeholder
             n_steps_x_per_patch = int(np.ceil(n_steps_x / n_patches_x))
-            xx_patch = np.linspace(0, patch_x_angular_extent_rad, n_steps_x_per_patch, endpoint=False)
+            xx_patch = _texel_centres(patch_x_angular_extent_rad, n_steps_x_per_patch)
 
-            img = np.sin(np.radians(offset) + xx_patch)
+            phase = np.radians(offset) + xx_patch
+            phase_per_texel = patch_x_angular_extent_rad / n_steps_x_per_patch
 
             if np.isclose(np.mod(self.grating_angle, 360), 180.0): # If grating angle is 180, flip the image
-                img = np.flip(img, axis=0)
-            
-            img = np.expand_dims(img, axis=0)  # pass as x by 1, gets stretched out by shader
+                phase = np.flip(phase, axis=0)
+
+            phase = np.expand_dims(phase, axis=0)  # pass as x by 1, gets stretched out by shader
         
         # If the grating is orthogonal to the cylinder axis:
         #    Define the 1-cycle texture in the y direction, then repeat it along y direction and stretch it out in the x direction
@@ -797,14 +835,15 @@ class CylindricalGrating(TexturedCylinder):
             n_patches_x = 1 # placeholder
             n_patches_y = cylinder_y_angulear_extent_rad / period_y_rad
             n_steps_y_per_patch = int(np.ceil(n_steps_y / n_patches_y))
-            yy_patch = np.linspace(0, patch_y_angular_extent_rad, n_steps_y_per_patch, endpoint=False)
-            
-            img = np.sin(np.radians(offset) + yy_patch)
+            yy_patch = _texel_centres(patch_y_angular_extent_rad, n_steps_y_per_patch)
+
+            phase = np.radians(offset) + yy_patch
+            phase_per_texel = patch_y_angular_extent_rad / n_steps_y_per_patch
 
             if np.isclose(np.mod(self.grating_angle, 360), 270.0): # If grating angle is 270, flip the image
-                img = np.flip(img, axis=0)
-            
-            img = np.expand_dims(img, axis=1)  # pass as 1 by y, gets stretched out by shader
+                phase = np.flip(phase, axis=0)
+
+            phase = np.expand_dims(phase, axis=1)  # pass as 1 by y, gets stretched out by shader
         
         # If the grating is at an angle to the cylinder axis:
         #    Each cycle of the grating is sheared by the grating angle, 
@@ -832,23 +871,28 @@ class CylindricalGrating(TexturedCylinder):
             n_steps_x_per_patch = int(np.ceil(n_steps_x / n_patches_x))
             n_steps_y_per_patch = int(np.ceil(n_steps_y / n_patches_y))
 
-            xx_patch = np.linspace(0, patch_x_angular_extent_rad, n_steps_x_per_patch, endpoint=False)
-            yy_patch = np.linspace(0, patch_y_angular_extent_rad, n_steps_y_per_patch, endpoint=False)
-                
-            img = np.zeros((n_steps_y_per_patch, n_steps_x_per_patch))
-            for i in range(n_steps_x_per_patch):
-                for j in range(n_steps_y_per_patch):
-                    x_rot = xx_patch[i] + yy_patch[j]*tangent_angle
-                    img[j,i] = np.sin(np.radians(offset) + x_rot)
+            xx_patch = _texel_centres(patch_x_angular_extent_rad, n_steps_x_per_patch)
+            yy_patch = _texel_centres(patch_y_angular_extent_rad, n_steps_y_per_patch)
+
+            phase = np.radians(offset) + xx_patch[None, :] + yy_patch[:, None]*tangent_angle
+            # both axes shear the phase here, so a texel spans the sum of what each contributes
+            phase_per_texel = (patch_x_angular_extent_rad / n_steps_x_per_patch
+                               + abs(tangent_angle) * patch_y_angular_extent_rad / n_steps_y_per_patch)
 
         if self.profile == 'square':
-            img[img >= 0] = 1
-            img[img < 0] = -1
+            img = _square_wave_coverage(phase, phase_per_texel)
+        else:
+            img = np.sin(phase)
         img = (255*(mean + contrast*mean*img)).astype(np.uint8)
 
-        texture_interpolation = 'LINEAR' if self.profile == 'sine' else 'NEAREST'
-
-        self.add_texture_gl(img, texture_interpolation=texture_interpolation)
+        # LINEAR for both profiles, and for the square one that is not a regression. NEAREST is
+        # right when a texel IS the datum -- a checker square, a noise cell -- because there is no
+        # sub-texel structure to recover and the shader reconstructs the hard edge and antialiases
+        # it. Here the texture stores *coverage*, so the edge position is already encoded in the
+        # grey values between texels, and interpolating recovers it continuously. Snapping to texel
+        # centres instead would quantise that edge back onto the texel grid, which is the staircase
+        # this was meant to remove.
+        self.add_texture_gl(img, texture_interpolation='LINEAR')
 
         self.stim_object = shapes.GlCylinder(cylinder_height=self.cylinder_height,
                                             cylinder_radius=self.cylinder_radius,
@@ -877,7 +921,7 @@ class RotatingGrating(CylindricalGrating):
 
     def configure(self, rate=10, hold_duration = 0, period=20, mean=0.5, contrast=1.0, offset=0.0, grating_angle=0.0, profile='sine',
                   color=[1, 1, 1, 1], cylinder_radius=1, cylinder_location=(0,0,0), cylinder_height=10, theta=0, phi=0, angle=0.0,
-                  n_steps_x=512, n_steps_y=512):
+                  n_steps_x=2048, n_steps_y=2048):
         """
         Subclass of CylindricalGrating that rotates the grating along the varying axis of the grating.
 
