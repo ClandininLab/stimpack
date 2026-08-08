@@ -17,6 +17,7 @@ pytest.importorskip("OpenGL")
 
 import numpy as np  # noqa: E402
 
+from stimpack.visual_stim import stimuli  # noqa: E402
 from stimpack.visual_stim.cubemap import CubeMapRenderer  # noqa: E402
 from stimpack.visual_stim.curved_screen import CurvedScreen, ScreenMesh  # noqa: E402
 from stimpack.visual_stim.framework import StimDisplay  # noqa: E402
@@ -43,11 +44,22 @@ def forward_mesh(half_width=1.0):
 
 
 class WholeFaceStim:
-    """Paints the face it is given a flat colour, without needing a real stimulus's geometry."""
+    """Paints the face it is given a flat colour, without needing a real stimulus's geometry.
+
+    Carries eval_at because every real stimulus does: the render loop evaluates each stimulus once
+    for the frame and then draws it per face, so a stand-in without one is not standing in for
+    anything that exists.
+    """
 
     COLOR = (0.0, 1.0, 0.0, 1.0)
 
-    def paint_at(self, t, viewports, perspectives, subject_position=None):
+    def __init__(self):
+        self.eval_times = []
+
+    def eval_at(self, t, subject_position=None):
+        self.eval_times.append(t)
+
+    def paint_at(self, t, viewports, perspectives, subject_position=None, evaluate=True):
         # The cube face framebuffer is bound; clearing it is enough to stand for drawing into it.
         import moderngl
         ctx = moderngl.get_context()
@@ -194,3 +206,120 @@ def test_standby_on_a_planar_screen_still_fills_the_viewport(headless_gl):
     image = run_subframe(ctx, renderer=None, screen=screen)
     assert image[..., :3].mean() == pytest.approx(128, abs=4), \
         f'planar standby mean {image[..., :3].mean():.0f}, expected the idle grey everywhere'
+
+
+# --- eval_at runs once per frame, not once per face ----------------------------------------------
+#
+# The two render paths call paint_at differently. The planar one hands over every subscreen at once,
+# so BaseProgram.paint_at evaluates the stimulus once and then draws it per viewport. The cube path
+# has to bind a different framebuffer per face, so it called paint_at once per face -- and each of
+# those calls evaluated the stimulus again, at the same t.
+#
+# A stateless stimulus survives that; a stateful one does not. It cost a rig an
+# `IndexError: list index out of range` from a dot field that pops one refresh time per evaluation
+# and got five per frame. Whether a given stimulus survives is luck: LoomingCircle happens to, since
+# it integrates (t - t_prev) and the repeat calls see zero elapsed, while a stimulus comparing
+# `t % p <= t_prev % p` fires again on every repeat because the comparison is not strict.
+#
+# So the contract is: exactly one eval_at per stimulus per displayed frame, whatever the face count.
+
+def wide_mesh():
+    """A screen spanning azimuth -80..+80 at the horizon, so it needs +X, +Y and -X."""
+    azimuth = np.radians(np.linspace(-80, 80, 9))
+    directions = np.stack([np.sin(azimuth), np.cos(azimuth), np.zeros_like(azimuth)], axis=-1)
+    top = directions + np.array([0.0, 0.0, 0.3])
+    directions = np.concatenate([directions, top / np.linalg.norm(top, axis=1, keepdims=True)])
+
+    u = np.linspace(-1, 1, 9)
+    ndc = np.concatenate([np.stack([u, np.full_like(u, -1.0)], axis=-1),
+                          np.stack([u, np.full_like(u, +1.0)], axis=-1)])
+    lower = np.arange(8)
+    triangles = np.concatenate([
+        np.stack([lower, lower + 1, lower + 9], axis=-1),
+        np.stack([lower + 1, lower + 10, lower + 9], axis=-1),
+    ]).astype(np.int32)
+    return ScreenMesh(ndc=ndc.astype(np.float32), directions=directions.astype(np.float32),
+                      triangles=triangles, positions=(directions * 0.3).astype(np.float32))
+
+
+class CountingSpot(stimuli.MovingSpot):
+    """A real stimulus that records how often it is evaluated."""
+
+    def __init__(self, screen):
+        super().__init__(screen=screen)
+        self.eval_times = []
+
+    def eval_at(self, t, subject_position={'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}):
+        self.eval_times.append(t)
+        super().eval_at(t, subject_position=subject_position)
+
+
+def drive_one_frame(ctx, mesh, stim_list, t=0.25):
+    renderer = CubeMapRenderer(ctx, mesh, resolution=CUBE)
+    window_tex = ctx.texture((SIZE, SIZE), 4)
+    depth = ctx.depth_renderbuffer((SIZE, SIZE))
+    window = ctx.framebuffer(color_attachments=[window_tex], depth_attachment=depth)
+    try:
+        window.use()
+        window.clear(0.0, 0.0, 0.0, 1.0)
+        display = display_for(ctx, renderer, stim_list, stim_started=True)
+        display.paint_through_cube_map(t, SIZE, SIZE)
+        ctx.finish()
+        return len(renderer.face_indices)
+    finally:
+        renderer.release(); window.release(); window_tex.release(); depth.release()
+
+
+def test_a_stimulus_is_evaluated_once_per_frame_not_once_per_face(headless_gl):
+    ctx = headless_gl
+    mesh = wide_mesh()
+
+    stim = CountingSpot(screen=Screen(fullscreen=False, vsync=False))
+    stim.initialize(ctx)
+    stim.configure(radius=8, sphere_radius=1, color=[1, 1, 1, 1], theta=0, phi=0)
+
+    faces = drive_one_frame(ctx, mesh, [stim])
+
+    assert faces > 1, 'this mesh must need several faces or the test proves nothing'
+    assert stim.eval_times == [0.25], \
+        f'evaluated {len(stim.eval_times)} times across {faces} faces, expected once'
+
+
+def test_every_stimulus_in_the_list_is_evaluated_once(headless_gl):
+    ctx = headless_gl
+    mesh = wide_mesh()
+
+    stims = []
+    for theta in (-20, 0, 20):
+        stim = CountingSpot(screen=Screen(fullscreen=False, vsync=False))
+        stim.initialize(ctx)
+        stim.configure(radius=6, sphere_radius=1, color=[1, 1, 1, 1], theta=theta, phi=0)
+        stims.append(stim)
+
+    faces = drive_one_frame(ctx, mesh, stims)
+
+    assert [len(s.eval_times) for s in stims] == [1, 1, 1], \
+        f'across {faces} faces, eval counts were {[len(s.eval_times) for s in stims]}'
+
+
+def test_nothing_is_evaluated_before_the_stimulus_starts(headless_gl):
+    """Pre-time draws no stimuli, so it must not advance one either."""
+    ctx = headless_gl
+    mesh = wide_mesh()
+
+    stim = CountingSpot(screen=Screen(fullscreen=False, vsync=False))
+    stim.initialize(ctx)
+    stim.configure(radius=8, sphere_radius=1, color=[1, 1, 1, 1], theta=0, phi=0)
+
+    renderer = CubeMapRenderer(ctx, mesh, resolution=CUBE)
+    window_tex = ctx.texture((SIZE, SIZE), 4)
+    window = ctx.framebuffer(color_attachments=[window_tex])
+    try:
+        window.use()
+        display = display_for(ctx, renderer, [stim], stim_started=False)
+        display.paint_through_cube_map(0.25, SIZE, SIZE)
+        ctx.finish()
+    finally:
+        renderer.release(); window.release(); window_tex.release()
+
+    assert stim.eval_times == []

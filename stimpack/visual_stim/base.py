@@ -87,14 +87,29 @@ class BaseProgram:
         """Release GL resources. Called when the stimulus is unloaded."""
         pass
 
-    def paint_at(self, t, viewports, perspectives, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0}):
+    def paint_at(self, t, viewports, perspectives, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0},
+                 evaluate=True):
         """
         :param t: current time in seconds
         :param viewports: list of viewport arrays for each subscreen - (xmin, ymin, width, height) in display device pixels
         :param perspectives: list of perspective matrices for each subscreen, generated using perspective.GenPerspective and subscreen corners
         :param subject_position: x, y, z position of subject (meters)
+        :param evaluate: whether to call :meth:`eval_at` first. Pass ``False`` when the caller has
+            already evaluated this stimulus for this frame and is drawing it again -- which is what
+            the cube-map path does, since it has to bind a different framebuffer per face and so
+            cannot hand over every "viewport" in one call the way the planar path does.
+
+            **A stimulus is entitled to be evaluated exactly once per displayed frame.** Several are
+            stateful -- they integrate since the last call, or pop from a schedule -- and evaluating
+            one twice at the same t advances it twice. Whether that shows depends on the stimulus:
+            one integrating ``t - t_prev`` sees zero elapsed and is unharmed, while one testing
+            ``t % period <= t_prev % period`` fires again, because after the first call those are
+            equal and the comparison is not strict. A labpack dot field popping one refresh time per
+            evaluation ran out of them five times faster than it should and raised IndexError
+            mid-trial.
         """
-        self.eval_at(t, subject_position=subject_position) # update any stim objects that depend on subject position
+        if evaluate:
+            self.eval_at(t, subject_position=subject_position) # update any stim objects that depend on subject position
 
         # get data from stim object
         vert_coords = self.stim_object.vertices  # x, y, z
