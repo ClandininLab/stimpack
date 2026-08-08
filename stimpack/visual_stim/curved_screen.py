@@ -21,7 +21,6 @@ because each facet gets its own planar frustum. Here it only sets how well the m
 surface's shape, because direction is interpolated across each triangle and sampled per fragment. So
 a modest tessellation goes a long way -- flystim1.0 used 10x10 over a whole hemisphere.
 """
-import warnings
 
 import numpy as np
 
@@ -827,36 +826,54 @@ class CurvedScreen(Screen):
         self.measured_falloff = measured_falloff
         self.cube_orientation = cube_orientation
 
-    def resolve_cube_orientation(self):
+    def resolve_cube_orientation(self, mesh=None):
         """The 3x3 rotation this screen wants for its cube, or None to leave it axis-aligned.
 
-        'auto' is resolved here rather than at construction because it depends on the surface, and a
-        surface that is not a cap has no single axis to align to -- in which case there is nothing to
-        choose and None is the honest answer.
+        Resolved from the mesh's own directions rather than from the surface's parameters, which is
+        what lets it work for any shape. An earlier version asked a SphericalSurface for its pole and
+        warned that it could not help a cylinder -- but a cylinder sector is just as lopsided on the
+        sphere as a cap is, and the directions say so without needing to know which class produced
+        them. A surface that genuinely fills the sphere has no lopsidedness to exploit, and falls out
+        of the same arithmetic as "no rotation" rather than as a special case.
+
+        Self-checking: the candidate is kept only if it actually reduces the face count on this
+        mesh. The closed form is about a cap, and a real screen need not be one.
         """
-        from stimpack.visual_stim.cubemap import orientation_for_cap
+        from stimpack.visual_stim.cubemap import faces_for_directions, orientation_for_cap
 
         if self.cube_orientation is None:
             return None
-        if isinstance(self.cube_orientation, str):
-            surface = self.surface
-            if not isinstance(surface, SphericalSurface):
-                warnings.warn(f'cube_orientation={self.cube_orientation!r} needs a spherical cap to '
-                              f'aim at; {type(surface).__name__} has no single axis, so the cube is '
-                              f'left axis-aligned.')
-                return None
-            low, high = sorted(surface.elevation_range)
-            half_angle = np.radians(90.0 - low)          # a cap reaching to `low` about its pole
-            if high < 90.0 - 1e-9:
-                warnings.warn('cube_orientation="auto" assumes the surface is a cap about its pole '
-                              f'(elevation_range ending at 90); got {surface.elevation_range}. The '
-                              'cube is aimed at the pole anyway, which may not be the best choice.')
-            return orientation_for_cap(surface.pole, half_angle, prefer=self.cube_orientation)
-        orientation = np.asarray(self.cube_orientation, dtype=float)
-        if orientation.shape != (3, 3):
-            raise ValueError(f'cube_orientation must be None, a string, or a 3x3 rotation; got '
-                             f'shape {orientation.shape}')
-        return orientation
+        if not isinstance(self.cube_orientation, str):
+            orientation = np.asarray(self.cube_orientation, dtype=float)
+            if orientation.shape != (3, 3):
+                raise ValueError(f'cube_orientation must be None, a string, or a 3x3 rotation; got '
+                                 f'shape {orientation.shape}')
+            return orientation
+
+        if mesh is None:
+            mesh = self.build_mesh()
+        directions = np.asarray(mesh.directions, dtype=float)
+        if len(directions) == 0:
+            return None
+
+        # The tightest cap containing every direction: its axis is where they cluster, and its
+        # half-angle is how far the furthest one strays. A screen spread evenly over the sphere
+        # gives a centroid near zero, and there is nothing to aim at.
+        centroid = directions.mean(axis=0)
+        length = np.linalg.norm(centroid)
+        if length < 1e-6:
+            return None
+        axis = centroid / length
+        half_angle = float(np.arccos(np.clip(directions @ axis, -1.0, 1.0)).max())
+
+        candidate = orientation_for_cap(axis, half_angle, prefer=self.cube_orientation)
+        if candidate is None:
+            return None
+
+        triangles = getattr(mesh, 'triangles', None)
+        before = len(faces_for_directions(directions, triangles))
+        after = len(faces_for_directions(directions @ candidate.T, triangles))
+        return candidate if after < before else None
 
     def build_mesh(self, subject_position=(0, 0, 0)):
         """The screen mesh. subject_position is where the subject physically sits, not where it is

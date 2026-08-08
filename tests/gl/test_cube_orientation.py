@@ -10,6 +10,8 @@ senses, and composing with the subject's heading in the right order. Get any of 
 picture is still a picture -- plausible, and rotated. `CUBE_FACES` carries the same warning about its
 own up-vectors, for the same reason.
 """
+import warnings
+
 import numpy as np
 import pytest
 
@@ -228,13 +230,50 @@ def test_a_non_rotation_is_refused(headless_gl):
         CubeMapRenderer(headless_gl, mesh, resolution=64, orientation=np.eye(4))
 
 
-def test_auto_on_a_surface_with_no_axis_says_so_and_carries_on():
-    """A cylinder has no single axis to aim at. Warning and no rotation, rather than a wrong one."""
+def cylinder_screen(**kwargs):
     from stimpack.visual_stim.curved_screen import CylindricalSurface
+    return CurvedScreen(
+        surface=CylindricalSurface(radius=0.15, azimuth_range=(-60, 60),
+                                   height_range=(-0.06, 0.06)),
+        projector=PinholeProjector(position=(0, 0.6, 0.0), look_at=(0, 0, 0), up=(0, 0, 1),
+                                   throw_ratio=0.8), **kwargs)
 
-    screen = CurvedScreen(surface=CylindricalSurface(), cube_orientation='auto')
-    with pytest.warns(UserWarning, match='no single axis'):
-        assert screen.resolve_cube_orientation() is None
+
+def test_auto_works_on_a_cylinder_without_complaining():
+    """'auto' reads the mesh's directions, not the surface's parameters, so a shape that is not a
+    cap is not a special case. It used to warn that a cylinder had no axis to aim at -- noise on
+    every launch, for rigs that had asked for nothing unreasonable."""
+    screen = cylinder_screen(cube_orientation='auto')
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')                  # any warning at all fails this
+        mesh = screen.build_mesh()
+        orientation = screen.resolve_cube_orientation(mesh)
+
+    faces = faces_for_directions(
+        mesh.directions if orientation is None else mesh.directions @ orientation.T, mesh.triangles)
+    assert len(faces) <= len(faces_for_directions(mesh.directions, mesh.triangles))
+
+
+def test_a_rotation_is_kept_only_when_it_actually_helps():
+    """The closed form is about a cap; a real screen need not be one. So the candidate is measured
+    against this mesh and discarded if it saves nothing, rather than trusted."""
+    screen = cylinder_screen(cube_orientation='auto')
+    mesh = screen.build_mesh()
+    before = len(faces_for_directions(mesh.directions, mesh.triangles))
+    orientation = screen.resolve_cube_orientation(mesh)
+    if orientation is not None:
+        assert len(faces_for_directions(mesh.directions @ orientation.T, mesh.triangles)) < before
+
+
+def test_a_screen_covering_the_whole_sphere_has_nothing_to_aim_at():
+    """The centroid of an even spread is the origin, which is not a direction. No rotation, no
+    warning, and no normalising of a zero vector."""
+    class WholeSphere:
+        directions = np.array([[1., 0, 0], [-1, 0, 0], [0, 1., 0],
+                               [0, -1, 0], [0, 0, 1.], [0, 0, -1]])
+        triangles = np.array([[0, 2, 4], [1, 3, 5]])
+
+    assert CurvedScreen(cube_orientation='auto').resolve_cube_orientation(WholeSphere()) is None
 
 
 def test_the_default_leaves_the_cube_where_it_was():

@@ -403,7 +403,7 @@ class StimDisplay(QOpenGLWidget):
             mesh = self.screen.build_mesh()
             self.cube_renderer = CubeMapRenderer(self.ctx, mesh,
                                                  resolution=self.screen.cube_resolution,
-                                                 orientation=self.screen.resolve_cube_orientation())
+                                                 orientation=self.screen.resolve_cube_orientation(mesh))
             coverage = mesh.coverage()
             print(f'Curved screen: {mesh.n_triangles} triangles, '
                   f'{coverage["fraction"]:.0%} of the surface lit by the projector')
