@@ -761,3 +761,124 @@ def test_the_stimpack_prefix_is_not_mistaken_for_a_labpack_package(tmp_path, iso
     install_package(here, 'riglib')
 
     assert check_with_path_entry(here, here, 'riglib') == []
+
+
+# --- tier 6: does a call fit the function it is addressed to? ------------------------------------
+#
+# Tier 5 asks whether a call is addressed somewhere that exists. These cover the next question, and
+# both real bugs that motivated it: one keyword renamed under a caller, and one dict passed where a
+# list of them was wanted. The second is the reason this tier looks at argument *values* -- every
+# name is correct in that case, and the failure is a TypeError deep inside the device module.
+
+import inspect as _inspect  # noqa: E402
+
+
+class FakeDaq:
+    def set_value(self, output_channels=['FIO6'], value=[1]):
+        pass
+
+    def setup_pulse_wave_stream_out(self, channels_config=[], frequency_hz=1):
+        pass
+
+    def output_step(self, output_channels=['DAC0'], step_hi=[0.5]):
+        pass
+
+
+class PassthroughDaq:
+    """The client-side proxy shape: forwards anything to the server, so it can vouch for nothing."""
+
+    def set_value(self, multicall=None, **kwargs):
+        pass
+
+    def setup_pulse_wave_stream_out(self, multicall=None, **kwargs):
+        pass
+
+
+def complain(recorded, classes=(FakeDaq,)):
+    findings = []
+    check_labpack._check_module_call_signatures(
+        recorded, list(classes),
+        lambda level, code, message: findings.append((level, code, message)))
+    return findings
+
+
+def test_a_renamed_keyword_is_caught():
+    """yw_protocol called set_value(output_channel=...); the method takes output_channels."""
+    found = complain([('voltage_out', 'set_value', 0, {'output_channel': 'FIO6', 'value': 1})])
+    assert [c for _, c, _ in found] == ['module-call-signature']
+    assert 'output_channel' in found[0][2] and 'output_channels' in found[0][2]
+
+
+def test_a_single_dict_where_a_list_is_wanted_is_caught():
+    """The opto pulse-train bug. Every keyword is correct, so a name-only check sees nothing."""
+    found = complain([('voltage_out', 'setup_pulse_wave_stream_out', 0,
+                       {'channels_config': {'name': 'DAC0', 'high': 3.3}, 'frequency_hz': 20})])
+    assert [c for _, c, _ in found] == ['module-call-signature']
+    assert 'single dict' in found[0][2]
+
+
+def test_a_passthrough_class_cannot_vouch_for_a_bad_call():
+    """A **kwargs method accepts every keyword. Counting that as acceptance made the whole tier
+    pass unconditionally -- the real bug was put back and nothing was reported."""
+    found = complain([('voltage_out', 'setup_pulse_wave_stream_out', 0,
+                       {'channels_config': {'name': 'DAC0'}})],
+                     classes=(PassthroughDaq, FakeDaq))
+    assert [c for _, c, _ in found] == ['module-call-signature']
+
+
+def test_nothing_is_concluded_when_every_candidate_is_a_passthrough():
+    found = complain([('voltage_out', 'set_value', 0, {'anything': 1})],
+                     classes=(PassthroughDaq,))
+    assert found == []
+
+
+def test_a_call_no_class_defines_is_caught():
+    found = complain([('voltage_out', 'no_such_function', 0, {})])
+    assert [c for _, c, _ in found] == ['module-call-not-defined']
+
+
+def test_a_correct_call_is_not_reported():
+    found = complain([
+        ('voltage_out', 'set_value', 0, {'output_channels': 'FIO6', 'value': 1}),
+        ('voltage_out', 'setup_pulse_wave_stream_out', 0,
+         {'channels_config': [{'name': 'DAC0'}], 'frequency_hz': 20}),
+    ])
+    assert found == []
+
+
+def test_a_scalar_where_the_default_is_a_list_is_allowed():
+    """set_value wraps a bare string itself, and most of the labpack relies on that. Flagging it
+    would bury the real findings in noise."""
+    assert complain([('voltage_out', 'set_value', 0, {'output_channels': 'FIO6', 'value': 1})]) == []
+
+
+def test_a_call_valid_for_any_candidate_class_is_not_reported():
+    """Which class a rig instantiates is decided in its server script, not its config, so being
+    sure a call is wrong requires that none of the candidates accept it."""
+
+    class OtherDaq:
+        def output_step(self, output_channel='ctr1', low_time=0.001):
+            pass
+
+    found = complain([('voltage_out', 'output_step', 0, {'output_channels': 'DAC0'})],
+                     classes=(OtherDaq, FakeDaq))
+    assert found == []
+
+
+def test_other_targets_are_left_alone():
+    """Only voltage_out is resolvable from a config; visual forwards to screen subprocesses and
+    locomotion is chosen in the server script."""
+    assert complain([('visual', 'no_such_function', 0, {})]) == []
+    assert complain([(None, 'no_such_function', 0, {})]) == []
+
+
+def test_the_recorder_keeps_arguments_as_well_as_targets():
+    recorder = check_labpack.RecordingManager()
+    recorder.target('voltage_out').set_value(output_channels='FIO6', value=1)
+    recorder.write_request_list([{'name': 'output_step', 'target': 'voltage_out',
+                                  'kwargs': {'step_hi': 2}}])
+
+    assert ('voltage_out', 'set_value') in recorder.calls
+    assert ('voltage_out', 'set_value', 0, {'output_channels': 'FIO6', 'value': 1}) \
+        in recorder.detailed
+    assert ('voltage_out', 'output_step', 0, {'step_hi': 2}) in recorder.detailed

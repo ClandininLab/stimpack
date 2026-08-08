@@ -21,6 +21,14 @@ do:
   tier 3  each protocol module imports, and each protocol constructs and produces an epoch
   tier 4  every stimulus name an epoch asks for resolves, as load_stim would resolve it
   tier 5  every call a protocol makes is addressed somewhere that exists
+  tier 6  and fits the function it is addressed to
+
+Tier 6 is tier 5's other half, and the more expensive one to skip. A protocol and the device module
+it drives are edited by different people at different times, so a call can stay correctly addressed
+while no longer matching its function. The RPC accepts it, sends it, and the exception happens
+inside the server -- where, before server-to-client error reporting existed, it died with nothing
+shown to the operator. One opto call passing a single dict where a list of them was wanted meant
+pulse trains did not run for eleven months, on every rig, with no symptom.
 
 Tiers 4 and 5 run the protocol rather than reading it. Stimulus names and call sites are often
 computed (`'Grating' if rotating else 'RotatingGrating'`), spread across load_stimuli, start_stimuli
@@ -408,9 +416,19 @@ class RecordingManager:
     def __init__(self, available_modules=None):
         # Real attributes, so __getattr__ cannot turn them into recorded calls.
         self.calls = []
+        # The same calls with their arguments, for tier 6. Kept separate so `calls` stays the pairs
+        # tier 5 de-duplicates on -- two calls to one function with different arguments are one
+        # routing question and two signature questions.
+        self.detailed = []
         self.connection_broken = False
         self.available_modules = available_modules
         self.functions = {}
+
+    def _record(self, target, name, args, kwargs):
+        self.calls.append((target, name))
+        # The values as well as the names: a call can name every argument correctly and still not
+        # work, which is how the opto pulse-train bug got through -- see _signature_complaint.
+        self.detailed.append((target, name, len(args), dict(kwargs)))
 
     def write_request_list(self, request_list):
         """MyMultiCall flushes a whole batch through here.
@@ -421,7 +439,8 @@ class RecordingManager:
         """
         for request in request_list:
             if isinstance(request, dict) and 'name' in request:
-                self.calls.append((request.get('target'), request['name']))
+                self._record(request.get('target'), request['name'],
+                             request.get('args') or [], request.get('kwargs') or {})
 
     def register_function(self, function, name=None):
         self.functions[name or function.__name__] = function
@@ -439,7 +458,7 @@ class RecordingManager:
             def __getattr__(self, name):
                 if name.startswith('_'):
                     raise AttributeError(name)
-                return lambda *args, **kwargs: recorder.calls.append((target_name, name))
+                return lambda *args, **kwargs: recorder._record(target_name, name, args, kwargs)
 
         return _Target()
 
@@ -447,7 +466,7 @@ class RecordingManager:
         # Anything else is an untargeted call, which the server routes to 'root'.
         if name.startswith('_'):
             raise AttributeError(name)
-        return lambda *args, **kwargs: self.calls.append((None, name))
+        return lambda *args, **kwargs: self._record(None, name, args, kwargs)
 
 
 def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
@@ -494,6 +513,7 @@ def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
 
     check_cfg = _cfg_for_checking(cfg, labpack_dir)
     stimulus_names, stim_findings = _available_stimulus_names(cfg, labpack_dir, cfg_name)
+    daq_classes = _daq_classes(cfg, labpack_dir)
     findings.extend(stim_findings)
 
     skipped = []
@@ -502,7 +522,7 @@ def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
         for protocol_class in sorted(protocols, key=lambda p: p.__name__):
             protocol_findings, why_skipped = _check_one_protocol(
                 protocol_class, rig_cfg, cfg_name, label, max_epochs,
-                KNOWN_TARGETS, ROOT_FUNCTION_NAMES, stimulus_names)
+                KNOWN_TARGETS, ROOT_FUNCTION_NAMES, stimulus_names, daq_classes)
             findings.extend(protocol_findings)
             if why_skipped is not None:
                 skipped.append(why_skipped)
@@ -524,7 +544,7 @@ def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
 
 
 def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
-                        known_targets, root_function_names, stimulus_names):
+                        known_targets, root_function_names, stimulus_names, daq_classes=()):
     name = protocol_class.__name__
     findings = []
 
@@ -636,10 +656,154 @@ def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
                 f"(known: {', '.join(sorted(known_targets))}). Fine if your rig server adds it; "
                 f"otherwise the call goes nowhere")
 
+    # --- tier 6: and would those calls fit the functions they are addressed to? ------------------
+    _check_module_call_signatures(recorder.detailed, daq_classes, add)
+
     return findings, skipped
 
 
 # --- internals for the deep tiers ----------------------------------------------------------------
+
+#: Module targets whose implementing classes a labpack declares, and the module_paths key that
+#: names the file they live in. Only voltage_out for now: 'visual' forwards to screen subprocesses
+#: and 'locomotion' is chosen in the rig's server script, so neither can be resolved from a config.
+CHECKABLE_MODULE_TARGETS = {'voltage_out': 'daq', 'daq': 'daq'}
+
+
+def _daq_classes(cfg, labpack_dir):
+    """Classes from the labpack's daq module that can answer a question about a call.
+
+    A class taking ``**kwargs`` cannot: it accepts anything, so it would vouch for every call. The
+    client-side ``DAQonServer`` proxy is exactly that -- it forwards whatever it is given to the
+    server -- and including it would make this whole tier pass unconditionally.
+    """
+    if 'daq' not in (cfg.get('module_paths') or {}):
+        return []
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            modules = config_tools.load_user_module(cfg, 'daq', allow_multiple=True)
+    except Exception:
+        # A daq module that will not import is tier 2's problem, not this one.
+        return []
+
+    classes = []
+    for module in modules:
+        for obj in vars(module).values():
+            if isinstance(obj, type) and getattr(obj, '__module__', None) == module.__name__:
+                classes.append(obj)
+    return classes
+
+
+def _takes_var_keyword(method):
+    """Does this method take **kwargs, and so accept any keyword at all?"""
+    try:
+        params = inspect.signature(method).parameters.values()
+    except (TypeError, ValueError):
+        return True                       # unintrospectable: treat as telling us nothing
+    return any(p.kind is p.VAR_KEYWORD for p in params)
+
+
+def _signature_complaint(method, n_positional, keywords):
+    """Why this call cannot work against `method`, or None if it can.
+
+    Callers must exclude methods taking **kwargs first -- see _takes_var_keyword. Those accept
+    every keyword, so passing one here yields None, which reads as "this call is fine" rather than
+    "this method cannot say".
+
+    :param keywords: the call's keyword arguments, values included
+    """
+    signature = inspect.signature(method)
+    params = [p for name, p in signature.parameters.items() if name != 'self']
+    by_name = {p.name: p for p in params}
+    unknown = [k for k in keywords if k not in by_name]
+    if unknown:
+        return f"unexpected keyword(s) {unknown}; it accepts {sorted(by_name)}"
+
+    positional = [p for p in params if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    if not any(p.kind is p.VAR_POSITIONAL for p in params) and n_positional > len(positional):
+        return f"{n_positional} positional arguments; it takes at most {len(positional)}"
+
+    supplied = set(keywords) | {p.name for p in positional[:n_positional]}
+    missing = [p.name for p in params
+               if p.default is p.empty and p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
+               and p.name not in supplied]
+    if missing:
+        return f"nothing supplied for required argument(s) {missing}"
+
+    # One dict where a sequence of them is wanted. Every name is right in that case, so nothing
+    # above sees it, and the failure is a TypeError raised deep inside the device module: iterating
+    # a dict yields its keys, so the callee subscripts a string. This is the shape the opto
+    # pulse-train bug had, and the reason this function takes values and not just names.
+    #
+    # Only dict-against-sequence, deliberately. A scalar where the default is a list is a normal
+    # convenience -- set_value(output_channels='FIO6') wraps it -- and flagging that would make the
+    # whole tier noise.
+    for name, value in keywords.items():
+        default = by_name[name].default
+        if isinstance(value, dict) and isinstance(default, (list, tuple)):
+            return (f"{name}= is a single dict, but its default {default!r} says a sequence of "
+                    f"them is wanted. Wrap it: {name}=[{{...}}]")
+    return None
+
+
+def _check_module_call_signatures(recorded, daq_classes, add):
+    """Tier 6: would each module call actually fit the function it is addressed to?
+
+    Tier 5 asks whether a call is addressed somewhere that exists. This asks the next question,
+    which is where the real bugs turned out to be: a protocol and the device module it drives are
+    edited by different people at different times, and a call that no longer fits its function is
+    accepted by the RPC, sent, and raises inside the server -- where, before server-to-client error
+    reporting, it died silently. Opto pulse trains were dead for eleven months that way, because
+    one call passed a single dict where a list of them was wanted.
+
+    A call is reported only if it fits *no* class that could serve the module. Which class a rig
+    actually instantiates is decided in its server script, not its config, so several are usually
+    candidates and being sure requires that none of them work.
+    """
+    if not daq_classes:
+        return
+
+    # De-duplicated by hand: the recorded arguments include values, which need not be hashable.
+    seen = set()
+    for target, name, n_positional, keywords in recorded:
+        if target not in CHECKABLE_MODULE_TARGETS:
+            continue
+        signature_key = (target, name, n_positional, tuple(sorted(keywords)),
+                         tuple(sorted(type(v).__name__ for v in keywords.values())))
+        if signature_key in seen:
+            continue
+        seen.add(signature_key)
+
+        defining = [klass for klass in daq_classes if callable(getattr(klass, name, None))]
+        # A method taking **kwargs cannot answer the question -- it accepts anything. The
+        # client-side DAQonServer proxy is precisely that, forwarding whatever it is given to the
+        # server, so counting it as an acceptance would make this tier pass unconditionally. It
+        # did, until a test put the real bug back and nothing was reported.
+        implementors = [(klass, getattr(klass, name)) for klass in defining
+                        if not _takes_var_keyword(getattr(klass, name))]
+        if defining and not implementors:
+            continue                      # every candidate is a passthrough; nothing to conclude
+        if not implementors:
+            add('error', 'module-call-not-defined',
+                f"target('{target}').{name}(...) names a function no class in this labpack's daq "
+                f"module defines ({', '.join(sorted(k.__name__ for k in daq_classes))}), so the "
+                f"request is accepted, sent, and dropped")
+            continue
+
+        complaints = {}
+        for klass, method in implementors:
+            complaint = _signature_complaint(method, n_positional, keywords)
+            if complaint is None:
+                break                     # some class accepts it; the rig may well use that one
+            complaints[klass.__name__] = complaint
+        else:
+            detail = '; '.join(f'{klass}: {why}' for klass, why in complaints.items())
+            add('error', 'module-call-signature',
+                f"target('{target}').{name}(...) cannot work against any daq class in this "
+                f"labpack -- {detail}. The request is accepted and sent, and raises inside the "
+                f"server when it arrives")
+
 
 def _available_stimulus_names(cfg, labpack_dir, cfg_name):
     """The stimulus class names a server running this config would resolve, and any load failures.
