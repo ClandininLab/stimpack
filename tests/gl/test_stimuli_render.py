@@ -59,6 +59,15 @@ CASES = [
          kwargs=dict(width=45, height=22, sphere_radius=1, color=[1, 1, 1, 1],
                      theta=0, phi=0, angle=0), tol=3.0),
 
+    # The same two patches on a cylinder wall rather than a sphere. Identical directions, different
+    # surface — these hold the two apart, so a change to one cannot silently pass on the other.
+    dict(id="moving_patch_on_cylinder", name="MovingPatchOnCylinder",
+         kwargs=dict(width=25, height=25, cylinder_radius=1, color=[1, 1, 1, 1],
+                     theta=0, phi=0, angle=0), tol=3.0),
+    dict(id="moving_ellipse_on_cylinder", name="MovingEllipseOnCylinder",
+         kwargs=dict(width=45, height=22, cylinder_radius=1, color=[1, 1, 1, 1],
+                     theta=0, phi=0, angle=0), tol=3.0),
+
     # Grating variants: a sine profile (grayscale gradient, vs the square case above) and an angled
     # grating (exercises the tilted-texture generation path).
     dict(id="cylindrical_grating_sine", name="CylindricalGrating",
@@ -464,6 +473,55 @@ def test_a_rendered_cone_patch_subtends_exactly_the_angle_it_was_asked_for(
 
     assert abs(_subtended_half_angle(frame[frame.shape[0] // 2]) - want_width) < 0.05
     assert abs(_subtended_half_angle(frame[:, frame.shape[1] // 2]) - want_height) < 0.05
+
+
+def test_a_cylindrical_patch_declares_what_its_spherical_twin_does():
+    """Why the cylindrical shapes needed no new shader code.
+
+    ``cylindrical_w_phi_to_cartesian`` and ``spherical_to_cartesian`` put a given (theta, phi) in
+    the *same direction* -- they differ only in how far along that ray the vertex sits. An edge
+    declaration is a statement about direction, so it cannot tell the two surfaces apart, and one
+    kind describes both.
+    """
+    from stimpack.visual_stim.shapes import (CANONICAL_PATCH_FRAME, GlCylindricalWithPhiEllipse,
+                                             GlCylindricalWithPhiRect, GlSphericalEllipse,
+                                             GlSphericalRect)
+
+    frame = np.array(CANONICAL_PATCH_FRAME)
+
+    def directions(shape):
+        d = shape.vertices.T / np.linalg.norm(shape.vertices.T, axis=1, keepdims=True)
+        return np.column_stack([np.arctan2(d @ frame[0], d @ frame[2]),
+                                np.arcsin(np.clip(d @ frame[1], -1, 1))])
+
+    for spherical, cylindrical in [(GlSphericalEllipse(width=45, height=22),
+                                    GlCylindricalWithPhiEllipse(width=45, height=22)),
+                                   (GlSphericalRect(width=20, height=30),
+                                    GlCylindricalWithPhiRect(width=20, height=30))]:
+        assert cylindrical.edge_kind == spherical.edge_kind
+        assert np.allclose(cylindrical.edge_extent, spherical.edge_extent)
+        assert np.allclose(directions(cylindrical), directions(spherical), atol=1e-12), (
+            'the bound covers different directions on the two surfaces')
+        # ...and the vertices really are on different surfaces, so this is not a trivial pass
+        assert not np.allclose(cylindrical.vertices, spherical.vertices)
+
+
+@pytest.mark.parametrize('name,kwargs', [
+    ('MovingPatchOnCylinder', dict(width=25, height=25, cylinder_radius=1, color=[1, 1, 1, 1],
+                                   theta=0, phi=0, angle=0)),
+    ('MovingEllipseOnCylinder', dict(width=45, height=22, cylinder_radius=1, color=[1, 1, 1, 1],
+                                     theta=0, phi=0, angle=0)),
+])
+def test_a_rendered_cylindrical_patch_has_a_soft_edge(headless_gl, name, kwargs):
+    """The end-to-end claim, on the cylinder: the boundary spans partially-lit pixels."""
+    grey = _render(headless_gl, name, kwargs)[..., 0].astype(int)
+
+    lit = (grey > 250).sum()
+    partial = grey.size - lit - (grey < 5).sum()
+
+    assert lit > 0, 'the patch did not render'
+    assert partial > 0, 'edge is hard: no partially-lit pixels'
+    assert partial < lit, f'edge implausibly soft: {partial} partial vs {lit} fully-lit pixels'
 
 
 def test_a_rendered_rect_has_soft_edges_on_both_axes(headless_gl):

@@ -23,8 +23,12 @@ from . import util
 # clips them back to it. NONE is every shape that has not opted in: the geometry defines the edge,
 # exactly as it always has.
 EDGE_NONE = 0
-EDGE_CONE = 1                # the sphere cut by the cone of a flat ellipse of half-extents `extent`
-EDGE_SPHERICAL_RECT = 2      # |azimuth| <= extent.x and |elevation| <= extent.y, in the shape's frame
+EDGE_CONE = 1                # inside the cone of a flat ellipse of half-extents `extent`
+EDGE_ANGULAR_RECT = 2        # |azimuth| <= extent.x and |elevation| <= extent.y, in the shape's frame
+
+# Both are statements about *direction*, so neither mentions the surface the triangles sit on. A
+# patch on a cylinder covers exactly the directions its spherical twin does -- only the distance
+# along each ray differs -- so the same two kinds serve both, and the shader needs nothing new.
 
 
 #: How far past its true bound a spherical rectangle draws, as a fraction. Only has to swallow
@@ -68,14 +72,19 @@ def cone_bound_directions(extent_x, extent_y, n_steps, frame=CANONICAL_PATCH_FRA
     return directions / np.linalg.norm(directions, axis=1, keepdims=True)
 
 
-def _add_cone_patch(shape, extent_x, extent_y, sphere_radius, color, location, n_steps):
+def _add_cone_patch(shape, extent_x, extent_y, surface_radius, color, location, n_steps,
+                    to_cartesian=util.spherical_to_cartesian):
     """Fill `shape` with a bounding fan for a cone patch, and declare its analytic edge.
 
-    Shared by :class:`GlSphericalCirc` and :class:`GlSphericalEllipse`, because a disc *is* the
-    equal-extent case of an ellipse -- the same cone with different numbers, which is why one
-    shader branch serves both.
+    Shared by every disc and ellipse here, on either surface. A disc *is* the equal-extent case of
+    an ellipse -- the same cone with different numbers -- and a cylindrical patch is the same cone
+    again, its vertices merely pushed further along the same rays. One builder, one shader branch.
+
+    :param to_cartesian: where a (radius, theta, phi) lands -- the sphere or the cylinder wall.
+        Both put a given (theta, phi) in the same *direction*, which is the only thing the edge
+        declaration is about.
     """
-    v_center = util.spherical_to_cartesian(sphere_radius, np.pi/2, np.pi/2)
+    v_center = to_cartesian(surface_radius, np.pi/2, np.pi/2)
 
     if not (0 < max(extent_x, extent_y) < np.pi/2):
         # A cone cannot describe more than a hemisphere, so past that there is no analytic form to
@@ -84,22 +93,64 @@ def _add_cone_patch(shape, extent_x, extent_y, sphere_radius, color, location, n
         shape.EDGE_KIND = EDGE_NONE
         bearings = np.linspace(0, 2*np.pi, n_steps+1)
         for wedge in range(n_steps):
-            v1 = util.spherical_to_cartesian(sphere_radius, np.pi/2 + extent_x*np.cos(bearings[wedge]),
-                                             np.pi/2 + extent_y*np.sin(bearings[wedge]))
-            v2 = util.spherical_to_cartesian(sphere_radius, np.pi/2 + extent_x*np.cos(bearings[wedge+1]),
-                                             np.pi/2 + extent_y*np.sin(bearings[wedge+1]))
+            v1 = to_cartesian(surface_radius, np.pi/2 + extent_x*np.cos(bearings[wedge]),
+                              np.pi/2 + extent_y*np.sin(bearings[wedge]))
+            v2 = to_cartesian(surface_radius, np.pi/2 + extent_x*np.cos(bearings[wedge+1]),
+                              np.pi/2 + extent_y*np.sin(bearings[wedge+1]))
             shape.add(GlTri(v1, v2, v_center, color).translate(location))
         return
 
-    directions = sphere_radius * cone_bound_directions(extent_x, extent_y, n_steps)
+    # The bound is a set of directions; put each one on whichever surface this shape lives on.
+    # Which surface cannot affect whether it covers: a straight segment seen from the subject
+    # sweeps a great-circle arc whatever distance its endpoints are at, so the directions a
+    # triangle spans depend only on the directions of its corners.
+    _, theta, phi = util.cartesian_to_spherical(*cone_bound_directions(extent_x, extent_y, n_steps).T)
+    corners = np.array(to_cartesian(surface_radius, theta, phi)).T
     for wedge in range(n_steps):
-        shape.add(GlTri(directions[wedge], directions[(wedge + 1) % n_steps], v_center,
+        shape.add(GlTri(corners[wedge], corners[(wedge + 1) % n_steps], v_center,
                         color).translate(location))
 
     # What the shader needs to rebuild the cone: the frame the patch was built in, and how far out
     # on the flat card its ellipse reaches in each axis.
     shape.edge_frame = CANONICAL_PATCH_FRAME
     shape.edge_extent = (float(extent_x), float(extent_y))
+
+
+def _add_angular_rect_patch(shape, width, height, surface_radius, color, n_steps_x, n_steps_y,
+                            to_cartesian=util.spherical_to_cartesian):
+    """Fill `shape` with a bounding grid for a rectangular patch, and declare its analytic edge.
+
+    Shared by the spherical and cylindrical rectangles, for the same reason the cone builder is:
+    the declaration is about direction, and both surfaces put a given (theta, phi) in the same one.
+
+    :param width: degrees of azimuth subtended
+    :param height: degrees of elevation subtended
+    """
+    # The grid is a bound, and the shader clips it to the true rectangle. Its sides already cover:
+    # a constant-azimuth boundary is a great circle, which a triangle edge reproduces exactly, and
+    # a constant-elevation one is a small circle, which the great-circle arc between two of its
+    # points bulges outside. Only the four corners land exactly on the bound, so widen by a whisker
+    # to keep rounding from nicking them.
+    drawn_width = radians(width) * (1.0 + EDGE_BOUND_MARGIN)
+    drawn_height = radians(height) * (1.0 + EDGE_BOUND_MARGIN)
+
+    d_theta = (1/n_steps_x) * drawn_width
+    d_phi = (1/n_steps_y) * drawn_height
+    for rr in range(n_steps_y):
+        for cc in range(n_steps_x):
+            # render the patch at the equator (phi=pi/2) so it is not near the poles, and at
+            # theta = 90 degrees, where stimpack's heading (0,0,0) looks
+            theta = np.pi/2 + drawn_width * (-1/2 + (cc/n_steps_x))
+            phi = np.pi/2 + drawn_height * (-1/2 + (rr/n_steps_y))
+            v1 = to_cartesian(surface_radius, theta, phi)
+            v2 = to_cartesian(surface_radius, theta, phi + d_phi)
+            v3 = to_cartesian(surface_radius, theta + d_theta, phi)
+            v4 = to_cartesian(surface_radius, theta + d_theta, phi + d_phi)
+            shape.add(GlTri(v1, v2, v4, color))
+            shape.add(GlTri(v1, v3, v4, color))
+
+    shape.edge_frame = CANONICAL_PATCH_FRAME
+    shape.edge_extent = (float(radians(width) / 2), float(radians(height) / 2))
 
 
 def _carry_edge(source, result, rotation=None):
@@ -407,7 +458,7 @@ class GlSphericalRect(GlVertices):
         curvature more closely, at the cost of vertices
     :param n_steps_y: subdivisions down the height
     """
-    EDGE_KIND = EDGE_SPHERICAL_RECT
+    EDGE_KIND = EDGE_ANGULAR_RECT
 
     def __init__(self,
                  width=20,  # degrees, theta
@@ -417,33 +468,8 @@ class GlSphericalRect(GlVertices):
                  n_steps_x=6,
                  n_steps_y=6):
         super().__init__()
-        color = util.get_rgba(color)
-
-        # The grid is a bound, and the shader clips it to the true rectangle. Its sides already
-        # cover: a constant-azimuth boundary is a great circle, which a triangle edge reproduces
-        # exactly, and a constant-elevation one is a small circle, which the great-circle arc
-        # between two of its points bulges outside. Only the four corners land exactly on the
-        # bound, so widen by a whisker to keep rounding from nicking them.
-        drawn_width = radians(width) * (1.0 + EDGE_BOUND_MARGIN)
-        drawn_height = radians(height) * (1.0 + EDGE_BOUND_MARGIN)
-
-        d_theta = (1/n_steps_x) * drawn_width
-        d_phi = (1/n_steps_y) * drawn_height
-        for rr in range(n_steps_y):
-            for cc in range(n_steps_x):
-                # render patch at the equator (phi=pi/2) so it's not near the poles
-                # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-                theta = np.pi/2 + drawn_width * (-1/2 + (cc/n_steps_x))
-                phi = np.pi/2 + drawn_height * (-1/2 + (rr/n_steps_y))
-                v1 = util.spherical_to_cartesian(sphere_radius, theta, phi)
-                v2 = util.spherical_to_cartesian(sphere_radius, theta, phi + d_phi)
-                v3 = util.spherical_to_cartesian(sphere_radius, theta + d_theta, phi)
-                v4 = util.spherical_to_cartesian(sphere_radius, theta + d_theta, phi + d_phi)
-                self.add(GlTri(v1, v2, v4, color))
-                self.add(GlTri(v1, v3, v4, color))
-
-        self.edge_frame = CANONICAL_PATCH_FRAME
-        self.edge_extent = (float(radians(width) / 2), float(radians(height) / 2))
+        _add_angular_rect_patch(self, width, height, sphere_radius, util.get_rgba(color),
+                                n_steps_x, n_steps_y)
 
 class GlSphericalTexturedRect(GlVertices):
     """
@@ -527,31 +553,26 @@ class GlCylindricalWithPhiEllipse(GlVertices):
 
     Azimuth follows the cylinder wall; elevation is still an angle subtended at the subject, so
     the shape suits rigs whose screens wrap horizontally but not vertically.
+
+    It carries the same analytic edge as its spherical twin, and for a reason worth stating: the
+    two occupy *identical directions*, and differ only in how far along each ray the vertices sit.
+    An edge declaration is a statement about direction, so the surface never enters into it.
+
+    :param n_steps: sides of the bounding polygon. Not the accuracy of the ellipse.
     """
+    EDGE_KIND = EDGE_CONE
+
     def __init__(self,
                  width=20,  # degrees in spherical coordinates
                  height=10,  # degrees in spherical coordinates
                  cylinder_radius=1,  # meters
                  color=[1, 1, 1, 1],  # [r,g,b,a] or single value for monochrome, alpha = 1
                  cylinder_location=(0, 0, 0),  # (x,y,z) meters. (0,0,0) is center of cylinder
-                 n_steps=36):
+                 n_steps=8):
         super().__init__()
-        color = util.get_rgba(color)
-
-        v_center = util.cylindrical_w_phi_to_cartesian(cylinder_radius, np.pi/2, np.pi/2)
-
-        angles = np.linspace(0, 2*np.pi, n_steps+1)
-        for wedge in range(n_steps):
-            # render circle at the equator (phi=pi/2) so it's not near the poles
-            # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-            v1 = util.cylindrical_w_phi_to_cartesian(cylinder_radius,
-                                            np.pi/2 + radians(width/2)*np.cos(angles[wedge]),
-                                            np.pi/2 + radians(height/2)*np.sin(angles[wedge]))
-            v2 = util.cylindrical_w_phi_to_cartesian(cylinder_radius,
-                                            np.pi/2 + radians(width/2)*np.cos(angles[wedge+1]),
-                                            np.pi/2 + radians(height/2)*np.sin(angles[wedge+1]))
-
-            self.add(GlTri(v1, v2, v_center, color).translate(cylinder_location))
+        _add_cone_patch(self, radians(width/2), radians(height/2), cylinder_radius,
+                        util.get_rgba(color), cylinder_location, n_steps,
+                        to_cartesian=util.cylindrical_w_phi_to_cartesian)
 
 class GlSphericalCirc(GlVertices):
     """
@@ -778,8 +799,11 @@ class GlCylindricalWithPhiRect(GlVertices):
     """
     A rectangular patch on a cylinder wall, sized in degrees of azimuth and elevation.
 
-    The cylindrical counterpart of :class:`GlSphericalRect`.
+    The cylindrical counterpart of :class:`GlSphericalRect`, and analytic on the same terms: the
+    two cover identical directions, so the same declaration describes both.
     """
+    EDGE_KIND = EDGE_ANGULAR_RECT
+
     def __init__(self,
                  width=20,  # degrees, theta
                  height=20,  # degrees, phi
@@ -788,19 +812,6 @@ class GlCylindricalWithPhiRect(GlVertices):
                  n_steps_x=6,
                  n_steps_y=6):
         super().__init__()
-        color = util.get_rgba(color)
-
-        d_theta = (1/n_steps_x) * radians(width)
-        d_phi = (1/n_steps_y) * radians(height)
-        for rr in range(n_steps_y):
-            for cc in range(n_steps_x):
-                # render patch at the equator (phi=pi/2) so it's not near the poles
-                # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-                theta = np.pi/2 + radians(width) * (-1/2 + (cc/n_steps_x))
-                phi = np.pi/2 + radians(height) * (-1/2 + (rr/n_steps_y))
-                v1 = util.cylindrical_w_phi_to_cartesian(cylinder_radius, theta, phi)
-                v2 = util.cylindrical_w_phi_to_cartesian(cylinder_radius, theta, phi + d_phi)
-                v3 = util.cylindrical_w_phi_to_cartesian(cylinder_radius, theta + d_theta, phi)
-                v4 = util.cylindrical_w_phi_to_cartesian(cylinder_radius, theta + d_theta, phi + d_phi)
-                self.add(GlTri(v1, v2, v4, color))
-                self.add(GlTri(v1, v3, v4, color))
+        _add_angular_rect_patch(self, width, height, cylinder_radius, util.get_rgba(color),
+                                n_steps_x, n_steps_y,
+                                to_cartesian=util.cylindrical_w_phi_to_cartesian)

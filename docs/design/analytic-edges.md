@@ -130,7 +130,7 @@ wide" is a statement about a frame, not about a point -- so the declaration is a
 of half-extents, which covers both:
 
 ```python
-EDGE_KIND = EDGE_SPHERICAL_RECT
+EDGE_KIND = EDGE_ANGULAR_RECT
 self.edge_frame = CANONICAL_PATCH_FRAME          # azimuth, elevation, forward; rows
 self.edge_extent = (radians(width) / 2, radians(height) / 2)
 ```
@@ -202,6 +202,48 @@ ellipse there circumscribes the real shape exactly, at any size, with nothing to
 
 A cone cannot describe more than a hemisphere, so a half-extent at or past 90 degrees has no
 analytic form to declare; those fall back to the fan and to a geometry-defined edge.
+
+### The cylindrical patches are not a separate problem
+
+`cylindrical_w_phi_to_cartesian(r, theta, phi)` and `spherical_to_cartesian(r, theta, phi)` put a
+given `(theta, phi)` in the **same direction** -- verified to 1e-6 degrees across the sphere. They
+differ only in how far along that ray the vertex sits.
+
+An edge declaration is a statement about direction: the shader works from
+`normalize(v_world - subject_position)` and never learns what surface the triangle came from. So
+`GlCylindricalWithPhiRect` and `GlCylindricalWithPhiEllipse` take the *same two kinds* their
+spherical twins do, with no new shader code, no new uniforms, and no new carry rules -- only the
+declaration, and a builder parameterised by where the vertices land.
+
+The containment argument survives the change of surface for the same reason. A straight segment
+seen from the subject sweeps a great-circle arc whatever distance its endpoints are at, so the set
+of directions a triangle spans depends only on the directions of its corners. The gnomonic bound is
+therefore correct on any surface.
+
+The rendered proof: `moving_patch_on_cylinder` is **pixel-identical** to `moving_patch_center`, and
+the two ellipses differ by a single pixel. A pinhole projection maps direction to screen position,
+so shapes covering the same directions produce the same image.
+
+This is why the kind is called `EDGE_ANGULAR_RECT` and not `EDGE_SPHERICAL_RECT`.
+
+## What is left, and what is out of reach
+
+`GlCylinder` is the remaining cylindrical shape, and it is a different animal -- a world-space
+solid, not an angular patch, so its boundary would be an equation in metres about its axis rather
+than in degrees about the subject. Its ten users split three ways:
+
+- **The panoramic textured stimuli** -- `CylindricalGrating`, `Checkerboard`, `RandomGrid`,
+  `RandomBars`, `PixMap` -- paint a texture on a wall that fills the visual field. Their edges are
+  *inside* the texture, not at the shape's silhouette, so analytic coverage does not touch them.
+  That is real aliasing and worth its own note, but it is a texture-filtering problem.
+- **`Forest`** builds one cylinder and `add()`s a translated copy per tree. Both of those drop the
+  declaration, for the reasons above. Out of reach, exactly like the fly's wings.
+- **`Tower`** is the one genuine candidate: a single cylinder, whose 32-gon silhouette sits inside
+  the true circle by 0.48% of the radius -- 0.046 degrees, about half a pixel, for the default
+  0.5 m tower at 3 m. Half a pixel is not much, and buying it costs a world-space kind plus
+  translation carry rules. Not obviously worth it; measure on a rig before deciding.
+
+`GlCircle` remains unconverted for the reasons given above.
 
 The test to write first is the one that would have caught this: render a disc, measure the width of
 its intensity transition in degrees, and assert it is about one pixel rather than zero. A companion
