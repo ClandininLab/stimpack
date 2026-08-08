@@ -770,7 +770,6 @@ def test_the_stimpack_prefix_is_not_mistaken_for_a_labpack_package(tmp_path, iso
 # list of them was wanted. The second is the reason this tier looks at argument *values* -- every
 # name is correct in that case, and the failure is a TypeError deep inside the device module.
 
-import inspect as _inspect  # noqa: E402
 
 
 class FakeDaq:
