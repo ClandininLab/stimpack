@@ -415,15 +415,21 @@ class LoomingCircle(BaseProgram):
     def __init__(self, screen):
         super().__init__(screen=screen)
 
-    def configure(self, radius=0.5, color=(1, 1, 1, 1), starting_distance=1, speed=-1, n_steps=36):
+    def configure(self, radius=0.5, color=(1, 1, 1, 1), starting_distance=1, speed=-1, n_steps=128):
         """
         Circle looming towards animal.
-        
+
         :param radius: radius of circle in meters
         :param color: [r,g,b,a] or mono. Color of the circle
         :param starting_distance: distance from animal to start the circle in meters
         :param speed: speed of the circle in meters per second
-        :param n_steps: number of steps to draw the circle
+        :param n_steps: sides of the polygon standing in for the circle. It is built once here and
+            only translated afterwards, so sides cost nothing per frame -- 128 is about a
+            millisecond at trial setup and nothing thereafter. The old 36 left the polygon inside
+            the true circle by 0.51% of its *area*, constant through the whole approach, which is
+            a systematic bias on exactly the quantity a looming experiment reads. At 128 that is
+            0.04%. See docs/design/analytic-edges.md; unlike the spherical shapes this one has no
+            analytic edge, so the polygon really is the shape.
         """
         self.color = make_as_trajectory(color)
         self.speed = make_as_trajectory(speed)
@@ -1305,7 +1311,7 @@ class Tower(BaseProgram):
     def __init__(self, screen):
         super().__init__(screen=screen)
 
-    def configure(self, color=[1, 0, 0, 1], cylinder_radius=0.5, cylinder_height=0.5, cylinder_location=[+5, 0, 0], n_faces=16):
+    def configure(self, color=[1, 0, 0, 1], cylinder_radius=0.5, cylinder_height=0.5, cylinder_location=[+5, 0, 0], n_faces=64):
         """
         Cylindrical tower object in arbitrary x, y, z coords.
 
@@ -1313,7 +1319,12 @@ class Tower(BaseProgram):
         :param cylinder_radius: meters
         :param cylinder_height: meters
         :param cylinder_location: [x, y, z] location of the center of the cylinder, meters
-        :param n_faces: number of quad faces to make the cylinder out of
+        :param n_faces: quad faces the wall is made of. Built once here and never rebuilt, so
+            faces cost nothing per frame. The silhouette of an n-gon sits inside the true cylinder
+            by 1 - cos(pi/n) of the radius, and that error grows as the subject approaches -- which
+            is when a landmark matters. At the old 16 a 0.5 m tower was 5.8 pixels narrow at 1 m;
+            at 64 it is 0.36. :class:`Forest` keeps a lower count deliberately, since it pays this
+            per tree.
         """
         self.color = color
         self.cylinder_radius = cylinder_radius

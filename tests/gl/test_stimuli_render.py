@@ -89,6 +89,12 @@ CASES = [
                      distribution_data={"name": "Binary", "rand_min": 0, "rand_max": 1},
                      start_seed=42, update_rate=1.0), tol=5.0),
 
+    # A flat disc approaching in world space -- the one curved shape with no analytic edge, so
+    # this is the case that guards its polygon count.
+    dict(id="looming_circle", name="LoomingCircle",
+         kwargs=dict(radius=0.05, color=(1, 1, 1, 1), starting_distance=1.0, speed=-0.9),
+         t=0.5, tol=3.0),
+
     # World-space VR geometry + a non-white color: a red tower in front of the subject.
     dict(id="tower_world", name="Tower",
          kwargs=dict(color=[1, 0, 0, 1], cylinder_radius=0.5, cylinder_height=1.0,
@@ -551,6 +557,38 @@ def test_a_declared_edge_does_not_move_when_the_subject_does(headless_gl, offset
     # the disc sits on a 1 m sphere, so 10 cm of subject travel barely changes its projected area;
     # the geometry alone gave 3672 -> 3664 px across this range
     assert 3600 < area < 3760, f'subject at x={offset} m renders {area:.0f} px of light'
+
+
+def test_the_looming_polygon_does_not_bias_the_area_it_reports():
+    """`LoomingCircle` has no analytic edge -- its disc is flat and world-space, so the polygon
+    really is the shape. That makes `n_steps` matter in a way it no longer does anywhere else.
+
+    An inscribed n-gon holds ``(n/2pi)*sin(2pi/n)`` of its circle's area, so at the old 36 steps
+    every frame of every approach under-reported the disc by 0.51%. Not noise -- a constant bias,
+    in one direction, on the quantity a looming experiment reads. The shape is built once in
+    configure and only translated afterwards, so sides cost nothing per frame.
+
+    Measured on the geometry rather than on a render: a rendered disc's pixel count carries its own
+    discretisation error of several percent at these sizes, which would swamp what is being tested.
+    """
+    from stimpack.visual_stim.shapes import GlCircle
+
+    radius = 0.5
+    for n_steps, tolerance in [(36, 0.006), (128, 0.0005)]:
+        vertices = GlCircle(radius=radius, n_steps=n_steps).vertices.T.reshape(-1, 3, 3)
+        # the fan's wedges lie in the xz plane; sum their areas by the cross product
+        a, b, c = vertices[:, 0], vertices[:, 1], vertices[:, 2]
+        area = 0.5 * np.abs(np.cross(b - a, c - a)).sum()
+        deficit = 1 - area / (np.pi * radius**2)
+
+        expected = 1 - (n_steps / (2*np.pi)) * np.sin(2*np.pi / n_steps)
+        assert abs(deficit - expected) < 1e-9, f'{n_steps}: {deficit:.6f} != {expected:.6f}'
+        assert deficit < tolerance, f'n_steps={n_steps} loses {deficit*100:.3f}% of the area'
+
+    # and the default the stimulus now asks for is on the good side of that
+    import inspect
+    from stimpack.visual_stim import stimuli
+    assert inspect.signature(stimuli.LoomingCircle.configure).parameters['n_steps'].default >= 128
 
 
 def test_sharp_texel_sampling_lands_on_texel_centres_and_ramps_only_at_boundaries():

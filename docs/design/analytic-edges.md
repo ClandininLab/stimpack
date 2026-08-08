@@ -266,27 +266,90 @@ where there is no single boundary to antialias and mipmaps would be the answer i
 Cost: 0.028 to 0.029 ms per frame on a full-field checkerboard at 1280x800 -- about a microsecond,
 against a 2.78 ms budget at 360 Hz.
 
-## What is left, and what is out of reach
+## The audit: what is still hard-edged
 
-`GlCylinder` is the remaining cylindrical shape, and it is a different animal -- a world-space
-solid, not an angular patch, so its boundary would be an equation in metres about its axis rather
-than in degrees about the subject. Its ten users split three ways:
+Every stimulus rendered and its partially-lit pixels counted. **16 soft, 3 hard**, 6 not renderable
+with defaults. The three:
 
-- **The panoramic textured stimuli** are handled by the sharp-texel sampling above rather than by
-  a shape declaration, since their edges are inside the texture.
-- **`Forest`** builds one cylinder and `add()`s a translated copy per tree. Both of those drop the
-  declaration, for the reasons above. Out of reach, exactly like the fly's wings.
-- **`Tower`** is the one genuine candidate: a single cylinder, whose 32-gon silhouette sits inside
-  the true circle by 0.48% of the radius -- 0.046 degrees, about half a pixel, for the default
-  0.5 m tower at 3 m. Half a pixel is not much, and buying it costs a world-space kind plus
-  translation carry rules. Not obviously worth it; measure on a rig before deciding.
+- **`AlternatingAnnuli`** -- correctly excluded, and its own docstring says why: the shader carries
+  one edge equation per draw and this is many rings. A commissioning pattern, 0.01 degrees of
+  radial error at `n_azimuth=128`.
+- **`MovingBox`** -- `GlBox`, polyhedral and world-space. Its edges are genuinely straight lines.
+- **`LoomingCircle`** -- the one with a case behind it. See below.
 
-`GlCircle` remains unconverted for the reasons given above.
+The structural limit found along the way: **a composite cannot hold per-shape edges.** `add()`
+concatenates vertex arrays into one mesh, and one draw call carries one set of uniforms. That is
+what puts `GlFly`'s wings and `Forest`'s trees out of reach, and it is the question to ask of any
+future candidate before converting it.
 
-The test to write first is the one that would have caught this: render a disc, measure the width of
-its intensity transition in degrees, and assert it is about one pixel rather than zero. A companion
-test steps a disc across the screen at 5 °/s and asserts the measured edge position changes every
-frame -- which today it does not.
+## Where the polygon still is the shape
+
+`LoomingCircle` draws a *flat* disc in metres receding in depth, not a spherical patch, so nothing
+above reaches it. It has two separable defects, and only one is worth paying for:
+
+**The polygon is a systematic bias.** An inscribed n-gon holds `(n/2pi) sin(2pi/n)` of its circle's
+area, so at `n_steps=36` every frame of every approach under-reported the disc by **0.51%** -- one
+direction, constant through the whole approach, on exactly the quantity a looming experiment reads.
+The shape is built once in `configure` and only translated afterwards, so sides cost nothing per
+frame. Raised to 128, the bias is 0.045%. `Tower` had the same shape of problem (`n_faces=16` put a
+0.5 m tower 5.8 pixels narrow at 1 m, worsening as the subject approaches) and is now 64.
+
+**The pixel grid is not, mostly.** Without coverage the edge cannot sit between pixels. Tracking a
+point on the contour, at bowl scale, of a 5 cm object approaching from 1 m at 0.9 m/s:
+
+| window | distance | angular radius | frames per step |
+|---|---|---|---|
+| 0-60 ms | 0.925 m | 3.09 deg | 15.0 |
+| 120-180 ms | 0.625 m | 4.57 deg | 6.0 |
+| 300-360 ms | 0.175 m | 15.95 deg | 1.0 |
+
+So it is concentrated entirely in the early, slow phase -- 42 ms frozen at the start, moving every
+frame by the end. But the **total area** advances in 348 of 359 frames, because the rim is long and
+different parts of it cross pixel boundaries at different moments.
+
+Which means: if an experiment reads angular size or area, `n_steps` was the whole problem and it is
+fixed. If it reads local edge velocity, or has small receptive fields sitting on the contour, the
+42 ms freeze is real and only an analytic edge removes it.
+
+**What that would take**, if it is ever wanted: a world-space kind, `length(v_world - edge_origin)
+- radius`, in metres. The carry rules would then split cleanly rather than messily -- a kind is
+anchored either *at the subject* (angular: only rotations preserve it, as now) or *in the world*
+(its anchor transforms exactly like a vertex, so translate, rotate and uniform scale all carry;
+non-uniform scale drops, since it is an ellipse then). That dichotomy would also make `Tower` and
+`MovingBox` reachable. About thirty lines. Not built, because nothing has asked for it.
+
+Note the substitution that looks tempting and is wrong: `LoomingCircle`'s disc *is* exactly a
+circular cone seen from the origin, so `EDGE_CONE` describes it -- but only for a subject at the
+origin. Off-axis the two diverge (0.115 degrees at 2 cm, 0.586 at 10 cm), and nothing in the code
+would enforce or report the precondition. A wrong analytic edge is worse than none, which is why
+`translate` and `scale` drop their declarations in the first place.
+
+## Measured and rejected: reusing one bound across sizes
+
+Because the geometry now only *bounds*, a shape whose size changes need not be rebuilt at all --
+build one bound at the largest size and change `edge_extent` per frame. Verified: a single 40 degree
+bound renders 5, 10, 20 and 40 degree discs correctly, agreeing with purpose-built ones to 0.5% of
+area. This was impossible when the triangles *were* the shape.
+
+**It is not worth doing.** A 1 s loom, 10 to 40 degrees, 360 frames at 1920x1080:
+
+| policy | RTX A4500 | llvmpipe |
+|---|---|---|
+| rebuild every frame (what the code does) | 0.0753 ms/frame | **0.2763** |
+| one bound at 40 degrees | 0.0193 | 0.4419 |
+| bound at 1.5x, rebuilt on hysteresis | **0.0172** | 0.3426 |
+
+The same 92x-overdraw case costs +0.012 ms on the A4500 and +0.428 ms on llvmpipe -- 35x apart, and
+it crosses the 0.064 ms rebuild cost in opposite directions. So no fixed policy is right for both,
+the maximum-sized bound is never a safe default, and the best available saving is 0.058 ms against
+a 2.78 ms budget: 2%, on the machine that already has headroom. On the machine that does not, the
+current code is already the best of the three.
+
+If the optimisation is ever wanted, **hysteresis is the wrong form of it.** Most trials hold a
+patch's size fixed and only move it, and there the bound never needs resizing: build once, rotate
+per frame. That is 6x cheaper in Python *and* has no overdraw penalty on any renderer, because the
+bound stays exactly the right size. Hysteresis is only needed for the resizing case, which is
+precisely where the renderer coin-flip lives.
 
 ## What to check before starting
 
