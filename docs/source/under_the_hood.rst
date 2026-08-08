@@ -26,10 +26,57 @@ silently, which is what :doc:`check_labpack` exists to catch.
 Rendering
 =========
 
-Each screen is a subprocess with its own GL context. A stimulus is drawn once per subscreen through
-an off-axis (Kooima) perspective matrix, computed from the physical corners of that subscreen in
-metres and the subject's position and heading. The corner square is drawn last, in projector
-coordinates, as a photodiode timing signal.
+Each screen is a subprocess with its own GL context. There are **two rendering paths**, chosen by
+the type of the screen, and a rig may mix them -- one screen of each, in the same process.
+
+**Flat screens: one off-axis frustum per subscreen.** A ``Screen`` is described by its subscreens'
+physical corners in metres -- ``pa`` lower-left, ``pb`` lower-right, ``pc`` upper-left -- and each
+stimulus is drawn once per subscreen through a generalized (off-axis) perspective matrix computed
+from those corners and the subject's position and heading. This is Kooima's construction, and it is
+what makes an object subtend the angle it should from where the animal actually sits, on a screen
+that is neither square to the animal nor equidistant from it. Nothing is resampled: the stimulus is
+rasterised straight into the window.
+
+**Curved screens: a cube map, then one warp.** A flat frustum cannot describe a bowl, so a
+``CurvedScreen`` renders in two passes. The scene is drawn into the faces of a cube map from the
+subject's position, and then the screen's mesh is drawn **once**, in projector coordinates, with
+each fragment sampling the cube along its own interpolated direction. The mesh comes from
+``build_screen_mesh(surface, projector)`` and carries, per vertex, both where that point of the
+screen lands in the projector's image and which direction it lies in from the animal -- which is the
+whole of the warp.
+
+The cost structures are different, and it is worth knowing which you are paying:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 39 39
+
+   * -
+     - flat
+     - curved
+   * - draws per frame
+     - stimuli x subscreens
+     - stimuli x cube faces, plus one warp
+   * - screen tessellation
+     - not applicable
+     - free -- one draw call at any density
+   * - what it costs to add screen detail
+     - another frustum, so another full pass
+     - nothing
+   * - resampling
+     - none
+     - one intermediate, sized by ``cube_resolution``
+
+So the curved path deliberately trades an intermediate for a cost that does not multiply: the screen
+may have 200 triangles or 20,000 for the same price, where giving each facet its own frustum would
+multiply scene complexity by screen complexity. Measured on a 7.7 cm bowl at 1536-pixel faces, the
+warp pass is about 0.28 ms of an 8.33 ms frame, and a hundredfold increase in mesh density moves it
+by under a tenth of a millisecond. The scene draws dominate, which is why the renderer draws only
+the faces the mesh actually samples -- and why ``cube_orientation`` exists to reduce that count
+further (see ``docs/design/cube-orientation.md``).
+
+The corner square is drawn last on either path, in projector coordinates, as a photodiode timing
+signal.
 
 ``paintGL`` is what drains the RPC queue, so a screen whose render loop has stopped accepts every
 command and does nothing. ``report_frame_count`` asks a screen how many frames it has actually

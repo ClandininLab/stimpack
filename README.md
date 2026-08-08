@@ -83,10 +83,31 @@ to catch the rest before a run.
 ### Perspective-corrected rendering
 
 Stimuli are rendered for a subject at a known position relative to a display of known size and
-placement, so an object subtends the angle it should. Each screen region is described by its three
-physical corners in metres — `pa` lower-left, `pb` lower-right, `pc` upper-left.
+placement, so an object subtends the angle it should. There are two paths, chosen by the type of
+screen, and one rig may use both.
+
+**Flat screens** are described by the three physical corners of each region, in metres — `pa`
+lower-left, `pb` lower-right, `pc` upper-left. Each stimulus is drawn once per region through a
+generalized off-axis perspective ([Kooima 2009](https://csc.lsu.edu/~kooima/articles/genperspective/)),
+which is what corrects for a screen that is neither square to the animal nor equidistant from it.
 
 ![Display coordinates](img/display_coordinates.png)
+
+**Curved screens** — a bowl, a cylinder — cannot be described by a flat frustum, so they render
+through a cube map instead. The scene is drawn into the faces of a cube from the subject's position,
+then the screen is drawn *once* in projector coordinates, each fragment sampling the cube along its
+own direction. The screen is described by a surface and a projector:
+
+```python
+CurvedScreen(surface=SphericalSurface(radius=0.0775, elevation_range=(25, 90)),
+             projector=PinholeProjector(position=(0, 0.30, -0.05), look_at=(0, 0, 0),
+                                        throw_ratio=1.58))
+```
+
+Because the screen is one draw call however finely it is tessellated, the cost scales with the scene
+and the number of cube faces — not with the screen's complexity. `draw_curved_screen()` plots the
+geometry, and the mesh reports its own coverage and pixels-per-degree, so a rig can be checked before
+anything is projected onto it.
 
 ### Labpacks
 
