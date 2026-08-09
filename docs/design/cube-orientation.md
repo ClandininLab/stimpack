@@ -75,7 +75,7 @@ A cap close to 70.53° gets three faces on a knife edge; falling off it costs *t
 not one. Edge alignment is the robust choice, and the one to prefer unless the cap is comfortably
 under about 65°.
 
-## What it measures, and why the first answer was wrong
+## What it measures, and why the first two answers were wrong
 
 Measured on the BrukerJr flymax bowl at a 65-degree cap (five faces to three), **interleaving the
 two conditions frame by frame** so thermal drift on the test GPU hits both equally:
@@ -84,6 +84,27 @@ two conditions frame by frame** so thermal drift on the test GPU hits both equal
 background    2.75 -> 1.85 ms                       -33%
 Forest 400   10.82 ->  7.40 ms   92% of frames dropped -> 9%
 ```
+
+**Those numbers are stale, and they overstate this by about a factor of two.** They were taken while
+`paint_at` re-uploaded a stimulus's vertex and colour buffers *once per face*, so part of what
+turning the cube saved was redundant uploads rather than scene draws. Uploading once per frame
+instead is a bigger win than turning the cube, and it shrinks what turning the cube is left to save.
+
+Re-measured on the rig's own Quadro M2000 after that fix, same interleaving:
+
+| scene | axis-aligned | auto | saving |
+|---|---|---|---|
+| annuli | 1.42 ms | 1.33 ms | −6% |
+| 200 towers | 1.51 ms | 1.34 ms | −11% |
+| 400 towers | 2.02 ms | 1.80 ms | −11% |
+| 800 towers | 2.80 ms | 2.64 ms | −6% |
+
+Before the upload fix the same comparison on the same GPU read −20% to −25%. Nothing here came near
+the 8.33 ms budget, so on this rig the saving is headroom rather than frames recovered; the dropped-
+frame result above was on a slower GPU whose baseline was already over budget.
+
+The general point, again: a measurement of one optimisation is only as good as the code around it.
+This one was measuring an unrelated inefficiency as though it were the effect under test.
 
 An earlier round of measurement concluded the opposite -- that turning the cube saved 0.28-0.41 ms
 and was not worth the code. Two things were wrong with it.

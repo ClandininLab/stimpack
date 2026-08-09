@@ -466,31 +466,32 @@ class StimDisplay(QOpenGLWidget):
         # and would quietly undo subframe multiplexing.
         display_fbo = self.ctx.fbo
 
-        # Evaluated once for the frame, before any face is drawn. The planar path gets this for
-        # free: it hands paint_at every subscreen at once, so eval_at runs once and the draw loop
-        # runs per viewport. Here each face needs its own framebuffer bound, so paint_at is called
-        # per face -- and it used to evaluate the stimulus again each time, at the same t.
+        # Only the faces the screen samples. A bowl above the animal never looks down, so -Z would
+        # be a whole scene draw feeding a face nothing reads.
         #
-        # A stimulus is entitled to exactly one evaluation per displayed frame. Stateful ones
-        # advance N times too fast otherwise, and it is luck whether that shows: one integrating
-        # (t - t_prev) sees zero elapsed the second time, while one testing t % period against
+        # The first face drawn prepares each stimulus -- evaluates it and uploads its geometry --
+        # and the rest only draw. The planar path gets that for free by handing paint_at every
+        # subscreen in one call; here each face needs its own framebuffer bound, so paint_at is
+        # called per face, and it used to redo both every time.
+        #
+        # Evaluation must be once per frame because a stimulus is entitled to that: stateful ones
+        # advance N times too fast otherwise, and it is luck whether that shows. One integrating
+        # (t - t_prev) sees zero elapsed the second time; one testing t % period against
         # t_prev % period fires again, since those are equal after the first call. A labpack dot
         # field popping one refresh time per evaluation exhausted its schedule and raised
         # IndexError mid-trial.
-        if self.stim_started:
-            for stim in self.stim_list:
-                stim.eval_at(stim_time, subject_position=self.subject_position)
-
-        # Only the faces the screen samples. A bowl above the animal never looks down, so -Z would
-        # be a whole scene draw feeding a face nothing reads.
-        for face in renderer.face_indices:
+        #
+        # Upload wants to be once per frame because it is the expensive part and the geometry does
+        # not differ between faces -- only the matrix does. Hoisting it out is what keeps the cube
+        # pass from scaling with face count in vertices as well as in draw calls.
+        for order, face in enumerate(renderer.face_indices):
             matrix = matrices[face]
             renderer.use_face(face, clear_color=self.idle_background)
             if not self.stim_started:
                 continue
             for stim in self.stim_list:
                 stim.paint_at(stim_time, face_viewport, [matrix],
-                              subject_position=self.subject_position, evaluate=False)
+                              subject_position=self.subject_position, prepare=(order == 0))
 
         # Back to the display, then the screen mesh in one draw call. No horizontal flip here even
         # for a rear-projected screen: the mesh already says where each direction lands on the

@@ -88,42 +88,55 @@ class BaseProgram:
         pass
 
     def paint_at(self, t, viewports, perspectives, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0},
-                 evaluate=True):
+                 prepare=True):
         """
         :param t: current time in seconds
         :param viewports: list of viewport arrays for each subscreen - (xmin, ymin, width, height) in display device pixels
         :param perspectives: list of perspective matrices for each subscreen, generated using perspective.GenPerspective and subscreen corners
         :param subject_position: x, y, z position of subject (meters)
-        :param evaluate: whether to call :meth:`eval_at` first. Pass ``False`` when the caller has
-            already evaluated this stimulus for this frame and is drawing it again -- which is what
-            the cube-map path does, since it has to bind a different framebuffer per face and so
-            cannot hand over every "viewport" in one call the way the planar path does.
+        :param prepare: whether to evaluate this stimulus and upload its geometry first. Pass
+            ``False`` when the caller has already done that for this frame and is drawing the same
+            geometry again from another viewpoint -- which is what the cube-map path does, since it
+            has to bind a different framebuffer per face and so cannot hand over every "viewport"
+            in one call the way the planar path does.
 
-            **A stimulus is entitled to be evaluated exactly once per displayed frame.** Several are
-            stateful -- they integrate since the last call, or pop from a schedule -- and evaluating
-            one twice at the same t advances it twice. Whether that shows depends on the stimulus:
-            one integrating ``t - t_prev`` sees zero elapsed and is unharmed, while one testing
-            ``t % period <= t_prev % period`` fires again, because after the first call those are
-            equal and the comparison is not strict. A labpack dot field popping one refresh time per
-            evaluation ran out of them five times faster than it should and raised IndexError
-            mid-trial.
+            Both halves have to be per frame, for different reasons.
+
+            **Evaluation, because a stimulus is entitled to exactly one per displayed frame.**
+            Several are stateful -- they integrate since the last call, or pop from a schedule --
+            and evaluating one twice at the same t advances it twice. Whether that shows depends on
+            the stimulus: one integrating ``t - t_prev`` sees zero elapsed and is unharmed, while
+            one testing ``t % period <= t_prev % period`` fires again, because after the first call
+            those are equal and the comparison is not strict. A labpack dot field popping one
+            refresh time per evaluation ran out of them five times faster than it should and raised
+            IndexError mid-trial.
+
+            **Upload, because it is the expensive part of this method** and the geometry is the
+            same for every face. Re-sending it per face made the cube pass scale with face count in
+            vertices as well as in draw calls, which is exactly what turning the cube is meant to
+            avoid.
         """
-        if evaluate:
+        if prepare:
             self.eval_at(t, subject_position=subject_position) # update any stim objects that depend on subject position
 
         # get data from stim object
         vert_coords = self.stim_object.vertices  # x, y, z
-        colors   = self.stim_object.colors       # r, g, b, a        
-        tex_coords = self.stim_object.tex_coords # texture x, texture y
 
         n_vertices = vert_coords.shape[1]
 
-        # write data to VBO
-        self.vbo_vert.write(vert_coords.flatten(order='F').astype('f4'))
-        self.vbo_color.write(colors.flatten(order='F').astype('f4'))
+        if prepare:
+            # write data to VBO
+            self.vbo_vert.write(vert_coords.flatten(order='F').astype('f4'))
+            self.vbo_color.write(self.stim_object.colors.flatten(order='F').astype('f4'))
+            if self.use_texture:
+                self.vbo_texture.write(self.stim_object.tex_coords.flatten(order='F').astype('f4'))
+
         if self.use_texture:
-            self.vbo_texture.write(tex_coords.flatten(order='F').astype('f4'))
             # Bind this stimulus's texture immediately before drawing it, always to unit 0.
+            #
+            # Every call, not only when uploading: the next stimulus in the list binds its own
+            # texture to the same unit, so by the time this one is drawn into the following cube
+            # face someone else's is current.
             #
             # Each stimulus owns its own shader program and draws on its own, so no draw call ever
             # needs more than one texture bound -- one unit is enough for any number of stimuli.

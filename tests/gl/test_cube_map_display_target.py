@@ -59,7 +59,7 @@ class WholeFaceStim:
     def eval_at(self, t, subject_position=None):
         self.eval_times.append(t)
 
-    def paint_at(self, t, viewports, perspectives, subject_position=None, evaluate=True):
+    def paint_at(self, t, viewports, perspectives, subject_position=None, prepare=True):
         # The cube face framebuffer is bound; clearing it is enough to stand for drawing into it.
         import moderngl
         ctx = moderngl.get_context()
@@ -243,15 +243,25 @@ def wide_mesh():
 
 
 class CountingSpot(stimuli.MovingSpot):
-    """A real stimulus that records how often it is evaluated."""
+    """A real stimulus that records how often it is evaluated and how often it uploads."""
 
     def __init__(self, screen):
         super().__init__(screen=screen)
         self.eval_times = []
+        self.uploads = 0
 
     def eval_at(self, t, subject_position={'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}):
         self.eval_times.append(t)
         super().eval_at(t, subject_position=subject_position)
+
+    def initialize(self, ctx):
+        super().initialize(ctx)
+        counted, outer = self.vbo_vert.write, self
+
+        def write(*args, **kwargs):
+            outer.uploads += 1
+            return counted(*args, **kwargs)
+        self.vbo_vert.write = write
 
 
 def drive_one_frame(ctx, mesh, stim_list, t=0.25):
@@ -323,3 +333,42 @@ def test_nothing_is_evaluated_before_the_stimulus_starts(headless_gl):
         renderer.release(); window.release(); window_tex.release()
 
     assert stim.eval_times == []
+
+
+def test_geometry_is_uploaded_once_per_frame_not_once_per_face(headless_gl):
+    """The vertex buffer is the expensive part of paint_at, and the geometry is the same for every
+    face. Re-sending it per face made the cube pass scale with face count in vertices as well as in
+    draw calls -- which is what turning the cube exists to avoid."""
+    ctx = headless_gl
+    mesh = wide_mesh()
+
+    stim = CountingSpot(screen=Screen(fullscreen=False, vsync=False))
+    stim.initialize(ctx)
+    stim.configure(radius=8, sphere_radius=1, color=[1, 1, 1, 1], theta=0, phi=0)
+
+    faces = drive_one_frame(ctx, mesh, [stim])
+
+    assert faces > 1, 'this mesh must need several faces or the test proves nothing'
+    assert stim.uploads == 1, \
+        f'uploaded the vertex buffer {stim.uploads} times across {faces} faces, expected once'
+
+
+def test_the_planar_path_still_uploads_and_evaluates_once(headless_gl):
+    """paint_at's default must be unchanged: one call does everything, for every subscreen given."""
+    ctx = headless_gl
+    stim = CountingSpot(screen=Screen(fullscreen=False, vsync=False))
+    stim.initialize(ctx)
+    stim.configure(radius=8, sphere_radius=1, color=[1, 1, 1, 1], theta=0, phi=0)
+
+    fbo = ctx.simple_framebuffer((SIZE, SIZE))
+    fbo.use()
+    fbo.clear(0.0, 0.0, 0.0, 1.0)
+    subject = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}
+    identity = np.eye(4, dtype='f4').tobytes(order='F')
+    stim.paint_at(0.5, [(0, 0, SIZE, SIZE), (0, 0, SIZE // 2, SIZE // 2)],
+                  [identity, identity], subject_position=subject)
+    ctx.finish()
+    fbo.release()
+
+    assert stim.eval_times == [0.5]
+    assert stim.uploads == 1, 'two subscreens must still cost one upload'
