@@ -586,6 +586,50 @@ twentieth of the cost. Resolution helps because the warp then averages more texe
 pixel; samples help only *within* a texel the warp is already averaging away. Cube MSAA only wins
 where a rig is at its resolution ceiling -- VRAM, or clears dominating -- and still cube-limited.
 
+### Coverage is alpha, and alpha is order-dependent
+
+A partially covered fragment writes depth as though it were fully covered. So a near shape's edge
+depth-rejects whatever is behind it and blends against the background instead, and an opaque scene
+renders differently depending on draw order. Two spots at 0.8 m and 2.0 m, overlapping: **88 pixels
+differ between the two orders, by up to 255**.
+
+It is real, and it is latent. Three measurements bound it:
+
+| case | pixels differing |
+|---|---|
+| overlapping, different depths | 88 |
+| overlapping, **same depth** | 0 |
+| different depths, not overlapping | 0 |
+
+Same-depth is the case that matters, because it is what actually renders: every protocol in the
+labpack this was found on uses `sphere_radius: 1` throughout. Co-planar fragments never
+depth-reject each other.
+
+And the framework's own ordering is the correct one. `BaseProtocol.load_stimuli` sends
+`ConstantBackground` before the trial's own stimuli, so the far surface is in the colour buffer
+before the near one's edge blends over it. Against a 4x supersampled reference:
+
+```
+skybox first (as shipped)   mean |err| 0.035 per pixel
+stimulus first              mean |err| 0.433
+```
+
+So the trap needs a near analytic shape loaded *before* a far one, which nothing does today.
+`tests/gl/test_draw_order.py` pins all of it, with the defect itself recorded as a strict `xfail`
+so that fixing it fails the suite rather than leaving a stale note behind.
+
+**The fix, when it is worth making.** Not sorting -- that is per-frame work, needs a depth per
+stimulus that a general shape does not have, and still leaves overlaps inside one composite. Split
+the draw instead: a global interior pass that writes depth in any order, then a global edge pass
+that blends with depth testing but no depth write. Correct regardless of edge order, no sorting,
+and the residual error is edge-against-edge, which is a few pixels. It costs double the draw calls
+and has to be global across `stim_list` rather than per stimulus, which makes it architectural.
+
+`GL_SAMPLE_ALPHA_TO_COVERAGE` is the other candidate: correct by construction and no second pass,
+but it quantises coverage to 1/n, which gives back most of what an analytic edge buys, and it needs
+multisampling on -- off by default and per-rig. Worth measuring against the two-pass split rather
+than assumed either way.
+
 ### Revised recommendation
 
 1. Fix or remove the ineffective `setSamples(24)`, and report the granted count at start-up.
