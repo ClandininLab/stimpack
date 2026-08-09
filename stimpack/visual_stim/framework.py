@@ -623,10 +623,22 @@ class StimDisplay(QOpenGLWidget):
             stim.paint_at(stim_time, viewports, perspectives,
                           subject_position=self.subject_position, prepare=prepare, pass_kind=1)
 
+        # Which stimuli can contribute to the blended pass at all. Asked after the opaque pass,
+        # because it reads the shape eval_at built and that is where evaluation happens.
+        #
+        # Worth asking: the second pass is not free even when it draws nothing. It still rasterises
+        # everything and runs the fragment shader up to the discard, once per cube face -- a
+        # full-field grating, entirely opaque, paid 0.70 ms on the curved path for a pass with no
+        # output. Skipping the stimuli that cannot blend takes that back.
+        blended = [stim for stim in self.stim_list
+                   if getattr(stim, 'may_blend', None) is None or stim.may_blend()]
+        if not blended:
+            return
+
         target = framebuffer if framebuffer is not None else self.ctx.fbo
         target.depth_mask = False
         try:
-            for stim in self.stim_list:
+            for stim in blended:
                 # prepare=False always: the opaque pass above has already evaluated and uploaded
                 # this frame, and evaluating again would advance a stateful stimulus twice.
                 stim.paint_at(stim_time, viewports, perspectives,

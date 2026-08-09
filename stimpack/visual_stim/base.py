@@ -175,6 +175,33 @@ class BaseProgram:
         """Release GL resources. Called when the stimulus is unloaded."""
         pass
 
+    def may_blend(self):
+        """Whether this stimulus can produce a fragment with alpha below 1.
+
+        Lets a caller splitting the frame skip the blended pass for stimuli that cannot contribute
+        to it -- a grating, a background, any opaque geometry with no declared edge. Worth the check
+        because the skipped pass is not free: it still runs the vertex stage, rasterises everything
+        and executes the fragment shader up to the discard. On the curved path, where that happens
+        once per cube face, a full-field grating paid 0.70 ms for a pass that drew nothing.
+
+        Conservative in every uncertain case. Skipping a stimulus that did need the pass would drop
+        its edges from the frame entirely, which is far worse than drawing one that did not.
+
+        Only meaningful after the stimulus has been evaluated: it reads the shape eval_at built.
+        """
+        stim_object = getattr(self, 'stim_object', None)
+        if stim_object is None:
+            return True
+        if getattr(stim_object, 'edge_kind', 0) or getattr(stim_object, 'edge_spans', None):
+            return True                       # a declared edge means partial coverage at its rim
+        colors = getattr(stim_object, 'colors', None)
+        if colors is None:
+            return True
+        try:
+            return bool(np.min(np.asarray(colors)[3]) < 1.0)
+        except Exception:
+            return True                       # unreadable colours: assume it blends
+
     def paint_at(self, t, viewports, perspectives, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0},
                  prepare=True, pass_kind=0):
         """
