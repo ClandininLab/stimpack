@@ -65,9 +65,19 @@ WARP_FRAGMENT_SHADER = '''
     out vec4 f_color;
     void main() {
         vec4 sampled = texture(cube, normalize(v_direction));
-        // Evens out an uneven projector. rgb only: alpha says how to composite, not how bright
-        // this is, and scaling it would make the correction depend on the blend mode.
-        f_color = vec4(sampled.rgb * v_gain, sampled.a);
+        // Evens out an uneven projector. rgb only: scaling alpha would make the correction depend
+        // on the blend mode.
+        //
+        // Alpha 1, not sampled.a. The cube's alpha channel is an accumulation artefact, not a
+        // coverage value: standard src_alpha/one_minus_src_alpha blending computes
+        // dst.a = src.a^2 + dst.a*(1 - src.a), which decays below 1 wherever blended fragments
+        // stack up. Blending is enabled when this draws, so passing that through composited the
+        // finished image into the window through a meaningless alpha, and the result moved with
+        // draw order even when the cube itself did not. Measured on 100 dots with
+        // split_blended_pass on: cube rgb differed in 8 texels of seven million, but the warped
+        // image differed in 9632 pixels. With alpha 1 it differs in 3. The cube is an opaque
+        // picture of the world; it lands on the display opaque.
+        f_color = vec4(sampled.rgb * v_gain, 1.0);
     }
 '''
 

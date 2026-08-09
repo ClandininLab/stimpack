@@ -15,6 +15,7 @@ pytest.importorskip("numpy")
 pytest.importorskip("moderngl")
 pytest.importorskip("OpenGL")
 
+import moderngl  # noqa: E402
 import numpy as np  # noqa: E402
 
 from stimpack.visual_stim import stimuli  # noqa: E402
@@ -59,7 +60,8 @@ class WholeFaceStim:
     def eval_at(self, t, subject_position=None):
         self.eval_times.append(t)
 
-    def paint_at(self, t, viewports, perspectives, subject_position=None, prepare=True):
+    def paint_at(self, t, viewports, perspectives, subject_position=None, prepare=True,
+                 pass_kind=0):
         # The cube face framebuffer is bound; clearing it is enough to stand for drawing into it.
         import moderngl
         ctx = moderngl.get_context()
@@ -120,6 +122,39 @@ def test_a_stimulus_reaches_the_display(headless_gl):
     image, _, _ = run_paint(headless_gl, stim_list=[WholeFaceStim()], stim_started=True)
     green = image[..., 1].mean()
     assert green > 200, f'display green {green:.0f}: the warp did not reach the display'
+
+
+class TranslucentFaceStim(WholeFaceStim):
+    """Leaves the cube face at full green but with alpha well below 1."""
+
+    COLOR = (0.0, 1.0, 0.0, 0.25)
+
+
+def test_the_warp_does_not_composite_through_the_cubes_alpha(headless_gl):
+    """The warp must land opaque, whatever the cube's alpha channel happens to hold.
+
+    That channel is an accumulation artefact, not coverage: src_alpha/one_minus_src_alpha blending
+    computes dst.a = src.a^2 + dst.a*(1 - src.a), so it decays below 1 wherever blended fragments
+    stack up, and by different amounts depending on which stimulus was drawn first. Passing it
+    through made the finished image composite into the window through that artefact. With
+    split_blended_pass on, 100 dots gave a cube whose rgb differed in 8 texels of seven million
+    between the two draw orders and a warped image that differed in 9632 pixels.
+
+    Blending has to be enabled here or the test cannot fail: without it the window ignores the
+    source alpha and every value below arrives intact regardless.
+    """
+    ctx = headless_gl
+    ctx.enable(moderngl.BLEND)
+    try:
+        image, _, _ = run_paint(ctx, stim_list=[TranslucentFaceStim()], stim_started=True)
+    finally:
+        ctx.disable(moderngl.BLEND)
+
+    green = image[..., 1].mean()
+    # Compositing 0.25-alpha green over the black window would land near 64, not 255.
+    assert green > 200, (
+        f'display green {green:.0f}: the warp composited the cube through its own alpha instead of '
+        f'writing an opaque image')
 
 
 def test_the_display_framebuffer_is_bound_when_the_pass_returns(headless_gl):
