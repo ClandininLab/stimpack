@@ -107,11 +107,19 @@ class TestAlternatingAnnuli:
         edges = np.unique(np.round(angles_from_axis(stim.stim_object.vertices), 6))
         assert np.allclose(edges, np.arange(0, 50, 5.0))
 
-    def test_it_fits_in_the_reserved_buffers(self):
-        """BaseProgram reserves num_tri*3 vertices up front; overrunning it silently truncates the
-        pattern, which on an alignment target would look like a screen edge that is not there."""
+    def test_a_large_pattern_is_drawn_whole(self):
+        """The concern this used to check against `num_tri` -- a pattern cut short reads as a
+        screen edge that is not there, and on an alignment target that is the one thing it must
+        not do.
+
+        It checked that the geometry fitted the buffers reserved at construction. Those now size
+        themselves, so the property worth holding is the one that mattered: every band asked for is
+        present, however many that is.
+        """
         stim = self.make(band_width=5, max_radius=60, n_azimuth=128)
-        assert stim.stim_object.vertices.shape[1] // 3 <= stim.num_tri
+        edges = np.unique(np.round(angles_from_axis(stim.stim_object.vertices), 6))
+        assert np.allclose(edges, np.arange(0, 65, 5.0)), f'{edges}: bands are missing'
+        assert stim.stim_object.vertices.shape[1] % 3 == 0
 
     def test_eval_at_does_not_rebuild_it(self):
         """Static on purpose: it is a target to photograph, and rebuilding 3000 triangles a frame

@@ -14,6 +14,12 @@ import moderngl
 import numpy as np
 
 
+#: Triangles the vertex buffers start out holding. Small on purpose: they grow to fit whatever a
+#: frame turns out to need, and growing jumps straight to that size when the gap is large, so
+#: starting small costs at most one reallocation and starting large costs more than it saves.
+INITIAL_TRIANGLE_RESERVATION = 500
+
+
 def _frame_bytes(frame):
     """A shape's edge frame as the bytes a GLSL mat3 uniform wants.
 
@@ -63,17 +69,25 @@ def _packed_edge(declaration):
 
 
 class BaseProgram:
-    def __init__(self, screen, num_tri=500):
+    def __init__(self, screen, num_tri=None):
         """
         :param screen: Object containing screen size information
-        :param num_tri: how many triangles to reserve vertex buffers for initially. A hint, not a
-            limit -- the buffers grow if a frame's geometry does not fit. Set it near the expected
-            size to avoid a reallocation or two on the first frames; getting it wrong is no longer
-            an error.
+        :param num_tri: **ignored**, and accepted only so existing callers keep working.
+
+            It used to reserve the vertex buffers, and had to be given here -- before configure has
+            run, before anything knows how big the geometry will be -- so callers guessed. The
+            guesses in the tree are thirteen identical 10000s, two 1000s, one 20000 and one 500,
+            which is what a parameter looks like when nobody can compute its answer.
+
+            The buffers now size themselves, and a wrong guess costs one reallocation of 0.005 ms
+            rather than an error. Guessing *high* was measured to be worse than not guessing at all:
+            reserving 20000 triangles for a stimulus that needs 10368 made its first frame 0.703 ms
+            against 0.585 ms starting small, because the oversized allocation costs more than the
+            one reallocation it saves.
         """
         # set screen
         self.screen = screen
-        self.num_tri = num_tri
+        self.num_tri = INITIAL_TRIANGLE_RESERVATION
         self.use_texture = False
         self.rgb_texture = False
         self.texture = None
@@ -88,7 +102,7 @@ class BaseProgram:
         self.ctx = ctx
         self.prog = self.ctx.program(vertex_shader=self.get_vertex_shader(), fragment_shader=self.get_fragment_shader())
 
-        self.allocate_vertex_buffers(self.num_tri)
+        self.allocate_vertex_buffers(INITIAL_TRIANGLE_RESERVATION)
 
         # Default texture booleans for the shader program
         self.prog['use_texture'].value = False
@@ -126,12 +140,10 @@ class BaseProgram:
     def ensure_vertex_capacity(self, n_vertices):
         """Grow the vertex buffers if this frame's geometry does not fit in them.
 
-        `num_tri` is a starting hint, not a limit. It has to be given at construction -- before
-        configure has run and before anything knows how big the geometry will be -- so every
-        stimulus that needs more than the default guesses a round number and hopes. Guessing low
-        used to fail at the first frame with `out of range offset`, which is how Forest's 1000
-        stopped it at 31 faces per tree for 16 trees; guessing high reserves GPU memory nothing
-        writes to.
+        This is what replaced the reservation a caller used to have to guess at construction.
+        Guessing low failed at the first frame with `out of range offset`, which is how Forest's
+        1000 stopped it at 31 faces per tree for 16 trees; guessing high reserved GPU memory
+        nothing wrote to.
 
         Doubling rather than fitting exactly, so a stimulus whose geometry creeps upward -- a loom
         rebuilt each frame, a field gaining points -- reallocates a handful of times rather than
