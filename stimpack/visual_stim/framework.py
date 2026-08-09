@@ -1172,22 +1172,35 @@ def main():
     # compositor alone decides focus, and mutter activates new toplevels regardless (measured, not
     # assumed). To get this under a Wayland session, run the screen on XWayland instead --
     # Screen(x_display=os.environ['DISPLAY']) selects the xcb platform. See tests/conftest.py.
-    # Windowed screens only. A fullscreen window carrying WindowDoesNotAcceptFocus is placed by
-    # fluxbox as though it were decorated: the client area starts at the title bar's height instead
-    # of at the top of the display. Measured on a 1920x1080 screen, showFullScreen() either way:
+    # WA_ShowWithoutActivating only. WindowDoesNotAcceptFocus used to be set alongside it and does
+    # two separate jobs, one of which we want and one of which breaks things:
     #
-    #     without the flag    client geometry 1920x1080+0+0
-    #     with the flag       client geometry 1920x1080+0+22
+    #     WA_ShowWithoutActivating   do not take focus when shown      <- what this is for
+    #     WindowDoesNotAcceptFocus   never accept focus, ever          <- too strong, and harmful
     #
-    # Qt reports WindowFullScreen in both cases, so nothing in software can tell. On this rig it
-    # shifted the whole projected image 22 px down the bowl and pushed the bottom 22 px off the
-    # display -- a misaligned experiment that still looks like a working one.
+    # Measured on a 1920x1080 fluxbox screen, showFullScreen() in each configuration:
     #
-    # No loss: the dropped frames above came from the *operator* window competing for focus, and
-    # that one is windowed. The fullscreen screen never needed the flag, it only suffered from it.
-    if os.environ.get('STIMPACK_NO_FOCUS', '1') != '0' and not screen.fullscreen:
+    #     neither                                 1920x1080+0+0    focusable
+    #     WA_ShowWithoutActivating                1920x1080+0+0    focusable
+    #     WindowDoesNotAcceptFocus                1920x1080+0+22   not focusable
+    #     both                                    1920x1080+0+22   not focusable
+    #
+    # The flag costs 22 px, the attribute costs nothing. A fullscreen window carrying the flag is
+    # placed by fluxbox as though it were decorated -- the client area starts at the title bar's
+    # height. Qt reports WindowFullScreen either way, so nothing in software can tell: on this rig
+    # the projector window sat at 912x1140+0+22, shifting the whole image 22 px down the bowl and
+    # pushing the bottom 22 px off the display. A misaligned experiment that looks like a working
+    # one.
+    #
+    # On a windowed screen the flag does something just as bad but louder: the operator preview
+    # becomes permanently unfocusable, so when the window manager flashes it for attention there is
+    # no way to click it and make it stop.
+    #
+    # Not taking focus when shown is the whole of what the dropped-frame problem needed -- the
+    # windows competed because each grabbed focus as it appeared. Whether the attribute alone holds
+    # the frame count at 720/720 is worth re-checking on a rig with an operator window open.
+    if os.environ.get('STIMPACK_NO_FOCUS', '1') != '0':
         stim_display.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        stim_display.setWindowFlag(QtCore.Qt.WindowType.WindowDoesNotAcceptFocus, True)
 
     # display the stimulus
     if screen.fullscreen:
