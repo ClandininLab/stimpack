@@ -3,9 +3,10 @@
 *How many cube faces a curved screen needs is a function of where the cube is pointed, and the
 answer is closed-form rather than something to search for.*
 
-**Built.** `CurvedScreen(cube_orientation='auto')`, off by default. The derivation below is the
-whole of the design; what changed since it was first written is the measurement, which had said the
-saving was not worth having.
+**Built, and on by default.** `cube_orientation='auto'`; pass `None` for the axis-aligned cube
+every rig ran before. The derivation below is the whole of the design; what changed since it was
+first written is the measurement, twice -- see below, and do not trust a figure on this page that
+is not dated to the current code.
 
 ## The question
 

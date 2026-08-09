@@ -801,22 +801,34 @@ class CurvedScreen(Screen):
         correcting. The default of 1.0 says the projector is linear, which is very likely wrong:
         nothing in stimpack measures this, and until a rig does, its correction is directionally
         right and quantitatively off. Measuring it is one photometer and eight levels.
-    :param cube_orientation: how the cube map is turned relative to the rig. None (the default)
-        leaves it axis-aligned, which is what every rig ran before this existed. ``'auto'`` turns it
-        to suit this screen, which costs nothing and can drop a face or two -- each face avoided is
-        a whole scene draw saved every frame. A 3x3 rotation may be given instead, taking rig
-        directions to cube directions.
+    :param cube_orientation: how the cube map is turned relative to the rig.
 
-        Worth switching on only when the cube pass is the frame-rate limit, which it usually is
-        not. Measured on a 65-degree bowl taking five faces to three, it saves 7-10% of the cube
-        pass -- 0.08 ms on a plain background and 0.18 ms on 400 towers, against an 8.33 ms budget
-        at 120 Hz. Where it would matter is at complexities that already drop frames, and there
-        halving ``cube_resolution`` does more. See docs/design/cube-orientation.md.
+        ``'auto'`` (the default) turns it to suit this screen. A screen rarely fills the sphere, and
+        a lopsided one straddles fewer cube faces if the cube is turned to meet it -- five to three
+        on a 65-degree bowl, and each face avoided is a whole scene draw saved every frame. The
+        choice is closed-form rather than a search: only the direction of the screen's own axis
+        relative to the cube matters. See docs/design/cube-orientation.md.
+
+        It is self-checking, so it is safe to leave on. The candidate is kept only if it actually
+        reduces the face count on this mesh, and a screen with no lopsidedness to exploit -- one
+        covering the whole sphere -- falls out of the same arithmetic as no rotation at all.
+
+        **Nothing visible changes.** The scene is rendered into turned faces and sampled along
+        turned directions; the images agree to under a tenth of a pixel, with the disagreement
+        confined to resampling at hard edges, and they still agree once the subject turns.
+
+        Pass ``None`` for the axis-aligned cube, which is what every rig ran before this existed.
+        A 3x3 rotation may be given instead, taking rig directions to cube directions.
+
+        Do not expect it to rescue a frame rate. Measured on a 65-degree bowl taking five faces to
+        three, it saves 7-10% of the cube pass -- 0.08 ms on a plain background and 0.18 ms on 400
+        towers, against an 8.33 ms budget at 120 Hz. Where the cube pass really is the limit,
+        halving ``cube_resolution`` does more.
     """
 
     def __init__(self, surface=None, projector=None, cube_resolution=1024,
                  brightness_correction=None, gamma=1.0, measured_falloff=None,
-                 cube_orientation=None, **kwargs):
+                 cube_orientation='auto', **kwargs):
         super().__init__(**kwargs)
         self.surface = surface if surface is not None else SphericalSurface()
         self.projector = projector if projector is not None else PinholeProjector()

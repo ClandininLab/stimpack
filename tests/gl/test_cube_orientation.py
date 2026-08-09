@@ -276,10 +276,29 @@ def test_a_screen_covering_the_whole_sphere_has_nothing_to_aim_at():
     assert CurvedScreen(cube_orientation='auto').resolve_cube_orientation(WholeSphere()) is None
 
 
-def test_the_default_leaves_the_cube_where_it_was():
-    """Every rig that predates this must be unaffected."""
-    assert CurvedScreen().cube_orientation is None
-    assert CurvedScreen().resolve_cube_orientation() is None
+def test_the_default_turns_the_cube_to_suit_the_screen():
+    """'auto' is the default, so an ordinary curved rig gets it without asking."""
+    screen = CurvedScreen(surface=SphericalSurface(elevation_range=(30, 90)))
+    assert screen.cube_orientation == 'auto'
+    assert screen.resolve_cube_orientation() is not None
+
+
+def test_the_default_leaves_a_screen_it_cannot_help_alone():
+    """Which is what makes the default safe: it is self-checking, not unconditional. A screen
+    filling the sphere has no lopsidedness to exploit and is left axis-aligned."""
+    class WholeSphere:
+        directions = np.array([[1., 0, 0], [-1, 0, 0], [0, 1., 0],
+                               [0, -1, 0], [0, 0, 1.], [0, 0, -1]])
+        triangles = np.array([[0, 2, 4], [1, 3, 5]])
+
+    assert CurvedScreen().resolve_cube_orientation(WholeSphere()) is None
+
+
+def test_none_still_asks_for_the_axis_aligned_cube():
+    """What every rig ran before this existed, for anyone who wants it back."""
+    screen = CurvedScreen(surface=SphericalSurface(elevation_range=(30, 90)),
+                          cube_orientation=None)
+    assert screen.resolve_cube_orientation() is None
 
 
 def test_the_orientation_survives_serialization():

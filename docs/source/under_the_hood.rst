@@ -72,8 +72,9 @@ may have 200 triangles or 20,000 for the same price, where giving each facet its
 multiply scene complexity by screen complexity. Measured on a 7.7 cm bowl at 1536-pixel faces, the
 warp pass is about 0.28 ms of an 8.33 ms frame, and a hundredfold increase in mesh density moves it
 by under a tenth of a millisecond. The scene draws dominate, which is why the renderer draws only
-the faces the mesh actually samples -- and why ``cube_orientation`` exists to reduce that count
-further (see ``docs/design/cube-orientation.md``).
+the faces the mesh actually samples -- and why ``cube_orientation`` reduces that count further by
+turning the cube to suit the screen, which it does by default (see
+``docs/design/cube-orientation.md``).
 
 The corner square is drawn last on either path, in projector coordinates, as a photodiode timing
 signal.
