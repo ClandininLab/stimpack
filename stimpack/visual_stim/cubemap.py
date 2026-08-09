@@ -99,32 +99,25 @@ def face_view_matrix(eye, forward, up):
 
 #: Near plane for the cube faces, in metres.
 #:
-#: Raised from 1e-4 because 1e-4 was measured to be order-dependent. Two opaque boxes 1 mm apart at
-#: 1 m, drawn through the flymax bowl's geometry: reversing which one is loaded first moved 2974
-#: pixels at full contrast, with the wrong box in front. At 1e-2 the same scene is identical to the
-#: pixel. Depth writes are on for both boxes and neither blends, so the pass split cannot help --
-#: this is the depth buffer failing to tell them apart.
+#: Do not raise this. It was briefly 1e-2 and that broke closed-loop protocols outright: stimpack
+#: scenes are not all at arm's length. FlyByFly puts a model fly 5 mm from the subject, its floor
+#: 0.1 mm below, and the whole scene inside 5 mm -- entirely within a 1 cm near plane, so every bit
+#: of it was clipped and the screen showed nothing. It survived on the flat path only because
+#: perspective.py has its own near and kept 1e-4, which is what made the breakage look like a
+#: curved-path bug rather than a near plane set too far out.
 #:
-#: **The mechanism is not fully pinned.** The obvious explanation is quantisation of the stored
-#: depth, which goes as roughly ``1 - near/z`` -- but evaluating the projection at 1.000 m and
-#: 1.001 m says 1e-4 leaves about ten units of a 24-bit buffer between them, which should be
-#: enough. So something else is costing the precision; interpolation across a large primitive at a
-#: 90-degree field of view is the most likely candidate, and it is not accounted for here. What is
-#: solid is the measurement and that ``near`` is the only thing that changed between the two.
+#: The cost of keeping it here is real but smaller. Depth is stored as roughly ``1 - near/z``, so a
+#: near plane this close leaves little of a 24-bit buffer for anything past it: two opaque boxes
+#: 1 mm apart at 1 m came out order-dependent by 2974 pixels, the wrong one in front, decided by
+#: load order. Both boxes are opaque and write depth, so the pass split does not help.
 #:
-#: No regression test guards this. Two attempts to reproduce it on a synthetic spherical screen
-#: both came out order-independent at 1e-4, so they would have passed at the broken value and
-#: pinned nothing. Reproducing it needs the rig's own geometry, which the test suite cannot import.
-#: The measurement lives in the commit that made this change.
-#:
-#: The cost is that nothing closer to the subject than this is drawn at all. 1 cm is far inside any
-#: screen this renders to -- the flymax bowl has a 15 cm radius -- but it is the number to revisit
-#: if geometry is ever meant to approach the subject more closely than that.
-#:
-#: ``perspective.py`` keeps its own, still 1e-4, for the planar path. The same scene measured there
-#: is order-independent at both values, so there was no defect to justify changing a constant every
-#: flat rig already depends on.
-DEFAULT_NEAR = 1e-2
+#: That is a real defect and it wants a real fix, which is not this constant. Reversed-Z is the
+#: standard one -- map near to 1.0 and far to 0.0 in a float32 depth buffer and the 1/z distribution
+#: cancels against float's density near zero, giving usable precision at every distance without
+#: choosing between millimetres and metres. It needs ARB_clip_control and ARB_depth_buffer_float,
+#: both present on this rig's Quadro M2000, and it is a global change to the depth convention: every
+#: attachment on both paths has to agree. Worth doing deliberately, not as a side effect.
+DEFAULT_NEAR = 1e-4
 
 
 def face_projection_matrix(near=DEFAULT_NEAR, far=1000.0):
