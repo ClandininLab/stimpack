@@ -97,7 +97,37 @@ def face_view_matrix(eye, forward, up):
     return view
 
 
-def face_projection_matrix(near=1e-4, far=1000.0):
+#: Near plane for the cube faces, in metres.
+#:
+#: Raised from 1e-4 because 1e-4 was measured to be order-dependent. Two opaque boxes 1 mm apart at
+#: 1 m, drawn through the flymax bowl's geometry: reversing which one is loaded first moved 2974
+#: pixels at full contrast, with the wrong box in front. At 1e-2 the same scene is identical to the
+#: pixel. Depth writes are on for both boxes and neither blends, so the pass split cannot help --
+#: this is the depth buffer failing to tell them apart.
+#:
+#: **The mechanism is not fully pinned.** The obvious explanation is quantisation of the stored
+#: depth, which goes as roughly ``1 - near/z`` -- but evaluating the projection at 1.000 m and
+#: 1.001 m says 1e-4 leaves about ten units of a 24-bit buffer between them, which should be
+#: enough. So something else is costing the precision; interpolation across a large primitive at a
+#: 90-degree field of view is the most likely candidate, and it is not accounted for here. What is
+#: solid is the measurement and that ``near`` is the only thing that changed between the two.
+#:
+#: No regression test guards this. Two attempts to reproduce it on a synthetic spherical screen
+#: both came out order-independent at 1e-4, so they would have passed at the broken value and
+#: pinned nothing. Reproducing it needs the rig's own geometry, which the test suite cannot import.
+#: The measurement lives in the commit that made this change.
+#:
+#: The cost is that nothing closer to the subject than this is drawn at all. 1 cm is far inside any
+#: screen this renders to -- the flymax bowl has a 15 cm radius -- but it is the number to revisit
+#: if geometry is ever meant to approach the subject more closely than that.
+#:
+#: ``perspective.py`` keeps its own, still 1e-4, for the planar path. The same scene measured there
+#: is order-independent at both values, so there was no defect to justify changing a constant every
+#: flat rig already depends on.
+DEFAULT_NEAR = 1e-2
+
+
+def face_projection_matrix(near=DEFAULT_NEAR, far=1000.0):
     """A symmetric 90-degree frustum: exactly one face of a cube, so the six tile without gaps."""
     projection = np.zeros((4, 4), dtype='f4')
     projection[0, 0] = projection[1, 1] = 1.0          # tan(45 degrees)
@@ -233,7 +263,7 @@ def _skew_matrix(v):
     return np.array([[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]], [-v[1], v[0], 0.0]])
 
 
-def face_view_projections(subject_position=None, near=1e-4, far=1000.0, orientation=None):
+def face_view_projections(subject_position=None, near=DEFAULT_NEAR, far=1000.0, orientation=None):
     """The six view-projection matrices that fill a cube map, as arrays, in GL face order.
 
     :param subject_position: the same dict the planar path uses -- {'x','y','z','theta','phi','roll'}
@@ -314,7 +344,7 @@ def faces_for_mesh(mesh):
     return faces_for_directions(mesh.directions, getattr(mesh, 'triangles', None))
 
 
-def face_matrices(subject_position=None, near=1e-4, far=1000.0, orientation=None):
+def face_matrices(subject_position=None, near=DEFAULT_NEAR, far=1000.0, orientation=None):
     """The same six matrices as bytes, laid out exactly as get_perspective returns them.
 
     Column-major float32, so a stimulus's `paint_at` can take these in place of the planar
