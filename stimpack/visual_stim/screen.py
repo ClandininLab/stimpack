@@ -112,7 +112,8 @@ class Screen:
     def __init__(self, subscreens=None, x_display=None, display_index=0, fullscreen=None, vsync=None,
                  square_size=None, square_loc=None, square_on_color=None, square_off_color=None, name=None, horizontal_flip=False, 
                  pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15), use_egl=None,
-                 subframes=1, subframe_channel_order=(0, 1, 2), refresh_rate=None, msaa_samples=0):
+                 subframes=1, subframe_channel_order=(0, 1, 2), refresh_rate=None, msaa_samples=0,
+                 split_blended_pass=False):
         """
         :param subscreens: list of SubScreen objects (see above), if none are provided, one full-viewport subscreen will be produced using inputs pa, pb, pc
         :param x_display: $DISPLAY environment variable relevant if using Xorg as display server. If None, the default display is used.
@@ -143,6 +144,25 @@ class Screen:
             Cost on a 16-tree forest at 1920x1080: 1.7% of a 360 Hz frame budget at 4x and 5.7% at
             16x on an RTX A4500; 89% at 4x on a software rasteriser, where it does not fit. Measure
             on the rig before raising it.
+        :param split_blended_pass: draw each frame in two passes so that blending stops depending on
+            draw order. False (the default) keeps the single pass every rig ran before.
+
+            Blending against a depth buffer is order-dependent: a fragment that is only partly
+            covered still writes depth as though it were opaque, so whatever is behind it is
+            rejected and it blends against the background instead. An opaque scene then renders
+            differently depending on which stimulus was loaded first. Splitting the frame -- opaque
+            fragments with depth writes on, then blended ones with depth writes off -- fixes that
+            without sorting anything.
+
+            This is not specific to analytic edges, though they made it universal: any stimulus with
+            ``color`` alpha below 1 has always had it. Measured on 100 overlapping dots, reversing
+            the draw order changed 3519 pixels in one pass and 22 in two. The remainder is where two
+            blended fragments overlap each other, which needs per-sample storage to fix.
+
+            Off by default because the cost is real where the budget is tight. On this rig's Quadro
+            M2000, a background and one spot: +0.07 ms flat, +0.49 ms curved -- under 6% of a 120 Hz
+            frame, but 18% of a 360 Hz one, and the curved path pays it once per cube face. Measure
+            before enabling it on a multiplexing rig.
 
             **On a CurvedScreen this reaches much less than it looks.** It multisamples the
             framebuffer the frame is drawn into, and on the curved path the scene has already been
@@ -201,6 +221,7 @@ class Screen:
         self.square_on_color = square_on_color
         self.square_off_color = square_off_color
         self.msaa_samples = int(msaa_samples)
+        self.split_blended_pass = bool(split_blended_pass)
         self.name = name
         self.horizontal_flip = horizontal_flip
         self.pa = pa
@@ -297,7 +318,8 @@ class Screen:
         # get all variables needed to reconstruct the screen object
         vars = ['x_display', 'display_index', 'fullscreen', 'vsync', 'square_size', 'square_loc', 
                 'square_on_color', 'square_off_color', 'name', 'horizontal_flip', 'pa', 'pb', 'pc', 'use_egl',
-                'subframes', 'subframe_channel_order', 'refresh_rate', 'msaa_samples']
+                'subframes', 'subframe_channel_order', 'refresh_rate', 'msaa_samples',
+                'split_blended_pass']
         data = {var: getattr(self, var) for var in vars}
 
         # special handling for tri_list since it could contain numpy values

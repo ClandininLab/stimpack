@@ -66,8 +66,11 @@ class WholeFaceStim:
         ctx.fbo.clear(*self.COLOR)
 
 
-def display_for(ctx, renderer, stim_list, stim_started):
+def display_for(ctx, renderer, stim_list, stim_started, screen=None):
     display = StimDisplay.__new__(StimDisplay)
+    # A real StimDisplay always has one, and the render loop reads it -- for split_blended_pass
+    # among other things. Leaving it off makes the double narrower than the thing it stands for.
+    display.screen = screen if screen is not None else Screen(fullscreen=False, vsync=False)
     display.ctx = ctx
     display.cube_renderer = renderer
     display.stim_list = stim_list
@@ -152,8 +155,7 @@ def run_subframe(ctx, renderer, screen):
     try:
         window.use()
 
-        display = display_for(ctx, renderer, stim_list=[], stim_started=False)
-        display.screen = screen
+        display = display_for(ctx, renderer, stim_list=[], stim_started=False, screen=screen)
         display.subscreen_viewports = [sub.get_viewport(SIZE, SIZE) for sub in screen.subscreens]
         display.square_program = FakeSquare()
         display.calibration_spot = FakeCalibrationSpot()

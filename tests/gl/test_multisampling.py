@@ -215,6 +215,7 @@ def _render_curved(ctx, name, kwargs, samples, screen=None):
     stim.configure(**kwargs)
 
     display = StimDisplay.__new__(StimDisplay)
+    display.screen = screen
     display.ctx, display.cube_renderer = ctx, renderer
     display.stim_list, display.stim_started = [stim], True
     display.idle_background = (0.0, 0.0, 0.0, 1.0)

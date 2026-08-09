@@ -109,6 +109,9 @@ class BaseProgram:
         self.prog['rgb_texture'].value = False
         self.prog['sharp_texels'].value = False
 
+        # Draw everything unless a caller splits the frame into passes.
+        self.prog['pass_kind'].value = 0
+
         # No analytic edge unless a shape asks for one, so an unconverted stimulus renders exactly
         # as it did. The other two are never read while this is 0, but GL wants them initialised.
         self.prog['edge_kind'].value = 0
@@ -173,7 +176,7 @@ class BaseProgram:
         pass
 
     def paint_at(self, t, viewports, perspectives, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0},
-                 prepare=True):
+                 prepare=True, pass_kind=0):
         """
         :param t: current time in seconds
         :param viewports: list of viewport arrays for each subscreen - (xmin, ymin, width, height) in display device pixels
@@ -200,7 +203,13 @@ class BaseProgram:
             same for every face. Re-sending it per face made the cube pass scale with face count in
             vertices as well as in draw calls, which is exactly what turning the cube is meant to
             avoid.
+        :param pass_kind: which fragments to draw. ``0`` draws everything, which is the behaviour
+            this had before the option existed. ``1`` draws only fully opaque fragments and ``2``
+            only blended ones, which is how a caller splits a frame so that blending stops
+            depending on draw order -- see ``Screen(split_blended_pass=True)``.
         """
+        self.prog['pass_kind'].value = int(pass_kind)
+
         if prepare:
             self.eval_at(t, subject_position=subject_position) # update any stim objects that depend on subject position
 
@@ -408,6 +417,10 @@ class BaseProgram:
             // is what lets a shape be moved without invalidating what it declared.
             uniform vec3 edge_anchor;
 
+            // Which fragments this draw is for. 0 draws everything, as it always did. 1 keeps
+            // only fully opaque fragments and 2 only blended ones -- see paint_at's `pass_kind`.
+            uniform int pass_kind;
+
             out vec4 f_color;
 
             // A texture sample that keeps hard texel edges without letting them alias.
@@ -515,6 +528,12 @@ class BaseProgram:
                 // Multiplied in, not assigned: a shape may already be translucent (GlCylinder's
                 // alpha_by_face), and coverage composes with that rather than overwriting it.
                 f_color.a *= edge_coverage();
+
+                // Split by the FINAL alpha, so a deliberately translucent shape goes the same way
+                // an antialiased edge does. Both have to blend without writing depth, and nothing
+                // else about them differs here.
+                if (pass_kind == 1 && f_color.a < 1.0) discard;
+                if (pass_kind == 2 && f_color.a >= 1.0) discard;
             }
         '''
 

@@ -447,6 +447,19 @@ class CubeMapRenderer:
         self.ctx.viewport = (0, 0, self.resolution, self.resolution)
         fbo.clear(*clear_color)
 
+    def face_framebuffer(self, index):
+        """The framebuffer a face is drawn into.
+
+        Public because a caller that splits a frame into passes has to toggle the depth mask on the
+        framebuffer actually being drawn into, and on this path that is a cube face rather than the
+        display. Reaching into the private dict from outside would work until the day it is keyed
+        differently.
+        """
+        if index not in self._face_fbos:
+            raise ValueError(f'face {index} is not attached: this renderer draws '
+                             f'{list(self._face_fbos)}')
+        return self._face_fbos[index]
+
     def render_warp(self, viewport=None):
         """Draw the screen mesh into whatever framebuffer is currently bound.
 

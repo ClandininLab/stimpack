@@ -18,13 +18,23 @@ pytestmark = pytest.mark.unit
 
 
 class RecordingStim:
-    """Stands in for a stimulus, noting the time it was painted at."""
+    """Stands in for a stimulus, noting the time it was painted at.
+
+    Carries paint_at's full signature, including the keywords the render loop uses to hoist
+    evaluation out of a per-face loop and to split a frame into passes. A double narrower than the
+    interface it stands for fails as soon as the caller uses the rest of it, which says nothing
+    about the code under test.
+    """
 
     def __init__(self):
         self.painted_at = []
 
-    def paint_at(self, t, viewports, perspectives, subject_position=None):
-        self.painted_at.append(t)
+    def paint_at(self, t, viewports, perspectives, subject_position=None,
+                 prepare=True, pass_kind=0):
+        # One entry per frame, not per pass: the splitting is the render loop's business, and the
+        # tests here are about when a stimulus is painted, not how many draws that takes.
+        if pass_kind != 2:
+            self.painted_at.append(t)
 
 
 class FakeFramebuffer:
