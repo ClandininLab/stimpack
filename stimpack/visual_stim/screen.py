@@ -143,6 +143,16 @@ class Screen:
             Cost on a 16-tree forest at 1920x1080: 1.7% of a 360 Hz frame budget at 4x and 5.7% at
             16x on an RTX A4500; 89% at 4x on a software rasteriser, where it does not fit. Measure
             on the rig before raising it.
+
+            **On a CurvedScreen this reaches much less than it looks.** It multisamples the
+            framebuffer the frame is drawn into, and on the curved path the scene has already been
+            rasterised into the cube faces, which are ordinary single-sample framebuffers. Only the
+            warp pass -- one draw of the screen mesh -- is multisampled, so what it smooths is the
+            screen's own silhouette rather than the stimuli on it. The same forest measured on a
+            Quadro M2000 went from 0 partially-covered edge pixels to 1526 at 4x on a flat screen,
+            and only 1506 to 1789 on the bowl -- which also starts far from zero because the warp
+            samples the cube bilinearly while minifying, and so antialiases for free. Multisampling
+            the cube faces as well was prototyped and rejected; see docs/design/analytic-edges.md.
         """
         if subscreens is None:
             subscreens = [ SubScreen(pa=pa, pb=pb, pc=pc) ]

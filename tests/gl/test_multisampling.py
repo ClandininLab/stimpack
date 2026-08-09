@@ -7,6 +7,10 @@ shapes with ``add()``, which is drawn in one call with one edge equation.
 What it buys is edge position quantised to 1/n of a pixel rather than a whole one. That is a finer
 staircase, not the continuous sub-pixel motion an analytic edge gives, and the tests below pin both
 halves of that: it helps the shapes without an equation, and leaves the shapes with one alone.
+
+These all render through a flat frustum, which is where the option does its work. On a CurvedScreen
+it reaches much less: the scene is rasterised into single-sample cube faces first, and only the warp
+pass is multisampled. See docs/design/analytic-edges.md.
 """
 import math
 

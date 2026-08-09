@@ -17,6 +17,10 @@ docstring, measured on two GPUs:
 The cube faces have no multisampling either. So every stimulus edge, on every path, is hard-
 quantised to the framebuffer's pixel grid.
 
+*Half of that is now addressed: `Screen(msaa_samples=n)` multisamples the framebuffer a frame is
+drawn into. The cube faces are still single-sample, and deliberately -- see "It reaches the flat
+path fully and the curved path barely" below.*
+
 The consequence is a motion artefact. Without coverage information an edge cannot sit between
 pixels, so it stays on one and then jumps. Frames an edge is frozen before it moves:
 
@@ -527,6 +531,60 @@ carry one: `MovingBox`, `Tower`, `Forest`, the labpack's `GlFly`, and anything e
 Rig-specific because the cost is, by more than an order of magnitude. A 16-tree forest at
 1920x1080: 1.7% of a 360 Hz frame at 4x and 5.7% at 16x on an RTX A4500; 89% at 4x on a software
 rasteriser, where 8x does not fit at all. Measure on the rig before raising it.
+
+### It reaches the flat path fully and the curved path barely
+
+`msaa_samples` multisamples the framebuffer `paintGL` draws into. On a **planar** screen that is the
+stimulus geometry itself. On a **curved** screen it is not: the scene is rasterised into the cube
+faces first -- ordinary single-sample framebuffers -- and the only thing drawn into the multisampled
+target is the warp pass, one draw of the screen mesh. Stimulus edges are already fixed in the cube
+by the time multisampling sees anything; what gets antialiased is the mesh's own silhouette.
+
+Partially-covered pixels along the edges of a 16-tree forest, Quadro M2000, 1280x800:
+
+| path | 0x | 4x | 16x |
+|---|---|---|---|
+| planar | **0** | 1526 | 2060 |
+| curved | 1506 | 1789 | 3221 |
+
+Two things to read off it. The planar row is the case the feature exists for -- literally no
+intermediate pixels at all, a fully hard staircase, fixed at 4x. And the curved row *starts* at
+1506 rather than 0, because the warp is already antialiasing: it samples the cube bilinearly while
+**minifying**, 17.1 px/deg of cube into a projector that resolves 12.0, so it averages as it goes.
+
+### Multisampling the cube faces: prototyped, not built
+
+Core GL 3.3 has no multisampled cube map, so a face cannot be rendered into directly. The route is
+one multisampled renderbuffer reused for every face -- draw the scene into it, resolve it into that
+face's framebuffer, which already points at the cube texture. Memory does not scale with face
+count; only the resolve does. About 25 lines in `CubeMapRenderer` plus a `resolve_face()` in the
+face loop.
+
+Measured on the BrukerJr bowl, 3 faces, forest as above:
+
+| cube res | px/deg | samples | VRAM | partial px | ms/frame |
+|---|---|---|---|---|---|
+| 768 | 8.5 | 0 | 14M | 2948 | 0.61 |
+| 768 | 8.5 | 4 | 33M | 4352 | 1.21 |
+| 1280 | 14.2 | 0 | 39M | 1812 | 0.71 |
+| **1536** | 17.1 | 0 | 57M | 1506 | **0.78** |
+| 1536 | 17.1 | 4 | 132M | 2180 | **2.60** |
+| 1536 | 17.1 | 16 | 359M | 2232 | 5.84 |
+| 2048 | 22.8 | 0 | 101M | 1108 | 0.88 |
+
+**Not worth building at this rig's settings.** 4x more than triples the cube pass for a 1.4x change
+that saturates immediately -- 4x, 8x and 16x are within 2% of each other.
+
+The 768 row says why, and says when it would be worth it. Where the cube is *coarser* than the
+projector, multisampling does a lot: 2948 -> 4352. Where it is finer, the warp's minification has
+already done that job, and extra samples add detail below what the projector can display. So the
+condition is not "is the geometry aliased" but **is the cube coarser than the optics**.
+
+And in that regime resolution is the cheaper lever, because it is not equivalent to samples:
+1536 -> 2048 costs +0.10 ms and takes 1506 -> 1108, a larger quality change than 4x MSAA at a
+twentieth of the cost. Resolution helps because the warp then averages more texels per output
+pixel; samples help only *within* a texel the warp is already averaging away. Cube MSAA only wins
+where a rig is at its resolution ceiling -- VRAM, or clears dominating -- and still cube-limited.
 
 ### Revised recommendation
 

@@ -370,11 +370,17 @@ it. *Fix:* release on replacement; centralize GL teardown in `destroy()`.
 every frame, copying the whole frame. *Fix:* write from a contiguous buffer /
 reuse a preallocated array where possible.
 
-### #32 [Low] Surface format requests 24× MSAA and a 24‑bit alpha buffer
-`framework.py:620` — `setSamples(24)` and `setAlphaBufferSize(24)` are unusual
-(alpha is normally 8 bits); this wastes framebuffer memory/fill or can fail config
-selection on some drivers. *Fix:* use sane values (e.g. 4–8× MSAA, 8‑bit alpha)
-and confirm on target hardware.
+### #32 [Low] Surface format requests 24× MSAA and a 24‑bit alpha buffer — *done*
+`setSamples(24)` and `setAlphaBufferSize(24)` were unusual (alpha is normally 8
+bits) and neither was granted: QOpenGLWidget renders into its own FBO, where the
+surface sample count does not apply. The request has been removed, and the
+granted format is reported at start-up.
+
+Confirmed on target hardware since. A Quadro M2000 grants 2, 4, 8, 16 and 32
+samples on an explicit renderbuffer and **refuses 24** — so the old request was
+not merely ineffective, it named a count this driver does not offer. Multisampling
+is now a per-rig option, `Screen(msaa_samples=n)`, off by default; what it does
+and does not reach is in `docs/design/analytic-edges.md`.
 
 ### #33 [Low] Per‑frame Python loops build grating/bar textures
 `visual_stim/stimuli.py:687` (`CylindricalGrating` angled texture) and `:929`
