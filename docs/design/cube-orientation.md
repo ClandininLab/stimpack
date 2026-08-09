@@ -75,50 +75,70 @@ A cap close to 70.53° gets three faces on a knife edge; falling off it costs *t
 not one. Edge alignment is the robust choice, and the one to prefer unless the cap is comfortably
 under about 65°.
 
-## What it measures, and why the first two answers were wrong
+## What it measures, and how two earlier answers went wrong
 
-Measured on the BrukerJr flymax bowl at a 65-degree cap (five faces to three), **interleaving the
-two conditions frame by frame** so thermal drift on the test GPU hits both equally:
+**Current numbers.** BrukerJr flymax bowl, 65-degree cap, five faces to three, on the rig's own
+Quadro M2000. Medians of three runs, each **interleaving the two conditions frame by frame** so
+thermal drift hits both equally:
+
+| scene | axis-aligned | auto | saving |
+|---|---|---|---|
+| annuli (2.7k vertices) | 1.15 ms | 1.07 ms | −7% |
+| 50 towers | 0.80 ms | 0.73 ms | −9% |
+| 200 towers | 1.29 ms | 1.17 ms | −9% |
+| 400 towers | 1.80 ms | 1.62 ms | −10% |
+| 800 towers | 2.66 ms | 2.46 ms | −8% |
+
+So **7-10% of the cube pass**, and on this GPU nothing came near the 8.33 ms budget at 120 Hz —
+the saving is headroom, not frames recovered. Absolute times drifted about 20% between runs while
+the ratios held to a point or two, which is the interleaving earning its keep.
+
+### The first wrong answer: it measured the wrong alignment, on a drifting GPU
+
+An early round concluded turning the cube saved 0.28-0.41 ms and was not worth the code.
+
+**It compared `5 -> 4` and reported it as the saving from turning the cube.** The alignment that
+matters is `5 -> 3`.
+
+**It ran the two conditions in sequence on a thermally throttling GPU.** Consecutive runs of the
+same configuration varied between 8.95 and 12.13 ms -- more than the effect being measured. One run
+even showed turning the cube making things worse.
+
+### The second wrong answer: it was measuring an unrelated bug
+
+The round that replaced it reported, on a Mesa Intel RPL-S:
 
 ```
 background    2.75 -> 1.85 ms                       -33%
 Forest 400   10.82 ->  7.40 ms   92% of frames dropped -> 9%
 ```
 
-**Those numbers are stale, and they overstate this by about a factor of two.** They were taken while
-`paint_at` re-uploaded a stimulus's vertex and colour buffers *once per face*, so part of what
-turning the cube saved was redundant uploads rather than scene draws. Uploading once per frame
-instead is a bigger win than turning the cube, and it shrinks what turning the cube is left to save.
+Interleaved, and right about the alignment — but **it overstated this by roughly two**, because at
+the time `paint_at` re-uploaded a stimulus's vertex and colour buffers *once per cube face*. Face
+count therefore multiplied vertex traffic as well as draw calls, and a large part of what "turning
+the cube" appeared to save was that redundant upload.
 
-Re-measured on the rig's own Quadro M2000 after that fix, same interleaving:
+Uploading once per frame is the larger win, and it is orthogonal to orientation. Isolated at a
+fixed face count -- same stimulus, same renderer, only the upload differing (two runs agreeing to
+0.3%):
 
-| scene | axis-aligned | auto | saving |
-|---|---|---|---|
-| annuli | 1.42 ms | 1.33 ms | −6% |
-| 200 towers | 1.51 ms | 1.34 ms | −11% |
-| 400 towers | 2.02 ms | 1.80 ms | −11% |
-| 800 towers | 2.80 ms | 2.64 ms | −6% |
+| vertices | faces | upload per face | upload once | saving |
+|---|---|---|---|---|
+| 2,688 | 3 | 0.39 ms | 0.31 ms | −19% |
+| 2,688 | 5 | 0.51 ms | 0.38 ms | −26% |
+| 10,752 | 3 | 0.71 ms | 0.45 ms | −37% |
+| 10,752 | 5 | 1.06 ms | 0.53 ms | −50% |
+| 43,008 | 3 | 2.11 ms | 1.03 ms | −51% |
+| 43,008 | 5 | 3.28 ms | 1.15 ms | −65% |
 
-Before the upload fix the same comparison on the same GPU read −20% to −25%. Nothing here came near
-the 8.33 ms budget, so on this rig the saving is headroom rather than frames recovered; the dropped-
-frame result above was on a slower GPU whose baseline was already over budget.
+With that fixed, orientation is left saving draw calls and rasterisation only, which is the 7-10%
+above rather than the 33% reported here. The dropped-frame line was on a slower GPU whose baseline
+was already over budget; it has not been reproduced since the upload fix, and should not be quoted.
 
-The general point, again: a measurement of one optimisation is only as good as the code around it.
-This one was measuring an unrelated inefficiency as though it were the effect under test.
-
-An earlier round of measurement concluded the opposite -- that turning the cube saved 0.28-0.41 ms
-and was not worth the code. Two things were wrong with it.
-
-**It compared `5 -> 4` and reported it as the saving from turning the cube.** The alignment that
-matters is `5 -> 3`, and at heavy load those differ by an order of magnitude.
-
-**It ran the two conditions in sequence on a thermally throttling GPU.** Consecutive runs of the
-same configuration varied between 8.95 and 12.13 ms -- more than the effect being measured. One run
-even showed turning the cube making things worse. Interleaving removes it; without interleaving,
-nothing at this scale is measurable on that hardware.
-
-The general point: a benchmark comparing two configurations must alternate between them, not run one
-after the other, whenever the machine's speed can drift on the timescale of the run.
+**The lesson, and it is the third time this page has needed one:** a measurement of an optimisation
+is only as good as the code around it. This one was faithfully measuring an unrelated inefficiency
+and attributing it to the thing under test. Interleaving protects against the machine drifting; it
+does nothing about the benchmark measuring the wrong cause.
 
 ## What would change the verdict
 
@@ -193,5 +213,5 @@ def faces_for_cap(axis, half_angle):
 
 ---
 
-*Measurements: BrukerJr flymax bowl, `CAP_HALF_ANGLE = 70`, 1536² cube faces, Mesa Intel RPL-S.
-The rig itself runs a Quadro M2000, where the absolute times will differ but the ratios should not.*
+*Measurements: BrukerJr flymax bowl, `CAP_HALF_ANGLE = 65`, 1536² cube faces, on the rig's own
+Quadro M2000, except the superseded 2.75/10.82 figures, which were a Mesa Intel RPL-S.*

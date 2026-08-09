@@ -807,10 +807,11 @@ class CurvedScreen(Screen):
         a whole scene draw saved every frame. A 3x3 rotation may be given instead, taking rig
         directions to cube directions.
 
-        Worth switching on only when the cube pass is the frame-rate limit, which it usually is not:
-        measured on a 70-degree bowl, turning the cube saves 0.3 ms of an 8.33 ms budget on ordinary
-        scenes. Where it does matter is at complexities that already drop frames, and there halving
-        ``cube_resolution`` does more. See docs/design/cube-orientation.md.
+        Worth switching on only when the cube pass is the frame-rate limit, which it usually is
+        not. Measured on a 65-degree bowl taking five faces to three, it saves 7-10% of the cube
+        pass -- 0.08 ms on a plain background and 0.18 ms on 400 towers, against an 8.33 ms budget
+        at 120 Hz. Where it would matter is at complexities that already drop frames, and there
+        halving ``cube_resolution`` does more. See docs/design/cube-orientation.md.
     """
 
     def __init__(self, surface=None, projector=None, cube_resolution=1024,
