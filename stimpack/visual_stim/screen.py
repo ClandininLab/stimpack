@@ -113,7 +113,7 @@ class Screen:
                  square_size=None, square_loc=None, square_on_color=None, square_off_color=None, name=None, horizontal_flip=False, 
                  pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15), use_egl=None,
                  subframes=1, subframe_channel_order=(0, 1, 2), refresh_rate=None, msaa_samples=0,
-                 split_blended_pass=False):
+                 split_blended_pass=True):
         """
         :param subscreens: list of SubScreen objects (see above), if none are provided, one full-viewport subscreen will be produced using inputs pa, pb, pc
         :param x_display: $DISPLAY environment variable relevant if using Xorg as display server. If None, the default display is used.
@@ -144,8 +144,17 @@ class Screen:
             Cost on a 16-tree forest at 1920x1080: 1.7% of a 360 Hz frame budget at 4x and 5.7% at
             16x on an RTX A4500; 89% at 4x on a software rasteriser, where it does not fit. Measure
             on the rig before raising it.
+            **On a CurvedScreen this reaches much less than it looks.** It multisamples the
+            framebuffer the frame is drawn into, and on the curved path the scene has already been
+            rasterised into the cube faces, which are ordinary single-sample framebuffers. Only the
+            warp pass -- one draw of the screen mesh -- is multisampled, so what it smooths is the
+            screen's own silhouette rather than the stimuli on it. The same forest measured on a
+            Quadro M2000 went from 0 partially-covered edge pixels to 1526 at 4x on a flat screen,
+            and only 1506 to 1789 on the bowl -- which also starts far from zero because the warp
+            samples the cube bilinearly while minifying, and so antialiases for free. Multisampling
+            the cube faces as well was prototyped and rejected; see docs/design/analytic-edges.md.
         :param split_blended_pass: draw each frame in two passes so that blending stops depending on
-            draw order. False (the default) keeps the single pass every rig ran before.
+            draw order. True by default; pass False to get back the single pass rigs ran before.
 
             Blending against a depth buffer is order-dependent: a fragment that is only partly
             covered still writes depth as though it were opaque, so whatever is behind it is
@@ -156,23 +165,15 @@ class Screen:
 
             This is not specific to analytic edges, though they made it universal: any stimulus with
             ``color`` alpha below 1 has always had it. Measured on 100 overlapping dots, reversing
-            the draw order changed 3519 pixels in one pass and 22 in two. The remainder is where two
-            blended fragments overlap each other, which needs per-sample storage to fix.
+            the draw order changed 3519 pixels in one pass and 22 in two. On the bowl the cube faces
+            go from 7679 differing texels to 8 of seven million. The remainder is where two blended
+            fragments overlap each other, which needs per-sample storage to fix.
 
-            Off by default because the cost is real where the budget is tight. On this rig's Quadro
-            M2000, a background and one spot: +0.07 ms flat, +0.49 ms curved -- under 6% of a 120 Hz
-            frame, but 18% of a 360 Hz one, and the curved path pays it once per cube face. Measure
-            before enabling it on a multiplexing rig.
-
-            **On a CurvedScreen this reaches much less than it looks.** It multisamples the
-            framebuffer the frame is drawn into, and on the curved path the scene has already been
-            rasterised into the cube faces, which are ordinary single-sample framebuffers. Only the
-            warp pass -- one draw of the screen mesh -- is multisampled, so what it smooths is the
-            screen's own silhouette rather than the stimuli on it. The same forest measured on a
-            Quadro M2000 went from 0 partially-covered edge pixels to 1526 at 4x on a flat screen,
-            and only 1506 to 1789 on the bowl -- which also starts far from zero because the warp
-            samples the cube bilinearly while minifying, and so antialiases for free. Multisampling
-            the cube faces as well was prototyped and rejected; see docs/design/analytic-edges.md.
+            The cost is small but not free. On this rig's Quadro M2000, a background and one spot:
+            +0.07 ms flat, +0.49 ms curved -- under 6% of a 120 Hz frame, but 18% of a 360 Hz one,
+            and the curved path pays it once per cube face. Content with nothing to blend still pays
+            for the second pass's vertex and rasterisation work, since the discard happens in the
+            fragment shader. Turn it off on a rig where that margin matters and the scene is opaque.
         """
         if subscreens is None:
             subscreens = [ SubScreen(pa=pa, pb=pb, pc=pc) ]

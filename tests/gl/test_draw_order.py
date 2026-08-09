@@ -17,9 +17,11 @@ spots at the same ``sphere_radius`` and different azimuth sit at cos(theta) apar
 each other. Measured on 100 same-radius dots, reversing the draw order moved 3519 pixels. It is
 live, not latent.
 
-``Screen(split_blended_pass=True)`` is the fix: opaque fragments first with depth writes on, then
-blended ones with them off. It takes those 3519 pixels to 22. What is left is blended-on-blended,
-where neither fragment writes depth -- pinned below so the residue is a known quantity.
+``split_blended_pass`` is the fix, and is on by default: opaque fragments first with depth writes
+on, then blended ones with them off. It takes those 3519 pixels to 22. What is left is
+blended-on-blended, where neither fragment writes depth -- pinned below so the residue is a known
+quantity. The tests here drive ``paint_at`` directly and choose the pass structure themselves, so
+they measure both arrangements regardless of what the default is.
 """
 import pytest
 
@@ -146,12 +148,12 @@ def test_the_framework_draws_the_background_first_which_is_the_correct_order(hea
         f'the defect below may have been fixed and this test is no longer measuring anything')
 
 
-@pytest.mark.xfail(reason='the single-pass default: analytic coverage is alpha, and alpha is '
-                          'order-dependent. Screen(split_blended_pass=True) is the fix, and the '
-                          'test below asserts it works.',
+@pytest.mark.xfail(reason='the single pass, which split_blended_pass=False still selects: analytic '
+                          'coverage is alpha, and alpha is order-dependent. The test below asserts '
+                          'the split fixes it.',
                    strict=True)
 def test_overlapping_shapes_at_different_depths_do_not_care_about_order(headless_gl):
-    """The defect, as the property that ought to hold, under the single-pass default.
+    """The defect, as the property that ought to hold, in a single pass.
 
     strict=True: if this starts passing without the split, something else has fixed order
     dependence and both this and the design note need revisiting.
