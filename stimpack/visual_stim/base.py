@@ -208,9 +208,12 @@ class BaseProgram:
         vert_coords = self.stim_object.vertices  # x, y, z
 
         n_vertices = vert_coords.shape[1]
-        self.ensure_vertex_capacity(n_vertices)
 
         if prepare:
+            # Grow before writing, and only when writing: growing replaces the buffers, so doing it
+            # on a pass that is drawing geometry someone else uploaded would discard that geometry.
+            self.ensure_vertex_capacity(n_vertices)
+
             # write data to VBO
             self.vbo_vert.write(vert_coords.flatten(order='F').astype('f4'))
             self.vbo_color.write(self.stim_object.colors.flatten(order='F').astype('f4'))
