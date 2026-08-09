@@ -66,6 +66,10 @@ class BaseProgram:
     def __init__(self, screen, num_tri=500):
         """
         :param screen: Object containing screen size information
+        :param num_tri: how many triangles to reserve vertex buffers for initially. A hint, not a
+            limit -- the buffers grow if a frame's geometry does not fit. Set it near the expected
+            size to avoid a reallocation or two on the first frames; getting it wrong is no longer
+            an error.
         """
         # set screen
         self.screen = screen
@@ -84,16 +88,7 @@ class BaseProgram:
         self.ctx = ctx
         self.prog = self.ctx.program(vertex_shader=self.get_vertex_shader(), fragment_shader=self.get_fragment_shader())
 
-        # Initialize vertex objects
-        # 3 points, (3 for vert, 4 for color, 2 for tex_coords), 4 bytes per value
-        self.vbo_vert    = self.ctx.buffer(reserve=self.num_tri*3*3*4)
-        self.vbo_color   = self.ctx.buffer(reserve=self.num_tri*3*4*4)
-        vao_content  = [(self.vbo_vert,  '3f', 'in_vert'),
-                        (self.vbo_color, '4f', 'in_color')]
-        if self.use_texture:
-            self.vbo_texture = self.ctx.buffer(reserve=self.num_tri*3*2*4)
-            vao_content.append((self.vbo_texture, '2f', 'in_tex_coord'))
-        self.vao = self.ctx.vertex_array(program = self.prog, content = vao_content)
+        self.allocate_vertex_buffers(self.num_tri)
 
         # Default texture booleans for the shader program
         self.prog['use_texture'].value = False
@@ -106,6 +101,45 @@ class BaseProgram:
         self.prog['edge_frame'].write(_frame_bytes(np.eye(3)))
         self.prog['edge_anchor'].value = (0.0, 0.0, 0.0)
         self.prog['edge_extent'].value = (0.0, 0.0)
+
+    def allocate_vertex_buffers(self, num_tri):
+        """(Re)serve vertex buffers for `num_tri` triangles and rebuild the vertex array.
+
+        3 points per triangle; 3 floats for position, 4 for colour, 2 for texture coordinates.
+        """
+        for name in ('vao', 'vbo_vert', 'vbo_color', 'vbo_texture'):
+            existing = getattr(self, name, None)
+            if existing is not None:
+                existing.release()
+                setattr(self, name, None)
+
+        self.num_tri = int(num_tri)
+        self.vbo_vert    = self.ctx.buffer(reserve=self.num_tri*3*3*4)
+        self.vbo_color   = self.ctx.buffer(reserve=self.num_tri*3*4*4)
+        vao_content  = [(self.vbo_vert,  '3f', 'in_vert'),
+                        (self.vbo_color, '4f', 'in_color')]
+        if self.use_texture:
+            self.vbo_texture = self.ctx.buffer(reserve=self.num_tri*3*2*4)
+            vao_content.append((self.vbo_texture, '2f', 'in_tex_coord'))
+        self.vao = self.ctx.vertex_array(program = self.prog, content = vao_content)
+
+    def ensure_vertex_capacity(self, n_vertices):
+        """Grow the vertex buffers if this frame's geometry does not fit in them.
+
+        `num_tri` is a starting hint, not a limit. It has to be given at construction -- before
+        configure has run and before anything knows how big the geometry will be -- so every
+        stimulus that needs more than the default guesses a round number and hopes. Guessing low
+        used to fail at the first frame with `out of range offset`, which is how Forest's 1000
+        stopped it at 31 faces per tree for 16 trees; guessing high reserves GPU memory nothing
+        writes to.
+
+        Doubling rather than fitting exactly, so a stimulus whose geometry creeps upward -- a loom
+        rebuilt each frame, a field gaining points -- reallocates a handful of times rather than
+        every frame.
+        """
+        if n_vertices <= self.num_tri * 3:
+            return
+        self.allocate_vertex_buffers(max(-(-n_vertices // 3), self.num_tri * 2))
 
     def configure(self, *args, **kwargs):
         """
@@ -162,6 +196,7 @@ class BaseProgram:
         vert_coords = self.stim_object.vertices  # x, y, z
 
         n_vertices = vert_coords.shape[1]
+        self.ensure_vertex_capacity(n_vertices)
 
         if prepare:
             # write data to VBO

@@ -630,6 +630,53 @@ def test_a_rendered_flat_disc_subtends_its_angle_and_has_a_soft_edge(headless_gl
     assert abs(_subtended_half_angle(grey[grey.shape[0] // 2]) - want) < 0.05
 
 
+def test_geometry_bigger_than_its_reservation_still_draws(headless_gl):
+    """`num_tri` is a hint, not a limit.
+
+    It has to be given at construction -- before configure has run, before anything knows how big
+    the geometry will be -- so every stimulus needing more than the default guesses a round number.
+    Guessing low used to raise `out of range offset` on the first frame, which is how Forest's 1000
+    capped it at 31 faces per tree for 16 trees: raising the face count to fix a 3.45 pixel
+    silhouette error hit an error message about buffer offsets instead.
+    """
+    trees = [[x, y, 0] for x in (-3, -1, 1, 3) for y in (2, 4, 6, 8)]
+    for n_faces in (16, 64, 256):
+        frame = _render(headless_gl, 'Forest',
+                        dict(color=[1, 1, 1, 1], cylinder_radius=0.3, cylinder_height=1.0,
+                             n_faces=n_faces, cylinder_locations=trees))
+        assert (frame[..., 0] > 250).sum() > 0, f'nothing drawn at n_faces={n_faces}'
+
+
+def test_the_vertex_buffers_grow_by_doubling(headless_gl):
+    """Amortised, so a stimulus whose geometry creeps upward -- a loom rebuilt each frame, a field
+    gaining points -- reallocates a handful of times rather than on every frame."""
+    from stimpack.util import get_all_subclasses
+    from stimpack.visual_stim import stimuli
+
+    screen = _make_screen()
+    stim = [c for c in get_all_subclasses(stimuli.BaseProgram)
+            if c.__name__ == 'Forest'][0](screen=screen)
+    stim.initialize(headless_gl)
+    start = stim.num_tri
+
+    viewports = [s.get_viewport(64, 64) for s in screen.subscreens]
+    perspectives = [_perspective(SUBJECT_AT_ORIGIN, s.pa, s.pb, s.pc, screen.horizontal_flip)
+                    for s in screen.subscreens]
+    trees = [[x, y, 0] for x in (-3, -1, 1, 3) for y in (2, 4, 6, 8)]
+
+    sizes = []
+    for n_faces in (8, 16, 24, 32, 48, 64):
+        stim.configure(color=[1, 1, 1, 1], cylinder_radius=0.3, cylinder_height=1.0,
+                       n_faces=n_faces, cylinder_locations=trees)
+        stim.paint_at(0, viewports, perspectives, subject_position=SUBJECT_AT_ORIGIN)
+        sizes.append(stim.num_tri)
+
+    assert sizes[-1] >= stim.stim_object.vertices.shape[1] / 3, 'ended too small to hold the geometry'
+    assert len(set(sizes)) < len(sizes), 'reallocated on every step rather than doubling'
+    assert all(b >= a for a, b in zip(sizes, sizes[1:])), 'capacity went backwards'
+    assert sizes[0] == start, 'grew when the geometry already fitted'
+
+
 def test_a_field_of_analytic_shapes_keeps_every_one_of_their_edges():
     """`add()` merges shapes into one vertex array, and a draw call carries one edge equation, so
     a composite used to lose every declaration its components had.
