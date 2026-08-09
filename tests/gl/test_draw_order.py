@@ -18,7 +18,8 @@ each other. Measured on 100 same-radius dots, reversing the draw order moved 351
 live, not latent.
 
 ``split_blended_pass`` is the fix, and is on by default: opaque fragments first with depth writes
-on, then blended ones with them off. It takes those 3519 pixels to 22. What is left is
+on, then blended ones with them off. On a background and 100 dots it takes 770 pixels to 5, and on
+the bowl the cube faces go from 7679 differing texels to 20 of seven million. What is left is
 blended-on-blended, where neither fragment writes depth -- pinned below so the residue is a known
 quantity. The tests here drive ``paint_at`` directly and choose the pass structure themselves, so
 they measure both arrangements regardless of what the default is.
@@ -160,6 +161,70 @@ def test_overlapping_shapes_at_different_depths_do_not_care_about_order(headless
     """
     ctx = headless_gl
     assert _differing(ctx, _spot(ctx, 0.8, -4), _spot(ctx, 2.0, +4)) == 0
+
+
+def _opaque_box(ctx):
+    return lambda: _make(ctx, 'MovingBox', x_length=0.5, y_length=0.01, z_length=0.5,
+                         color=[0.9, 0.9, 0.9, 1.0], x=0, y=1.0, z=0, yaw=0, pitch=0, roll=0)
+
+
+def _render_via_framework(ctx, factories, split, size=SIZE):
+    """Draw through StimDisplay.draw_stimuli, which is where may_blend() actually gets consulted.
+
+    The miniature in _render draws every stimulus in the blended pass. The real one asks
+    may_blend() first and skips the ones that say no, and that difference is the whole subject of
+    the test below -- run against _render it passes with the defect in place.
+    """
+    from stimpack.visual_stim.framework import StimDisplay
+
+    ctx.enable(moderngl.BLEND)
+    ctx.enable(moderngl.DEPTH_TEST)
+    perspective = get_perspective(SUBJECT, PA, PB, PC, False)
+    tex = ctx.texture((size, size), 4)
+    depth = ctx.depth_renderbuffer((size, size))
+    fbo = ctx.framebuffer(color_attachments=[tex], depth_attachment=depth)
+    try:
+        fbo.use()
+        fbo.clear(0.0, 0.0, 0.0, 1.0)
+        display = StimDisplay.__new__(StimDisplay)
+        display.screen = _screen(split)
+        display.ctx = ctx
+        display.cube_renderer = None
+        display.stim_list = [factory() for factory in factories]
+        display.stim_started = True
+        display.subject_position = SUBJECT
+        display.draw_stimuli(0.0, [(0, 0, size, size)], [perspective])
+        ctx.finish()
+        return np.frombuffer(fbo.read(components=1, alignment=1),
+                             dtype=np.uint8).reshape(size, size).astype(int)
+    finally:
+        fbo.release()
+        tex.release()
+        depth.release()
+
+
+@pytest.mark.parametrize('name, factory', [('background', _background), ('box', _opaque_box)])
+def test_the_split_still_draws_a_fully_opaque_stimulus(headless_gl, name, factory):
+    """A fully opaque stimulus has to come out of the split unchanged.
+
+    This is the bug the split shipped with. The shader compared an interpolated alpha against
+    exactly 1.0, and perspective-correct interpolation divides by w, so an alpha that is 1.0 at
+    every vertex still arrives a few ULPs under it. Pass 1 discarded every opaque fragment, and
+    may_blend() reports False for those same stimuli so pass 2 skipped them as well -- an opaque
+    background rendered as nothing at all.
+
+    The whole suite passed throughout, because every other test in this file draws shapes with
+    analytic edges. Those have genuine partial coverage, so they went through pass 2 and looked
+    fine. Nothing here had ever asked what the split does to a stimulus that is opaque everywhere.
+    """
+    ctx = headless_gl
+    single = _render_via_framework(ctx, [factory(ctx)], split=False)
+    split = _render_via_framework(ctx, [factory(ctx)], split=True)
+
+    assert single.max() > 5, f'the {name} control drew nothing, so this test cannot fail'
+    assert np.array_equal(single, split), (
+        f'the split changed an opaque {name}: {int((single != split).sum())} px differ, '
+        f'mean {single.mean():.1f} unsplit vs {split.mean():.1f} split')
 
 
 def test_splitting_the_pass_makes_the_order_stop_mattering(headless_gl):

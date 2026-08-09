@@ -164,10 +164,11 @@ class Screen:
             without sorting anything.
 
             This is not specific to analytic edges, though they made it universal: any stimulus with
-            ``color`` alpha below 1 has always had it. Measured on 100 overlapping dots, reversing
-            the draw order changed 3519 pixels in one pass and 22 in two. On the bowl the cube faces
-            go from 7679 differing texels to 8 of seven million. The remainder is where two blended
-            fragments overlap each other, which needs per-sample storage to fix.
+            ``color`` alpha below 1 has always had it. Measured on a background and 100 overlapping
+            dots, reversing the draw order changed 770 pixels in one pass and 5 in two. On the bowl
+            the cube faces go from 7679 differing texels to 20 of seven million, and the warped
+            image from 3984 pixels to 5. The remainder is where two blended fragments overlap each
+            other, which needs per-sample storage to fix.
 
             The cost is small but not free. On this rig's Quadro M2000, a background and one spot:
             +0.07 ms flat, +0.49 ms curved, the curved figure paid once per cube face. That is under

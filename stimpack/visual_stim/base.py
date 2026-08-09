@@ -14,6 +14,15 @@ import moderngl
 import numpy as np
 
 
+#: Where "opaque" stops, for splitting a frame into an opaque pass and a blended one.
+#:
+#: One half of an 8-bit step below 1.0, which is the point an 8-bit framebuffer stops being able to
+#: tell the fragment from opaque. It has to be below 1.0 rather than equal to it: the shader tests
+#: an interpolated varying, and perspective-correct interpolation divides by w, so an alpha that is
+#: exactly 1.0 at every vertex still arrives a few ULPs under. The GLSL side keeps its own copy of
+#: this number -- keep the two in step.
+OPAQUE_ALPHA = 254.5 / 255.0
+
 #: Triangles the vertex buffers start out holding. Small on purpose: they grow to fit whatever a
 #: frame turns out to need, and growing jumps straight to that size when the gap is large, so
 #: starting small costs at most one reallocation and starting large costs more than it saves.
@@ -198,7 +207,7 @@ class BaseProgram:
         if colors is None:
             return True
         try:
-            return bool(np.min(np.asarray(colors)[3]) < 1.0)
+            return bool(np.min(np.asarray(colors)[3]) < OPAQUE_ALPHA)
         except Exception:
             return True                       # unreadable colours: assume it blends
 
@@ -448,6 +457,9 @@ class BaseProgram:
             // only fully opaque fragments and 2 only blended ones -- see paint_at's `pass_kind`.
             uniform int pass_kind;
 
+            // Where "opaque" stops, one half of an 8-bit step below 1.0. See the split in main().
+            const float OPAQUE_ALPHA = 254.5 / 255.0;
+
             out vec4 f_color;
 
             // A texture sample that keeps hard texel edges without letting them alias.
@@ -559,8 +571,19 @@ class BaseProgram:
                 // Split by the FINAL alpha, so a deliberately translucent shape goes the same way
                 // an antialiased edge does. Both have to blend without writing depth, and nothing
                 // else about them differs here.
-                if (pass_kind == 1 && f_color.a < 1.0) discard;
-                if (pass_kind == 2 && f_color.a >= 1.0) discard;
+                //
+                // Against OPAQUE, not against 1.0. v_color.a is an interpolated varying, and
+                // perspective-correct interpolation divides by w, so an attribute that is exactly
+                // 1.0 at every vertex still arrives a few ULPs under it. Comparing against 1.0
+                // exactly made pass 1 discard every opaque fragment -- and since may_blend() reports
+                // False for those same stimuli, they were dropped from pass 2 as well and never drawn
+                // at all. An opaque background rendered as nothing.
+                //
+                // 254.5/255 is the point where an 8-bit framebuffer can no longer tell the fragment
+                // from opaque, which makes it the honest place to put the boundary: anything that
+                // would round to 255 is opaque as far as the display is concerned.
+                if (pass_kind == 1 && f_color.a < OPAQUE_ALPHA) discard;
+                if (pass_kind == 2 && f_color.a >= OPAQUE_ALPHA) discard;
             }
         '''
 

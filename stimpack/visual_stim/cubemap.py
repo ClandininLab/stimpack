@@ -74,8 +74,8 @@ WARP_FRAGMENT_SHADER = '''
         // stack up. Blending is enabled when this draws, so passing that through composited the
         // finished image into the window through a meaningless alpha, and the result moved with
         // draw order even when the cube itself did not. Measured on 100 dots with
-        // split_blended_pass on: cube rgb differed in 8 texels of seven million, but the warped
-        // image differed in 9632 pixels. With alpha 1 it differs in 3. The cube is an opaque
+        // split_blended_pass on: cube rgb differed in 20 texels of seven million, but the warped
+        // image differed in 77 pixels. With alpha 1 it differs in 5. The cube is an opaque
         // picture of the world; it lands on the display opaque.
         f_color = vec4(sampled.rgb * v_gain, 1.0);
     }

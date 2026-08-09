@@ -137,8 +137,8 @@ def test_the_warp_does_not_composite_through_the_cubes_alpha(headless_gl):
     computes dst.a = src.a^2 + dst.a*(1 - src.a), so it decays below 1 wherever blended fragments
     stack up, and by different amounts depending on which stimulus was drawn first. Passing it
     through made the finished image composite into the window through that artefact. With
-    split_blended_pass on, 100 dots gave a cube whose rgb differed in 8 texels of seven million
-    between the two draw orders and a warped image that differed in 9632 pixels.
+    split_blended_pass on, 100 dots gave a cube whose rgb differed in 20 texels of seven million
+    between the two draw orders and a warped image that differed in 77 pixels.
 
     Blending has to be enabled here or the test cannot fail: without it the window ignores the
     source alpha and every value below arrives intact regardless.
