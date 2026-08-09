@@ -22,6 +22,30 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
+@pytest.fixture(autouse=True)
+def no_blocking_dialogs(monkeypatch):
+    """No test in this tier may enter a nested event loop waiting for a click that cannot arrive.
+
+    QT_QPA_PLATFORM=offscreen does NOT make dialogs non-blocking. The platform runs a real event
+    loop, so exec() waits for input that will never come, and prints nothing at all while it waits.
+    One test reaching open_message_window that way hung the CI job for six hours a push, on three
+    Python versions, for ten days -- with no output naming it.
+
+    Autouse because the failure mode is *forgetting*: the cost of a test that misses one dialog is
+    not a red X, it is a suite that never finishes. A test that cares what a dialog returns still
+    patches it itself; this only ensures the ones that do not care cannot hang.
+
+    _build_gui patches QDialog.exec too, which is what the tests using `experiment_gui` have always
+    relied on. This covers the tests that build a dialog without that fixture, and QMessageBox
+    separately because it declares its own exec() in some PyQt6 versions and inherits QDialog's in
+    others -- patching only the base is a guard that silently stops working on an upgrade.
+    """
+    from PyQt6.QtWidgets import QDialog, QMessageBox
+
+    for cls in (QDialog, QMessageBox):
+        monkeypatch.setattr(cls, 'exec', lambda self: 0, raising=False)
+
+
 @pytest.fixture
 def test_cfg(tmp_path):
     return {

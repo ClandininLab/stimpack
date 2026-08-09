@@ -263,6 +263,12 @@ def make_startup_dialog(qapp, tmp_path, cfg, data_format_override=None):
 
     dialog = gui_mod.InitializeRigGUI()
     dialog.setupUI(stub, parent=None)
+    # setupUI takes this from get_labpack_directory(), i.e. from whichever labpack the developer
+    # happens to have configured -- so on_pressed_enter_button's preflight check saw a real
+    # labpack here and no labpack in CI, and these configs' module_paths resolved on one and not
+    # the other. An empty directory is the honest fixture: nothing the cfg names exists, the same
+    # everywhere.
+    dialog.labpack_dir = str(tmp_path)
     dialog.cfg = dict(cfg)
     dialog.cfg_name = 'test_config.yaml'
     dialog.update_data_format_selection()
