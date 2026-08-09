@@ -78,7 +78,10 @@ in a *labpack* that stimpack loads at runtime. See :doc:`install_labpack`.
 .. toctree::
     :maxdepth: 1
 
+    the_gui
     check_labpack
     modules_and_targets
+    writing_a_module
+    presets_and_ensembles
     run_outcomes
     behaviour_ended_trials
