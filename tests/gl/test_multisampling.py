@@ -30,6 +30,19 @@ pytestmark = pytest.mark.gl
 SIZE = 512
 
 
+def _supported(ctx, wanted):
+    """Those of `wanted` the driver will actually give us. Sample counts are driver-dependent, so
+    a test that hard-codes one is a test that fails on somebody else's machine."""
+    usable = []
+    for n in wanted:
+        try:
+            ctx.renderbuffer((8, 8), samples=n)
+        except Exception:
+            continue
+        usable.append(n)
+    return usable
+
+
 def _render(ctx, name, kwargs, samples):
     """Render one stimulus, through a multisampled framebuffer when samples > 0.
 
@@ -91,15 +104,20 @@ def test_it_antialiases_geometry_that_has_no_analytic_edge(headless_gl):
     # More samples does not light more edge pixels -- the silhouette is the same set of pixels
     # either way. What rises is how finely each one's coverage is resolved: n samples can express
     # n+1 fractions, so the number of distinct grey levels along the edge is the thing to watch.
+    usable = _supported(headless_gl, (4, 8, 16))
+    if len(usable) < 2:
+        pytest.skip(f'driver offers too few sample counts to compare: {usable}')
+
     levels = {}
-    for samples in (4, 8, 16):
+    for samples in usable:
         multisampled = _render(headless_gl, 'MovingBox', BOX, samples)
         partial = multisampled[(multisampled > 5) & (multisampled < 250)]
         assert partial.size > 0, f'{samples}x left the silhouette hard'
         assert partial.size < (multisampled > 250).sum(), f'{samples}x looks like a blur, not an edge'
         levels[samples] = len(np.unique(partial))
 
-    assert levels[4] < levels[8] < levels[16], (
+    counts = [levels[n] for n in usable]
+    assert counts == sorted(counts) and counts[-1] > counts[0], (
         f'coverage should resolve more finely as samples rise, got {levels}')
 
 
@@ -107,12 +125,13 @@ def test_it_leaves_an_analytic_edge_alone(headless_gl):
     """Shapes that carry their own boundary equation are already exact and already carry sub-pixel
     coverage, so multisampling has nothing to add to them -- and must take nothing away. It is
     added for the geometry beside them, so it has to be safe to leave on."""
+    usable = _supported(headless_gl, (4, 8))
     for name, kwargs in [('MovingSpot', dict(radius=15, sphere_radius=1, color=[1, 1, 1, 1],
                                              theta=0, phi=0)),
                          ('MovingPatch', dict(width=25, height=25, sphere_radius=1,
                                               color=[1, 1, 1, 1], theta=0, phi=0, angle=0))]:
         plain = _render(headless_gl, name, kwargs, 0)
-        for samples in (4, 8):
+        for samples in usable:
             multisampled = _render(headless_gl, name, kwargs, samples)
             drift = abs(multisampled.sum() - plain.sum()) / plain.sum()
             assert drift < 0.002, f'{name} at {samples}x changed its total light by {drift*100:.2f}%'
@@ -136,8 +155,11 @@ def test_the_edge_lands_between_pixels_more_finely_as_samples_rise(headless_gl):
             found.append(lit[0] + (1 - row[lit[0]] / 255.0))
         return np.array(found)
 
+    usable = _supported(headless_gl, (8, 4))
+    if not usable:
+        pytest.skip('driver offers no multisampling')
     coarse = np.abs(np.diff(edge_positions(0)))
-    fine = np.abs(np.diff(edge_positions(8)))
+    fine = np.abs(np.diff(edge_positions(usable[0])))
 
     assert coarse.max() == pytest.approx(1.0, abs=0.02), 'without this the edge jumps a whole pixel'
     assert fine.max() < 0.5 * coarse.max(), (

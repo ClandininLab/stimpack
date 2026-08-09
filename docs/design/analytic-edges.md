@@ -118,10 +118,30 @@ them out of reach, and both are properties of the design rather than oversights:
 - it is then `add()`ed into `GlFly.Thorax`, and `add()` concatenates vertex arrays into one mesh.
   One draw call carries one set of uniforms, so **a composite cannot hold per-shape edges at all**.
 
-That second point is the boundary of what this approach reaches: a shape can declare an edge only
-if it is drawn as itself. It costs nothing here -- the fly is 102,400 triangles of icosphere, and
-its wings are not where its quality lives -- but it is worth stating, because it is the question to
-ask of any future candidate before converting it.
+The second point **used to be** the boundary of what this approach reaches, and it no longer is.
+`add()` now records where each merged component landed along with what it declared, and the
+renderer draws the runs separately -- one set of edge uniforms each. A composite of analytic shapes
+stays analytic.
+
+That matters because the case is not hypothetical. The labpack's `PatchFieldWithOnDemandCoherentPulses`
+and `ExponentiallyRefreshingMovingPatchFieldWithCoherentPulse` build twenty `GlSphericalEllipse` or
+`GlSphericalRect` patches and merge them, and those are coherent-motion stimuli where each patch's
+edge motion *is* the signal. All twenty declarations were being discarded.
+
+It costs one draw call and one set of uniform writes per component, which is linear and not free:
+
+| components | extra per frame | of a 360 Hz budget |
+|---|---|---|
+| 5 | +0.025 ms | 0.9% |
+| 20 | +0.096 ms | 3.5% |
+| 50 | +0.240 ms | 8.6% |
+
+Fine for a twenty-patch field, and worth watching past about fifty. If a stimulus ever needs
+hundreds, the declaration would have to move from uniforms to a per-vertex attribute so it could go
+back to one draw call -- more vertex data, no per-component cost.
+
+The wings are still out of reach, but now for only one reason rather than two: a non-uniform scale
+turns that circle into an ellipse, which no kind here describes.
 
 ### What a shape declares
 

@@ -630,6 +630,101 @@ def test_a_rendered_flat_disc_subtends_its_angle_and_has_a_soft_edge(headless_gl
     assert abs(_subtended_half_angle(grey[grey.shape[0] // 2]) - want) < 0.05
 
 
+def test_a_field_of_analytic_shapes_keeps_every_one_of_their_edges():
+    """`add()` merges shapes into one vertex array, and a draw call carries one edge equation, so
+    a composite used to lose every declaration its components had.
+
+    That is not a corner case: the labpack's coherent-motion stimuli build twenty spherical patches
+    and merge them, and those are stimuli where each patch's edge motion *is* the signal. Recording
+    where each component landed lets the renderer draw the runs separately, one equation each.
+    """
+    from stimpack.visual_stim.shapes import GlSphericalCirc, GlSphericalRect, GlVertices
+
+    field = GlVertices()
+    for k in range(4):
+        field.add(GlSphericalCirc(circle_radius=5.0).rotz(np.radians(10 * k)))
+
+    assert field.edge_kind == 0, 'the container itself is not a shape'
+    assert len(field.edge_spans) == 4
+    assert sum(span.count for span in field.edge_spans) == field.vertices.shape[1]
+    # each kept its own orientation, not just its size
+    forwards = [np.array(span.edge_frame)[2] for span in field.edge_spans]
+    assert not np.allclose(forwards[0], forwards[-1])
+
+    # a rigid motion carries them all; a squash drops them all
+    assert len(field.translate((0.1, 0, 0)).edge_spans) == 4
+    assert np.allclose(field.translate((0.1, 0, 0)).edge_spans[0].edge_anchor, (0.1, 0, 0))
+    assert len(field.rotz(np.radians(90)).edge_spans) == 4
+    assert len(field.scale(np.array([1.0, 2.0, 1.0]).reshape(3, 1)).edge_spans) == 0
+
+    # and composites nest: a field inside a field keeps everything, offset to where it landed
+    outer = GlVertices()
+    outer.add(field)
+    outer.add(GlSphericalRect(width=8, height=8))
+    assert len(outer.edge_spans) == 5
+    assert sum(span.count for span in outer.edge_spans) == outer.vertices.shape[1]
+    assert outer.edge_spans[-1].start == field.vertices.shape[1]
+
+
+def test_a_rendered_field_of_analytic_shapes_has_soft_edges(headless_gl):
+    """Through the real render path: every patch in a merged field gets its own coverage, where
+    before the whole field fell back to hard geometry edges."""
+    import moderngl
+    from stimpack.visual_stim.shapes import GlSphericalCirc, GlVertices
+
+    screen = _make_screen()
+    width = height = 512
+    headless_gl.enable(moderngl.BLEND)
+    headless_gl.enable(moderngl.DEPTH_TEST)
+    headless_gl.extra = {}
+    fbo = headless_gl.framebuffer(
+        color_attachments=[headless_gl.renderbuffer((width, height))],
+        depth_attachment=headless_gl.depth_renderbuffer((width, height)))
+    viewports = [s.get_viewport(width, height) for s in screen.subscreens]
+    perspectives = [_perspective(SUBJECT_AT_ORIGIN, s.pa, s.pb, s.pc, screen.horizontal_flip)
+                    for s in screen.subscreens]
+
+    from stimpack.util import get_all_subclasses
+    from stimpack.visual_stim import stimuli
+    stim = [c for c in get_all_subclasses(stimuli.BaseProgram)
+            if c.__name__ == 'MovingSpot'][0](screen=screen)
+    stim.initialize(headless_gl)
+    stim.configure(radius=5, sphere_radius=1, color=[1, 1, 1, 1], theta=0, phi=0)
+    stim.eval_at = lambda *a, **k: None                     # drive the object by hand
+
+    def light(obj):
+        stim.stim_object = obj
+        fbo.use()
+        fbo.clear(0, 0, 0, 1)
+        stim.paint_at(0, viewports, perspectives, subject_position=SUBJECT_AT_ORIGIN)
+        headless_gl.finish()
+        grey = np.flipud(np.frombuffer(fbo.read(components=3, alignment=1),
+                                       dtype=np.uint8).reshape(height, width, 3))[..., 0]
+        return int((grey > 250).sum()), int(((grey > 5) & (grey < 250)).sum())
+
+    field = GlVertices()
+    for k in range(8):
+        bearing = 2 * np.pi * k / 8
+        field.add(GlSphericalCirc(circle_radius=3.0)
+                  .rotz(np.radians(25 * np.cos(bearing)))
+                  .rotx(np.radians(25 * np.sin(bearing))))
+
+    lit, partial = light(field)
+    assert lit > 0, 'the field did not render'
+    assert partial > 0, 'every patch fell back to a hard edge'
+    assert partial < lit, 'implausibly soft'
+
+    # the same geometry with the bookkeeping thrown away is what this used to do
+    stripped = GlVertices()
+    for k in range(8):
+        bearing = 2 * np.pi * k / 8
+        stripped.add(GlSphericalCirc(circle_radius=3.0)
+                     .rotz(np.radians(25 * np.cos(bearing)))
+                     .rotx(np.radians(25 * np.sin(bearing))))
+    stripped.edge_spans = []
+    assert light(stripped)[1] == 0, 'this comparison no longer demonstrates anything'
+
+
 def test_sharp_texel_sampling_lands_on_texel_centres_and_ramps_only_at_boundaries():
     """The rule, stated without a GL context: NEAREST's result everywhere but the boundary.
 

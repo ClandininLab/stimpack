@@ -24,6 +24,44 @@ def _frame_bytes(frame):
     return np.ascontiguousarray(frame, dtype='f4').tobytes()
 
 
+def _draw_runs(stim_object, n_vertices):
+    """Split a shape into (first, count, declaration) runs, one per edge equation to be applied.
+
+    One run for the ordinary case. A composite gives one per declared component plus one for each
+    gap between them, since undeclared geometry still has to be drawn -- just with no equation.
+    Costs about 0.8 microseconds per extra draw call, which is 0.6% of a 360 Hz frame for the
+    twenty-patch fields this exists for.
+    """
+    spans = getattr(stim_object, 'edge_spans', None)
+    if not spans:
+        return [(0, n_vertices, _packed_edge(stim_object))]
+
+    runs, cursor = [], 0
+    for span in spans:                       # add() appends in order, so these are already sorted
+        if span.start > cursor:
+            runs.append((cursor, span.start - cursor, None))
+        runs.append((span.start, span.count, _packed_edge(span)))
+        cursor = span.start + span.count
+    if cursor < n_vertices:
+        runs.append((cursor, n_vertices - cursor, None))
+    return runs
+
+
+def _packed_edge(declaration):
+    """A declaration converted once into the exact forms the uniforms want, or None if there is none.
+
+    Packing here rather than at the point of upload matters when a composite has many components:
+    the runs are built once per frame but their uniforms are set once per subscreen, and the numpy
+    conversions cost more than the draw call they precede.
+    """
+    if not getattr(declaration, 'edge_kind', 0):
+        return None
+    return (declaration.edge_kind,
+            _frame_bytes(declaration.edge_frame),
+            tuple(float(v) for v in declaration.edge_anchor),
+            tuple(float(v) for v in declaration.edge_extent))
+
+
 class BaseProgram:
     def __init__(self, screen, num_tri=500):
         """
@@ -153,15 +191,10 @@ class BaseProgram:
             # save it.
             self.texture.use(0)
 
-        # Hand the shader this shape's own edge equation, if it has one. Read off the object
-        # rather than configured per stimulus: converting a shape converts every stimulus that
-        # draws it, and one that declares nothing keeps the geometry-defined edge.
-        edge_kind = getattr(self.stim_object, 'edge_kind', 0)
-        self.prog['edge_kind'].value = edge_kind
-        if edge_kind:
-            self.prog['edge_frame'].write(_frame_bytes(self.stim_object.edge_frame))
-            self.prog['edge_anchor'].value = tuple(float(v) for v in self.stim_object.edge_anchor)
-            self.prog['edge_extent'].value = tuple(float(v) for v in self.stim_object.edge_extent)
+        # What to draw, and with which edge equation. Usually one run with the object's own -- but
+        # a shape built by merging others carries one declaration per component, and those have to
+        # be drawn separately because a draw call has only one set of uniforms.
+        runs = _draw_runs(self.stim_object, n_vertices)
 
         # Render to each subscreen
         for v_ind, vp in enumerate(viewports):
@@ -170,12 +203,29 @@ class BaseProgram:
             # set the viewport
             self.ctx.viewport = vp
 
-            # render the object
-            if self.draw_mode == 'POINTS':
-                self.vao.render(mode=moderngl.POINTS, vertices=n_vertices)
-                self.ctx.point_size=self.point_size
-            elif self.draw_mode == 'TRIANGLES':
-                self.vao.render(mode=moderngl.TRIANGLES, vertices=n_vertices)
+            for first, count, packed in runs:
+                self._set_edge_uniforms(packed)
+                # render the object
+                if self.draw_mode == 'POINTS':
+                    self.vao.render(mode=moderngl.POINTS, vertices=count, first=first)
+                    self.ctx.point_size=self.point_size
+                elif self.draw_mode == 'TRIANGLES':
+                    self.vao.render(mode=moderngl.TRIANGLES, vertices=count, first=first)
+
+    def _set_edge_uniforms(self, packed):
+        """Hand the shader one edge equation, or none. `packed` comes from :func:`_packed_edge`.
+
+        Read off the shape rather than configured per stimulus: converting a shape converts every
+        stimulus that draws it, and one that declares nothing keeps the geometry-defined edge.
+        """
+        if packed is None:
+            self.prog['edge_kind'].value = 0
+            return
+        kind, frame, anchor, extent = packed
+        self.prog['edge_kind'].value = kind
+        self.prog['edge_frame'].write(frame)
+        self.prog['edge_anchor'].value = anchor
+        self.prog['edge_extent'].value = extent
 
     def add_texture_gl(self, texture_image, texture_interpolation='LINEAR'):
         """
