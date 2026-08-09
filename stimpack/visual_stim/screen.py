@@ -170,10 +170,12 @@ class Screen:
             fragments overlap each other, which needs per-sample storage to fix.
 
             The cost is small but not free. On this rig's Quadro M2000, a background and one spot:
-            +0.07 ms flat, +0.49 ms curved -- under 6% of a 120 Hz frame, but 18% of a 360 Hz one,
-            and the curved path pays it once per cube face. Content with nothing to blend still pays
-            for the second pass's vertex and rasterisation work, since the discard happens in the
-            fragment shader. Turn it off on a rig where that margin matters and the scene is opaque.
+            +0.07 ms flat, +0.49 ms curved, the curved figure paid once per cube face. That is under
+            6% of a 120 Hz frame and no rig currently runs fast enough for it to bite -- it would be
+            18% at 360 Hz, which nothing here does yet. Content with nothing to blend still pays for
+            the second pass's vertex and rasterisation work, since the discard happens in the
+            fragment shader. The opt-out is here for a rig that outgrows that margin, not for one
+            that has.
         """
         if subscreens is None:
             subscreens = [ SubScreen(pa=pa, pb=pb, pc=pc) ]
