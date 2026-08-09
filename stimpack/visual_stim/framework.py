@@ -522,7 +522,8 @@ class StimDisplay(QOpenGLWidget):
         # Get viewport for corner square
         self.square_program.set_viewport(display_width, display_height)
 
-        framebuffer = self.ctx.detect_framebuffer()
+        target = self.ctx.detect_framebuffer()
+        framebuffer = self.multisample_framebuffer(display_width, display_height) or target
         framebuffer.use()
 
         # One pass per subframe. With subframes=1 this runs once with every channel writable, which
@@ -536,6 +537,12 @@ class StimDisplay(QOpenGLWidget):
             framebuffer.color_mask = mask
             self.paint_subframe(subframe * interval, display_width, display_height)
         framebuffer.color_mask = (True, True, True, True)
+
+        if framebuffer is not target:
+            # Resolve the samples down into the widget's own framebuffer. Everything after this --
+            # grabFramebuffer, the photodiode square, presentation -- sees an ordinary image.
+            self.ctx.copy_framebuffer(target, framebuffer)
+            target.use()
 
         # Once per displayed frame, not per subframe: presenting, capturing and logging all describe
         # the frame the display will actually show, which is the packed one.
@@ -560,6 +567,31 @@ class StimDisplay(QOpenGLWidget):
                 # subframe landed there, which is a third of the frames at a third of the rate.
                 self.stim_frames.append(util.qimage2ndarray(self.grabFramebuffer())[:, :, 2])
                 self.current_time_index += 1
+
+    def multisample_framebuffer(self, width, height):
+        """A multisampled framebuffer to draw this frame into, or None to draw straight to the widget.
+
+        Kept and reused across frames, and rebuilt only when the display size changes -- allocating
+        a multisampled colour and depth buffer every frame would cost far more than the sampling.
+
+        Returns None when the screen asks for no multisampling, which is the default, so the
+        ordinary path is unchanged: same framebuffer, same draws, no copy.
+        """
+        samples = getattr(self.screen, 'msaa_samples', 0)
+        if not samples:
+            return None
+
+        want = (int(width), int(height), int(samples))
+        if getattr(self, '_msaa_key', None) != want:
+            self._msaa_fbo = self.ctx.framebuffer(
+                color_attachments=[self.ctx.renderbuffer((want[0], want[1]), samples=want[2])],
+                depth_attachment=self.ctx.depth_renderbuffer((want[0], want[1]), samples=want[2]))
+            self._msaa_key = want
+            granted = self._msaa_fbo.color_attachments[0].samples
+            if granted != samples:
+                print(f'Screen {self.screen.name}: asked for {samples}x multisampling, '
+                      f'the driver granted {granted}x.')
+        return self._msaa_fbo
 
     def paint_subframe(self, time_offset, display_width, display_height):
         """Draw one timepoint into whichever channels are currently writable.

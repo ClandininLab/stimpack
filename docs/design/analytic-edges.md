@@ -488,6 +488,26 @@ that already runs, has no framebuffer cost, and does not multiply with the subfr
 receives none. Whatever is decided about antialiasing, that request should either be made to work
 or be removed with a comment saying why -- leaving it is a claim the code does not deliver.
 
+### Where it landed
+
+Built, as `Screen(msaa_samples=n)`, defaulting to none. What it earns is narrower than "it
+antialiases everything": **it quantises edge position to 1/n of a pixel rather than a whole one.**
+A finer staircase, not the continuous sub-pixel motion an analytic edge gives. A box drifting at
+2 deg/s at 360 Hz, largest single jump in edge position:
+
+| samples | 0 | 2 | 4 | 8 | 16 | *analytic edge* |
+|---|---|---|---|---|---|---|
+| jump | 1.000 px | 0.502 | 0.251 | 0.126 | 0.063 | *0.024* |
+
+So it is not for shapes that already carry an equation -- it leaves those alone to within 0.04% of
+their total light, which is what makes it safe to leave on. It is for the geometry that can never
+carry one: `MovingBox`, `Tower`, `Forest`, the labpack's `GlFly`, and anything else assembled with
+`add()`.
+
+Rig-specific because the cost is, by more than an order of magnitude. A 16-tree forest at
+1920x1080: 1.7% of a 360 Hz frame at 4x and 5.7% at 16x on an RTX A4500; 89% at 4x on a software
+rasteriser, where 8x does not fit at all. Measure on the rig before raising it.
+
 ### Revised recommendation
 
 1. Fix or remove the ineffective `setSamples(24)`, and report the granted count at start-up.
