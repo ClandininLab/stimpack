@@ -1151,8 +1151,8 @@ def main():
     for function_name in SCREEN_FUNCTION_NAMES:
         server.register_function(getattr(stim_display, function_name))
     
-    # A new window normally activates itself and takes the keyboard. Windowed screens are shown
-    # without taking focus by default instead; set STIMPACK_NO_FOCUS=0 for the old behaviour.
+    # A new window normally activates itself and takes the keyboard. Screens are shown without
+    # taking focus by default instead; set STIMPACK_NO_FOCUS=0 for the old behaviour.
     #
     # This used to be opt-in, on the reasoning that taking focus "is right on a rig" and only a
     # desktop needs protecting from it. On a rig with more than one screen it is the opposite. The
@@ -1172,35 +1172,37 @@ def main():
     # compositor alone decides focus, and mutter activates new toplevels regardless (measured, not
     # assumed). To get this under a Wayland session, run the screen on XWayland instead --
     # Screen(x_display=os.environ['DISPLAY']) selects the xcb platform. See tests/conftest.py.
-    # WA_ShowWithoutActivating only. WindowDoesNotAcceptFocus used to be set alongside it and does
-    # two separate jobs, one of which we want and one of which breaks things:
+    # Two mechanisms, applied to different screens because they do different jobs:
     #
-    #     WA_ShowWithoutActivating   do not take focus when shown      <- what this is for
-    #     WindowDoesNotAcceptFocus   never accept focus, ever          <- too strong, and harmful
+    #     WA_ShowWithoutActivating   do not take focus when shown       every screen
+    #     WindowDoesNotAcceptFocus   never accept focus at all          fullscreen only
     #
-    # Measured on a 1920x1080 fluxbox screen, showFullScreen() in each configuration:
-    #
-    #     neither                                 1920x1080+0+0    focusable
-    #     WA_ShowWithoutActivating                1920x1080+0+0    focusable
-    #     WindowDoesNotAcceptFocus                1920x1080+0+22   not focusable
-    #     both                                    1920x1080+0+22   not focusable
-    #
-    # The flag costs 22 px, the attribute costs nothing. A fullscreen window carrying the flag is
-    # placed by fluxbox as though it were decorated -- the client area starts at the title bar's
-    # height. Qt reports WindowFullScreen either way, so nothing in software can tell: on this rig
-    # the projector window sat at 912x1140+0+22, shifting the whole image 22 px down the bowl and
-    # pushing the bottom 22 px off the display. A misaligned experiment that looks like a working
-    # one.
-    #
-    # On a windowed screen the flag does something just as bad but louder: the operator preview
-    # becomes permanently unfocusable, so when the window manager flashes it for attention there is
-    # no way to click it and make it stop.
-    #
-    # Not taking focus when shown is the whole of what the dropped-frame problem needed -- the
-    # windows competed because each grabbed focus as it appeared. Whether the attribute alone holds
-    # the frame count at 720/720 is worth re-checking on a rig with an operator window open.
+    # The dropped frames below came from the screens competing for focus. What settles it is the
+    # fullscreen screen refusing focus outright, so the operator window can hold it; see the block
+    # below for why that is the way round it is, and for what the flag costs if applied naively.
     if os.environ.get('STIMPACK_NO_FOCUS', '1') != '0':
         stim_display.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        if screen.fullscreen:
+            # Frameless as well as no-focus, and both only here. Measured on a 1920x1080 fluxbox
+            # screen with showFullScreen():
+            #
+            #     no-focus                    1920x1080+0+22   refuses focus
+            #     frameless                   1920x1080+0+0    accepts focus
+            #     no-focus + frameless        1920x1080+0+0    refuses focus
+            #
+            # The no-focus flag alone gets the window placed as though it were decorated, so the
+            # client area starts a title bar down -- on this rig that shifted the projected image
+            # 22 px down the bowl while Qt still reported WindowFullScreen, so nothing in software
+            # could tell. Removing the decoration removes the offset, and a fullscreen stimulus
+            # window has no business being decorated anyway.
+            #
+            # It is the *fullscreen* screen that has to refuse focus, which is the opposite of the
+            # obvious guess. The operator window flashes when it wants focus and cannot keep it, so
+            # what stops the flashing is the projector never taking it away. Setting the flag on
+            # the operator window instead makes things worse twice over: it still flashes, and it
+            # can no longer be clicked to settle. Observed at the rig in all three configurations.
+            stim_display.setWindowFlag(QtCore.Qt.WindowType.WindowDoesNotAcceptFocus, True)
+            stim_display.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint, True)
 
     # display the stimulus
     if screen.fullscreen:
