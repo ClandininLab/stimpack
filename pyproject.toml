@@ -5,6 +5,12 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 pythonpath = ["tests"]   # so tests can `from fakes import FakeManager, FakeClient`
 addopts = "-ra"
+# Dump every thread's stack when one test runs long, instead of leaving a stuck test silent. A Qt
+# dialog static (QFileDialog.getExistingDirectory, QInputDialog.getText) that a test forgot to
+# patch never returns under QT_QPA_PLATFORM=offscreen -- the platform has an event loop, so exec()
+# waits for input that cannot arrive -- and produces no output at all while it waits. Nothing here
+# takes near two minutes; the slowest tier's own gates (e2e's live-server boot) are 60s and 30s.
+faulthandler_timeout = 120
 markers = [
     "unit: fast test with no hardware, GL context, or GUI",
     "gl: requires an OpenGL context (run headless under xvfb / a standalone moderngl context)",

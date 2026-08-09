@@ -8,6 +8,11 @@ jobs:
   test:
     # Pin 22.04: stable system-package names for headless Mesa software GL + Qt.
     runs-on: ubuntu-22.04
+    # A green run is ~4.5 minutes. Without this the default is SIX HOURS, which is what a single
+    # blocking Qt call cost every push for ten days: the job never failed, it was cancelled by the
+    # platform, and every tier after the one that hung was skipped. Per-step limits below say which
+    # tier stopped; this is the backstop for anything they do not cover.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -45,16 +50,19 @@ jobs:
 
       # Fast, dependency-light logic tests — no GL/GUI context needed.
       - name: Unit tests
+        timeout-minutes: 5      # 5s when green
         run: pytest -m unit
 
       # Full run lifecycle (client/protocol/data over a fake RPC link) and the PyQt6 GUI driven
       # headlessly: real windows and button clicks, offscreen platform, no rig.
       - name: Integration + GUI tests (offscreen)
+        timeout-minutes: 5      # 48s when green
         run: pytest -m "integration or gui"
 
       # GL smoke + golden-image tests: standalone moderngl context under a software GL driver,
       # wrapped in xvfb for any GLX fallback. If no GL context is available they skip rather than fail.
       - name: GL tests (headless, software renderer)
+        timeout-minutes: 5      # 4s when green (skips without a GL context)
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: xvfb-run -a pytest -m gl
@@ -68,6 +76,7 @@ jobs:
       # tiers above are deterministic and do gate.
       - name: End-to-end tests (live server + screen subprocesses)
         continue-on-error: true
+        timeout-minutes: 8      # 72s when green; this tier waits on real subprocesses
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: xvfb-run -a pytest -m e2e
@@ -78,6 +87,7 @@ jobs:
       # outliving the window) that used to segfault a whole-suite run.
       - name: Whole suite in one process (cross-tier interaction)
         continue-on-error: true
+        timeout-minutes: 10     # 95s when green
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: xvfb-run -a pytest
