@@ -874,6 +874,89 @@ def test_a_finer_cube_moves_the_comparison_and_nothing_else():
     assert coarse['fraction_cube_limited'] > fine['fraction_cube_limited']
 
 
+def test_a_cube_face_is_coarsest_at_its_centre_and_finest_at_its_corners():
+    """The fact the old scalar hid. A cube face is a plane, so a texel at angle t from its axis
+    subtends cos^3(t) of the solid angle one at the centre does -- 3^(3/4) = 2.28x in linear
+    density between centre and corner. There is no single number for 'the resolution of a cube'."""
+    from stimpack.visual_stim.curved_screen import cube_px_per_deg
+
+    centre, edge, corner = cube_px_per_deg([[0, 0, 1], [0, 1, 1], [1, 1, 1]], 1536)
+
+    assert centre == pytest.approx(1536 / 2 * np.pi / 180, rel=1e-9)   # 13.40
+    assert corner / centre == pytest.approx(3 ** 0.75, rel=1e-9)       # 2.280
+    assert centre < edge < corner
+
+
+def test_the_reported_cube_resolution_is_not_the_face_average():
+    """`cube_resolution / 90` describes nowhere on the map: it is a linear average of a tangent
+    map and sits 1.27x above the face centre, so it overstated the intermediate and understated
+    how much of a screen the intermediate was limiting."""
+    from stimpack.visual_stim.curved_screen import cube_px_per_deg
+
+    face_average = 1536 / 90
+    floor = cube_px_per_deg([[0, 0, 1]], 1536)[0]
+
+    assert face_average / floor == pytest.approx(1.273, abs=5e-4)
+    assert floor < face_average, 'the reported figure must not exceed what the cube guarantees'
+
+
+def test_the_screen_is_compared_against_the_cube_where_it_actually_lands():
+    """Reported floor and best are the cube's density over THIS screen, not over a whole face, so
+    they sit inside the face's own 2.28x range rather than at its extremes."""
+    mesh = _flymax_like_mesh()
+
+    result = mesh.projector_resolution((1140, 912), cube_resolution=1536)
+    whole_face_floor = 1536 / 2 * np.pi / 180
+
+    assert result['cube_px_per_deg'] >= whole_face_floor - 1e-9
+    assert result['cube_px_per_deg'] <= result['cube_px_per_deg_best']
+    assert result['cube_px_per_deg_best'] <= whole_face_floor * 3 ** 0.75 + 1e-9
+
+
+def test_the_old_face_average_hid_a_cube_that_was_limiting_the_screen():
+    """The regression this exists to prevent. At a cube size where the face average clears the
+    projector but the face centre does not, the old comparison reported nothing wrong."""
+    mesh = _flymax_like_mesh()
+    coarse = 1000                                   # 1000/90 = 11.1, but a face centre gets 8.7
+
+    result = mesh.projector_resolution((1140, 912), cube_resolution=coarse)
+
+    assert result['best'] > result['cube_px_per_deg'], 'geometry chosen so the cube does limit'
+    assert result['best'] < coarse / 90, 'and so the old face average would have said it does not'
+    assert result['fraction_cube_limited'] > 0, 'the old comparison reported 0% here'
+
+
+def test_cube_resolution_to_match_actually_suffices():
+    """It is quoted as the size that stops the cube limiting the screen, so feeding it back in
+    should do that. The old value was undersized by the same 1.27x as the figure it came from."""
+    mesh = _flymax_like_mesh()
+
+    limited = mesh.projector_resolution((1140, 912), cube_resolution=1000)
+    assert limited['fraction_cube_limited'] > 0
+
+    enough = mesh.projector_resolution((1140, 912),
+                                       cube_resolution=limited['cube_resolution_to_match'])
+
+    # Not zero, and deliberately: the figure is set at the 99th percentile by screen area, like
+    # every other percentile here, so the 1% tail it excludes is expected to remain.
+    assert enough['fraction_cube_limited'] <= 0.02, 'the resolution it named was not enough'
+    assert enough['fraction_cube_limited'] < limited['fraction_cube_limited'] / 2
+
+
+def test_turning_the_cube_moves_the_comparison_but_not_the_rig():
+    """A cube orientation decides where the screen lands on the map, so it may change what the
+    intermediate costs. What it cannot change is the projector's own numbers."""
+    mesh = _flymax_like_mesh()
+    turn = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])   # 90 deg about z
+
+    plain = mesh.projector_resolution((1140, 912), cube_resolution=1536)
+    turned = mesh.projector_resolution((1140, 912), cube_resolution=1536, cube_orientation=turn)
+
+    assert turned['best'] == plain['best']
+    assert turned['median'] == plain['median']
+    assert turned['worst'] == plain['worst']
+
+
 def test_an_unlit_screen_reports_nothing_rather_than_dividing_by_zero():
     from stimpack.visual_stim.curved_screen import ScreenMesh
 

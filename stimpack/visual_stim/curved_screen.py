@@ -295,6 +295,36 @@ def deserialize_surface(data):
 DEGENERATE_SOLID_ANGLE = 1e-9
 
 
+def cube_px_per_deg(directions, cube_resolution, orientation=None):
+    """What a cube map of this size actually resolves in each of these directions, in px/deg.
+
+    Not a constant, which is the whole point of this function existing. A cube face is a plane, so
+    a texel at angle t from that face's axis subtends cos^3(t) of the solid angle a texel at the
+    centre does -- the face centre is the COARSEST part of the map and the corners the finest, by
+    3^(3/4) = 2.28x in linear density.
+
+    `cube_resolution / 90` therefore describes nowhere on the map. It is a linear average of a
+    tangent map, and it sits 1.27x above the face centre: a 1536 cube reports 17.07 px/deg that way
+    and delivers 13.40 at a face centre and 30.55 at a corner. Comparing a projector against it
+    overstated the intermediate, which understated how much of a screen the intermediate was
+    limiting.
+
+    :param directions: (n, 3) directions from the subject, in RIG space
+    :param cube_resolution: pixels per cube-map face
+    :param orientation: the screen's cube orientation, which takes rig directions to cube
+        directions (see CubeMapRenderer). Omitting it measures the unrotated cube, which is wrong
+        for a screen using `cube_orientation='auto'` -- the bound stays right, the distribution
+        across the screen does not.
+    """
+    d = np.asarray(directions, dtype=float)
+    if orientation is not None:
+        d = d @ np.asarray(orientation, dtype=float).T
+    # cos of the angle to the nearest face axis: cube maps sample by dominant axis, so that axis is
+    # the largest component, and the cosine is that component over the length.
+    cos_theta = np.abs(d).max(axis=-1) / np.linalg.norm(d, axis=-1)
+    return (cube_resolution / 2.0) * (np.pi / 180.0) / cos_theta ** 1.5
+
+
 class ScreenMesh:
     """The screen as the renderer needs it: where each point projects, and where it lies.
 
@@ -335,7 +365,7 @@ class ScreenMesh:
         return np.hstack([self.ndc[flat], self.directions[flat],
                           self.gain[flat, None]]).astype(np.float32)
 
-    def projector_resolution(self, projector_pixels, cube_resolution=None):
+    def projector_resolution(self, projector_pixels, cube_resolution=None, cube_orientation=None):
         """How finely the projector resolves each part of the screen, in pixels per degree.
 
         This is the number that says whether an intermediate is throwing information away. A
@@ -355,15 +385,20 @@ class ScreenMesh:
         :param projector_pixels: (width, height) of the projector panel, in pixels
         :param cube_resolution: pixels per cube-map face to compare against; defaults to the
             renderer's own default, so the answer is about the rig as it would actually run
+        :param cube_orientation: the screen's resolved cube orientation, if it turns its cube.
+            ``CurvedScreen.resolve_cube_orientation(mesh)`` is what to pass. Only affects where on
+            the cube each part of the screen lands, not the rig's own numbers.
         :return: dict with the per-triangle densities, their spread, and what a cube map would
             have to be to keep up
 
-        The comparison to draw from the result is between ``best`` and ``cube_px_per_deg``. Where
-        the projector is finer than the cube, the intermediate is the limit and detail the optics
-        could deliver is being discarded; where it is coarser, the cube is spending fill on
-        resolution the screen cannot show.
+        The cube is compared **per direction**, not against one figure for the whole map: a cube
+        face is coarsest at its centre and 2.28x finer at its corners (see :func:`cube_px_per_deg`),
+        so which part of the screen lands where decides whether the intermediate limits it. Where
+        the projector is finer than the cube locally, detail the optics could deliver is being
+        discarded; where it is coarser, the cube is spending fill on resolution the screen cannot
+        show. ``fraction_cube_limited`` is how much of the screen is in the first case.
         """
-        from stimpack.visual_stim.cubemap import CUBE_FACE_DEGREES, DEFAULT_CUBE_RESOLUTION
+        from stimpack.visual_stim.cubemap import DEFAULT_CUBE_RESOLUTION
 
         if cube_resolution is None:
             cube_resolution = DEFAULT_CUBE_RESOLUTION
@@ -372,8 +407,11 @@ class ScreenMesh:
         corners = self.triangles.reshape(-1, 3)
         lit = self.lit[corners].all(axis=1)
         if not lit.any():
+            # No screen to land on, so no distribution -- report the floor the cube guarantees
+            # anywhere, which is at a face centre.
             return {'lit_triangles': 0, 'best': None, 'worst': None, 'ratio': None,
-                    'cube_px_per_deg': cube_resolution / CUBE_FACE_DEGREES,
+                    'cube_px_per_deg': float(cube_px_per_deg([[0.0, 0.0, 1.0]], cube_resolution)[0]),
+                    'cube_px_per_deg_best': None,
                     'cube_resolution_to_match': None, 'fraction_cube_limited': None}
         corners = corners[lit]
 
@@ -401,8 +439,11 @@ class ScreenMesh:
         # first version of this reported 187 px/deg for a rig that reaches about 11.
         usable = (solid_angle > DEGENERATE_SOLID_ANGLE) & (ndc_area > 0)
         if not usable.any():
+            # No screen to land on, so no distribution -- report the floor the cube guarantees
+            # anywhere, which is at a face centre.
             return {'lit_triangles': 0, 'best': None, 'worst': None, 'ratio': None,
-                    'cube_px_per_deg': cube_resolution / CUBE_FACE_DEGREES,
+                    'cube_px_per_deg': float(cube_px_per_deg([[0.0, 0.0, 1.0]], cube_resolution)[0]),
+                    'cube_px_per_deg_best': None,
                     'cube_resolution_to_match': None, 'fraction_cube_limited': None}
 
         density = np.sqrt(pixels[usable] / solid_angle[usable]) * np.pi / 180.0
@@ -416,7 +457,20 @@ class ScreenMesh:
         def at(fraction):
             return float(density[order][np.searchsorted(cumulative, fraction)])
 
-        cube_px_per_deg = cube_resolution / CUBE_FACE_DEGREES
+        # What the cube delivers WHERE THIS SCREEN ACTUALLY LANDS ON IT, per triangle, rather than
+        # one figure for the whole map. The triangle's direction is the normalized mean of its
+        # corners', which is the same approximation the solid angle above already makes.
+        middle = da[usable] + db[usable] + dc[usable]
+        cube_density = cube_px_per_deg(middle, cube_resolution, cube_orientation)
+
+        # The resolution at which nothing is cube-limited any more. Density scales linearly with
+        # the face size, so it is today's size times how far short it falls -- at the same 99th
+        # percentile by area the rest of this uses, not the worst single triangle.
+        shortfall = density / cube_density
+        short_order = np.argsort(shortfall)
+        short_cumulative = np.cumsum(weight[short_order]) / weight.sum()
+        worst_shortfall = float(shortfall[short_order][np.searchsorted(short_cumulative, 0.99)])
+
         best, worst = at(0.99), at(0.01)
         return {
             'lit_triangles': int(usable.sum()),
@@ -428,12 +482,15 @@ class ScreenMesh:
             'worst': worst,
             'median': at(0.5),
             'ratio': best / worst if worst > 0 else float('inf'),
-            'cube_px_per_deg': cube_px_per_deg,
-            # what the cube would have to be to stop limiting the screen's best region
-            'cube_resolution_to_match': float(best * CUBE_FACE_DEGREES),
+            # the cube's own resolution over this screen: the floor it guarantees anywhere the
+            # screen lands, and the best it reaches. These differ by up to 2.28x on one face.
+            'cube_px_per_deg': float(cube_density.min()),
+            'cube_px_per_deg_best': float(cube_density.max()),
+            # what the cube would have to be to stop limiting the screen anywhere
+            'cube_resolution_to_match': float(cube_resolution * max(worst_shortfall, 1.0)),
             # share of the screen, by solid angle, where the cube rather than the optics is the
             # limit -- i.e. where the experimenter is getting less than the rig could deliver
-            'fraction_cube_limited': float(weight[density > cube_px_per_deg].sum() / weight.sum()),
+            'fraction_cube_limited': float(weight[density > cube_density].sum() / weight.sum()),
         }
 
 
