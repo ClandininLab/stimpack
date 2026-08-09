@@ -168,3 +168,137 @@ def test_the_edge_lands_between_pixels_more_finely_as_samples_rise(headless_gl):
     assert coarse.max() == pytest.approx(1.0, abs=0.02), 'without this the edge jumps a whole pixel'
     assert fine.max() < 0.5 * coarse.max(), (
         f'8x should quantise more finely than a whole pixel, got {fine.max():.3f}')
+
+
+# --- the curved path, where it reaches much less -------------------------------------------------
+
+from stimpack.visual_stim.cubemap import CubeMapRenderer  # noqa: E402
+from stimpack.visual_stim.curved_screen import (  # noqa: E402
+    CurvedScreen, PinholeProjector, SphericalSurface,
+)
+from stimpack.visual_stim.framework import StimDisplay  # noqa: E402
+
+
+def _curved_screen(cube_resolution=512):
+    """A bowl in front of the subject, lit by a projector on its own axis."""
+    return CurvedScreen(
+        surface=SphericalSurface(radius=0.0775, elevation_range=(25, 90), pole=(0, 1, 0),
+                                 n_azimuth=180, n_elevation=32),
+        projector=PinholeProjector(position=(0, 0.35, 0), look_at=(0, 0, 0), up=(0, 0, 1),
+                                   throw_ratio=1.58),
+        cube_resolution=cube_resolution, fullscreen=False, vsync=False)
+
+
+def _render_curved(ctx, name, kwargs, samples, screen=None):
+    """The same stimulus through the real cube-map path, into the same targets paintGL uses."""
+    ctx.enable(moderngl.BLEND)
+    ctx.enable(moderngl.DEPTH_TEST)
+    ctx.extra = {}
+
+    screen = screen or _curved_screen()
+    mesh = screen.build_mesh()
+    renderer = CubeMapRenderer(ctx, mesh, resolution=screen.cube_resolution,
+                               orientation=screen.resolve_cube_orientation(mesh))
+
+    resolved = ctx.framebuffer(color_attachments=[ctx.renderbuffer((SIZE, SIZE))],
+                               depth_attachment=ctx.depth_renderbuffer((SIZE, SIZE)))
+    if samples:
+        target = ctx.framebuffer(
+            color_attachments=[ctx.renderbuffer((SIZE, SIZE), samples=samples)],
+            depth_attachment=ctx.depth_renderbuffer((SIZE, SIZE), samples=samples))
+    else:
+        target = resolved
+
+    stim = [c for c in get_all_subclasses(stimuli.BaseProgram)
+            if c.__name__ == name][0](screen=screen)
+    stim.initialize(ctx)
+    stim.configure(**kwargs)
+
+    display = StimDisplay.__new__(StimDisplay)
+    display.ctx, display.cube_renderer = ctx, renderer
+    display.stim_list, display.stim_started = [stim], True
+    display.idle_background = (0.0, 0.0, 0.0, 1.0)
+    display.subject_position = SUBJECT_AT_ORIGIN
+
+    target.use()
+    target.clear(0, 0, 0, 1)
+    display.paint_through_cube_map(0.0, SIZE, SIZE)
+    if samples:
+        ctx.copy_framebuffer(resolved, target)
+    ctx.finish()
+
+    raw = resolved.read(components=3, alignment=1)
+    renderer.release()
+    return np.flipud(np.frombuffer(raw, dtype=np.uint8).reshape(SIZE, SIZE, 3))[..., 0].astype(int)
+
+
+def _partial(grey):
+    """Pixels neither background nor foreground -- what antialiasing creates and aliasing does not."""
+    return int(((grey > 5) & (grey < 250)).sum())
+
+
+def test_the_cube_faces_are_not_multisampled(headless_gl):
+    """The mechanism behind the test below, asserted directly so it cannot change silently.
+
+    msaa_samples multisamples the framebuffer paintGL draws into. The cube faces are rendered into
+    framebuffers of the renderer's own, and those are single-sample -- a cube face is a texture
+    attachment, and core GL 3.3 has no multisampled cube map. Multisampling them would mean an
+    extra multisampled buffer and a resolve per face; that was prototyped and rejected on cost
+    (docs/design/analytic-edges.md). If someone builds it, this fails and the docs need revisiting.
+
+    That last sentence is checked, not assumed: this body was run against the prototype -- a
+    renderer whose use_face binds a multisampled buffer -- and it goes red on the first face. A
+    test asserting a property that is currently true is worth nothing until it has been seen to
+    fail.
+    """
+    screen = _curved_screen(cube_resolution=128)
+    mesh = screen.build_mesh()
+    renderer = CubeMapRenderer(headless_gl, mesh, resolution=screen.cube_resolution)
+    try:
+        for face in renderer.face_indices:
+            renderer.use_face(face)
+            assert headless_gl.fbo.samples == 0, \
+                f'face {face} is multisampled; the docs say the faces are not'
+    finally:
+        renderer.release()
+
+
+def test_multisampling_transforms_the_flat_path_and_barely_touches_the_curved_one(headless_gl):
+    """Stated as the comparison, because the absolute counts are driver-dependent and the
+    difference between the paths is not.
+
+    On the flat path multisampling *creates* the antialiasing: without it a box silhouette has no
+    partially-covered pixels at all. On the curved path the warp has already done most of the job
+    before multisampling sees anything -- it samples the cube bilinearly, and where the cube is
+    finer than the output it averages as it goes -- so turning it on adds comparatively little.
+
+    The practical consequence, and the reason to pin it: setting msaa_samples on a curved rig buys
+    much less than the same setting on a flat one, and someone reading only the flat tests would
+    not know that.
+    """
+    usable = _supported(headless_gl, (4,))
+    if not usable:
+        pytest.skip('driver offers no 4x multisampling')
+    samples = usable[0]
+
+    flat_plain = _partial(_render(headless_gl, 'MovingBox', BOX, 0))
+    flat_ms = _partial(_render(headless_gl, 'MovingBox', BOX, samples))
+    curved_plain = _partial(_render_curved(headless_gl, 'MovingBox', BOX, 0))
+    curved_ms = _partial(_render_curved(headless_gl, 'MovingBox', BOX, samples))
+
+    assert flat_plain == 0, 'a box through a flat frustum should be hard-edged without this'
+    assert flat_ms > 100, f'{samples}x did not antialias the flat path at all ({flat_ms} px)'
+
+    # These two catch the warp ceasing to resample smoothly -- a NEAREST cube filter, or a cube so
+    # coarse the warp magnifies instead of minifying. Verified by setting the filter to NEAREST,
+    # which takes curved_plain from 181 to 0.
+    #
+    # What they cannot catch is the cube faces *gaining* multisampling: that would antialias the
+    # curved path further at zero widget samples, so the ratio would rise and both would hold more
+    # strongly. test_the_cube_faces_are_not_multisampled is what pins that.
+    assert curved_plain > 0, \
+        'the warp resamples the cube, so the curved path should be partly antialiased already'
+    assert curved_plain > 0.5 * curved_ms, (
+        f'widget multisampling supplied most of the curved path\'s antialiasing '
+        f'({curved_plain} -> {curved_ms} px), which the docs say it does not. Either the warp has '
+        f'stopped smoothing, or something else now draws stimulus geometry into the widget target.')
