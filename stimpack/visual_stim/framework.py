@@ -1151,8 +1151,8 @@ def main():
     for function_name in SCREEN_FUNCTION_NAMES:
         server.register_function(getattr(stim_display, function_name))
     
-    # A new window normally activates itself and takes the keyboard. Screens are shown without
-    # taking focus by default instead; set STIMPACK_NO_FOCUS=0 for the old behaviour.
+    # A new window normally activates itself and takes the keyboard. Windowed screens are shown
+    # without taking focus by default instead; set STIMPACK_NO_FOCUS=0 for the old behaviour.
     #
     # This used to be opt-in, on the reasoning that taking focus "is right on a rig" and only a
     # desktop needs protecting from it. On a rig with more than one screen it is the opposite. The
@@ -1172,7 +1172,20 @@ def main():
     # compositor alone decides focus, and mutter activates new toplevels regardless (measured, not
     # assumed). To get this under a Wayland session, run the screen on XWayland instead --
     # Screen(x_display=os.environ['DISPLAY']) selects the xcb platform. See tests/conftest.py.
-    if os.environ.get('STIMPACK_NO_FOCUS', '1') != '0':
+    # Windowed screens only. A fullscreen window carrying WindowDoesNotAcceptFocus is placed by
+    # fluxbox as though it were decorated: the client area starts at the title bar's height instead
+    # of at the top of the display. Measured on a 1920x1080 screen, showFullScreen() either way:
+    #
+    #     without the flag    client geometry 1920x1080+0+0
+    #     with the flag       client geometry 1920x1080+0+22
+    #
+    # Qt reports WindowFullScreen in both cases, so nothing in software can tell. On this rig it
+    # shifted the whole projected image 22 px down the bowl and pushed the bottom 22 px off the
+    # display -- a misaligned experiment that still looks like a working one.
+    #
+    # No loss: the dropped frames above came from the *operator* window competing for focus, and
+    # that one is windowed. The fullscreen screen never needed the flag, it only suffered from it.
+    if os.environ.get('STIMPACK_NO_FOCUS', '1') != '0' and not screen.fullscreen:
         stim_display.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         stim_display.setWindowFlag(QtCore.Qt.WindowType.WindowDoesNotAcceptFocus, True)
 
