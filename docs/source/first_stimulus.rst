@@ -5,6 +5,11 @@ Your first stimulus
 This walks through presenting a stimulus from a Python script, without the GUI and without a rig.
 Everything here runs on a laptop.
 
+This is the layer *underneath* :doc:`first_experiment`: the GUI drives exactly the calls made here.
+Come this way when you want to write stimuli of your own, test one in isolation, or understand what
+the render server actually does -- and skip ahead to :doc:`install_labpack` if you just want to set
+up an experiment.
+
 The scripts shown are in the repository's ``examples/`` directory, and each one runs as-is.
 
 A window, and something in it

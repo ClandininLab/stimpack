@@ -2,16 +2,19 @@
 Quickstart
 ==========
 
-Install stimpack, present a stimulus, then point it at your lab's own protocols and rig.
+Install stimpack, run an experiment with the built-in examples, then point it at your lab's own
+protocols and rig.
 
-If you only want to see something on screen, :doc:`install` and :doc:`first_stimulus` are enough
-and take a few minutes. The ``labpack`` pages are for setting up an actual experiment.
+The first two pages need nothing but a laptop and take a few minutes. :doc:`first_stimulus` is the
+scripting path -- driving the stimulus server directly, no GUI -- worth reading before you write
+stimuli of your own. The ``labpack`` pages are for setting up an actual experiment.
 
 .. toctree::
     :maxdepth: 1
     :numbered:
 
     install
+    first_experiment
     first_stimulus
     install_labpack
     customize_labpack
