@@ -1,5 +1,16 @@
 # Contributing to stimpack
 
+## Reporting issues and getting support
+
+- **Bugs and feature requests**: open an issue at
+  [github.com/ClandininLab/stimpack/issues](https://github.com/ClandininLab/stimpack/issues).
+  For bugs, include your OS, Python version, `stimpack --version` output, and — if the problem
+  involves a labpack — the output of `stimpack --check-labpack`.
+- **Questions and usage help**: also welcome as GitHub issues; label them as questions. Please
+  check the documentation at [stimpack.readthedocs.io](https://stimpack.readthedocs.io) first.
+
+## Pull requests
+
 The following pull request flow description is slightly modified from a similar document in the [DragonPHY project](https://github.com/StanfordVLSI/DragonPHY).  More details on using pull requests can be found in [this tutorial](https://yangsu.github.io/pull-request-tutorial/).
 
 We use pull requests (PRs) to manage updates to the code base.  The test suite lives in the top-level **tests/** directory and runs on every PR via GitHub Actions (see `.github/workflows/test.yml`); please make sure it passes before asking for a review.  Here are the steps to go through to use this system.

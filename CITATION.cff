@@ -17,6 +17,27 @@ authors:
     family-names: Melander
     email: melander@stanford.edu
     affiliation: Stanford University
+  - given-names: Steven
+    family-names: Herbst
+    affiliation: Stanford University
+  - given-names: Bella
+    family-names: Brezovec
+    affiliation: Stanford University
+  - given-names: Carl
+    family-names: Wienecke
+    affiliation: Harvard Medical School
+  - given-names: Heberto
+    family-names: Mayorquin
+    affiliation: CatalystNeuro
+  - given-names: Shaul
+    family-names: Druckmann
+    affiliation: Stanford University
+  - given-names: Stephen
+    family-names: Baccus
+    affiliation: Stanford University
+  - given-names: Thomas
+    family-names: Clandinin
+    affiliation: Stanford University
   - given-names: Maxwell
     family-names: Turner
     email: mhturner@albany.edu
@@ -25,3 +46,4 @@ authors:
 identifiers:
   - type: url
     value: 'https://github.com/ClandininLab/stimpack'
+version: 0.3.0
