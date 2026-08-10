@@ -1,4 +1,4 @@
-"""Packing three timepoints into the colour channels of one frame.
+"""Packing three timepoints into the color channels of one frame.
 
 A DLPC350 in video-pattern mode can read the three 8-bit channels of a frame as three successive
 patterns, so a 120 Hz video link drives a 360 Hz monochrome display. The renderer's side of that is
@@ -68,7 +68,7 @@ def test_subframe_interval_is_the_pattern_rate():
 
 
 def test_one_subframe_is_ordinary_rendering():
-    """The default has to be a no-op, or every existing rig changes behaviour."""
+    """The default has to be a no-op, or every existing rig changes behavior."""
     screen = Screen()
     assert screen.subframes == 1
     assert screen.subframe_interval == 0.0
@@ -230,7 +230,7 @@ def test_two_subframes_leave_the_third_channel_untouched(headless_gl):
 
 
 def test_a_single_subframe_screen_renders_greyscale_as_before(headless_gl):
-    """subframes=1 must leave all three channels equal -- the existing behaviour, unchanged."""
+    """subframes=1 must leave all three channels equal -- the existing behavior, unchanged."""
     ctx = headless_gl
     packed = render_packed(ctx, Screen(), brightness_at=lambda dt: 0.5)
     assert np.allclose(packed, packed[0], atol=0.01), f'channels diverged at subframes=1: {packed}'

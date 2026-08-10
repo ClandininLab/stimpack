@@ -2,7 +2,7 @@
 Regression tests for two stimulus bugs fixed on the nwb_integration branch.
 
 Both were found on the rig rather than by a test, and neither had one, so they are pinned here.
-Neither test needs a GL context: both cover the CPU-side geometry/colour computation that runs
+Neither test needs a GL context: both cover the CPU-side geometry/color computation that runs
 before anything is handed to the GPU.
 """
 import warnings

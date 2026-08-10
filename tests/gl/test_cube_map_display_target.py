@@ -31,7 +31,7 @@ CUBE = 64
 
 
 def forward_mesh(half_width=1.0):
-    """A screen centred in the display, every direction pointing forward: only the +Y face.
+    """A screen centered in the display, every direction pointing forward: only the +Y face.
 
     half_width < 1 leaves projector image around it that the screen does not cover -- on the bowl
     that is the black surround outside the lit ellipse, and it is nearly half the frame.
@@ -45,7 +45,7 @@ def forward_mesh(half_width=1.0):
 
 
 class WholeFaceStim:
-    """Paints the face it is given a flat colour, without needing a real stimulus's geometry.
+    """Paints the face it is given a flat color, without needing a real stimulus's geometry.
 
     Carries eval_at because every real stimulus does: the render loop evaluates each stimulus once
     for the frame and then draws it per face, so a stand-in without one is not standing in for
@@ -106,15 +106,15 @@ def run_paint(ctx, stim_list, stim_started):
 
 
 def test_the_idle_background_reaches_the_display(headless_gl):
-    """Pre-time: the faces are cleared and nothing is drawn, and the screen shows that grey.
+    """Pre-time: the faces are cleared and nothing is drawn, and the screen shows that gray.
 
     On the rig this looked like it already worked, because a CurvedScreen inherits a full-viewport
     subscreen and the standby path clears the whole window to idle_background directly -- never
-    touching the cube map. The grey was real and told us nothing about the warp.
+    touching the cube map. The gray was real and told us nothing about the warp.
     """
     image, _, _ = run_paint(headless_gl, stim_list=[], stim_started=False)
     assert image[..., :3].mean() == pytest.approx(128, abs=4), \
-        f'display mean {image[..., :3].mean():.0f}, expected the idle grey through the warp'
+        f'display mean {image[..., :3].mean():.0f}, expected the idle gray through the warp'
 
 
 def test_a_stimulus_reaches_the_display(headless_gl):
@@ -133,10 +133,10 @@ class TranslucentFaceStim(WholeFaceStim):
 def test_the_warp_does_not_composite_through_the_cubes_alpha(headless_gl):
     """The warp must land opaque, whatever the cube's alpha channel happens to hold.
 
-    That channel is an accumulation artefact, not coverage: src_alpha/one_minus_src_alpha blending
+    That channel is an accumulation artifact, not coverage: src_alpha/one_minus_src_alpha blending
     computes dst.a = src.a^2 + dst.a*(1 - src.a), so it decays below 1 wherever blended fragments
     stack up, and by different amounts depending on which stimulus was drawn first. Passing it
-    through made the finished image composite into the window through that artefact. With
+    through made the finished image composite into the window through that artifact. With
     split_blended_pass on, 100 dots gave a cube whose rgb differed in 20 texels of seven million
     between the two draw orders and a warped image that differed in 77 pixels.
 
@@ -230,7 +230,7 @@ def test_standby_lights_only_what_the_screen_covers(headless_gl):
     surround = image[:quarter - 2, :, :3]
 
     assert covered.mean() == pytest.approx(128, abs=4), \
-        f'the screen itself is at {covered.mean():.0f}, expected the idle grey'
+        f'the screen itself is at {covered.mean():.0f}, expected the idle gray'
     assert surround.max() == 0, \
         f'lit {surround.max()} outside the screen, where no screen is to light'
 
@@ -242,7 +242,7 @@ def test_standby_on_a_planar_screen_still_fills_the_viewport(headless_gl):
     screen = Screen(fullscreen=False, vsync=False)
     image = run_subframe(ctx, renderer=None, screen=screen)
     assert image[..., :3].mean() == pytest.approx(128, abs=4), \
-        f'planar standby mean {image[..., :3].mean():.0f}, expected the idle grey everywhere'
+        f'planar standby mean {image[..., :3].mean():.0f}, expected the idle gray everywhere'
 
 
 # --- eval_at runs once per frame, not once per face ----------------------------------------------

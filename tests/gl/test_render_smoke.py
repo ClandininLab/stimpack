@@ -69,7 +69,7 @@ def test_context_setup_leaves_alpha_blending_on(headless_gl):
 
 
 def test_alpha_actually_composites(headless_gl):
-    """The behaviour the flag exists for: a half-transparent red over blue should mix, not replace."""
+    """The behavior the flag exists for: a half-transparent red over blue should mix, not replace."""
     import numpy as np
     import moderngl
 

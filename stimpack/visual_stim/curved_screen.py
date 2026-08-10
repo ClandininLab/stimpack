@@ -12,7 +12,7 @@ things:
     direction  which way that point lies, as seen by the subject
 
 Rendering then draws that one mesh, and each fragment knows the direction it represents. What
-supplies the colour for a direction is a separate question -- flystim1.0 evaluated a closed-form
+supplies the color for a direction is a separate question -- flystim1.0 evaluated a closed-form
 function, which is why it could not render 3D scenes; stimpack will sample a cube map, which can.
 This module is only concerned with building the mesh, and does not depend on how it is drawn.
 
@@ -29,7 +29,7 @@ from stimpack.visual_stim.util import normalize
 
 
 class PinholeProjector:
-    """A projector modelled as a pinhole, mapping points in the rig to projector NDC.
+    """A projector modeled as a pinhole, mapping points in the rig to projector NDC.
 
     This answers the question the renderer cannot proceed without: for a point on the screen, which
     part of the projector image illuminates it? The GPU draws into the projector's framebuffer, so
@@ -129,7 +129,7 @@ class PinholeProjector:
         The lenses are field-swappable, so check which one is fitted.
 
         The engine's other published figures are what make the pinhole model appropriate here:
-        "all glass 0% offset optics" means the optical axis runs through the image centre, so no
+        "all glass 0% offset optics" means the optical axis runs through the image center, so no
         offset term is needed, and distortion is quoted at <1% (0.1-0.5% over much of the range),
         which is below what this screen geometry needs to resolve.
 
@@ -151,7 +151,7 @@ class CurvedSurface:
         raise NotImplementedError
 
     def outward_normals(self, vertices):
-        """Unit normals pointing away from the surface's axis or centre, one per vertex.
+        """Unit normals pointing away from the surface's axis or center, one per vertex.
 
         Needed to work out which part of the screen a projector can actually light. Being inside the
         projector's frustum is not enough -- on a bowl, the far side is squarely within the frustum
@@ -164,7 +164,7 @@ class CurvedSurface:
 
 
 class SphericalSurface(CurvedSurface):
-    """A sphere (or a cap of one) centred on the subject.
+    """A sphere (or a cap of one) centered on the subject.
 
     Angles follow the rig convention used elsewhere in stimpack: azimuth is measured in the
     horizontal plane from +y (the direction the subject faces), and elevation from that plane
@@ -178,7 +178,7 @@ class SphericalSurface(CurvedSurface):
 
     Worth knowing what this does *not* affect: nothing about the projection. Where a point lands on
     the projector and which direction it lies in from the subject both depend only on the sphere and
-    the optics, and a sphere is unchanged by rotating it about its centre. Getting the pole wrong
+    the optics, and a sphere is unchanged by rotating it about its center. Getting the pole wrong
     therefore does not distort the image -- it changes which parts of the sphere are screen, so the
     mesh can run past the real rim at one edge and fall short at another.
 
@@ -300,12 +300,12 @@ def cube_px_per_deg(directions, cube_resolution, orientation=None):
 
     Not a constant, which is the whole point of this function existing. A cube face is a plane, so
     a texel at angle t from that face's axis subtends cos^3(t) of the solid angle a texel at the
-    centre does -- the face centre is the COARSEST part of the map and the corners the finest, by
+    center does -- the face center is the COARSEST part of the map and the corners the finest, by
     3^(3/4) = 2.28x in linear density.
 
     `cube_resolution / 90` therefore describes nowhere on the map. It is a linear average of a
-    tangent map, and it sits 1.27x above the face centre: a 1536 cube reports 17.07 px/deg that way
-    and delivers 13.40 at a face centre and 30.55 at a corner. Comparing a projector against it
+    tangent map, and it sits 1.27x above the face center: a 1536 cube reports 17.07 px/deg that way
+    and delivers 13.40 at a face center and 30.55 at a corner. Comparing a projector against it
     overstated the intermediate, which understated how much of a screen the intermediate was
     limiting.
 
@@ -331,7 +331,7 @@ class ScreenMesh:
     :param ndc: (N, 2) projector coordinates in [-1, +1]
     :param directions: (N, 3) unit vectors from the subject towards each point
     :param triangles: (M, 3) indices into the above
-    :param positions: (N, 3) the points themselves, in meters -- kept for visualisation and checking
+    :param positions: (N, 3) the points themselves, in meters -- kept for visualization and checking
     """
 
     def __init__(self, ndc, directions, triangles, positions, lit=None, gain=None):
@@ -343,7 +343,7 @@ class ScreenMesh:
         # the image and that the surface faces the projector at all.
         self.lit = (np.ones(len(self.ndc), dtype=bool) if lit is None
                     else np.asarray(lit, dtype=bool))
-        # Per vertex: what the fragment shader multiplies the sampled colour by, to even out an
+        # Per vertex: what the fragment shader multiplies the sampled color by, to even out an
         # uneven projector. Kept separate from `lit` rather than folded into one weight -- they
         # answer different questions, and coverage() reports the fraction of the screen the
         # projector *reaches*, which a float would quietly turn into a mean attenuation. It also
@@ -373,7 +373,7 @@ class ScreenMesh:
         resolves tens of pixels per degree near its optical axis may deliver a fraction of one at
         grazing incidence, so a single figure for "the resolution of the rig" does not exist.
 
-        Measured, not modelled twice over. Each triangle of the mesh already carries both halves of
+        Measured, not modeled twice over. Each triangle of the mesh already carries both halves of
         the map -- where its corners land in the projector image (``ndc``) and which way they lie
         from the subject (``directions``) -- so the local density is the ratio of the two areas,
         and needs no assumption the renderer does not already make.
@@ -392,7 +392,7 @@ class ScreenMesh:
             have to be to keep up
 
         The cube is compared **per direction**, not against one figure for the whole map: a cube
-        face is coarsest at its centre and 2.28x finer at its corners (see :func:`cube_px_per_deg`),
+        face is coarsest at its center and 2.28x finer at its corners (see :func:`cube_px_per_deg`),
         so which part of the screen lands where decides whether the intermediate limits it. Where
         the projector is finer than the cube locally, detail the optics could deliver is being
         discarded; where it is coarser, the cube is spending fill on resolution the screen cannot
@@ -408,7 +408,7 @@ class ScreenMesh:
         lit = self.lit[corners].all(axis=1)
         if not lit.any():
             # No screen to land on, so no distribution -- report the floor the cube guarantees
-            # anywhere, which is at a face centre.
+            # anywhere, which is at a face center.
             return {'lit_triangles': 0, 'best': None, 'worst': None, 'ratio': None,
                     'cube_px_per_deg': float(cube_px_per_deg([[0.0, 0.0, 1.0]], cube_resolution)[0]),
                     'cube_px_per_deg_best': None,
@@ -440,7 +440,7 @@ class ScreenMesh:
         usable = (solid_angle > DEGENERATE_SOLID_ANGLE) & (ndc_area > 0)
         if not usable.any():
             # No screen to land on, so no distribution -- report the floor the cube guarantees
-            # anywhere, which is at a face centre.
+            # anywhere, which is at a face center.
             return {'lit_triangles': 0, 'best': None, 'worst': None, 'ratio': None,
                     'cube_px_per_deg': float(cube_px_per_deg([[0.0, 0.0, 1.0]], cube_resolution)[0]),
                     'cube_px_per_deg_best': None,
@@ -527,7 +527,7 @@ def projector_irradiance(surface, projector, positions):
         L       projector to that point -- inverse square
         theta   that point off the projector's optical axis
 
-    The first two say brightness falls off away from the centre, which is the intuition. The third
+    The first two say brightness falls off away from the center, which is the intuition. The third
     says the opposite: a DMD pixel at angle theta subtends LESS solid angle from the pinhole
     (foreshortening x distance squared), so its fixed flux is packed into a narrower cone.
 
@@ -589,7 +589,7 @@ class MeasuredFalloff:
     rather than an obvious bug. Use from_measurements(), which divides the geometry out for you.
 
     :param radii: sample positions, as isotropic radius in the projector image (see radius_in_image)
-    :param values: relative brightness there, any scale -- normalised on construction
+    :param values: relative brightness there, any scale -- normalized on construction
     :param aspect_ratio: of the projector, needed to make the radius isotropic
     """
 
@@ -609,7 +609,7 @@ class MeasuredFalloff:
 
     @staticmethod
     def radius_in_image(ndc, aspect_ratio):
-        """Distance from the centre of the projector image, in units where its half-WIDTH is 1.
+        """Distance from the center of the projector image, in units where its half-WIDTH is 1.
 
         NDC is anisotropic -- x spans the width and y the height, and the image is wider than it is
         tall -- so plain hypot(x, y) is not a distance in the image and would smear a rotationally
@@ -763,10 +763,10 @@ def build_screen_mesh(surface, projector, subject_position=(0, 0, 0),
 
 
 def _circular_range(angles_deg):
-    """The arc a set of azimuths occupies, as (start, end) degrees, going anticlockwise.
+    """The arc a set of azimuths occupies, as (start, end) degrees, going counterclockwise.
 
-    Plain min/max is wrong for an angle: a patch centred behind the subject spans, say, 170 to -170,
-    and min/max calls that the entire circle. Find the widest gap between neighbouring angles
+    Plain min/max is wrong for an angle: a patch centered behind the subject spans, say, 170 to -170,
+    and min/max calls that the entire circle. Find the widest gap between neighboring angles
     instead; the covered arc is everything else. The returned start may exceed the end, which is how
     a wrapped arc reads (170 to -170 is the 20-degree patch behind, not the 340 degrees in front).
     """

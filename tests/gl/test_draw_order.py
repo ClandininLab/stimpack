@@ -60,7 +60,7 @@ def _render(ctx, factories, size=SIZE, split=False):
 
     Blending and depth testing are what this module is about, and a bare context has neither. Left
     off, two white spots simply overwrite each other identically and every assertion here passes on
-    a scene with none of the behaviour under test in it -- which is how the first version of this
+    a scene with none of the behavior under test in it -- which is how the first version of this
     file reported the known defect as fixed.
     """
     ctx.enable(moderngl.BLEND)
@@ -130,7 +130,7 @@ def test_the_framework_draws_the_background_first_which_is_the_correct_order(hea
     """Why the defect below is latent rather than live.
 
     BaseProtocol.load_stimuli sends ConstantBackground before the trial's own stimuli, so the far
-    surface is already in the colour buffer when the near one's edge blends over it -- which is the
+    surface is already in the color buffer when the near one's edge blends over it -- which is the
     order that gives the right answer. Checked against a supersampled reference rather than against
     the other ordering, so this says which one is correct and not merely that they differ.
     """
@@ -269,7 +269,7 @@ def test_what_the_split_does_not_fix_is_blended_against_blended(headless_gl):
     ctx = headless_gl
 
     # Two translucent shapes are all edge, so the residue is the whole overlap rather than a rim.
-    # Distinguishable greys, because blending two shapes of the SAME colour is commutative and
+    # Distinguishable grays, because blending two shapes of the SAME color is commutative and
     # would report order-independence whatever the renderer did.
     def faint(sphere_radius, theta, grey):
         return lambda: _make(ctx, 'MovingSpot', radius=12, sphere_radius=sphere_radius,

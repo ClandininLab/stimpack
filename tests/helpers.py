@@ -17,7 +17,7 @@ def unobtrusive_screen(**kwargs):
     On Linux the screen subprocess picks its Qt platform from the session (see
     stim_server.launch_screen): a Wayland session gets the wayland plugin, under which a window
     cannot decline focus -- the compositor decides, and mutter activates new toplevels regardless.
-    Naming an X display selects xcb instead, where STIMPACK_NO_FOCUS is honoured, so the window
+    Naming an X display selects xcb instead, where STIMPACK_NO_FOCUS is honored, so the window
     appears without stealing the keyboard. Under a real X11 session or xvfb-run this is what would
     have happened anyway; on macOS/Windows DISPLAY is unset and nothing changes.
     """

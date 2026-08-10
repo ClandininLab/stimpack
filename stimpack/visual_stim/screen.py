@@ -2,7 +2,7 @@
 Describing a physical display to stimpack.
 
 A :class:`Screen` is one display device; a :class:`SubScreen` is a rectangular region of it,
-given by its three physical corners in **metres** (``pa`` lower-left, ``pb`` lower-right, ``pc``
+given by its three physical corners in **meters** (``pa`` lower-left, ``pb`` lower-right, ``pc``
 upper-left) plus a viewport within the display. Those corners are what perspective correction is
 computed from, so measuring them accurately is what makes the geometry on screen correct.
 
@@ -10,10 +10,10 @@ Several subscreens may share one display, and several screens may make up a rig.
 """
 from math import sqrt
 
-# The colour channels of a frame, in index order.
+# The color channels of a frame, in index order.
 #
 # Under subframe multiplexing the same permutation has to be told to two things in two vocabularies:
-# the renderer works in indices, because a colour write mask is positional, while a projector's
+# the renderer works in indices, because a color write mask is positional, while a projector's
 # pattern LUT is configured by channel name. Writing it out twice is how a rig ends up with the two
 # halves transposed -- which reorders timepoints without producing an error, since scrambled motion
 # is still motion. These two functions let a rig hold one permutation and derive the other reading.
@@ -131,7 +131,7 @@ class Screen:
         :param msaa_samples: multisampling, 0 (default) for none. Rig-specific on purpose: it costs
             fill, and how much fill a rig can spare differs by more than an order of magnitude.
 
-            What it buys is edge position quantised to 1/n of a pixel instead of a whole one -- so
+            What it buys is edge position quantized to 1/n of a pixel instead of a whole one -- so
             it is a finer staircase, not the continuous sub-pixel motion an analytic edge gives.
             Measured on a box drifting at 2 deg/s at 360 Hz, the largest single jump was 1.000 px
             at 0, 0.251 at 4x, 0.063 at 16x, against 0.024 px for a shape with an analytic edge.
@@ -142,11 +142,11 @@ class Screen:
             with one edge equation, so this is the only antialiasing it can get.
 
             Cost on a 16-tree forest at 1920x1080: 1.7% of a 360 Hz frame budget at 4x and 5.7% at
-            16x on an RTX A4500; 89% at 4x on a software rasteriser, where it does not fit. Measure
+            16x on an RTX A4500; 89% at 4x on a software rasterizer, where it does not fit. Measure
             on the rig before raising it.
             **On a CurvedScreen this reaches much less than it looks.** It multisamples the
             framebuffer the frame is drawn into, and on the curved path the scene has already been
-            rasterised into the cube faces, which are ordinary single-sample framebuffers. Only the
+            rasterized into the cube faces, which are ordinary single-sample framebuffers. Only the
             warp pass -- one draw of the screen mesh -- is multisampled, so what it smooths is the
             screen's own silhouette rather than the stimuli on it. The same forest measured on a
             Quadro M2000 went from 0 partially-covered edge pixels to 1526 at 4x on a flat screen,
@@ -174,7 +174,7 @@ class Screen:
             +0.07 ms flat, +0.49 ms curved, the curved figure paid once per cube face. That is under
             6% of a 120 Hz frame and no rig currently runs fast enough for it to bite -- it would be
             18% at 360 Hz, which nothing here does yet. Content with nothing to blend still pays for
-            the second pass's vertex and rasterisation work, since the discard happens in the
+            the second pass's vertex and rasterization work, since the discard happens in the
             fragment shader. The opt-out is here for a rig that outgrows that margin, not for one
             that has.
         """
@@ -204,13 +204,13 @@ class Screen:
         if name is None:
             name = 'Screen ' + str(display_index)
 
-        # Temporal multiplexing: a DLPC350 in video-pattern mode can read the three 8-bit colour
+        # Temporal multiplexing: a DLPC350 in video-pattern mode can read the three 8-bit color
         # channels of one frame as three successive patterns, turning a 120 Hz video link into a
         # 360 Hz monochrome display. subframes=n makes the renderer draw n timepoints per frame and
         # write each to one channel; subframes=1 is ordinary rendering and changes nothing.
         #
-        # Colour is what pays for it. Each channel becomes a slice of time rather than a colour, so
-        # stimuli have to be greyscale.
+        # Color is what pays for it. Each channel becomes a slice of time rather than a color, so
+        # stimuli have to be grayscale.
         self.set_subframes(subframes, refresh_rate=refresh_rate,
                            channel_order=subframe_channel_order)
 
@@ -242,26 +242,26 @@ class Screen:
         in. Called at run time it takes effect on the next frame: paintGL asks for the masks and
         the interval every frame and caches neither, so nothing is rebuilt.
 
-        :param subframes: 1 for ordinary rendering, or 2-3 to read that many colour channels as
+        :param subframes: 1 for ordinary rendering, or 2-3 to read that many color channels as
             successive patterns. 3 is the usual case; 2 suits a rig with only two usable LEDs, or
             one trading rate for exposure per subframe.
         :param refresh_rate: video link rate in Hz. None means ask the display -- StimDisplay
             resolves it from the Qt screen at start-up, which is a number the system already knows
             and an experimenter should not have to repeat. Pass one only to override, and expect a
             warning if it disagrees with what the display reports.
-        :param channel_order: which colour channel carries each successive subframe. Always a full
+        :param channel_order: which color channel carries each successive subframe. Always a full
             permutation of (0, 1, 2), even at 2 subframes -- the trailing entries just name the
             channels that go unused, which is what lets the order survive a change of `subframes`.
             None keeps the current order.
         """
         if subframes not in (1, 2, 3):
-            raise ValueError(f'subframes must be 1, 2 or 3: a frame has three 8-bit colour '
+            raise ValueError(f'subframes must be 1, 2 or 3: a frame has three 8-bit color '
                              f'channels, so it can carry at most three timepoints. Got {subframes}')
         if channel_order is None:
             channel_order = getattr(self, 'subframe_channel_order', (0, 1, 2))
         if sorted(channel_order) != [0, 1, 2]:
             raise ValueError(f'subframe_channel_order must be a permutation of (0, 1, 2) -- which '
-                             f'colour channel carries each successive subframe -- not '
+                             f'color channel carries each successive subframe -- not '
                              f'{channel_order}')
 
         self.subframes = int(subframes)

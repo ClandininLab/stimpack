@@ -1,6 +1,6 @@
 """Turning the cube map must change which faces are drawn and nothing else.
 
-The optimisation is only ever worth having if it is invisible: the same scene, warped onto the same
+The optimization is only ever worth having if it is invisible: the same scene, warped onto the same
 screen, must produce the same pixels whether the cube is axis-aligned or turned to suit the screen.
 Everything else here is in service of that one property.
 
@@ -55,10 +55,10 @@ def bowl(cap_half_angle=60.0, tilt_deg=10.0):
 
 def scene_buffers(ctx, steps=64):
     """A sphere around the subject, painted with its own direction: the point at direction d is
-    coloured (d + 1) / 2.
+    colored (d + 1) / 2.
 
     Chosen so the correct answer is computable rather than merely reproducible. A misoriented cube
-    produces a completely different colour field, while re-rasterising the same scene into
+    produces a completely different color field, while re-rasterizing the same scene into
     differently turned faces differs only by interpolation -- about one 8-bit step. A scene of
     hard-edged triangles cannot tell those two apart: its edges land differently against the face
     boundaries either way, and the resulting seam noise swamps the signal.
@@ -174,7 +174,7 @@ def test_the_chosen_orientation_saves_faces(cap, expected):
 # --- the closed form the choice rests on ----------------------------------------------------------
 
 @pytest.mark.parametrize('axis, expected', [
-    ((0, 0, 1), {0.0, np.degrees(np.arccos(-1 / np.sqrt(3))), 45.0}),      # a face centre
+    ((0, 0, 1), {0.0, np.degrees(np.arccos(-1 / np.sqrt(3))), 45.0}),      # a face center
     ((0, 1, 1), {0.0, np.degrees(np.arccos(2 / np.sqrt(6))), 90.0}),       # an edge midpoint
     ((1, 1, 1), {0.0, np.degrees(np.arccos(1 / 3))}),                      # a corner
 ])
@@ -220,7 +220,7 @@ def test_an_antiparallel_rotation_does_not_divide_by_zero():
     assert np.isclose(np.linalg.det(rotation), 1.0)
 
 
-# --- refusing what it cannot honour ---------------------------------------------------------------
+# --- refusing what it cannot honor ---------------------------------------------------------------
 
 def test_a_non_rotation_is_refused(headless_gl):
     _, _, mesh = bowl()
@@ -267,7 +267,7 @@ def test_a_rotation_is_kept_only_when_it_actually_helps():
 
 def test_a_screen_covering_the_whole_sphere_has_nothing_to_aim_at():
     """The centroid of an even spread is the origin, which is not a direction. No rotation, no
-    warning, and no normalising of a zero vector."""
+    warning, and no normalizing of a zero vector."""
     class WholeSphere:
         directions = np.array([[1., 0, 0], [-1, 0, 0], [0, 1., 0],
                                [0, -1, 0], [0, 0, 1.], [0, 0, -1]])
@@ -347,5 +347,5 @@ def test_the_warped_colour_is_the_direction_it_should_be(headless_gl):
 
         assert len(errors) > 50, f'{label}: too few sample points to be meaningful'
         assert np.percentile(errors, 90) < 0.05, (
-            f'{label}: warped colour disagrees with the direction it represents '
+            f'{label}: warped color disagrees with the direction it represents '
             f'(90th percentile {np.percentile(errors, 90):.3f})')

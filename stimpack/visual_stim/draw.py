@@ -61,7 +61,7 @@ def draw_curved_screen(mesh, surface=None, projector=None, show=True, save_to=No
 
     Two views, because the two ways this goes wrong look different:
 
-      left   the screen in the rig, coloured by azimuth, with the subject at the origin. Wrong
+      left   the screen in the rig, colored by azimuth, with the subject at the origin. Wrong
              surface dimensions or extents show up here.
       right  the same mesh in projector coordinates, with the projector image as a dashed box.
              A wrong projector pose, throw ratio or aspect shows up here -- as a mesh that spills
@@ -73,12 +73,12 @@ def draw_curved_screen(mesh, surface=None, projector=None, show=True, save_to=No
     fig = plt.figure(figsize=(13, 6))
 
     ax = fig.add_subplot(1, 2, 1, projection='3d')
-    # Colour by whether the projector lights it. On a rig that covers its screen only partly -- a
+    # Color by whether the projector lights it. On a rig that covers its screen only partly -- a
     # projector to one side of a bowl -- this is the thing worth looking at.
     #
-    # Built as a Poly3DCollection with explicit face colours rather than through plot_trisurf:
+    # Built as a Poly3DCollection with explicit face colors rather than through plot_trisurf:
     # plot_trisurf sets its own scalar array from the z of each triangle, which silently overrides
-    # an `array=` passed in, and paints the whole screen one colour.
+    # an `array=` passed in, and paints the whole screen one color.
     tri_lit = mesh.lit[mesh.triangles].all(axis=1)
     polygons = mesh.positions[mesh.triangles]
     colors = np.where(tri_lit[:, None], np.array([0.20, 0.70, 0.30, 0.95]),

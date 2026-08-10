@@ -122,7 +122,7 @@ class BaseProgram:
         self.prog['pass_kind'].value = 0
 
         # No analytic edge unless a shape asks for one, so an unconverted stimulus renders exactly
-        # as it did. The other two are never read while this is 0, but GL wants them initialised.
+        # as it did. The other two are never read while this is 0, but GL wants them initialized.
         self.prog['edge_kind'].value = 0
         self.prog['edge_frame'].write(_frame_bytes(np.eye(3)))
         self.prog['edge_anchor'].value = (0.0, 0.0, 0.0)
@@ -131,7 +131,7 @@ class BaseProgram:
     def allocate_vertex_buffers(self, num_tri):
         """(Re)serve vertex buffers for `num_tri` triangles and rebuild the vertex array.
 
-        3 points per triangle; 3 floats for position, 4 for colour, 2 for texture coordinates.
+        3 points per triangle; 3 floats for position, 4 for color, 2 for texture coordinates.
         """
         for name in ('vao', 'vbo_vert', 'vbo_color', 'vbo_texture'):
             existing = getattr(self, name, None)
@@ -189,7 +189,7 @@ class BaseProgram:
 
         Lets a caller splitting the frame skip the blended pass for stimuli that cannot contribute
         to it -- a grating, a background, any opaque geometry with no declared edge. Worth the check
-        because the skipped pass is not free: it still runs the vertex stage, rasterises everything
+        because the skipped pass is not free: it still runs the vertex stage, rasterizes everything
         and executes the fragment shader up to the discard. On the curved path, where that happens
         once per cube face, a full-field grating paid 0.70 ms for a pass that drew nothing.
 
@@ -209,7 +209,7 @@ class BaseProgram:
         try:
             return bool(np.min(np.asarray(colors)[3]) < OPAQUE_ALPHA)
         except Exception:
-            return True                       # unreadable colours: assume it blends
+            return True                       # unreadable colors: assume it blends
 
     def paint_at(self, t, viewports, perspectives, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0},
                  prepare=True, pass_kind=0):
@@ -239,7 +239,7 @@ class BaseProgram:
             same for every face. Re-sending it per face made the cube pass scale with face count in
             vertices as well as in draw calls, which is exactly what turning the cube is meant to
             avoid.
-        :param pass_kind: which fragments to draw. ``0`` draws everything, which is the behaviour
+        :param pass_kind: which fragments to draw. ``0`` draws everything, which is the behavior
             this had before the option existed. ``1`` draws only fully opaque fragments and ``2``
             only blended ones, which is how a caller splits a frame so that blending stops
             depending on draw order -- see ``Screen(split_blended_pass=True)``.
@@ -349,7 +349,7 @@ class BaseProgram:
                                         data=texture_image.tobytes())  # size = (width, height)
 
         # Both modes filter LINEAR. 'NEAREST' asks for hard texel edges, and the shader delivers
-        # them by moving the sample point onto the texel centre everywhere except within one pixel
+        # them by moving the sample point onto the texel center everywhere except within one pixel
         # of a boundary -- which keeps the hard edge and antialiases it, where the NEAREST filter
         # keeps the hard edge and aliases it. See sample_texture in the fragment shader.
         self.sharp_texels = (texture_interpolation == 'NEAREST')
@@ -425,7 +425,7 @@ class BaseProgram:
         return vertex_shader
 
     def get_fragment_shader(self):
-        """The fragment shader source. Override to change how fragments are coloured."""
+        """The fragment shader source. Override to change how fragments are colored."""
         fragment_shader = '''
             #version 330
 
@@ -471,7 +471,7 @@ class BaseProgram:
             // frozen for 17 frames in 19.
             //
             // So filter LINEAR and move the sample point instead. Everywhere but within one pixel
-            // of a boundary this lands exactly on a texel centre, which is what NEAREST would have
+            // of a boundary this lands exactly on a texel center, which is what NEAREST would have
             // returned; across the boundary it ramps, and the hardware's own interpolation then
             // mixes the two texels in the proportion the pixel is covered by each. Same
             // covered-fraction rule as the shape edges, reached through the filter rather than
@@ -531,7 +531,7 @@ class BaseProgram:
 
             // What fraction of this pixel the shape covers.
             //
-            // fwidth is the change in a value between neighbouring pixels -- GPUs shade in 2x2
+            // fwidth is the change in a value between neighboring pixels -- GPUs shade in 2x2
             // quads so that derivative exists -- so dividing by it converts `excess` into a
             // distance in pixels, right here, without anyone having to know the projector's
             // resolution, the screen's shape, or whether this is drawn through a cube face.

@@ -60,8 +60,8 @@ class Hdf5DataBrowser(QWidget):
         self.table_attributes.setColumnCount(2)
         self.table_attributes.setObjectName("table_attributes")
         self.table_attributes.setRowCount(0)
-        # Header items carry their text and nothing else. They used to hardcode a grey background
-        # with a darker grey foreground, which ignores the palette: barely legible under any
+        # Header items carry their text and nothing else. They used to hardcode a gray background
+        # with a darker gray foreground, which ignores the palette: barely legible under any
         # theme, and wrong under a dark one. Left to the theme they are readable under both.
         font = QtGui.QFont()
         font.setPointSize(10)
@@ -101,7 +101,7 @@ class Hdf5DataBrowser(QWidget):
         """Re-read the experiment. Called by the GUI after anything that changes it.
 
         One file is shown as its own contents, with no wrapper node -- the extra level would be
-        noise when there is only ever one. Several are shown one node each, labelled by file name,
+        noise when there is only ever one. Several are shown one node each, labeled by file name,
         which is the only way a directory-per-experiment format can be walked at all.
         """
         self._files = {}

@@ -20,7 +20,7 @@ import itertools
 
 import numpy as np
 
-# One face of a cube map spans a right angle, edge to edge through its centre. Named because the
+# One face of a cube map spans a right angle, edge to edge through its center. Named because the
 # resolution arithmetic reads as nonsense without it: px/deg is resolution / CUBE_FACE_DEGREES.
 CUBE_FACE_DEGREES = 90.0
 
@@ -32,7 +32,7 @@ DEFAULT_CUBE_RESOLUTION = 1024
 # The up vectors are not free: a cube map is sampled in a left-handed frame, so the +Y and -Y faces
 # are oriented differently from the other four, and the rest are flipped vertically relative to what
 # a "look along this axis" matrix would naturally produce. These are the conventional values, and
-# test_cubemap.py checks each one by rendering a distinct colour per face and sampling it back --
+# test_cubemap.py checks each one by rendering a distinct color per face and sampling it back --
 # getting this wrong produces a picture that is plausible and rotated, which is hard to spot by eye.
 CUBE_FACES = (
     ((+1, 0, 0), (0, -1, 0)),      # +X
@@ -68,7 +68,7 @@ WARP_FRAGMENT_SHADER = '''
         // Evens out an uneven projector. rgb only: scaling alpha would make the correction depend
         // on the blend mode.
         //
-        // Alpha 1, not sampled.a. The cube's alpha channel is an accumulation artefact, not a
+        // Alpha 1, not sampled.a. The cube's alpha channel is an accumulation artifact, not a
         // coverage value: standard src_alpha/one_minus_src_alpha blending computes
         // dst.a = src.a^2 + dst.a*(1 - src.a), which decays below 1 wherever blended fragments
         // stack up. Blending is enabled when this draws, so passing that through composited the
@@ -97,7 +97,7 @@ def face_view_matrix(eye, forward, up):
     return view
 
 
-#: Near plane for the cube faces, in metres.
+#: Near plane for the cube faces, in meters.
 #:
 #: Do not raise this. It was briefly 1e-2 and that broke closed-loop protocols outright: stimpack
 #: scenes are not all at arm's length. FlyByFly puts a model fly 5 mm from the subject, its floor
@@ -114,7 +114,7 @@ def face_view_matrix(eye, forward, up):
 #: That is a real defect and it wants a real fix, which is not this constant. Reversed-Z is the
 #: standard one -- map near to 1.0 and far to 0.0 in a float32 depth buffer and the 1/z distribution
 #: cancels against float's density near zero, giving usable precision at every distance without
-#: choosing between millimetres and metres. It needs ARB_clip_control and ARB_depth_buffer_float,
+#: choosing between millimeters and meters. It needs ARB_clip_control and ARB_depth_buffer_float,
 #: both present on this rig's Quadro M2000, and it is a global change to the depth convention: every
 #: attachment on both paths has to agree. Worth doing deliberately, not as a side effect.
 DEFAULT_NEAR = 1e-4
@@ -133,8 +133,8 @@ def face_projection_matrix(near=DEFAULT_NEAR, far=1000.0):
 def region_planes_and_corners(face):
     """The four inward plane normals and four corners bounding one face's region on the sphere.
 
-    A cube map samples by dominant axis, so face +Z owns {d : d_z >= |d_x| and d_z >= |d_y|} -- a
-    spherical square cut by four planes through the origin, with corners at (+-1, +-1, 1)/sqrt(3).
+    A cube map samples by dominant axis, so face +Z owns ``{d : d_z >= |d_x| and d_z >= |d_y|}`` --
+    a spherical square cut by four planes through the origin, with corners at (+-1, +-1, 1)/sqrt(3).
     """
     axis, sign = ((0, +1), (0, -1), (1, +1), (1, -1), (2, +1), (2, -1))[face]
     centre = np.zeros(3)
@@ -208,7 +208,7 @@ def orientation_for_cap(axis, half_angle, prefer='auto'):
 
     That leaves three alignments, with exact thresholds:
 
-        cap axis at a face centre    5 faces for 45 deg   < half_angle <= 125.26 deg
+        cap axis at a face center    5 faces for 45 deg   < half_angle <= 125.26 deg
         cap axis at an edge midpoint 4 faces for 35.26    < half_angle <= 90
         cap axis at a corner         3 faces for            half_angle <  70.53 = arccos(1/3)
 
@@ -421,12 +421,12 @@ class CubeMapRenderer:
         self.cube = ctx.texture_cube((self.resolution, self.resolution), 4)
         self.cube.filter = (ctx.LINEAR, ctx.LINEAR)
         # Without this, sampling near a face boundary blends towards that face's border instead of
-        # across into its neighbour, and the seams show up as lines on the screen.
+        # across into its neighbor, and the seams show up as lines on the screen.
         drain_gl_errors(GL)
         GL.glEnable(GL.GL_TEXTURE_CUBE_MAP_SEAMLESS)
 
         self._depth = ctx.depth_renderbuffer((self.resolution, self.resolution))
-        # A placeholder colour attachment so moderngl will build complete framebuffers; the raw call
+        # A placeholder color attachment so moderngl will build complete framebuffers; the raw call
         # below re-points each at a cube face. A renderbuffer rather than a 2D texture on purpose: a
         # GL texture name keeps the target it was first bound to, so a reused name that had been 2D
         # cannot become a cube face, which made a second CubeMapRenderer in one context fail.

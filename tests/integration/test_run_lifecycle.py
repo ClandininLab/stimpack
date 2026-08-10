@@ -221,7 +221,7 @@ def test_on_run_start_still_runs_for_a_healthy_run(client, data, fake_manager):
 # --- the same lifecycle, writing NWB ------------------------------------------------------------
 #
 # The client does not know which backend it has; it calls end_series(status=..., reason=...)
-# either way. These assert the NWB backend actually honours that contract under the real run loop,
+# either way. These assert the NWB backend actually honors that contract under the real run loop,
 # which is where the old data_nwb.end_series(protocol_object) signature would have raised.
 
 def nwb_epoch_row(data):
@@ -670,7 +670,7 @@ def test_nwb_deletes_the_series_file(client, nwb_data):
 class VectorParamProtocol(TinyProtocol):
     """A protocol whose epoch parameters include a multi-element value.
 
-    Utterly ordinary -- MovingPatch and MovingEllipse both have width_height, and centre is a
+    Utterly ordinary -- MovingPatch and MovingEllipse both have width_height, and center is a
     coordinate pair -- which is what makes it worth a test.
     """
     def get_run_parameter_defaults(self):
@@ -773,7 +773,7 @@ def test_a_broken_data_error_callback_cannot_take_the_run_with_it(client, data, 
 
 class NestedParamProtocol(TinyProtocol):
     """A parameter whose per-epoch value is itself a list of pairs -- N positions, say, or a
-    colour per element. MHT builds cylinder_locations this way."""
+    color per element. MHT builds cylinder_locations this way."""
     def get_run_parameter_defaults(self):
         return {'num_trials': 2, 'idle_color': 0.5, 'do_loco': False}
 

@@ -205,7 +205,7 @@ class SubframeTimingCheck(BaseProtocol):
     """
     Commissioning stimulus: is the display really showing every subframe, in the right order?
 
-    The subframe path packs up to three timepoints into a frame's colour channels for a projector
+    The subframe path packs up to three timepoints into a frame's color channels for a projector
     that unpacks them as successive patterns -- 360 Hz from a 120 Hz video link. Whether that
     happens depends on the projector being in pattern mode, on the channel order matching, and on
     every subframe reaching the screen. None of it can be checked from the client, and the unit
@@ -272,7 +272,7 @@ class SubframeTimingCheck(BaseProtocol):
 
         # Back to ordinary rendering. Called from the run loop's finally block, so a stopped or
         # errored run leaves the rig as it was found -- and a rig left multiplexing is not an error
-        # anyone would see, since the next protocol's colour channels are simply reinterpreted as
+        # anyone would see, since the next protocol's color channels are simply reinterpreted as
         # slices of time.
         if self.has_server_function('set_subframes'):
             manager.target('root').set_subframes(1)
@@ -336,18 +336,18 @@ class SubframeTimingCheck(BaseProtocol):
 class ScreenAlignmentCheck(BaseProtocol):
     """
     Commissioning stimulus: concentric rings of equal angular width, to check the warp and the
-    screen's centring.
+    screen's centering.
 
     Two questions, one pattern.
 
     **Is the warp right?** Every band subtends the same angle at the subject. On a screen that is a
-    sphere centred on the subject, equal angle is equal arc, so every band is the same *physical*
+    sphere centered on the subject, equal angle is equal arc, so every band is the same *physical*
     width on the surface -- a ruler laid across the screen, or a photograph of it, answers directly,
     with no model of the rig needed to interpret the reading. Look at the projector image instead
     and the same bands are visibly unequal, crowding towards the rim. That difference *is* the warp;
     seeing it is how you know the screen mesh is being used rather than bypassed.
 
-    **Is the screen centred on the projector?** The rings are concentric about
+    **Is the screen centered on the projector?** The rings are concentric about
     ``center``, which defaults to the rig's own ``screen_center`` -- on a rig whose screen has an
     axis of symmetry, that is the axis, and the rings should come out concentric with the rim. An
     offset shows up as rings crowding one side, and every ring is a fresh chance to see it, which
@@ -358,9 +358,9 @@ class ScreenAlignmentCheck(BaseProtocol):
     varies across trials, and one trial is enough. It is left up for ``stim_time``, so make that as
     long as you need to take the picture.
 
-    Run :class:`ProjectorCenterBeam` alongside it. The beam marks the centre of the projector image;
-    the rings should be concentric about that mark, which turns "is it centred" into a comparison of
-    two things on the same photograph rather than a judgement about one.
+    Run :class:`ProjectorCenterBeam` alongside it. The beam marks the center of the projector image;
+    the rings should be concentric about that mark, which turns "is it centered" into a comparison of
+    two things on the same photograph rather than a judgment about one.
     """
     def __init__(self, cfg):
         super().__init__(cfg)
@@ -374,8 +374,8 @@ class ScreenAlignmentCheck(BaseProtocol):
         center = self.adjust_center(self.trial_protocol_parameters['center'])
 
         # Two scalars rather than one 'colors' pair, because a list in a protocol parameter is
-        # stimpack's notation for a value that varies across trials -- so a colour pair written as
-        # a list would be read as two trials, each with one colour, and the pattern would come out
+        # stimpack's notation for a value that varies across trials -- so a color pair written as
+        # a list would be read as two trials, each with one color, and the pattern would come out
         # a flat disc.
         colors = (self.trial_protocol_parameters['bright'],
                   self.trial_protocol_parameters['dark'])
@@ -416,7 +416,7 @@ class ScreenAlignmentCheck(BaseProtocol):
 
 class ProjectorCenterBeam(BaseProtocol):
     """
-    Commissioning stimulus: a narrow spot at the centre of the projector image, for aligning the
+    Commissioning stimulus: a narrow spot at the center of the projector image, for aligning the
     projector against the subject.
 
     Drawn in *projector* coordinates, after the warp, on an otherwise black screen -- so it marks a
@@ -424,9 +424,9 @@ class ProjectorCenterBeam(BaseProtocol):
     geometry can move it. That is what makes it an independent reference: everything else on the
     screen has been through the mesh, and this has not.
 
-    On a rig whose projector is aimed at the subject, the centre ray goes from the projector, through
+    On a rig whose projector is aimed at the subject, the center ray goes from the projector, through
     the screen, to the subject. So with ``ndc`` at the default (0, 0) the beam should land on the
-    subject itself. Watch it on the behaviour camera and move the projector until it does.
+    subject itself. Watch it on the behavior camera and move the projector until it does.
 
     The beam stays lit for the whole run rather than per trial, because what you do with it is
     physically adjust the rig while looking at it. Press Stop when you are done -- it is taken down
@@ -463,7 +463,7 @@ class ProjectorCenterBeam(BaseProtocol):
         super().on_run_finish(manager, multicall)
 
         # From the run loop's finally block, so Stop and an error both take the beam down. A screen
-        # left showing nothing but a dot is not an error anyone would recognise as one.
+        # left showing nothing but a dot is not an error anyone would recognize as one.
         if self.has_server_function('hide_calibration_spot', target='visual'):
             manager.target('visual').hide_calibration_spot()
 
@@ -479,7 +479,7 @@ class ProjectorCenterBeam(BaseProtocol):
                 'stim_time': 300.0,      # long: you are adjusting hardware. Stop when done.
                 'tail_time': 0.0,
 
-                # Projector image coordinates, [-1, +1] in each axis. (0, 0) is the centre of the
+                # Projector image coordinates, [-1, +1] in each axis. (0, 0) is the center of the
                 # image, which is the point this protocol exists to find.
                 'ndc_x': 0.0,
                 'ndc_y': 0.0,

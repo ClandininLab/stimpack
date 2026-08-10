@@ -188,7 +188,7 @@ class MovingPatch(BaseProgram):
 
     Rectangular in *spherical* coordinates, so it subtends a fixed angle wherever it is placed.
     Any parameter may be given as a trajectory dictionary to vary it over time, which is how the
-    patch is made to move, change colour or change size.
+    patch is made to move, change color or change size.
     """
     def __init__(self, screen):
         super().__init__(screen=screen)
@@ -453,17 +453,17 @@ class LoomingCircle(BaseProgram):
 
 class AlternatingAnnuli(BaseProgram):
     """
-    Concentric rings of equal angular width, in alternating colours. A commissioning pattern.
+    Concentric rings of equal angular width, in alternating colors. A commissioning pattern.
 
     What it is for, on a curved screen:
 
     - **is the warp right?** Every band subtends the same angle at the subject, so on a screen that
-      is a sphere centred on the subject every band is the same width *on the screen surface*. A
+      is a sphere centered on the subject every band is the same width *on the screen surface*. A
       ruler across the bowl, or a photograph of it, checks that directly -- no model of the rig is
       needed to read the answer. In the projector image the same bands are visibly unequal,
       compressing towards the rim; that difference is the warp, and seeing it is how you know the
       mesh is being used at all.
-    - **is the screen centred on the projector?** Point ``theta``/``phi`` along the screen's own
+    - **is the screen centered on the projector?** Point ``theta``/``phi`` along the screen's own
       axis of symmetry and the rings become concentric with its rim. An offset between the two
       shows up as rings crowding one side, at a sensitivity far better than eyeballing an edge --
       each ring is a fresh chance to see the eccentricity.
@@ -492,7 +492,7 @@ class AlternatingAnnuli(BaseProgram):
             past the edge of the screen: a ring that runs off the screen tells you where the edge
             is, and one that stops short of it does not.
         :param sphere_radius: meters. Only has to sit outside anything else in the scene.
-        :param colors: the two colours to alternate, innermost first. Each ``[r,g,b,a]`` or mono.
+        :param colors: the two colors to alternate, innermost first. Each ``[r,g,b,a]`` or mono.
         :param theta: degrees, azimuth of the pattern's axis
         :param phi: degrees, elevation of the pattern's axis. For a screen whose axis is tilted
             away from the subject's horizontal -- a bowl below the animal, say -- put the axis
@@ -685,7 +685,7 @@ class TexturedCylinder(BaseProgram):
     Base class for stimuli that paint a texture on a cylinder around the subject.
 
     Subclasses supply the texture -- gratings, bars, grids, checkerboards. The subject is at the
-    cylinder's centre, so the texture surrounds them and its angular period does not depend on
+    cylinder's center, so the texture surrounds them and its angular period does not depend on
     the cylinder's radius.
     """
     def __init__(self, screen, **kwargs):
@@ -720,10 +720,10 @@ class TexturedCylinder(BaseProgram):
         pass
 
 def _texel_centres(extent, n):
-    """The `n` texel centres spanning `extent`.
+    """The `n` texel centers spanning `extent`.
 
     A texel's stored value is displayed across the whole texel, so it has to describe the texel --
-    which means sampling at its centre. Sampling at its leading edge instead, as this did, shifts
+    which means sampling at its center. Sampling at its leading edge instead, as this did, shifts
     the whole pattern by half a texel: 0.35 degrees of a 30 degree grating at the old resolution.
     """
     return (np.arange(n) + 0.5) * (extent / n)
@@ -889,8 +889,8 @@ class CylindricalGrating(TexturedCylinder):
         # right when a texel IS the datum -- a checker square, a noise cell -- because there is no
         # sub-texel structure to recover and the shader reconstructs the hard edge and antialiases
         # it. Here the texture stores *coverage*, so the edge position is already encoded in the
-        # grey values between texels, and interpolating recovers it continuously. Snapping to texel
-        # centres instead would quantise that edge back onto the texel grid, which is the staircase
+        # gray values between texels, and interpolating recovers it continuously. Snapping to texel
+        # centers instead would quantize that edge back onto the texel grid, which is the staircase
         # this was meant to remove.
         self.add_texture_gl(img, texture_interpolation='LINEAR')
 
@@ -969,7 +969,7 @@ class RotatingGrating(CylindricalGrating):
 
 class ExpandingEdges(TexturedCylinder):
     """
-    Bars on a cylinder whose edges move outward from a centre, expanding over time.
+    Bars on a cylinder whose edges move outward from a center, expanding over time.
     """
     def __init__(self, screen):
         super().__init__(screen=screen)
@@ -1401,7 +1401,7 @@ class Forest(BaseProgram):
         One cylinder is built and then translated into copies, rather than rebuilt at each
         location, because constructing the geometry is the slow part.
 
-        :param color: [r,g,b,a] or mono. Colour shared by every tower
+        :param color: [r,g,b,a] or mono. Color shared by every tower
         :param cylinder_radius: meters, radius of each tower
         :param cylinder_height: meters, height of each tower
         :param n_faces: flat faces approximating each tower's wall
@@ -1454,7 +1454,7 @@ class PixMap(TexturedCylinder):
             the writing process created
         :param frame_size: (rows, columns) of the frame in that block. Required: it is how the
             raw buffer is interpreted, and it sets the aspect ratio
-        :param rgb_texture: True for colour frames, False for monochrome
+        :param rgb_texture: True for color frames, False for monochrome
         :param width: degrees of azimuth the image spans; height follows from the aspect ratio
         :param radius: meters, radius of the surface it is painted on
         :param n_steps: subdivisions of the surface

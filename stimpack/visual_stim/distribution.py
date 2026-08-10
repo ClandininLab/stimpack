@@ -92,7 +92,7 @@ class Binary(Distribution):
 class Ternary(Distribution):
     """
     Values drawn with equal probability from ``rand_min``, its midpoint with ``rand_max``, and
-    ``rand_max`` -- so a third of samples carry no contrast against a mid-grey background.
+    ``rand_max`` -- so a third of samples carry no contrast against a mid-gray background.
     """
     def __init__(self, rand_min, rand_max):
         self.rand_min = rand_min

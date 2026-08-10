@@ -139,7 +139,7 @@ class BaseProtocol():
             call), or a module name such as ``'voltage_out'``
 
         Answers ``True`` when the answer is not known -- an older stimpack that advertises
-        nothing, or a target that cannot enumerate itself -- so adopting this is safe: behaviour is
+        nothing, or a target that cannot enumerate itself -- so adopting this is safe: behavior is
         unchanged until there is something real to report. All three built-in targets do enumerate,
         so in practice the answer is real.
 
@@ -175,7 +175,7 @@ class BaseProtocol():
                 super().__init__(cfg)
                 self.run_parameters = self.get_run_parameter_defaults()
 
-        -- which never passes through stimpack's own code, so normalising there would have missed
+        -- which never passes through stimpack's own code, so normalizing there would have missed
         a protocol declaring num_epochs in 75 protocols of one labpack alone.
         """
         try:

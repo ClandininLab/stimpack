@@ -553,7 +553,7 @@ class NWBData(BaseData):
         Finalize the trial information and add the trial to the trials table.
 
         :param reason: None if the trial ran its full length, otherwise why it was cut short --
-            see BaseData.end_trial. Recorded as trial columns, so a behaviour-ended trial can be
+            see BaseData.end_trial. Recorded as trial columns, so a behavior-ended trial can be
             told from one that ran to time. The trials table already carries start and stop times,
             so the duration is there by construction.
 
@@ -672,7 +672,7 @@ class NWBData(BaseData):
     # current_subject_id now aliases.
 
     def browsable_files(self):
-        """One entry per series file, newest last, labelled by file name."""
+        """One entry per series file, newest last, labeled by file name."""
         return [(os.path.basename(path), str(path)) for path in self.get_series_files()]
 
     def get_series_files(self):

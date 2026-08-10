@@ -95,7 +95,7 @@ def test_has_server_function_defaults_to_the_root_target():
 
 
 def test_has_server_function_is_true_when_the_server_advertised_nothing():
-    """An older stimpack. Adopting this must not change behaviour until there is something real
+    """An older stimpack. Adopting this must not change behavior until there is something real
     to report -- the same contract as has_module."""
     assert _protocol(None).has_server_function('anything') is True
 

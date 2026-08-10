@@ -65,7 +65,7 @@ def make_stim(ctx, theta, phi):
 
 
 def centroid(image):
-    """Centre of mass of the bright pixels, in pixels, or None if nothing was drawn."""
+    """Center of mass of the bright pixels, in pixels, or None if nothing was drawn."""
     mask = image > 60
     if mask.sum() < 4:
         return None
@@ -152,7 +152,7 @@ def test_a_spot_lands_in_the_same_place_either_way(headless_gl, subject_position
 
 @pytest.mark.parametrize('theta, phi', [(0, 0), (25, 0), (-30, 10), (0, -20)])
 def test_a_spot_placed_off_centre_agrees_too(headless_gl, theta, phi):
-    """Moving the stimulus rather than the subject, which exercises the same maths from the other
+    """Moving the stimulus rather than the subject, which exercises the same math from the other
     side: if only one of the two were wrong, these would drift apart."""
     ctx = headless_gl
     ctx.enable(moderngl.DEPTH_TEST)
@@ -174,7 +174,7 @@ def test_roll_is_checked_with_the_stimulus_off_the_roll_axis(headless_gl, subjec
                                                              theta, phi, label):
     """Roll is about +y, the direction the subject faces, so a stimulus dead ahead sits on the axis
     and does not move when it changes -- negating roll passed every other case here. The stimulus
-    has to be off-centre for roll to be observable at all."""
+    has to be off-center for roll to be observable at all."""
     ctx = headless_gl
     ctx.enable(moderngl.DEPTH_TEST)
 

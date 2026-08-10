@@ -23,7 +23,7 @@ def hemisphere_rig():
 
 
 def test_samples_span_the_radius_of_the_image():
-    """The residual varies with distance from the centre of the image, so samples bunched where
+    """The residual varies with distance from the center of the image, so samples bunched where
     there happens to be most screen would spend most readings on one radius."""
     surface, projector, mesh = hemisphere_rig()
     samples = calibration_samples(mesh, projector, n=16)

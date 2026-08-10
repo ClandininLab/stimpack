@@ -73,7 +73,7 @@ The suite tries not to take over the desktop it runs on. The process renders off
 (`QT_QPA_PLATFORM=offscreen`), so the GUI, its dialogs and the KeyTrac window never appear. Screen
 subprocesses need a real GL context and so cannot be offscreen — those windows do appear, but they
 open without taking the keyboard (the default now, and `STIMPACK_NO_FOCUS=1` is still set explicitly
-here; honoured under X11/XWayland, while Wayland has no such hint, which is why tests name an X
+here; honored under X11/XWayland, while Wayland has no such hint, which is why tests name an X
 display via `helpers.unobtrusive_screen`). Both are `setdefault`, so
 `QT_QPA_PLATFORM=wayland pytest -m gui` still shows you a run. To make the stimulus
 windows invisible as well as unfocused, use a virtual display: `xvfb-run -a pytest`.

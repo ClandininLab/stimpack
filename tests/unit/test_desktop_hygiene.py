@@ -6,7 +6,7 @@ lasting a minute used to steal focus repeatedly from whoever was working while i
 
 Both checks here are structural. The property they protect -- "the window did not take focus" -- can
 only be observed with a real compositor, so no assertion in CI can catch a regression directly; it
-was verified by measurement (X11/XWayland honours the hint, wayland ignores it) and these keep the
+was verified by measurement (X11/XWayland honors the hint, wayland ignores it) and these keep the
 mechanism that measurement validated from being quietly removed.
 """
 import ast

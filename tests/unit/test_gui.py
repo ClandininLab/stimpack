@@ -1,7 +1,7 @@
 """Unit tests for the GUI's server-message wiring (no live window).
 
 Importing gui.py needs PyQt6 and the full client/render import chain, so these skip where those are
-unavailable and run in CI. The cross-thread signal marshalling itself is Qt's job; here we check the
+unavailable and run in CI. The cross-thread signal marshaling itself is Qt's job; here we check the
 signal is declared and the slot updates the status label.
 """
 import pytest

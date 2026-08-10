@@ -361,7 +361,7 @@ class BaseServer(MySocketServer):
                 return state_update
 
         :param reason: recorded with the trial, so a trial that ended early can be told apart
-            from one that ran its full length. Worth setting: once duration depends on behaviour,
+            from one that ran its full length. Worth setting: once duration depends on behavior,
             the protocol's stim_time describes the intent rather than the trial.
 
         Does nothing between trials -- there is nothing to end, and ending the next one because a
@@ -410,7 +410,7 @@ class BaseServer(MySocketServer):
         self.loaded_custom_state_dependent_control = None
 
 # The pre-0.3 spelling. Labpack device code calls server.end_epoch(...) to end a trial on
-# behaviour; see the behaviour-ended trials guide.
+# behavior; see the behavior-ended trials guide.
 add_deprecated_aliases(
     BaseServer,
     methods=[('end_epoch', 'end_trial'), ('set_current_epoch', 'set_current_trial')],

@@ -8,15 +8,15 @@ are used, which is when an animal is already on the rig.
 
 Two groups of checks, split by what they cost.
 
-The cheap ones import nothing, which is what lets them run on every GUI launch:
+The cheap ones import nothing, which is what lets them run on every GUI launch::
 
   tier 1  config keys stimpack no longer reads
   tier 2  every module_paths entry resolves on disk, visual_stim directories look loadable, and
-          `import <package>` reaches this labpack rather than another copy of it
+          import <package> reaches this labpack rather than another copy of it
 
 The rest import lab code and run each protocol, so they are opt-in (--deep) and never part of
 startup -- executing arbitrary lab code on the launch path is not something a startup check should
-do:
+do::
 
   tier 3  each protocol module imports, and each protocol constructs and produces an epoch
   tier 4  every stimulus name an epoch asks for resolves, as load_stim would resolve it
@@ -35,7 +35,7 @@ computed (`'Grating' if rotating else 'RotatingGrating'`), spread across load_st
 and helpers, and the 'name' key is overloaded -- stimuli, trajectories, distributions and DAQ
 channels all use it. Parsing gets that wrong; running it does not.
 
-Two severities, and the distinction is about what happens next:
+Two severities, and the distinction is about what happens next::
 
   error    stimpack will not find this, so the run will silently do the wrong thing
   warning  something is absent or ignored, which may well be deliberate for this rig
@@ -869,7 +869,7 @@ def _rigs_worth_checking(cfg):
 
     Checking every rig would multiply the work and mostly repeat itself: of everything a rig config
     carries, only loco_available changes whether a protocol validates (it decides whether do_loco is
-    a required run parameter). Screen centre, server options and data directory do not. So check one
+    a required run parameter). Screen center, server options and data directory do not. So check one
     rig with locomotion and one without, when the labpack has both.
     """
     rigs = list((cfg.get('rig_config') or {}).keys())

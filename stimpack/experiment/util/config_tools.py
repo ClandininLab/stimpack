@@ -67,7 +67,7 @@ class TupleSafeDumper(yaml.SafeDumper):
     The tuple tag stays, and is not decoration: a protocol parameter given as a *list* of more than
     one value is one that varies from trial to trial (see BaseProtocol.process_input_parameters),
     while a tuple is a single value with components. Writing ``center: (5, -5)`` as ``[5, -5]``
-    would not lose a type, it would turn one centred stimulus into two trials at different
+    would not lose a type, it would turn one centered stimulus into two trials at different
     positions.
     """
 
@@ -611,7 +611,7 @@ def get_data_module_paths_by_format(cfg) -> dict[str, str]:
             nwb:  labpack/data_nwb.py
 
     The first fixes the format, because the class's base is what decides it -- so ``data_format``
-    and the startup dialog cannot be honoured and are not consulted. The second leaves the choice
+    and the startup dialog cannot be honored and are not consulted. The second leaves the choice
     open: they select among the labpack's own classes exactly as they select among the built-ins.
 
     The mapping exists because the first form quietly took the choice away. A labpack with a
@@ -651,7 +651,7 @@ def get_available_data_formats(cfg) -> list[str]:
     *customized*. A lab that customized HDF5 could then not reach NWB from the dialog at all,
     though nothing stopped stimpack writing it, and the same choice was still available through
     ``--data-format``. Offering a built-in where the labpack has no class is fine as long as it
-    is labelled, which is what the dialog does.
+    is labeled, which is what the dialog does.
 
     A mapping may also name a format stimpack has never heard of. The class is loaded by path and
     only ever duck-typed, so a labpack can add its own backend this way.

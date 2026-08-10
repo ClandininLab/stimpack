@@ -4,12 +4,12 @@ Analytic edges cover every shape that has an equation for its own boundary. Mult
 the geometry that cannot: a box, a tower, a forest, an avatar -- and anything built by merging
 shapes with ``add()``, which is drawn in one call with one edge equation.
 
-What it buys is edge position quantised to 1/n of a pixel rather than a whole one. That is a finer
+What it buys is edge position quantized to 1/n of a pixel rather than a whole one. That is a finer
 staircase, not the continuous sub-pixel motion an analytic edge gives, and the tests below pin both
 halves of that: it helps the shapes without an equation, and leaves the shapes with one alone.
 
 These all render through a flat frustum, which is where the option does its work. On a CurvedScreen
-it reaches much less: the scene is rasterised into single-sample cube faces first, and only the warp
+it reaches much less: the scene is rasterized into single-sample cube faces first, and only the warp
 pass is multisampled. See docs/design/analytic-edges.md.
 """
 import math
@@ -92,7 +92,7 @@ BOX = dict(x_length=0.3, y_length=0.3, z_length=0.3, color=[1, 1, 1, 1],
 
 def test_it_is_off_unless_a_rig_asks_for_it():
     """The cost differs by more than an order of magnitude between the GPUs in use -- 1.7% of a
-    360 Hz frame at 4x on an RTX A4500, 89% on a software rasteriser -- so there is no default
+    360 Hz frame at 4x on an RTX A4500, 89% on a software rasterizer -- so there is no default
     that suits every rig, and the default has to be none."""
     assert Screen().msaa_samples == 0
     assert Screen(msaa_samples=4).msaa_samples == 4
@@ -107,7 +107,7 @@ def test_it_antialiases_geometry_that_has_no_analytic_edge(headless_gl):
 
     # More samples does not light more edge pixels -- the silhouette is the same set of pixels
     # either way. What rises is how finely each one's coverage is resolved: n samples can express
-    # n+1 fractions, so the number of distinct grey levels along the edge is the thing to watch.
+    # n+1 fractions, so the number of distinct gray levels along the edge is the thing to watch.
     usable = _supported(headless_gl, (4, 8, 16))
     if len(usable) < 2:
         pytest.skip(f'driver offers too few sample counts to compare: {usable}')
@@ -142,7 +142,7 @@ def test_it_leaves_an_analytic_edge_alone(headless_gl):
 
 
 def test_the_edge_lands_between_pixels_more_finely_as_samples_rise(headless_gl):
-    """The property, stated as what it actually is: multisampling quantises edge position to 1/n of
+    """The property, stated as what it actually is: multisampling quantizes edge position to 1/n of
     a pixel. It does not make motion continuous the way analytic coverage does -- an analytic edge
     on the same journey steps by 0.024 px where 4x steps by 0.251 -- so this asserts a finer
     staircase rather than a smooth one.
@@ -167,7 +167,7 @@ def test_the_edge_lands_between_pixels_more_finely_as_samples_rise(headless_gl):
 
     assert coarse.max() == pytest.approx(1.0, abs=0.02), 'without this the edge jumps a whole pixel'
     assert fine.max() < 0.5 * coarse.max(), (
-        f'8x should quantise more finely than a whole pixel, got {fine.max():.3f}')
+        f'8x should quantize more finely than a whole pixel, got {fine.max():.3f}')
 
 
 # --- the curved path, where it reaches much less -------------------------------------------------

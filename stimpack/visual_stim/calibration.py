@@ -8,16 +8,16 @@ pick where to measure, and put a spot there.
 **Measure from where the animal sits, aimed at the screen, not with a sensor on the screen surface.**
 A sensor on the screen reads the irradiance arriving at it; what the correction should even out is
 the radiance leaving the screen *towards the animal*, and those differ by the material's angular
-behaviour -- which is exactly the part no model predicts, and which a diffusing rear-projection
+behavior -- which is exactly the part no model predicts, and which a diffusing rear-projection
 screen has plenty of. Measuring from the animal's position folds it in for free, and is far easier
 than reaching a sensor into a 7 cm bowl past the objective.
 
 A photometer is recommended over photographing the screen. A camera's own falloff is radially
 symmetric and strongest at the edges of its frame -- the same signature as the thing being measured
--- so an uncharacterised camera returns a smooth, plausible curve that is partly projector and
+-- so an uncharacterized camera returns a smooth, plausible curve that is partly projector and
 partly lens, with nothing in the data to separate them. A photometer's errors (positioning, sparse
 sampling) show up as scatter between points, which is visible. A camera earns its place once the
-residual is genuinely two-dimensional, and then it needs characterising first.
+residual is genuinely two-dimensional, and then it needs characterizing first.
 """
 from typing import NamedTuple
 
@@ -43,7 +43,7 @@ class CalibrationSamples(NamedTuple):
 def calibration_samples(mesh, projector, n=16):
     """Choose points to measure, spread across the projector's image.
 
-    Spread by *radius*, not by area: the residual varies with distance from the centre of the
+    Spread by *radius*, not by area: the residual varies with distance from the center of the
     image, so clustering samples where there is most screen wastes readings on one radius.
 
     Azimuth is varied deliberately as well, by advancing roughly a golden angle between radial

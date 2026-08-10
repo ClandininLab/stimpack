@@ -72,7 +72,7 @@ def test_projector_up_parallel_to_forward_is_rejected():
 
 
 def test_a_further_projector_gives_a_smaller_image():
-    """Basic pinhole behaviour, and a guard on the sign of the depth term."""
+    """Basic pinhole behavior, and a guard on the sign of the depth term."""
     near = PinholeProjector(position=(0, 0, 0.5), forward=(0, 0, -1), up=(0, 1, 0))
     far = PinholeProjector(position=(0, 0, 2.0), forward=(0, 0, -1), up=(0, 1, 0))
     point = [[0.1, 0, 0]]
@@ -307,7 +307,7 @@ def test_the_pole_tilts_the_whole_patch():
 
 def test_the_pole_leaves_the_sphere_alone():
     """The whole point of the parameter: it says which parts are screen, and nothing else. A sphere
-    is unchanged by rotating it about its centre, so the set of points is identical."""
+    is unchanged by rotating it about its center, so the set of points is identical."""
     from stimpack.visual_stim.curved_screen import SphericalSurface
 
     level = SphericalSurface(radius=0.0715, elevation_range=(-90, 90), n_azimuth=36, n_elevation=18)
@@ -382,7 +382,7 @@ def test_the_pole_survives_serialization():
 
 def test_a_tilted_bowl_lit_along_its_own_axis_stays_inside_its_rim():
     """The flymax rig: a hemisphere mounted at an angle, with the projector on its axis aimed at
-    the animal at the sphere's centre. Everything drawn must land on real screen."""
+    the animal at the sphere's center. Everything drawn must land on real screen."""
     from stimpack.visual_stim.curved_screen import (SphericalSurface, PinholeProjector,
                                                     build_screen_mesh)
 
@@ -442,7 +442,7 @@ def test_a_flat_screen_square_on_is_evenly_lit():
 def test_the_geometric_model_reproduces_the_rig_s_measured_falloff():
     """The claim the whole design rests on: enough of the falloff is geometry that it is worth
     computing, and the rest has to be measured. Measured on the Clandinin hemisphere rig, 7 points
-    across the projected cap, normalised to the centre."""
+    across the projected cap, normalized to the center."""
     from stimpack.visual_stim.curved_screen import (SphericalSurface, PinholeProjector,
                                                     projector_irradiance)
 
@@ -876,8 +876,8 @@ def test_a_finer_cube_moves_the_comparison_and_nothing_else():
 
 def test_a_cube_face_is_coarsest_at_its_centre_and_finest_at_its_corners():
     """The fact the old scalar hid. A cube face is a plane, so a texel at angle t from its axis
-    subtends cos^3(t) of the solid angle one at the centre does -- 3^(3/4) = 2.28x in linear
-    density between centre and corner. There is no single number for 'the resolution of a cube'."""
+    subtends cos^3(t) of the solid angle one at the center does -- 3^(3/4) = 2.28x in linear
+    density between center and corner. There is no single number for 'the resolution of a cube'."""
     from stimpack.visual_stim.curved_screen import cube_px_per_deg
 
     centre, edge, corner = cube_px_per_deg([[0, 0, 1], [0, 1, 1], [1, 1, 1]], 1536)
@@ -889,7 +889,7 @@ def test_a_cube_face_is_coarsest_at_its_centre_and_finest_at_its_corners():
 
 def test_the_reported_cube_resolution_is_not_the_face_average():
     """`cube_resolution / 90` describes nowhere on the map: it is a linear average of a tangent
-    map and sits 1.27x above the face centre, so it overstated the intermediate and understated
+    map and sits 1.27x above the face center, so it overstated the intermediate and understated
     how much of a screen the intermediate was limiting."""
     from stimpack.visual_stim.curved_screen import cube_px_per_deg
 
@@ -915,9 +915,9 @@ def test_the_screen_is_compared_against_the_cube_where_it_actually_lands():
 
 def test_the_old_face_average_hid_a_cube_that_was_limiting_the_screen():
     """The regression this exists to prevent. At a cube size where the face average clears the
-    projector but the face centre does not, the old comparison reported nothing wrong."""
+    projector but the face center does not, the old comparison reported nothing wrong."""
     mesh = _flymax_like_mesh()
-    coarse = 1000                                   # 1000/90 = 11.1, but a face centre gets 8.7
+    coarse = 1000                                   # 1000/90 = 11.1, but a face center gets 8.7
 
     result = mesh.projector_resolution((1140, 912), cube_resolution=coarse)
 

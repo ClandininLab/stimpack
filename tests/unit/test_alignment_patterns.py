@@ -1,4 +1,4 @@
-"""The commissioning patterns: concentric annuli, and the beam at the projector's centre.
+"""The commissioning patterns: concentric annuli, and the beam at the projector's center.
 
 These are alignment targets, so what matters is that they are *exactly* what they claim. A ring at
 44 degrees instead of 45 is invisible on a screen and ruins the measurement someone takes off it --
@@ -36,7 +36,7 @@ class TestSphericalAnnuli:
         assert np.abs(widths - 5.0).max() < 1e-9, f'unequal bands: {widths}'
 
     def test_it_is_not_the_tangent_plane_approximation(self):
-        """GlSphericalCirc builds a patch by offsetting theta and phi about the patch centre, which
+        """GlSphericalCirc builds a patch by offsetting theta and phi about the patch center, which
         is exact only to first order. At 45 degrees that lands 1.2 degrees short -- an error far
         larger than anything this pattern is used to measure, so it must not be built that way."""
         bound = np.radians(45.0)
@@ -75,7 +75,7 @@ class TestSphericalAnnuli:
         per_band = annuli.colors.reshape(4, 4, 32, 6)
         for band in range(4):
             assert np.ptp(per_band[:, band].reshape(4, -1), axis=1).max() == 0, \
-                f'band {band} is not one colour'
+                f'band {band} is not one color'
         assert list(per_band[0, :, 0, 0]) == [1.0, 0.0, 1.0, 0.0]
         assert np.all(per_band[3] == 1.0), 'alpha must be opaque, or the bands composite'
 

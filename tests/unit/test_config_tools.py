@@ -265,7 +265,7 @@ def test_the_dumper_and_the_loader_agree_on_what_a_preset_may_hold():
 def test_a_tuple_stays_a_tuple_and_a_list_stays_a_list():
     """Not decoration: a protocol parameter given as a list of more than one value is one that
     varies from trial to trial, while a tuple is a single value with components. Writing
-    center: (5, -5) as [5, -5] would turn one centred stimulus into two trials at different
+    center: (5, -5) as [5, -5] would turn one centered stimulus into two trials at different
     positions."""
     from stimpack.experiment.util import config_tools
 

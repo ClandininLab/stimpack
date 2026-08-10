@@ -240,8 +240,8 @@ def test_the_staircase_holds_rather_than_slides():
     times, values = zip(*pairs)
     held = interp1d(times, values, kind='previous', fill_value='extrapolate')
 
-    # Step k spans (k-0.5, k+0.5) intervals, so it is centred on the instant subframe k renders.
-    # Sample either side of that centre and the value must not change.
+    # Step k spans (k-0.5, k+0.5) intervals, so it is centered on the instant subframe k renders.
+    # Sample either side of that center and the value must not change.
     interval = 1 / 360.0
     within = [float(held((1 + f) * interval)) for f in (-0.4, -0.2, 0.0, 0.2, 0.4)]
     assert len(set(within)) == 1, f'position moved within a single subframe: {within}'
@@ -310,7 +310,7 @@ def test_it_switches_the_rig_in_and_back_out(check_stimulus, monkeypatch):
     assert manager.subframe_calls == [3], 'the rig should be told what the stimulus assumes'
 
     check_stimulus.on_run_finish(manager)
-    assert manager.subframe_calls == [3, 1], 'a rig left multiplexing reinterprets colour as time'
+    assert manager.subframe_calls == [3, 1], 'a rig left multiplexing reinterprets color as time'
 
 
 def test_a_rig_that_cannot_switch_is_told_what_it_will_see(check_stimulus, monkeypatch, recwarn):
@@ -336,7 +336,7 @@ def test_a_varying_subframe_count_is_refused(check_stimulus):
 
 def test_a_multiplexing_screen_says_so_and_says_it_cannot_be_verified(capsys):
     """subframes=3 is a claim about the projector, not about stimpack. If the projector is in
-    ordinary video mode the result is a plausible colour image rather than an error, so the only
+    ordinary video mode the result is a plausible color image rather than an error, so the only
     warning available is saying it out loud."""
     from stimpack.visual_stim.framework import StimDisplay
 

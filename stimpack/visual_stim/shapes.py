@@ -1,15 +1,15 @@
 """
-Geometry primitives: triangle meshes with per-vertex colours and texture coordinates.
+Geometry primitives: triangle meshes with per-vertex colors and texture coordinates.
 
 Every stimulus builds one of these in :meth:`~stimpack.visual_stim.base.BaseProgram.eval_at` and
-hands its vertex, colour and texture-coordinate arrays to the GPU. Shapes compose -- ``add()``
+hands its vertex, color and texture-coordinate arrays to the GPU. Shapes compose -- ``add()``
 merges one into another -- and transform in place, so a stimulus assembles what it needs and then
 positions the whole thing::
 
     patch = GlSphericalRect(width=10, height=30, color=[1, 1, 1, 1])
     patch = patch.rotate(np.radians(theta), np.radians(phi), np.radians(angle))
 
-Coordinates are stimpack's: metres, with the subject at the origin and heading ``(0, 0, 0)``
+Coordinates are stimpack's: meters, with the subject at the origin and heading ``(0, 0, 0)``
 looking along **+y**. Shapes named ``Spherical`` or ``Cylindrical`` take their extents in
 **degrees** subtended at the subject, and lie on a sphere or cylinder of the given radius, which
 is what keeps a patch the same angular size wherever it is placed.
@@ -25,10 +25,10 @@ from . import util
 EDGE_NONE = 0
 EDGE_CONE = 1                # inside the cone of a flat ellipse of half-extents `extent`
 EDGE_ANGULAR_RECT = 2        # |azimuth| <= extent.x and |elevation| <= extent.y, in the shape's frame
-EDGE_WORLD_DISC = 3          # within extent.x metres of the anchor, for a flat disc
+EDGE_WORLD_DISC = 3          # within extent.x meters of the anchor, for a flat disc
 
 # Kinds 1 and 2 are *angular*: they ask which direction a fragment lies in. Kind 3 is *metric*: it
-# asks how far away it is, in metres. Both measure from the shape's anchor, which is what lets one
+# asks how far away it is, in meters. Both measure from the shape's anchor, which is what lets one
 # shader serve them and what lets a transform move a shape without invalidating its declaration.
 
 # Both are statements about *direction*, so neither mentions the surface the triangles sit on. A
@@ -54,7 +54,7 @@ def cone_bound_directions(extent_x, extent_y, n_steps, frame=CANONICAL_PATCH_FRA
 
     Gnomonic projection -- divide a direction by its forward component, giving the coordinates of
     the flat card the cone is projected from -- takes great circles to straight lines. The edge the
-    GPU rasterises between two vertices on a sphere sweeps a great circle, so it *is* a straight
+    GPU rasterizes between two vertices on a sphere sweeps a great circle, so it *is* a straight
     line in these coordinates. That makes the bound exact rather than approximate: a polygon
     circumscribing the ellipse on the card circumscribes the real shape, at any size, with no
     margin needed and nothing to tune.
@@ -217,7 +217,7 @@ def _carry_edge(source, result, rotation=None, translation=None, scale=None):
     unconverted shape already takes.
 
     :param rotation: a callable turning a (3, N) array, or None
-    :param translation: an (x, y, z) offset in metres, or None
+    :param translation: an (x, y, z) offset in meters, or None
     :param scale: a single factor, or None. Callers must not pass a non-uniform one -- it turns a
         disc into an ellipse and a cone into something with no name here, so those drop instead.
     """
@@ -258,7 +258,7 @@ def _uniform_scale(amt):
 
 
 def edge_coverage(distance, pixel):
-    """What fraction of a pixel a shape covers, given how far its edge is from the pixel centre.
+    """What fraction of a pixel a shape covers, given how far its edge is from the pixel center.
 
     The reference implementation of what the fragment shader computes, kept in Python so the rule
     can be stated and tested without a GL context.
@@ -268,7 +268,7 @@ def edge_coverage(distance, pixel):
     30% of the light and smoothstep emits 22%, worst case 9.6 percentage points of luminance. Worse,
     it makes emitted intensity a non-linear function of edge position, so a constant-velocity edge
     appears to stall and then hurry once per pixel crossed -- which is a smaller copy of the motion
-    artefact analytic coverage exists to remove. This form is the true covered fraction for a
+    artifact analytic coverage exists to remove. This form is the true covered fraction for a
     straight edge, which is what a photoreceptor integrating over that pixel receives.
 
     :param distance: how far the edge is beyond the pixel, in the same units as `pixel`;
@@ -292,7 +292,7 @@ def sharp_texel_coord(texel_position, texels_per_pixel):
     Measured on a drifting square grating at 10 deg/s, the edge is frozen for 17 frames in 19.
 
     So sample with ``LINEAR`` filtering, but move the sample point. Everywhere but within one pixel
-    of a texel boundary this lands exactly on a texel centre, which is what ``NEAREST`` would have
+    of a texel boundary this lands exactly on a texel center, which is what ``NEAREST`` would have
     returned. Across the boundary it ramps, and the hardware's own interpolation then mixes the two
     texels in exactly the proportion the pixel is covered by each -- the same covered-fraction rule
     :func:`edge_coverage` states for shapes, arrived at through the filter rather than through alpha.
@@ -312,12 +312,12 @@ def sharp_texel_coord(texel_position, texels_per_pixel):
 
 class GlVertices:
     """
-    A triangle mesh: vertices, per-vertex RGBA colours, and texture coordinates.
+    A triangle mesh: vertices, per-vertex RGBA colors, and texture coordinates.
 
     The base of every shape below, and usable directly for arbitrary geometry. Transform methods
     (:meth:`rotate`, :meth:`translate`, :meth:`scale`) return the object, so they chain.
 
-    :param vertices: 3 x n array of vertex positions, in metres
+    :param vertices: 3 x n array of vertex positions, in meters
     :param colors: 4 x n array of RGBA values, one per vertex
     :param tex_coords: 2 x n array of texture coordinates, for textured shapes
     """
@@ -341,7 +341,7 @@ class GlVertices:
         self.edge_spans = []
 
     def add(self, obj):
-        """Merge another shape into this one, concatenating its vertices, colours and texture coordinates.
+        """Merge another shape into this one, concatenating its vertices, colors and texture coordinates.
 
         Anything the merged shape declared about its edge is kept, along with where its vertices
         landed, so a composite of analytic shapes stays analytic. Merging is still one buffer; it
@@ -411,13 +411,13 @@ class GlVertices:
         return result if uniform is None else _carry_edge(self, result, scale=uniform)
 
     def translate(self, amt):
-        """Translate by an (x, y, z) offset in metres. Returns self, so calls chain."""
+        """Translate by an (x, y, z) offset in meters. Returns self, so calls chain."""
         return _carry_edge(self, GlVertices(vertices=util.translate(self.vertices, amt),
                                             colors=self.colors, tex_coords=self.tex_coords),
                           translation=amt)
 
     def set_color(self, color):
-        """Set every vertex to one colour."""
+        """Set every vertex to one color."""
         new_colors = np.tile(np.array(color), (self.vertices.shape[1], 1)).T
         return _carry_edge(self, GlVertices(vertices=self.vertices, colors=new_colors,
                                             tex_coords=self.tex_coords))
@@ -478,14 +478,14 @@ class GlQuad(GlVertices):
 
 class GlCircle(GlVertices):
     """
-    A flat disc parallel to the xz plane, of a radius in metres.
+    A flat disc parallel to the xz plane, of a radius in meters.
 
     Flat rather than spherical: it is an object at a place, so its apparent size changes with the
     subject's distance from it. For a patch that subtends a fixed angle wherever it is put, use
     :class:`GlSphericalCirc`.
 
     Its edge is analytic and *metric* rather than angular -- every fragment of a flat disc lies in
-    the disc's plane, so the distance from the centre in three dimensions is the radius in two, and
+    the disc's plane, so the distance from the center in three dimensions is the radius in two, and
     ``length(v_world - anchor) - radius`` is the boundary exactly. That makes the triangles a bound
     here too, so ``n_steps`` sets surplus area rather than roundness.
 
@@ -493,8 +493,8 @@ class GlCircle(GlVertices):
     line in that plane, so a circumscribing polygon contains the circle exactly -- and perspective
     scales both by the same factor, so it keeps containing it at every distance.
 
-    :param center: (x, y, z) of the disc's centre, metres
-    :param radius: metres
+    :param center: (x, y, z) of the disc's center, meters
+    :param radius: meters
     :param n_steps: sides of the bounding polygon. Not the accuracy of the disc.
     """
     EDGE_KIND = EDGE_WORLD_DISC
@@ -515,10 +515,10 @@ class GlCircle(GlVertices):
 
 class GlCube(GlVertices):
     """
-    An axis-aligned cube, one colour per face.
+    An axis-aligned cube, one color per face.
 
-    :param colors: dict of face name to colour, or None for a default set of six distinct
-        colours -- useful as a visible reference object when checking perspective.
+    :param colors: dict of face name to color, or None for a default set of six distinct
+        colors -- useful as a visible reference object when checking perspective.
     """
     def __init__(self, colors=None, center=[0, 0, 0], side_length=1.0):
         # call the super constructor
@@ -553,7 +553,7 @@ class GlCube(GlVertices):
 
 class GlBox(GlVertices):
     """
-    An axis-aligned rectangular box, one colour per face.
+    An axis-aligned rectangular box, one color per face.
 
     :class:`GlCube` with independent side lengths in x, y and z.
     """
@@ -594,14 +594,14 @@ class GlSphericalRect(GlVertices):
     """
     A patch on the surface of a sphere, rectangular in spherical coordinates.
 
-    Width and height are angles subtended at the centre of the sphere, so the patch keeps its
+    Width and height are angles subtended at the center of the sphere, so the patch keeps its
     angular size however the sphere is scaled. Built at the equator and at theta = 90 degrees --
     facing the subject's default heading -- then rotated into place by the caller, which avoids
     the distortion a patch would pick up near the poles.
 
     :param width: degrees of azimuth (theta)
     :param height: degrees of elevation (phi)
-    :param sphere_radius: metres
+    :param sphere_radius: meters
     :param n_steps_x: subdivisions across the width; more make the patch follow the sphere's
         curvature more closely, at the cost of vertices
     :param n_steps_y: subdivisions down the height
@@ -733,17 +733,17 @@ class GlSphericalCirc(GlVertices):
 
 class GlSphericalAnnuli(GlVertices):
     """
-    Concentric annuli of equal angular width about the forward axis, in alternating colours.
+    Concentric annuli of equal angular width about the forward axis, in alternating colors.
 
     A commissioning pattern rather than an experimental stimulus. Every band subtends the same
-    angle at the subject, so on a screen that is a sphere centred on the subject every band is the
+    angle at the subject, so on a screen that is a sphere centered on the subject every band is the
     same *physical* width on the surface -- which makes a ruler or a photograph a direct test of
     the renderer's geometry, needing no model of the rig to interpret. In the projector image the
     same bands are emphatically not equal: they compress towards the rim, and that compression is
     the warp doing its job.
 
     Built exactly, from the angle-from-axis definition, rather than by offsetting theta and phi
-    around the canonical patch centre the way :class:`GlSphericalCirc` does. That parameterisation
+    around the canonical patch center the way :class:`GlSphericalCirc` does. That parameterization
     is a tangent-plane approximation, exact only to first order in the offset -- fine for a patch a
     few degrees across, and wrong by a degree or so at the 45 degrees these rings are meant to
     reach, which is exactly the error this pattern exists to detect.
@@ -756,8 +756,8 @@ class GlSphericalAnnuli(GlVertices):
     :param band_width: angular width of each band, in degrees
     :param max_radius: how far out to draw, in degrees from the axis. Rounded up to a whole band,
         so the outermost band is never a partial one masquerading as a full one.
-    :param sphere_radius: metres. Only has to put the pattern outside anything else in the scene.
-    :param colors: the two colours to alternate, innermost first. ``[r,g,b,a]`` or mono.
+    :param sphere_radius: meters. Only has to put the pattern outside anything else in the scene.
+    :param colors: the two colors to alternate, innermost first. ``[r,g,b,a]`` or mono.
     :param n_azimuth: steps around the axis. See above for what it costs.
     """
 
@@ -855,9 +855,9 @@ class GlSphericalPoints(GlVertices):
 
 class GlPointCollection(GlVertices):
     """
-    Points at arbitrary Cartesian positions, all one colour.
+    Points at arbitrary Cartesian positions, all one color.
 
-    :param locations: sequence of (x, y, z) positions in metres
+    :param locations: sequence of (x, y, z) positions in meters
     """
     def __init__(self,
                  locations=[[0, 0, 0]],
@@ -873,8 +873,8 @@ class GlCylinder(GlVertices):
     """
     A cylinder wall around the subject -- the surface most panoramic stimuli are painted on.
 
-    :param cylinder_height: metres
-    :param cylinder_radius: metres
+    :param cylinder_height: meters
+    :param cylinder_radius: meters
     :param cylinder_angular_extent: degrees of azimuth covered; 360 closes the cylinder, less
         leaves an arc
     :param n_faces: flat faces approximating the wall

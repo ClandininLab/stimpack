@@ -215,7 +215,7 @@ def test_each_old_name_is_reported_once_not_once_per_trial(fresh_warnings):
 
 def test_run_parameters_are_renamed_however_they_are_assigned():
     """The usual labpack protocol sets run_parameters itself, after stimpack has already built
-    them, so normalising where stimpack assigns them misses every one of those protocols."""
+    them, so normalizing where stimpack assigns them misses every one of those protocols."""
     protocol = LegacyProtocol(cfg={})
     assert protocol.run_parameters['num_trials'] == 3
 

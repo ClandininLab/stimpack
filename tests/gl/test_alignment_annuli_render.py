@@ -36,7 +36,7 @@ def render_annuli(ctx, **configure):
 
     fbo = ctx.simple_framebuffer((SIZE, SIZE))
     fbo.use()
-    fbo.clear(0.5, 0.5, 0.5, 1.0)          # grey, so both ring colours are distinguishable from it
+    fbo.clear(0.5, 0.5, 0.5, 1.0)          # gray, so both ring colors are distinguishable from it
     stim.paint_at(0.0, [(0, 0, SIZE, SIZE)], [get_perspective(SUBJECT, PA, PB, PC, False)],
                   subject_position=SUBJECT)
     ctx.finish()
@@ -48,7 +48,7 @@ def render_annuli(ctx, **configure):
 def to_angle(boundary_index):
     """Pixel *boundary* `boundary_index` as an angle, through the frustum used here.
 
-    Boundaries, not centres: a hard edge shows up as a change between two pixels, so what has been
+    Boundaries, not centers: a hard edge shows up as a change between two pixels, so what has been
     located is the line between them. Pixel i spans NDC i/(SIZE/2) - 1 to (i+1)/(SIZE/2) - 1, and
     on this screen NDC is tan(angle).
     """
@@ -56,7 +56,7 @@ def to_angle(boundary_index):
 
 
 def boundaries_along_centre_row(image):
-    """Angles, in degrees, where the pattern changes value, right of the centre."""
+    """Angles, in degrees, where the pattern changes value, right of the center."""
     row = image[SIZE // 2].astype(int)
     changes = np.flatnonzero(np.abs(np.diff(row)) > 60)
     angles = to_angle(changes + 1)
@@ -71,7 +71,7 @@ def test_ring_boundaries_land_at_the_angles_they_claim(headless_gl):
     expected = [10.0, 20.0, 30.0, 40.0]
     assert len(found) == len(expected), f'expected boundaries at {expected}, found {found}'
     # One pixel is 0.13 degrees at the outermost ring here, and the ring polygon at n_azimuth=256
-    # is wrong by 3e-5 of that -- so this tolerance is rasterisation, and nothing else. A real
+    # is wrong by 3e-5 of that -- so this tolerance is rasterization, and nothing else. A real
     # geometry error, such as building the pattern in the tangent plane, is 1.2 degrees at 45.
     assert np.allclose(found, expected, atol=0.15), f'boundaries at {found}, expected {expected}'
 
@@ -87,20 +87,20 @@ def test_the_bands_really_are_equal_width_in_angle(headless_gl):
 
 def test_the_pattern_is_centred_where_it_is_aimed(headless_gl):
     """An off-axis pattern is the case that matters: the rings are aimed at the screen's axis, not
-    at the subject's forward direction, so getting this wrong would mis-centre every rig with a
+    at the subject's forward direction, so getting this wrong would mis-center every rig with a
     tilted screen -- the exact thing the protocol is used to check."""
     # A single bright disc of 10 degrees radius, so its edges are unambiguous.
     image = render_annuli(headless_gl, band_width=10.0, max_radius=10.0, colors=(1.0, 0.0),
                           theta=0, phi=-15, n_azimuth=256)
 
     # Read the disc's top and bottom off the column through azimuth 0. Midpoint and half-extent
-    # rather than a centre of mass: a disc projected onto a flat screen off-axis is not symmetric
-    # in the image, so its centroid is not its centre, but its two edges still bracket it.
+    # rather than a center of mass: a disc projected onto a flat screen off-axis is not symmetric
+    # in the image, so its centroid is not its center, but its two edges still bracket it.
     lit = np.flatnonzero(image[:, SIZE // 2] > 200)
     assert len(lit), 'nothing was drawn'
     bottom, top = to_angle(lit[0]), to_angle(lit[-1] + 1)
 
     assert (bottom + top) / 2 == pytest.approx(-15.0, abs=0.15), \
-        f'pattern centred at elevation {(bottom + top) / 2:.2f}, aimed at -15'
+        f'pattern centered at elevation {(bottom + top) / 2:.2f}, aimed at -15'
     assert (top - bottom) / 2 == pytest.approx(10.0, abs=0.15), \
         f'disc radius {(top - bottom) / 2:.2f} degrees, configured as 10'

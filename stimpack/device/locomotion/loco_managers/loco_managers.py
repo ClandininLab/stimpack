@@ -200,12 +200,13 @@ class LocoSocketManager():
         return data
 
     def get_line(self, wait_for=None, get_most_recent=True):
-        '''
-        Assumes that lines are separated by '\n'
+        r'''
+        Assumes that lines are separated by ``\n``.
+
         wait_for:
-            None: wait until there is data to read
-            0: return immediately if there is no data to read
-            >0: wait for that many seconds for data to read
+            - None: wait until there is data to read
+            - 0: return immediately if there is no data to read
+            - >0: wait for that many seconds for data to read
         '''
         
         new_data = self.receive_message(wait_for=wait_for)
@@ -389,17 +390,19 @@ class LocoClosedLoopManager(LocoManager):
         ):
         '''
         Maps the specified locomotion device's output to the stimpack.experiment.server's position 0.
-        
-        loco_pos: 
+
+        loco_pos:
             dictionary of position variables to map to 0.
-            keys: position variables to map to 0
-            values: locomotion device position
-                    if None, the current value is acquired from socket.
-        
+
+            - keys: position variables to map to 0
+            - values: locomotion device position;
+              if None, the current value is acquired from socket.
+
         get_most_recent:
-            Only relevant if getting data for the first time or use_data_prev = False
-            if True, grabs line that is most recent
-            if False, grabs line that is the oldest
+            Only relevant if getting data for the first time or use_data_prev = False.
+
+            - if True, grabs line that is most recent
+            - if False, grabs line that is the oldest
         '''
         
         loco_state_pos_pairs = {k: (loco_pos[k], 0) for k in loco_pos.keys()}

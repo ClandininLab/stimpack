@@ -1,4 +1,4 @@
-"""Colour, coordinate and geometry helpers shared across stimuli and shapes."""
+"""Color, coordinate and geometry helpers shared across stimuli and shapes."""
 from math import sin, cos
 from numbers import Number
 import numpy as np

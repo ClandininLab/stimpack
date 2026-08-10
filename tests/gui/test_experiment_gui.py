@@ -835,7 +835,7 @@ def test_a_cancelled_or_empty_note_writes_nothing(experiment_gui):
 
     gui.note_button.click()
     gui.note_dialog.setTextValue('a note')
-    gui.note_dialog.reject()                       # cancelled
+    gui.note_dialog.reject()                       # canceled
 
     for blank in ['', '   ']:
         gui.note_button.click()
@@ -875,7 +875,7 @@ def test_a_note_is_not_misfiled_into_an_experiment_it_is_not_about(experiment_gu
 
 def test_the_note_button_is_disabled_until_there_is_a_file(experiment_gui):
     """A control that cannot do anything should not invite the click. Same treatment Record gets
-    for a missing subject, and the tooltip carries the reason a greyed button cannot."""
+    for a missing subject, and the tooltip carries the reason a grayed button cannot."""
     gui = experiment_gui
 
     assert not gui.note_button.isEnabled()
@@ -890,7 +890,7 @@ def test_the_note_button_is_disabled_until_there_is_a_file(experiment_gui):
 
 
 def test_the_note_dialog_is_refused_even_if_the_button_state_is_stale(experiment_gui, monkeypatch):
-    """A backstop, not the usual path. A desynchronised button must refuse rather than open a
+    """A backstop, not the usual path. A desynchronized button must refuse rather than open a
     dialog whose text has nowhere to go -- with no field to leave it in, somebody who types a
     paragraph and then learns there is nowhere to put it has lost it."""
     import stimpack.experiment.gui as gui_mod
@@ -1093,7 +1093,7 @@ def test_a_data_write_failure_is_surfaced_as_its_own_error(experiment_gui, monke
 
 
 def test_clearing_the_series_warning_does_not_paint_the_field(experiment_gui):
-    """It used to set the background white, leaving the text colour to the palette -- so under a
+    """It used to set the background white, leaving the text color to the palette -- so under a
     dark theme a valid series number was white on white, unreadable in the state that means fine."""
     gui = experiment_gui
 
@@ -1329,7 +1329,7 @@ def test_the_subject_button_creates_then_updates_the_same_id(experiment_gui):
 
 
 def test_the_action_is_decided_by_state_not_by_the_label(experiment_gui, monkeypatch):
-    """Reading the label back would make a rename a behaviour change -- which is exactly how the
+    """Reading the label back would make a rename a behavior change -- which is exactly how the
     Note button nearly broke when it was shortened."""
     gui = experiment_gui
     experiment_with_subject(gui, 'by_state', 'fly1')
@@ -1360,7 +1360,7 @@ def test_the_subject_field_is_both_a_chooser_and_an_entry(experiment_gui):
 
 
 def test_the_field_says_whether_it_holds_a_saved_subject(experiment_gui):
-    """The cue is a font style, not a colour: the series counter was white-on-white in dark mode
+    """The cue is a font style, not a color: the series counter was white-on-white in dark mode
     for exactly that reason."""
     gui = experiment_gui
     experiment_with_subject(gui, 'cue', 'fly_03')
@@ -1645,7 +1645,7 @@ def test_the_ensemble_list_keeps_its_two_halves_in_step_during_a_change(experime
 
 
 def test_a_disabled_run_button_says_what_is_missing(experiment_gui):
-    """A greyed button says nothing on its own. Only for prerequisites the user can act on -- that
+    """A grayed button says nothing on its own. Only for prerequisites the user can act on -- that
     something else is already running is plain from the rest of the window."""
     gui = experiment_gui
 
@@ -1864,7 +1864,7 @@ def test_deleting_a_preset_twice_is_not_an_error(experiment_gui, monkeypatch, tm
 
 
 # --- Qt logging noise ----------------------------------------------------------------------------
-# Env-var behaviour rather than widget behaviour, but it belongs beside the module it lives in.
+# Env-var behavior rather than widget behavior, but it belongs beside the module it lives in.
 
 def test_the_wayland_textinput_category_is_silenced_by_default(monkeypatch):
     """Opening a dropdown whose popup is wider than the closed box -- every protocol dropdown,

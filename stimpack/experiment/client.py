@@ -180,7 +180,7 @@ class BaseClient():
 
         The protocol's pre / stimulus / tail intervals are interruptible sleeps (see
         BaseProtocol.sleep); this is what interrupts them. Called locally by stop_run, and
-        remotely by the server for a trial whose length depends on the animal's behaviour
+        remotely by the server for a trial whose length depends on the animal's behavior
         (BaseServer.end_trial).
 
         :param epoch_index: the pre-0.3 name for trial_index. This is a wire signature -- a

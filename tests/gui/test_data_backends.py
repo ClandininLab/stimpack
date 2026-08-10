@@ -88,7 +88,7 @@ def _write_data_module(tmp_path, name, base_import, base):
 
 def test_one_labpack_data_module_still_wins_over_data_format(tmp_path, test_cfg):
     """A config naming a single data class has its format decided by that class's base, so
-    data_format cannot be honoured and is not consulted. Overriding it the other way -- building
+    data_format cannot be honored and is not consulted. Overriding it the other way -- building
     the built-in for the requested format -- would drop the lab's overrides instead, which is the
     same silent discard and much harder to notice."""
     from stimpack.experiment.util import config_tools
@@ -103,7 +103,7 @@ def test_one_labpack_data_module_still_wins_over_data_format(tmp_path, test_cfg)
 def test_a_module_per_format_lets_data_format_choose_among_them(tmp_path, test_cfg,
                                                                 data_format, expected):
     """The point of the mapping: a labpack keeping a class per format gets to keep its overrides
-    AND have the choice honoured, which naming one module cannot do."""
+    AND have the choice honored, which naming one module cannot do."""
     from stimpack.experiment.util import config_tools
 
     cfg = dict(test_cfg, data_format=data_format, module_paths={'data': {
@@ -279,7 +279,7 @@ def test_load_experiment_uses_a_directory_picker_for_nwb(nwb_experiment_gui, tmp
 
 
 def test_cancelling_the_nwb_load_dialog_keeps_the_current_experiment(nwb_experiment_gui, monkeypatch):
-    """Cancelling returns an empty path, which used to be written straight into the data object,
+    """Canceling returns an empty path, which used to be written straight into the data object,
     silently detaching the GUI from the experiment being recorded."""
     import stimpack.experiment.gui as gui_mod
     gui = nwb_experiment_gui
@@ -312,7 +312,7 @@ def test_subject_dropdown_lists_each_subject_once(nwb_experiment_gui):
     """NWB keeps subject metadata in every series file, so a subject run three times was reported
     three times and appeared three times in the dropdown. The backend keys by subject id now, so
     the answer is right before the GUI ever sees it -- the dropdown's own deduplication stays as
-    the second line of defence."""
+    the second line of defense."""
     gui = nwb_experiment_gui
     initialize(gui, 'dupes')
     add_subject(gui, 'fly1')

@@ -243,8 +243,8 @@ class StimDisplay(QOpenGLWidget):
 
         Refused while a stimulus is running. Changing part-way through would leave some frames of a
         trial carrying one timepoint and some three, which nothing downstream reports and no
-        analysis could recover. Under multiplexing each colour channel is a slice of time rather
-        than a colour, so a loaded colour stimulus would also be silently reinterpreted.
+        analysis could recover. Under multiplexing each color channel is a slice of time rather
+        than a color, so a loaded color stimulus would also be silently reinterpreted.
 
         This changes stimpack's half only. The projector has to be told the matching pattern count
         separately -- stimpack cannot see it -- so a labpack wanting to switch at run time should
@@ -263,8 +263,8 @@ class StimDisplay(QOpenGLWidget):
         """Say whether this screen is multiplexing, and at what rate.
 
         Printed because it is a claim about hardware that software cannot check. subframes=3 packs
-        three timepoints into the colour channels for a projector configured to unpack them; if the
-        projector is in ordinary video mode instead, the result is a plausible-looking colour image
+        three timepoints into the color channels for a projector configured to unpack them; if the
+        projector is in ordinary video mode instead, the result is a plausible-looking color image
         rather than an error. Saying it out loud at start-up is the only warning available, and it
         is what a commissioning run (see SubframeTimingCheck) is checked against.
         """
@@ -381,7 +381,7 @@ class StimDisplay(QOpenGLWidget):
         self.ctx.enable(moderngl.DEPTH_TEST) # enable depth test
 
         # Keep sRGB encoding off, so what a shader writes is what lands in the framebuffer. The
-        # default framebuffer here IS sRGB-capable (measured: its colour encoding reports GL_SRGB),
+        # default framebuffer here IS sRGB-capable (measured: its color encoding reports GL_SRGB),
         # so the enable bit genuinely matters -- it just happens to default to off.
         #
         # disable_direct, not disable. ctx.disable() takes moderngl's own flag bitmask, not a raw
@@ -526,7 +526,7 @@ class StimDisplay(QOpenGLWidget):
         framebuffer.use()
 
         # One pass per subframe. With subframes=1 this runs once with every channel writable, which
-        # is ordinary rendering; with 3 it draws three timepoints, each masked into one colour
+        # is ordinary rendering; with 3 it draws three timepoints, each masked into one color
         # channel, for a projector that reads them back as successive patterns. glClear respects the
         # write mask, so each pass clears only its own channel -- the other two keep what the earlier
         # passes put there.
@@ -571,7 +571,7 @@ class StimDisplay(QOpenGLWidget):
         """A multisampled framebuffer to draw this frame into, or None to draw straight to the widget.
 
         Kept and reused across frames, and rebuilt only when the display size changes -- allocating
-        a multisampled colour and depth buffer every frame would cost far more than the sampling.
+        a multisampled color and depth buffer every frame would cost far more than the sampling.
 
         Returns None when the screen asks for no multisampling, which is the default, so the
         ordinary path is unchanged: same framebuffer, same draws, no copy.
@@ -599,7 +599,7 @@ class StimDisplay(QOpenGLWidget):
         buffer is order-dependent: a partly covered fragment still writes depth as though it were
         opaque, so whatever is behind it is rejected and it blends against the background instead.
         Drawing all the opaque fragments first, then the blended ones with depth writes off, fixes
-        that -- the far surface is already in the colour buffer when the near edge blends over it,
+        that -- the far surface is already in the color buffer when the near edge blends over it,
         and the edge no longer hides anything.
 
         It has to be all stimuli, not each stimulus in turn: interleaving them would put one
@@ -611,7 +611,7 @@ class StimDisplay(QOpenGLWidget):
 
         :param framebuffer: whose depth mask to toggle. The cube path draws into a face's
             framebuffer rather than the one paintGL bound, and toggling the wrong one silently
-            leaves depth writes on for the blended pass, which is the unsplit behaviour again.
+            leaves depth writes on for the blended pass, which is the unsplit behavior again.
         """
         if not self.screen.split_blended_pass:
             for stim in self.stim_list:
@@ -626,7 +626,7 @@ class StimDisplay(QOpenGLWidget):
         # Which stimuli can contribute to the blended pass at all. Asked after the opaque pass,
         # because it reads the shape eval_at built and that is where evaluation happens.
         #
-        # Worth asking: the second pass is not free even when it draws nothing. It still rasterises
+        # Worth asking: the second pass is not free even when it draws nothing. It still rasterizes
         # everything and runs the fragment shader up to the discard, once per cube face -- a
         # full-field grating, entirely opaque, paid 0.70 ms on the curved path for a pass with no
         # output. Skipping the stimuli that cannot blend takes that back.
@@ -1152,7 +1152,7 @@ def main():
         server.register_function(getattr(stim_display, function_name))
     
     # A new window normally activates itself and takes the keyboard. Screens are shown without
-    # taking focus by default instead; set STIMPACK_NO_FOCUS=0 for the old behaviour.
+    # taking focus by default instead; set STIMPACK_NO_FOCUS=0 for the old behavior.
     #
     # This used to be opt-in, on the reasoning that taking focus "is right on a rig" and only a
     # desktop needs protecting from it. On a rig with more than one screen it is the opposite. The
@@ -1167,8 +1167,8 @@ def main():
     # -- which is what marks it as a window-manager artifact rather than GPU load. Reported first
     # from the rig as "the aux window blinks and we drop frames", which is exactly what it was.
     #
-    # Honoured under X11/XWayland, where Qt maps it to _NET_WM_USER_TIME=0 and the window manager
-    # respects that. NOT honoured under the wayland platform plugin: Wayland has no such hint, the
+    # Honored under X11/XWayland, where Qt maps it to _NET_WM_USER_TIME=0 and the window manager
+    # respects that. NOT honored under the wayland platform plugin: Wayland has no such hint, the
     # compositor alone decides focus, and mutter activates new toplevels regardless (measured, not
     # assumed). To get this under a Wayland session, run the screen on XWayland instead --
     # Screen(x_display=os.environ['DISPLAY']) selects the xcb platform. See tests/conftest.py.

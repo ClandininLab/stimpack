@@ -629,7 +629,7 @@ class ExperimentGUI(QWidget):
         self.ensemble_status_grid.addWidget(self.ensemble_progress_label, 1, 3)
 
         # Ensemble run buttons. Separate widgets from the Main tab's, so each tab's buttons act on
-        # that tab's subject and nothing has to be relabelled or routed by label.
+        # that tab's subject and nothing has to be relabeled or routed by label.
         self.ensemble_view_button = QPushButton("View ensemble", self)
         self.ensemble_view_button.clicked.connect(self.on_pressed_button_ensemble)
         self.ensemble_action_grid.addWidget(self.ensemble_view_button, 0, 0)
@@ -641,7 +641,7 @@ class ExperimentGUI(QWidget):
 
         # Pause is the exception to "each tab's buttons act on that tab's subject": there is one
         # run loop, and pausing it is the same act either way. Two buttons onto one piece of
-        # client state, so both are relabelled together -- see set_pause_button_label.
+        # client state, so both are relabeled together -- see set_pause_button_label.
         self.ensemble_pause_button = QPushButton("Pause", self)
         self.ensemble_pause_button.setEnabled(False)
         self.ensemble_pause_button.clicked.connect(self.on_pressed_button)
@@ -658,7 +658,7 @@ class ExperimentGUI(QWidget):
         self.data_tab = QWidget()
         self.data_form = QFormLayout()
         self.data_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        # Left, not centred: centring ragged-length captions puts every one of them at a different
+        # Left, not centered: centering ragged-length captions puts every one of them at a different
         # x, so the eye has no edge to run down.
         self.data_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.data_tab.setLayout(self.data_form)
@@ -853,7 +853,7 @@ class ExperimentGUI(QWidget):
         # No need to re-apply the parameter lock after rebuilding the inputs: Qt disables a widget
         # added to a disabled parent, and these all go into parameters_box / protocol_selector_box.
         # Verified by removing the call and watching the test below still pass -- which is why the
-        # test asserts the behaviour rather than the mechanism.
+        # test asserts the behavior rather than the mechanism.
 
         # Only announce readiness if that is true. This is also how an ensemble loads its next
         # item, and declaring STANDBY there both said 'Ready' in the middle of an ensemble and
@@ -1016,7 +1016,7 @@ class ExperimentGUI(QWidget):
             else:
                 path, _ = QFileDialog.getOpenFileName(self, f"Open {self.data.output_noun}", start_dir)
 
-            if path:  # empty when the dialog was cancelled
+            if path:  # empty when the dialog was canceled
                 self.data.load_experiment(path)
                 self.current_experiment_label.setText(self.data.experiment_file_name)
                 # update series count to reflect already-collected series
@@ -1217,7 +1217,7 @@ class ExperimentGUI(QWidget):
 
         # Italic while the text names no saved subject, upright once it does. The field is both a
         # chooser and an entry, so it has to say which it is holding -- and a font style says it
-        # without a colour, which is what kept the series counter legible in a dark theme.
+        # without a color, which is what kept the series counter legible in a dark theme.
         field = self.existing_subject_input.lineEdit()
         if field is not None:
             font = field.font()
@@ -1547,7 +1547,7 @@ class ExperimentGUI(QWidget):
         self.ensemble_record_button.setEnabled(not busy and has_ensemble and can_record)
         self.ensemble_stop_button.setEnabled(self.ensemble_running)
 
-        # A greyed button says nothing about why. Only for prerequisites the user can act on --
+        # A grayed button says nothing about why. Only for prerequisites the user can act on --
         # that something else is already running is plain from the rest of the window.
         # Both of these end up in prepare_run, which a bare BaseProtocol cannot satisfy: it has no
         # num_trials, so its own required-parameter check raises -- and an exception in a Qt slot
@@ -1583,7 +1583,7 @@ class ExperimentGUI(QWidget):
         # There is nowhere to put a note until a file exists. Disabled rather than refused after
         # the click, which is how Record already treats a missing subject -- and a control that
         # cannot do anything should not invite the click in the first place. The tooltip carries
-        # the reason, which a greyed button on its own does not.
+        # the reason, which a grayed button on its own does not.
         can_note = self.data.experiment_file_exists()
         self.note_button.setEnabled(can_note)
         self.note_button.setToolTip(
@@ -1612,10 +1612,10 @@ class ExperimentGUI(QWidget):
         """Mark the series counter when its number has already been recorded, or clear the mark.
 
         Cleared by removing the override rather than by painting the field white. Forcing white
-        left the text colour to the palette, so under a dark theme the field was white text on a
+        left the text color to the palette, so under a dark theme the field was white text on a
         white background -- unreadable in exactly the state that means "this is fine".
 
-        The warning names both colours for the same reason: a background set without a foreground
+        The warning names both colors for the same reason: a background set without a foreground
         inherits whatever the theme supplies, which is only legible by luck.
         """
         self.series_counter_input.setStyleSheet(
@@ -1910,7 +1910,7 @@ class ExperimentGUI(QWidget):
         choice between reading and writing. The window it is a child of stays usable.
 
         The button is disabled without a file, so the check below is a backstop rather than the
-        way this is normally communicated -- it still matters, because a desynchronised button
+        way this is normally communicated -- it still matters, because a desynchronized button
         state must refuse rather than open a dialog whose text has nowhere to go.
         """
         if not self.data.experiment_file_exists():
@@ -2115,7 +2115,7 @@ class InitializeExperimentGUI(QWidget):
     def setupUI(self, experiment_gui_object, parent=None):
         # NOT super().__init__(parent) again: both callers already construct this widget
         # as InitializeExperimentGUI(parent=dialog), and re-running QWidget's constructor on a live widget
-        # is undefined behaviour in PyQt -- it corrupts the C++ side and segfaults later,
+        # is undefined behavior in PyQt -- it corrupts the C++ side and segfaults later,
         # somewhere unrelated.
         self.parent = parent
         self.experiment_gui_object = experiment_gui_object
@@ -2179,7 +2179,7 @@ class InitializeRigGUI(QWidget):
     def setupUI(self, experiment_gui_object, parent=None, window_size=None):
         # NOT super().__init__(parent) again: both callers already construct this widget
         # as InitializeRigGUI(parent=dialog), and re-running QWidget's constructor on a live widget
-        # is undefined behaviour in PyQt -- it corrupts the C++ side and segfaults later,
+        # is undefined behavior in PyQt -- it corrupts the C++ side and segfaults later,
         # somewhere unrelated.
         self.parent = parent
         self.experiment_gui_object = experiment_gui_object
@@ -2305,7 +2305,7 @@ class InitializeRigGUI(QWidget):
         Those are two different questions -- what stimpack can write, and what this labpack has
         customized -- and filtering the first by the second left a lab that customized HDF5 unable
         to reach NWB at all, while --data-format could still do it. The second question is
-        answered by labelling each entry instead.
+        answered by labeling each entry instead.
         """
         labpack_entry = (self.cfg.get('module_paths') or {}).get('data')
         mapped = config_tools.get_data_module_paths_by_format(self.cfg)
@@ -2387,7 +2387,7 @@ class InitializeRigGUI(QWidget):
         # Store the rig and cfg names in the cfg dict
         self.cfg['current_rig_name'] = self.rig_combobox.currentText()
         self.cfg['current_cfg_name'] = self.cfg_name
-        # From the item's data, not its text: entries are labelled with the class that will write
+        # From the item's data, not its text: entries are labeled with the class that will write
         # them ('nwb — labpack/data_nwb.py'), and with one labpack data class the combo names that
         # module and carries no format at all.
         chosen_format = self.data_format_combobox.currentData()

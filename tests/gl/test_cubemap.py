@@ -3,7 +3,7 @@
 The load-bearing test is the first one. A cube map is sampled in a left-handed frame, so the six
 face orientations are not something you can reason out and trust -- get one wrong and the picture is
 still plausible, just rotated or mirrored on part of the screen, which on a stimulus display is a
-silently wrong experiment rather than an obvious bug. So each face is rendered a distinct colour and
+silently wrong experiment rather than an obvious bug. So each face is rendered a distinct color and
 sampled back along a known direction.
 """
 import pytest
@@ -25,7 +25,7 @@ from stimpack.visual_stim.screen import Screen  # noqa: E402
 
 pytestmark = pytest.mark.gl
 
-# A distinct colour per face, in GL face order (+X, -X, +Y, -Y, +Z, -Z).
+# A distinct color per face, in GL face order (+X, -X, +Y, -Y, +Z, -Z).
 FACE_COLORS = ((1.0, 0.0, 0.0, 1.0), (0.0, 1.0, 0.0, 1.0), (0.0, 0.0, 1.0, 1.0),
                (1.0, 1.0, 0.0, 1.0), (1.0, 0.0, 1.0, 1.0), (0.0, 1.0, 1.0, 1.0))
 
@@ -33,7 +33,7 @@ FACE_COLORS = ((1.0, 0.0, 0.0, 1.0), (0.0, 1.0, 0.0, 1.0), (0.0, 0.0, 1.0, 1.0),
 def flat_mesh(directions):
     """A screen mesh of one triangle per direction, each filling the whole projector image.
 
-    Lets a test ask "what colour does the cube give for this direction?" by reading one pixel.
+    Lets a test ask "what color does the cube give for this direction?" by reading one pixel.
     """
     ndc = np.array([[-3.0, -3.0], [3.0, -3.0], [0.0, 3.0]] * len(directions), dtype=np.float32)
     dirs = np.repeat(np.asarray(directions, dtype=np.float32), 3, axis=0)
@@ -47,7 +47,7 @@ def fill_faces(renderer, colors=FACE_COLORS):
 
 
 def sample_direction(ctx, direction, resolution=32):
-    """Render a full-screen triangle carrying `direction` and read the colour that comes back."""
+    """Render a full-screen triangle carrying `direction` and read the color that comes back."""
     # All six: this probes the orientation table face by face, so it drives faces the one-triangle
     # mesh does not itself sample.
     renderer = CubeMapRenderer(ctx, flat_mesh([direction]), resolution=resolution, faces=6)
@@ -64,7 +64,7 @@ def sample_direction(ctx, direction, resolution=32):
 
 
 def test_each_cube_face_is_sampled_by_the_direction_that_should_hit_it(headless_gl):
-    """Render a distinct colour per face, then look up each face's own axis and check it comes back.
+    """Render a distinct color per face, then look up each face's own axis and check it comes back.
 
     This is what pins the face order and the up vectors in CUBE_FACES. Without it, an orientation
     mistake shows as a stimulus that is subtly rotated somewhere on the screen.
@@ -93,7 +93,7 @@ DIRECTION_FS = """
 
 
 def enclosing_box(ctx, program, half=2.0):
-    """A box around the origin whose fragments report their own world direction as colour."""
+    """A box around the origin whose fragments report their own world direction as color."""
     h = half
     corners = np.array([[-h, -h, -h], [h, -h, -h], [h, h, -h], [-h, h, -h],
                         [-h, -h, h], [h, -h, h], [h, h, h], [-h, h, h]], dtype='f4')
@@ -107,7 +107,7 @@ def enclosing_box(ctx, program, half=2.0):
 
 
 def test_every_face_records_the_direction_it_actually_looks_at(headless_gl):
-    """Renders a scene that colours each fragment by its own world direction, then reads it back.
+    """Renders a scene that colors each fragment by its own world direction, then reads it back.
 
     This is what catches an up vector being wrong. Sampling only a face's central axis cannot: that
     point is invariant to rotation within the face, so a flipped `up` still passes. A mutation test
@@ -164,7 +164,7 @@ def test_every_face_records_the_direction_it_actually_looks_at(headless_gl):
 
 
 def test_directions_between_faces_stay_on_one_of_the_two(headless_gl):
-    """A direction near an edge must land on a neighbouring face, not somewhere unrelated."""
+    """A direction near an edge must land on a neighboring face, not somewhere unrelated."""
     ctx = headless_gl
     got = sample_direction(ctx, (1.0, 0.0, 0.9))          # between +X and +Z
     plausible = [np.array(FACE_COLORS[0]), np.array(FACE_COLORS[4])]
@@ -179,12 +179,12 @@ def test_face_matrices_are_returned_in_gl_face_order(headless_gl):
     assert len(matrices) == 6
 
     for (forward, _up), matrix in zip(CUBE_FACES, matrices):
-        # a point one unit along this face's axis should land near the centre of that face's image
+        # a point one unit along this face's axis should land near the center of that face's image
         point = np.array([*forward, 1.0], dtype='f4')
         clip = matrix @ point
         assert clip[3] > 0, f'the point along {forward} landed behind the camera'
         ndc = clip[:2] / clip[3]
-        assert np.allclose(ndc, 0, atol=1e-5), f'axis {forward} maps to {ndc}, expected the centre'
+        assert np.allclose(ndc, 0, atol=1e-5), f'axis {forward} maps to {ndc}, expected the center'
 
 
 def test_a_nonsense_resolution_is_rejected_with_a_clear_message(headless_gl):

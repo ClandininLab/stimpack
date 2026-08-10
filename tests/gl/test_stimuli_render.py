@@ -362,7 +362,7 @@ def test_a_shape_too_big_for_a_cone_keeps_its_geometry():
 def test_edge_coverage_is_linear_in_position_not_smoothstep():
     """A pixel 30% covered must emit 30% of the light. smoothstep emits 22%, and worse, makes
     emitted intensity a non-linear function of edge position -- so a constant-velocity edge would
-    stall and then hurry once per pixel crossed, a smaller copy of the artefact this removes."""
+    stall and then hurry once per pixel crossed, a smaller copy of the artifact this removes."""
     from stimpack.visual_stim.shapes import edge_coverage
 
     for offset, expected in [(-0.5, 1.0), (-0.2, 0.7), (0.0, 0.5), (0.2, 0.3), (0.5, 0.0)]:
@@ -492,7 +492,7 @@ def _subtended_half_angle(row, screen_half_size=0.15, distance=0.15):
     """
     lit = np.nonzero(row > 5)[0]
     coverage = (row[lit[0]] + row[lit[-1]]) / 255.0        # the two partial pixels, as fractions
-    span = (len(lit) - 2 + coverage) / 2                   # in pixels, from the centre
+    span = (len(lit) - 2 + coverage) / 2                   # in pixels, from the center
     return math.degrees(math.atan(span / (len(row) / 2) * screen_half_size / distance))
 
 
@@ -551,11 +551,11 @@ def test_a_cylindrical_patch_declares_what_its_spherical_twin_does():
 def test_a_declared_edge_does_not_move_when_the_subject_does(headless_gl, offset):
     """A VR-only defect that every golden here is blind to, because they all sit at the origin.
 
-    A shape that declares an edge is built on a sphere centred at the origin -- translating one
+    A shape that declares an edge is built on a sphere centered at the origin -- translating one
     drops the declaration precisely because it would stop being true -- so the origin is where its
     frame and extents are anchored. Measuring the fragment's direction from a subject who has
     walked away instead would test the shape against a cone it was never built to fill, and clip
-    into it: at 10 cm off-centre a 15 degree spot lost 21% of its area.
+    into it: at 10 cm off-center a 15 degree spot lost 21% of its area.
     """
     import moderngl
 
@@ -595,7 +595,7 @@ def test_a_declared_edge_does_not_move_when_the_subject_does(headless_gl, offset
 
 
 def test_the_flat_disc_bound_circumscribes_and_needs_no_margin():
-    """`GlCircle`'s edge is metric, not angular -- a radius in metres about an anchor. Its bound is
+    """`GlCircle`'s edge is metric, not angular -- a radius in meters about an anchor. Its bound is
     exact with no fudge factor: polygon and circle are both planar and a triangle edge is a
     straight line in that plane, so a circumscribing polygon contains the circle, and perspective
     scales both by the same factor so it keeps containing it at every distance.
@@ -614,7 +614,7 @@ def test_the_flat_disc_bound_circumscribes_and_needs_no_margin():
 
 
 def test_a_rendered_flat_disc_subtends_its_angle_and_has_a_soft_edge(headless_gl):
-    """End to end for the metric kind: a disc of a radius in metres, at a distance in metres,
+    """End to end for the metric kind: a disc of a radius in meters, at a distance in meters,
     subtending the angle that geometry implies -- with a coverage ramp, which the polygon it
     replaces could not have."""
     radius, distance = 0.05, 0.5
@@ -783,11 +783,11 @@ def test_sharp_texel_sampling_lands_on_texel_centres_and_ramps_only_at_boundarie
 
     texels_per_pixel = 1/8                          # magnified: one texel spans eight pixels
 
-    # interior of texel 2 sits on its centre, 2.5, so LINEAR returns texel 2 exactly
+    # interior of texel 2 sits on its center, 2.5, so LINEAR returns texel 2 exactly
     for offset in (-3, -2, -1, 1, 2, 3):
         assert sharp_texel_coord(2.5 + offset*texels_per_pixel, texels_per_pixel) == pytest.approx(2.5)
 
-    # the boundary between texel 2 and 3 is at 3.0, and lands halfway between their centres
+    # the boundary between texel 2 and 3 is at 3.0, and lands halfway between their centers
     assert sharp_texel_coord(3.0, texels_per_pixel) == pytest.approx(3.0)
     # half a pixel either side is fully one texel or fully the other
     assert sharp_texel_coord(3.0 - 0.5*texels_per_pixel, texels_per_pixel) == pytest.approx(2.5)
@@ -862,7 +862,7 @@ def test_a_drifting_grating_edge_moves_every_frame(headless_gl):
     steps = np.abs(np.diff(positions))
 
     assert (steps < 1e-3).sum() == 0, (
-        f'edge frozen in {(steps < 1e-3).sum()} of {len(steps)} frames -- motion is quantised '
+        f'edge frozen in {(steps < 1e-3).sum()} of {len(steps)} frames -- motion is quantized '
         f'to the pixel grid')
     assert steps.max() < 0.5, f'edge jumped {steps.max():.3f} px in one frame; smooth is 0.079'
 
@@ -885,7 +885,7 @@ def test_a_rendered_cylindrical_patch_has_a_soft_edge(headless_gl, name, kwargs)
 
 
 def test_a_rendered_rect_has_soft_edges_on_both_axes(headless_gl):
-    """A patch straddling the screen centre, so both its width and its height are in view."""
+    """A patch straddling the screen center, so both its width and its height are in view."""
     frame = _render(headless_gl, 'MovingPatch',
                     {'width': 30.0, 'height': 20.0, 'color': [1, 1, 1, 1],
                      'theta': 0, 'phi': 0, 'angle': 0, 'sphere_radius': 1.0})
