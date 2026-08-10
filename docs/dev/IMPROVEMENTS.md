@@ -456,6 +456,23 @@ into one importable module the two labpacks depend on, rather than copy‑forkin
 (Note: the per‑user *protocol* proliferation in clandinin_labpack is **not** a
 defect — it's the intended per‑researcher ownership model.)
 
+### #47 [Medium] `DAQonServer.send_trigger`/`output_step` double-fire when passed a multicall
+`device/daq.py:77-87` — both methods append the call to a provided multicall
+*and* immediately send it via `self.manager`: two independent `if` branches, no
+`elif`/`return`. A caller passing a multicall gets the hardware call twice — a
+double trigger, or a doubled reward/opto step — once now and once when the
+multicall dispatches. The shipped trigger path never passes a multicall, so the
+default flow is safe; clandinin_labpack's subclass works around it with an early
+`return multicall`. Found 2026-08-09 while writing `docs/source/voltage_out.rst`
+(which deliberately omits the multicall parameter until this is fixed).
+*Fix:* make the branches exclusive (append **or** send), matching the labpack
+subclass's semantics; then document the multicall parameter in `voltage_out.rst`
+and drop the labpack workaround.
+**Status: fixed 2026-08-09** — branches made exclusive with `return multicall`;
+unit-tested in `tests/unit/test_daq_on_server.py`; the multicall parameter is now
+documented in `voltage_out.rst`. Remaining: drop the now-redundant early-return
+pattern from clandinin_labpack's subclass at leisure (harmless as is).
+
 ---
 
 ## Cross‑cutting recommendations

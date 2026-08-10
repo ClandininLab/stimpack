@@ -75,13 +75,17 @@ class DAQonServer(DAQ):
         self.manager = manager
 
     def send_trigger(self, multicall:Optional[MyMultiCall]=None, **kwargs):
+        # Queued in the batch OR sent now, never both: both would reach the hardware twice --
+        # once immediately and once when the batch dispatches.
         if multicall is not None and isinstance(multicall, MyMultiCall):
             multicall.target('voltage_out').send_trigger(**kwargs)
+            return multicall
         if self.manager is not None:
             self.manager.target('voltage_out').send_trigger(**kwargs)
 
     def output_step(self, multicall:Optional[MyMultiCall]=None, **kwargs):
         if multicall is not None and isinstance(multicall, MyMultiCall):
             multicall.target('voltage_out').output_step(**kwargs)
+            return multicall
         if self.manager is not None:
             self.manager.target('voltage_out').output_step(**kwargs)
