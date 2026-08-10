@@ -11,7 +11,7 @@ Two of these deserve explanation.
 
 ``stimpack_revision`` exists because ``stimpack_version`` can lie. It comes from installed
 distribution metadata, which for an editable install is whatever setup.py said at install time:
-this checkout reports 0.1.1 to pip and 0.2.0 to importlib.metadata while running 0.3.0.dev0 code.
+this checkout reports 0.1.1 to pip and 0.2.0 to importlib.metadata while running 1.0.0.dev0 code.
 Every rig running from a git checkout -- which is most of them -- would otherwise stamp its files
 with a number that is not what ran.
 

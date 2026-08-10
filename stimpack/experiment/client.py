@@ -144,7 +144,7 @@ class BaseClient():
         # than on BaseServer's side of the link because the server can only ask; the client is
         # what actually runs the trial.
         self.manager.register_function(self.stop_trial, name='stop_trial')
-        # Under its old name too: these are wire names, so a server from before 0.3 -- or a
+        # Under its old name too: these are wire names, so a server from before 1.0 -- or a
         # labpack device calling manager.stop_epoch(...) -- still reaches the right method.
         self.manager.register_function(self.stop_trial, name='stop_epoch')
 
@@ -183,8 +183,8 @@ class BaseClient():
         remotely by the server for a trial whose length depends on the animal's behavior
         (BaseServer.end_trial).
 
-        :param epoch_index: the pre-0.3 name for trial_index. This is a wire signature -- a
-            server from before 0.3 stamps its request with epoch_index -- so it is accepted here
+        :param epoch_index: the pre-1.0 name for trial_index. This is a wire signature -- a
+            server from before 1.0 stamps its request with epoch_index -- so it is accepted here
             rather than only as a method alias.
         :param trial_index: the trial this was meant for. A request is ignored if that trial has
             already ended -- without this, one sent as an trial was finishing would arrive during

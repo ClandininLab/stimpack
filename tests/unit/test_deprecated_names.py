@@ -1,4 +1,4 @@
-"""The pre-0.3 spelling must keep working, or renaming the API breaks every labpack at once.
+"""The pre-1.0 spelling must keep working, or renaming the API breaks every labpack at once.
 
 One lab's labpack alone defines get_epoch_parameters in 105 protocols and refers to the old
 attribute names about 1500 times. These tests stand in for that labpack: each drives stimpack

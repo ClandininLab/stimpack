@@ -51,7 +51,7 @@ class BaseData():
 
     # # # The names this backend writes into the file # # #
     #
-    # Held here rather than inline, so LegacyHdf5Data can write the pre-0.3 layout by overriding
+    # Held here rather than inline, so LegacyHdf5Data can write the pre-1.0 layout by overriding
     # five strings instead of reimplementing every method that touches the file. stimpack renamed
     # an epoch to a trial and an epoch run to a series; the layout follows the code, and a lab
     # whose analysis reads the old names keeps writing them by choosing the legacy backend.
@@ -64,7 +64,7 @@ class BaseData():
     # name to know which reader to use.
     #
     # The legacy backend sets DECLARES_DATA_FORMAT False, so absence of the attribute means
-    # 'legacy layout, or written before 0.3' -- any later layout declares itself, so absence stays
+    # 'legacy layout, or written before 1.0' -- any later layout declares itself, so absence stays
     # unambiguous. It writes stimpack_version all the same: which version produced a file is worth
     # knowing whatever its layout, and an added root attribute does not disturb analysis that
     # walks groups or reads named attributes.
@@ -514,7 +514,7 @@ class BaseData():
         return self.experiment_file_name
 
 
-# The pre-0.3 spelling. A labpack's own data class subclasses BaseData and calls these.
+# The pre-1.0 spelling. A labpack's own data class subclasses BaseData and calls these.
 add_deprecated_aliases(
     BaseData,
     methods=[

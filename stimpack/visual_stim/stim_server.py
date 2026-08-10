@@ -72,13 +72,13 @@ class VisualStimServer(MySocketServer):
         # call super constructor
         super().__init__(host=host, port=port, threaded=False, auto_stop=auto_stop)
 
-        # Removed in 0.3.0. Left as an explicit error rather than swallowed by **kwargs: the
+        # Removed in 1.0.0. Left as an explicit error rather than swallowed by **kwargs: the
         # modules it loaded were dropped the moment a client disconnected and never re-imported, so
         # anyone passing it had custom stimuli for exactly one session. Silently accepting it now
         # would reproduce that, without even the first session working.
         if 'other_stim_module_paths' in kwargs:
             raise TypeError(
-                "other_stim_module_paths was removed in stimpack 0.3.0. Import stimulus modules "
+                "other_stim_module_paths was removed in stimpack 1.0.0. Import stimulus modules "
                 "from the client instead: manager.target('visual').import_stim_module(path), or "
                 "name them under module_paths.visual_stim in your config. Re-importing is safe -- "
                 "it reloads rather than duplicating.")

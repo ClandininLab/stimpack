@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-The HDF5 layout stimpack wrote before 0.3, so existing analysis keeps working.
+The HDF5 layout stimpack wrote before 1.0, so existing analysis keeps working.
 
 stimpack renamed a stimulus presentation from *epoch* to *trial* and a run of them from *epoch
 run* to *series*, matching NWB (see :mod:`stimpack.experiment.deprecated_names`). The file layout
@@ -26,7 +26,7 @@ from stimpack.experiment.data import BaseData
 
 
 class LegacyHdf5Data(BaseData):
-    """BaseData writing the pre-0.3 group and attribute names."""
+    """BaseData writing the pre-1.0 group and attribute names."""
 
     # /Subjects/<id>/epoch_runs/series_001/epochs/epoch_001
     SERIES_GROUP = 'epoch_runs'
@@ -42,7 +42,7 @@ class LegacyHdf5Data(BaseData):
     output_noun = 'data file (legacy layout)'
 
     # No data_format attribute, so that its ABSENCE identifies this layout -- which means exactly
-    # 'legacy, or written before 0.3'. stimpack_version IS written: the guarantee this backend
+    # 'legacy, or written before 1.0'. stimpack_version IS written: the guarantee this backend
     # makes is about the group and attribute names analysis reads (asserted in
     # tests/integration/test_data_legacy.py), and recording which version wrote a file costs none
     # of that while answering a question no stimpack file could answer before.
@@ -52,7 +52,7 @@ class LegacyHdf5Data(BaseData):
     # Run parameters reach the file as attributes named after their keys, so the rename shows up
     # in the data as well as in the code: a series group would carry num_trials where analysis
     # looks for num_epochs. Renamed rather than written under both names -- a file this backend
-    # writes is meant to be indistinguishable from one stimpack wrote before 0.3, and a test
+    # writes is meant to be indistinguishable from one stimpack wrote before 1.0, and a test
     # asserts exactly that against the pre-rename code.
     RUN_PARAMETER_NAMES = {'num_trials': 'num_epochs'}
 

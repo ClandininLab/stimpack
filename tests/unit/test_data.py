@@ -165,7 +165,7 @@ def test_the_file_records_which_layout_and_which_code_wrote_it(tmp_path):
 
 def test_the_legacy_layout_is_identified_by_the_absence_of_data_format(tmp_path):
     """Readers tell the layouts apart by that attribute's ABSENCE, which means exactly 'legacy, or
-    written before 0.3' -- any later layout declares itself, so absence stays unambiguous.
+    written before 1.0' -- any later layout declares itself, so absence stays unambiguous.
 
     The version IS recorded: what this backend guarantees is the group and attribute names
     analysis reads, and an added root attribute costs none of that.

@@ -132,7 +132,7 @@ def test_forwarding_a_screen_message_prefixes_its_origin():
 
 
 def test_the_removed_launch_time_kwarg_is_an_explicit_error():
-    """Removed in 0.3.0. **kwargs would otherwise swallow it, and the stimuli it named would
+    """Removed in 1.0.0. **kwargs would otherwise swallow it, and the stimuli it named would
     quietly never load -- the same silent failure the keyword itself caused."""
     from stimpack.visual_stim.stim_server import VisualStimServer
 

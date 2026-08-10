@@ -128,7 +128,7 @@ A stimulus whose name is already taken -- by a built-in, or by a module imported
 it, and a warning names both files. That is deliberate: a lab may want its own ``MovingPatch``.
 
 Importing from the client is the only way to do this. There was once a launch-time
-``other_stim_module_paths`` keyword; it was removed in 0.3.0 because the modules it loaded were
+``other_stim_module_paths`` keyword; it was removed in 1.0.0 because the modules it loaded were
 dropped as soon as a client disconnected and never re-imported, which is the opposite of what its
 name suggested.
 

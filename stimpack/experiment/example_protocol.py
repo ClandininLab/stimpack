@@ -450,7 +450,7 @@ class ProjectorCenterBeam(BaseProtocol):
 
         if not self.has_server_function('show_calibration_spot', target='visual'):
             warnings.warn('This screen server does not answer to show_calibration_spot, so no beam '
-                          'will appear. It is stimpack 0.3+; check the server version.')
+                          'will appear. It is stimpack 1.0+; check the server version.')
             return
 
         manager.target('visual').show_calibration_spot(

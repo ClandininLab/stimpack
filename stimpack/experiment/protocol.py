@@ -166,7 +166,7 @@ class BaseProtocol():
 
     @property
     def run_parameters(self):
-        """The run's parameters, with any pre-0.3 keys renamed.
+        """The run's parameters, with any pre-1.0 keys renamed.
 
         A property rather than a plain attribute so that the rename catches every assignment. The
         usual labpack protocol sets this itself::
@@ -713,7 +713,7 @@ class BaseProtocol():
 
 #%%
 
-# The pre-0.3 spelling, kept working: an trial is now a trial and an series a series.
+# The pre-1.0 spelling, kept working: an trial is now a trial and an series a series.
 # See stimpack.experiment.deprecated_names.
 add_deprecated_aliases(
     BaseProtocol,

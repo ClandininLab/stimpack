@@ -99,7 +99,7 @@ backend.
     holding without probing for group names, along with the provenance below.
 
 ``legacy_hdf5``
-    The same file, with the names stimpack used before 0.3, when a trial was called an epoch and a
+    The same file, with the names stimpack used before 1.0, when a trial was called an epoch and a
     series an epoch run::
 
         /Subjects/<id>/epoch_runs/series_001/epochs/epoch_001
@@ -113,7 +113,7 @@ backend.
     ``data_format: hdf5`` in one rig's own config to move that rig over when its analysis is ready.
 
     It writes no ``data_format`` root attribute, deliberately: *absence* is how a reader
-    recognizes this layout, and means exactly "legacy, or written before 0.3". It does record
+    recognizes this layout, and means exactly "legacy, or written before 1.0". It does record
     provenance, since what this backend guarantees is the names analysis reads, and added root
     attributes cost none of that.
 
@@ -128,7 +128,7 @@ backend.
     break, where an HDF5 experiment is stimpack's own layout and editing one is a supported repair.
 
     Every NWB file records its provenance in ``source_script``, the schema's own field for what
-    software wrote a file, as one line: ``stimpack 0.3.0.dev0 (28a303e); labpack clandinin_labpack
+    software wrote a file, as one line: ``stimpack 1.0.0.dev0 (28a303e); labpack clandinin_labpack
     (18b2dfe); config mc_config.yaml``.
 
     Two things an experiment knows before any series exists have no series file to live in, so
@@ -171,7 +171,7 @@ cannot say what an experiment did.
 
 ``stimpack_revision`` is there because ``stimpack_version`` can lie. It comes from installed
 distribution metadata, which for an editable install is whatever ``setup.py`` said at install
-time — a rig running from a git checkout can report 0.1.1 while running 0.3.0 code. Prefer the
+time — a rig running from a git checkout can report 0.1.1 while running 1.0.0 code. Prefer the
 revision wherever it is present.
 
 Anything that cannot be determined is left out rather than written empty, so a file never claims

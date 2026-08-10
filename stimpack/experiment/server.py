@@ -43,7 +43,7 @@ ROOT_FUNCTION_NAMES = frozenset({
     'set_current_trial',
     'load_server_side_state_dependent_control',
     'unload_server_side_state_dependent_control',
-    # Deprecated wire names, registered so a pre-0.3 client still reaches the right method. Listed
+    # Deprecated wire names, registered so a pre-1.0 client still reaches the right method. Listed
     # here because they are genuinely registered: leaving them out would have --check-labpack
     # report a call that works as one that lands nowhere, which is worse than not mentioning it.
     'set_current_epoch',
@@ -121,7 +121,7 @@ class BaseServer(MySocketServer):
         self.register_function_on_root(lambda x: print(x), "print_on_server")
         self.register_function_on_root(self.set_subject_state, "set_subject_state")
         self.register_function_on_root(self.set_current_trial, "set_current_trial")
-        # Wire names, so a client from before 0.3 keeps working against this server.
+        # Wire names, so a client from before 1.0 keeps working against this server.
         self.register_function_on_root(self.set_current_trial, "set_current_epoch")
         self.register_function_on_root(self.load_server_side_state_dependent_control, "load_server_side_state_dependent_control")
         self.register_function_on_root(self.unload_server_side_state_dependent_control, "unload_server_side_state_dependent_control")
@@ -409,7 +409,7 @@ class BaseServer(MySocketServer):
         '''
         self.loaded_custom_state_dependent_control = None
 
-# The pre-0.3 spelling. Labpack device code calls server.end_epoch(...) to end a trial on
+# The pre-1.0 spelling. Labpack device code calls server.end_epoch(...) to end a trial on
 # behavior; see the behavior-ended trials guide.
 add_deprecated_aliases(
     BaseServer,

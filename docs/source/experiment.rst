@@ -29,7 +29,7 @@ experiment.data module
 experiment.data_legacy module
 -----------------------------
 
-The HDF5 layout stimpack wrote before 0.3, selected with ``data_format: legacy_hdf5`` in a config,
+The HDF5 layout stimpack wrote before 1.0, selected with ``data_format: legacy_hdf5`` in a config,
 so analysis code that walks the old group names keeps working. See :doc:`labpack_configs`.
 
 .. automodule:: stimpack.experiment.data_legacy
@@ -49,7 +49,7 @@ See :doc:`labpack_configs`.
 experiment.deprecated_names module
 ----------------------------------
 
-The pre-0.3 *epoch* spellings of the trial and series API, kept working with a once-per-process
+The pre-1.0 *epoch* spellings of the trial and series API, kept working with a once-per-process
 warning each. See :doc:`overview` for the rename.
 
 .. automodule:: stimpack.experiment.deprecated_names

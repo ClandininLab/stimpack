@@ -1,5 +1,5 @@
 """
-The pre-0.3 spelling of the two experiment levels, kept working.
+The pre-1.0 spelling of the two experiment levels, kept working.
 
 stimpack called one stimulus presentation an *epoch* and a run of them an *epoch run*. NWB calls
 them a **trial** and stimpack now calls the run a **series**, so an NWB file written by stimpack
@@ -121,7 +121,7 @@ RUN_PARAMETER_RENAMES = {'num_epochs': 'num_trials'}
 
 
 class RunParameters(dict):
-    """Run parameters under their current keys, still answering to the pre-0.3 ones.
+    """Run parameters under their current keys, still answering to the pre-1.0 ones.
 
     Renaming the key on the way in is not enough: a protocol that *reads*
     ``run_parameters['num_epochs']`` then finds nothing, which is how two labpack protocols
@@ -209,7 +209,7 @@ for _dumper in (yaml.Dumper, yaml.SafeDumper):
 
 
 def normalize_run_parameters(run_parameters):
-    """Rename any pre-0.3 run-parameter keys, warning once each.
+    """Rename any pre-1.0 run-parameter keys, warning once each.
 
     Applied to every assignment of BaseProtocol.run_parameters, so everything downstream --
     the required-parameter check, the data file, a protocol reading its own parameters -- sees
