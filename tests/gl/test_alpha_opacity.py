@@ -106,3 +106,27 @@ def test_a_translucent_stimulus_still_composites(headless_gl):
     assert 150 < int(centre[0]) < 220, (
         f'a half-transparent white patch over mid-grey should land near 191, got {centre[0]}')
     assert image[..., 3].min() == 255
+
+
+def test_the_window_surface_asks_for_no_alpha_channel():
+    """The other half of the same bug, and the half that actually reached a rig.
+
+    make_qt_format used to call setAlphaBufferSize(24) under a comment claiming alpha was "needed
+    to enable transparency". A compositor that grants it composites the window against the desktop
+    using whatever alpha the stimulus left -- so a see-through stimulus is possible even with the
+    blending above correct. Mesa grants 8 bits, NVIDIA/XWayland grants 0, which is why the symptom
+    followed the GPU.
+
+    Not a GL test: it asks what is requested, not what a driver granted.
+    """
+    import os
+    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+    pytest.importorskip('PyQt6')
+    from PyQt6.QtWidgets import QApplication
+
+    from stimpack.visual_stim.framework import make_qt_format
+
+    QApplication.instance() or QApplication([])
+    assert make_qt_format(vsync=True).alphaBufferSize() == 0, (
+        'the window surface asks for an alpha channel; a compositing window manager will punch '
+        'the stimulus through to the desktop')

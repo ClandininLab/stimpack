@@ -282,9 +282,9 @@ class StimDisplay(QOpenGLWidget):
         """Say what the GL surface actually granted, next to what make_qt_format asked for.
 
         A driver silently downgrades a surface format it cannot provide, so a request is not a
-        setting. setAlphaBufferSize(24) yields 8 on Mesa but 0 under NVIDIA/XWayland, despite the
-        comment saying alpha is "needed to enable transparency". Print requested and granted side by
-        side so the difference is visible rather than assumed.
+        setting. Print requested and granted side by side so the difference is visible rather than
+        assumed -- this is how the alpha channel that made stimuli see-through on Mesa, and not on
+        NVIDIA/XWayland, was found.
 
         make_qt_format used to ask for 24 samples here too and was granted 0 on every GPU measured,
         because QOpenGLWidget renders into its own FBO where the surface sample count does not
@@ -1124,8 +1124,18 @@ def make_qt_format(vsync):
     # framebuffer resolved with copy_framebuffer; docs/design/analytic-edges.md has the costs.
     format.setDepthBufferSize(24)
 
-    # needed to enable transparency
-    format.setAlphaBufferSize(24)
+    # No alpha channel in the window surface, deliberately. This asked for 24 (not even a valid
+    # alpha depth -- 8 is) under a comment claiming alpha was "needed to enable transparency".
+    # Nothing here wants a transparent window, and what it actually bought was the opposite of a
+    # feature: on a compositor that honours it, the window is composited against the desktop using
+    # whatever alpha the stimulus left behind, so analytic edges -- which carry coverage in alpha --
+    # made the rim of every stimulus see-through. Mesa grants 8 bits here, NVIDIA/XWayland grants 0,
+    # which is why the symptom followed the GPU rather than the code.
+    #
+    # StimDisplay also blends alpha separately so the framebuffer stays opaque (see initializeGL);
+    # that is the correct-by-construction half. This is the belt: with no alpha in the surface, a
+    # compositor has nothing to make a hole with even if something later writes alpha < 1.
+    format.setAlphaBufferSize(0)
 
     return format
 
