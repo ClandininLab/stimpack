@@ -23,6 +23,17 @@ They talk over a small JSON protocol. Calls are addressed to a module::
     manager.target('visual').load_stim(name='MovingPatch', width=10, height=30)
     manager.target('voltage_out').output_step(output_channels='DAC0', pre_time=0, step_time=1)
 
+.. toctree::
+    :maxdepth: 1
+
+    the_gui
+    check_labpack
+    modules_and_targets
+    writing_a_module
+    presets_and_ensembles
+    run_outcomes
+    behaviour_ended_trials
+
 Trials and series
 =================
 
@@ -74,14 +85,3 @@ without a ``target`` will not reach the screens.
 
 What is lab-specific -- protocols, stimuli, rig geometry, device drivers -- lives outside stimpack,
 in a *labpack* that stimpack loads at runtime. See :doc:`install_labpack`.
-
-.. toctree::
-    :maxdepth: 1
-
-    the_gui
-    check_labpack
-    modules_and_targets
-    writing_a_module
-    presets_and_ensembles
-    run_outcomes
-    behaviour_ended_trials

@@ -9,6 +9,11 @@ Under the Hood
 - ``experiment``: running experiments -- protocols, data files, the GUI
 - ``device``: interfaces for hardware, kept abstract
 
+.. toctree::
+    :maxdepth: 1
+
+    subframes
+
 Where the boundary sits
 =======================
 
@@ -87,8 +92,3 @@ A frame can carry more than one timepoint. With a projector that reads a frame's
 successive patterns, ``stimpack`` draws up to three timepoints per frame and masks each into one
 channel -- a 120 Hz video link driving a 360 Hz monochrome display. The renderer's half is here; the
 projector's half is a labpack's. See :doc:`subframes`.
-
-.. toctree::
-    :maxdepth: 1
-
-    subframes
