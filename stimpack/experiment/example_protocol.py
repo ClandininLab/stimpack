@@ -1,6 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import functools
+import time
+
 import numpy as np
+
+
+def _wander(rng, n, dt, sigma, tau=0.5, bound=60.0):
+    """A velocity random walk that forgets its speed over ~tau seconds, integrated to position.
+
+    The momentum is what makes it read as an animal moving rather than as noise: velocity decays
+    toward zero while being kicked, so the path has smooth swerves and pauses instead of jitter.
+    Deterministic for a given rng state, which ChaseTheSpot depends on: the server regenerates the
+    exact path from the seed alone.
+    """
+    velocity = np.zeros(n)
+    for i in range(1, n):
+        velocity[i] = velocity[i - 1] * (1 - dt / tau) + rng.normal(0, sigma) * np.sqrt(dt)
+    position = np.cumsum(velocity) * dt
+    return np.clip(position, -bound, +bound)
 
 from stimpack.rpc.transceiver import MySocketClient
 from stimpack.rpc.multicall import MyMultiCall
@@ -211,23 +229,9 @@ class WanderingSpot(BaseProtocol):
         n = int(params['stim_time'] / dt) + 1
         t = np.arange(n) * dt
 
-        def wander(sigma, bound):
-            """A velocity random walk that forgets its speed over ~0.5 s, integrated to position.
-
-            The momentum is what makes it read as an animal moving rather than as noise: velocity
-            decays toward zero (tau below) while being kicked, so the path has smooth swerves
-            and pauses instead of jitter.
-            """
-            tau = 0.5
-            velocity = np.zeros(n)
-            for i in range(1, n):
-                velocity[i] = velocity[i - 1] * (1 - dt / tau) + rng.normal(0, sigma) * np.sqrt(dt)
-            position = np.cumsum(velocity) * dt
-            return np.clip(position, -bound, +bound)
-
         center = self.adjust_center(params['center'])
-        theta = center[0] + wander(sigma=params['wander_speed'], bound=60)
-        phi = center[1] + wander(sigma=params['wander_speed'] / 2, bound=30)
+        theta = center[0] + _wander(rng, n, dt, sigma=params['wander_speed'], bound=60)
+        phi = center[1] + _wander(rng, n, dt, sigma=params['wander_speed'] / 2, bound=30)
 
         self.trial_stim_parameters = {
             'name': 'MovingSpot',
@@ -346,6 +350,134 @@ class ReachTheGoal(BaseProtocol):
                 'post_run_time': 0,
                 'all_combinations': True,
                 'randomize_order': False}
+
+
+@functools.lru_cache(maxsize=32)
+def _chase_path(seed, n):
+    """The spot's azimuth over the trial, as a tuple so it can be cached.
+
+    One function, called from BOTH processes: the protocol (client) builds the stimulus trajectory
+    from it, and server_side_state_dependent_control (server) regenerates it to know where the
+    spot is now. Same seed, same path -- determinism is the channel. Cached because the server
+    half runs at tracker rate.
+    """
+    rng = np.random.default_rng(int(seed))
+    walk = _wander(rng, n, ChaseTheSpot.DT, sigma=ChaseTheSpot.WANDER_SIGMA,
+                   bound=ChaseTheSpot.WANDER_BOUND)
+    return tuple(ChaseTheSpot.SPOT_START + walk)
+
+
+class ChaseTheSpot(BaseProtocol):
+    """Catch the wandering spot: pursuit, with the trial ending on the catch.
+
+    A dark spot wanders in azimuth, starting 45 degrees to the subject's left and never straying
+    into the straight-ahead direction on its own -- so a stationary subject cannot be handed a
+    catch. Turn toward it (hold the Left/Right arrows in the KeyTrac window) and the trial ends the
+    moment the spot is within ``CATCH_HALF_ANGLE`` of straight ahead, with
+    ``trial_end_reason='caught'`` recorded; ``stim_time`` remains the timeout.
+
+    What this exists to demonstrate: the server-side condition needs to know where the SPOT is,
+    and the spot's path is defined on the client. No position is ever sent. Instead the client
+    arms the trial with the path's seed (an ordinary ``set_subject_state`` key), and the server
+    regenerates the identical path from that seed -- _chase_path above is one function called from
+    both processes. Reproducibility is not just for replaying trials; it is what lets two
+    processes agree about a stimulus without talking about it.
+
+    Timing honesty: the server measures trial time from the first tracker update after arming,
+    on its own clock. That is within one tracker interval of stimulus onset when the loop starts
+    with the stimulus (as BaseProtocol arranges), which is ample for a catch condition; a
+    condition needing frame-accurate stimulus time should be designed around the photodiode
+    record instead.
+    """
+
+    # All class attributes, not protocol parameters, for ReachTheGoal's reason: the server
+    # imports the class and never sees the protocol object.
+    CATCH_HALF_ANGLE = 8.0     # degrees from straight ahead that counts as caught
+    SPOT_START = 45.0          # degrees left of straight ahead at trial start
+    WANDER_SIGMA = 15.0        # gentler than WanderingSpot: this one is meant to be caught
+    WANDER_BOUND = 30.0        # the spot stays within SPOT_START +/- this: never straight ahead
+    DT = 1.0 / 60.0
+
+    def __init__(self, cfg):
+        super().__init__(cfg)
+
+        self.run_parameters = self.get_run_parameter_defaults()
+        self.protocol_parameters = self.get_protocol_parameter_defaults()
+
+        self.use_server_side_state_dependent_control = True
+
+    @staticmethod
+    def server_side_state_dependent_control(server, previous_state, state_update):
+        def fresh(key, default):
+            return state_update.get(key, previous_state.get(key, default))
+
+        if not fresh('chase_armed', 0):
+            return state_update
+
+        # First update after arming: stamp the trial's clock and wait for the next update.
+        t0 = fresh('chase_t0', 0.0)
+        now = time.time()
+        if t0 <= 0.0:
+            state_update['chase_t0'] = now
+            return state_update
+
+        t = now - t0
+        n = int(fresh('chase_n', 0))
+        if n <= 0 or t > n * ChaseTheSpot.DT:      # past the timeout; the clock ends this trial
+            return state_update
+
+        spot = _chase_path(int(fresh('chase_seed', 0)), n)[min(int(t / ChaseTheSpot.DT), n - 1)]
+        heading = fresh('theta', 0.0)
+        error = (spot - heading + 180.0) % 360.0 - 180.0
+        if abs(error) <= ChaseTheSpot.CATCH_HALF_ANGLE:
+            server.end_trial(reason='caught')
+            state_update['chase_armed'] = 0        # one catch per arming
+        return state_update
+
+    def get_trial_parameters(self):
+        super().get_trial_parameters()
+        params = self.trial_protocol_parameters
+
+        n = int(params['stim_time'] / self.DT) + 1
+        path = _chase_path(int(params['seed']), n)
+        t = np.arange(n) * self.DT
+
+        self.trial_stim_parameters = {
+            'name': 'MovingSpot',
+            'radius': params['radius'],
+            'sphere_radius': 1,
+            'color': params['color'],
+            'theta': {'name': 'TVPairs', 'tv_pairs': list(zip(t, path)), 'kind': 'linear'},
+            'phi': 0,
+        }
+
+    def load_stimuli(self, manager, multicall=None):
+        # Arm the server side: the seed is the whole description of the path, and resetting
+        # chase_t0 makes the control function stamp a fresh clock for this trial. An untargeted
+        # call goes to the server's root node, where set_subject_state lives.
+        manager.set_subject_state({'chase_armed': 1, 'chase_t0': 0.0,
+                                   'chase_seed': int(self.trial_protocol_parameters['seed']),
+                                   'chase_n': int(self.trial_protocol_parameters['stim_time']
+                                                  / self.DT) + 1})
+        super().load_stimuli(manager, multicall)
+
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 0.5,
+                'stim_time': 20.0,             # a timeout: catches usually come much sooner
+                'tail_time': 0.5,
+                'loco_pos_closed_loop': 1,
+
+                'radius': 5.0,
+                'color': [0, 0, 0, 1],
+                'seed': [0, 1, 2, 3, 4]}
+
+    def get_run_parameter_defaults(self):
+        return {'num_trials': 5,
+                'idle_color': 0.5,
+                'pre_run_time': 0,
+                'post_run_time': 0,
+                'all_combinations': True,
+                'randomize_order': True}
 
 
 class LinearTrackWithTowers(BaseProtocol):

@@ -105,3 +105,81 @@ def test_has_server_function_is_true_for_a_target_that_cannot_enumerate():
     means unknown, not empty -- answering False would be a wrong answer rather than no answer."""
     p = _protocol({'root': {'print_on_server'}})
     assert p.has_server_function('load_stim', target='visual') is True
+
+
+# --- the chase: server-side pursuit against a client-defined path --------------------------------
+
+class _FakeServer:
+    def __init__(self):
+        self.ended = []
+
+    def end_trial(self, reason=None):
+        self.ended.append(reason)
+
+
+def test_the_server_regenerates_the_exact_path_the_client_shows(tmp_path):
+    """ChaseTheSpot's whole premise: no spot position is ever sent. The client builds the stimulus
+    trajectory and the server rebuilds it from the seed, through the same function -- so the two
+    must be identical, not merely similar."""
+    import numpy as np
+    import stimpack.experiment.example_protocol as ep
+
+    p = ep.ChaseTheSpot(cfg={})
+    p.select_protocol_preset()
+    p.protocol_parameters['seed'] = 11
+    p.run_parameters['randomize_order'] = False
+    p.precompute_trial_parameters(refresh=True)
+    p.load_precomputed_trial_parameters()
+    p.get_trial_parameters()
+
+    n = int(p.trial_protocol_parameters['stim_time'] / ep.ChaseTheSpot.DT) + 1
+    client_side = [v for _, v in p.trial_stim_parameters['theta']['tv_pairs']]
+    server_side = ep._chase_path(11, n)
+
+    assert np.allclose(client_side, server_side)
+
+
+def test_the_chase_arms_stamps_catches_and_disarms(monkeypatch):
+    import stimpack.experiment.example_protocol as ep
+
+    now = [1000.0]
+    monkeypatch.setattr(ep.time, 'time', lambda: now[0])
+    fn = ep.ChaseTheSpot.server_side_state_dependent_control
+    n = int(20.0 / ep.ChaseTheSpot.DT) + 1
+    path = ep._chase_path(5, n)
+    server, state = _FakeServer(), {}
+
+    def step(update):
+        out = fn(server, state, dict(update))
+        state.update(out)
+        return out
+
+    # Not armed: untouched, exactly as for every protocol that never heard of the chase.
+    assert step({'y': 0.25}) == {'y': 0.25} and server.ended == []
+
+    step({'chase_armed': 1, 'chase_t0': 0.0, 'chase_seed': 5, 'chase_n': n})
+    assert state['chase_t0'] == 1000.0, 'first armed update stamps the trial clock'
+
+    now[0] = 1003.0
+    step({'theta': 0.0})
+    assert server.ended == [], 'facing forward; the spot never comes to you'
+
+    i = min(int(3.0 / ep.ChaseTheSpot.DT), n - 1)
+    step({'theta': path[i] + ep.ChaseTheSpot.CATCH_HALF_ANGLE - 1})
+    assert server.ended == ['caught']
+    assert state['chase_armed'] == 0, 'one catch per arming'
+
+    step({'theta': path[i]})
+    assert server.ended == ['caught'], 'disarmed: a second alignment must not end anything'
+
+
+def test_the_spot_never_wanders_into_the_catch_zone_unaided():
+    """A stationary subject must not be handed a catch: the path's clip bound keeps the spot at
+    least SPOT_START - WANDER_BOUND degrees off straight ahead, well outside CATCH_HALF_ANGLE."""
+    import stimpack.experiment.example_protocol as ep
+
+    n = int(20.0 / ep.ChaseTheSpot.DT) + 1
+    closest = min(min(abs(v) for v in ep._chase_path(seed, n)) for seed in range(10))
+
+    assert closest >= ep.ChaseTheSpot.SPOT_START - ep.ChaseTheSpot.WANDER_BOUND
+    assert closest > ep.ChaseTheSpot.CATCH_HALF_ANGLE
