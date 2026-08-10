@@ -10,7 +10,7 @@ Come this way when you want to write stimuli of your own, test one in isolation,
 the render server actually does -- and skip ahead to :doc:`install_labpack` if you just want to set
 up an experiment.
 
-The scripts shown are in the repository's ``examples/`` directory, and each one runs as-is.
+The scripts shown are in the repository's `examples/ directory <https://github.com/ClandininLab/stimpack/tree/dev/examples>`_, and each one runs as-is.
 
 A window, and something in it
 =============================
