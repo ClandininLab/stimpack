@@ -40,8 +40,11 @@ call an ordinary trial needs, gated on two parameters:
     open loop.
 
 When a run is **recorded** and closed loop is on, the position history for each trial is saved
-alongside the data file (``save_pos_history_to_file``, one file per trial), so the animal's
-trajectory arrives with the stimulus parameters that produced it.
+alongside the data file, one file per trial, so the animal's trajectory arrives with the stimulus
+parameters that produced it. Two different modules do the writing, for two different records: each
+**screen** logs the subject state it rendered from (``save_pos_history_to_file`` is a screen
+function -- the history of what the animal *saw*), and the locomotion manager can log the raw
+tracker lines (``write_log`` on ``set_pos_0`` -- what the tracker *said*).
 
 A protocol that needs more than this -- ending a trial when the animal reaches a goal, holding a
 stimulus against fixation -- supplies a server-side control function, which runs on every tracker
@@ -81,7 +84,7 @@ exactly that.
 A tracker stimpack has never heard of needs only the base-class contract: read your device,
 convert each reading to a position update, and hand it to
 ``update_pos``/``set_subject_state`` -- the base class carries the socket loop, the request
-dispatch and the position log. :doc:`writing_a_module` covers the general shape; the KeyTrac
+dispatch and the raw tracker log. :doc:`writing_a_module` covers the general shape; the KeyTrac
 manager (``stimpack/device/locomotion/loco_managers/keytrac_managers.py``) is the smallest real
 example.
 
