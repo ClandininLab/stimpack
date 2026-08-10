@@ -412,6 +412,14 @@ class StimDisplay(QOpenGLWidget):
         # Initialize attribute storage for the context
         self.ctx.extra = {}
 
+        # Whether the window surface ended up with an alpha channel, requested or not. Decided by
+        # what was GRANTED, not what was asked for -- see the scrub in paintGL. Outside a Qt window
+        # (offscreen render paths) there is no compositor and nothing to scrub for.
+        try:
+            self._surface_has_alpha = self.context().format().alphaBufferSize() > 0
+        except Exception:
+            self._surface_has_alpha = False
+
         # A curved screen renders through a cube map instead of one frustum per flat subscreen.
         self.cube_renderer = None
         if isinstance(self.screen, CurvedScreen):
@@ -567,14 +575,20 @@ class StimDisplay(QOpenGLWidget):
 
         # Force the frame opaque, whatever was drawn into it. The separate alpha blend above keeps
         # coverage from thinning the framebuffer, but it only governs OUR draws -- and the surface
-        # has an alpha channel whether we want one or not (Mesa grants 8 bits against a request for
-        # 0; see report_surface_format). A compositor composites the window with whatever alpha is
-        # left here, so the only guarantee that holds everywhere is written after the last draw:
-        # clear alpha to 1 with the color channels masked off. glClear respects the write mask, as
-        # the subframe passes above already rely on.
-        target.color_mask = (False, False, False, True)
-        target.clear(0.0, 0.0, 0.0, 1.0)
-        target.color_mask = (True, True, True, True)
+        # can have an alpha channel whether we want one or not (Mesa grants 8 bits against a
+        # request for 0; see report_surface_format). A compositor composites the window with
+        # whatever alpha is left here, so the only guarantee that holds everywhere is written after
+        # the last draw: clear alpha to 1 with the color channels masked off. glClear respects the
+        # write mask, as the subframe passes above already rely on.
+        #
+        # Only where it can matter, because it is not free: a color-masked clear takes a slow path
+        # on Mesa, measured at 0.49 ms per 1920x1080 frame against 0.09 for an unmasked clear (the
+        # per-frame state re-assert above is measurement-noise free). A surface with no alpha
+        # channel gives a compositor nothing to read, so those rigs skip the cost entirely.
+        if self._surface_has_alpha:
+            target.color_mask = (False, False, False, True)
+            target.clear(0.0, 0.0, 0.0, 1.0)
+            target.color_mask = (True, True, True, True)
 
         # Once per displayed frame, not per subframe: presenting, capturing and logging all describe
         # the frame the display will actually show, which is the packed one.
