@@ -585,8 +585,9 @@ class StimDisplay(QOpenGLWidget):
 
         # Force the frame opaque, whatever was drawn into it. The separate alpha blend above keeps
         # coverage from thinning the framebuffer, but it only governs OUR draws -- and the surface
-        # can have an alpha channel whether we want one or not (Mesa grants 8 bits against a
-        # request for 0; see report_surface_format). A compositor composites the window with
+        # can have an alpha channel whether we want one or not (measured: Mesa grants 8 bits
+        # against a request for 0; macOS and NVIDIA/XWayland grant the 0 requested, and skip
+        # this block entirely; see report_surface_format). A compositor composites the window with
         # whatever alpha is left here, so the only guarantee that holds everywhere is written after
         # the last draw: clear alpha to 1 with the color channels masked off. glClear respects the
         # write mask, as the subframe passes above already rely on.
