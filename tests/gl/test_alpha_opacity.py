@@ -130,3 +130,46 @@ def test_the_window_surface_asks_for_no_alpha_channel():
     assert make_qt_format(vsync=True).alphaBufferSize() == 0, (
         'the window surface asks for an alpha channel; a compositing window manager will punch '
         'the stimulus through to the desktop')
+
+
+def test_the_end_of_frame_scrub_forces_opacity_without_touching_colour(headless_gl):
+    """The guarantee paintGL applies after the last draw of every frame.
+
+    It exists because the other two defences are not sufficient alone: the driver can grant the
+    window an alpha channel against a request for none (Mesa grants 8 bits), and Qt uses the GL
+    context between frames without restoring state, so the blend function our draws rely on cannot
+    be assumed to have been in force. The scrub holds regardless of either: whatever alpha the
+    frame ends with, it leaves at 1.
+    """
+    ctx = headless_gl
+    ctx.enable(moderngl.BLEND)
+    ctx.enable(moderngl.DEPTH_TEST)
+    # A clobbered state: the all-channel default that thins destination alpha at analytic edges.
+    ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
+
+    image = draw(ctx, 'MovingSpot', radius=15, sphere_radius=1, color=[1, 1, 1, 1],
+                 theta=0, phi=0)
+    assert image[..., 3].min() < 255, 'expected the clobbered state to leak; nothing to scrub'
+
+    screen = Screen(subscreens=[SubScreen(pa=PA, pb=PB, pc=PC)], fullscreen=False, vsync=False)
+    stim = stimuli.MovingSpot(screen=screen)
+    stim.initialize(ctx)
+    stim.configure(radius=15, sphere_radius=1, color=[1, 1, 1, 1], theta=0, phi=0)
+    fbo = ctx.simple_framebuffer((SIZE, SIZE), components=4)
+    try:
+        fbo.use()
+        fbo.clear(0.5, 0.5, 0.5, 1.0)
+        stim.paint_at(0.0, [(0, 0, SIZE, SIZE)],
+                      [get_perspective(SUBJECT, PA, PB, PC, False)], subject_position=SUBJECT)
+        # what paintGL now does after the last draw
+        fbo.color_mask = (False, False, False, True)
+        fbo.clear(0.0, 0.0, 0.0, 1.0)
+        fbo.color_mask = (True, True, True, True)
+        ctx.finish()
+        scrubbed = np.frombuffer(fbo.read(components=4, alignment=1),
+                                 dtype=np.uint8).reshape(SIZE, SIZE, 4)
+    finally:
+        fbo.release()
+
+    assert scrubbed[..., 3].min() == 255, 'the scrub left the frame translucent'
+    assert np.array_equal(scrubbed[..., :3], image[..., :3]), 'the scrub changed the picture'

@@ -519,6 +519,15 @@ class StimDisplay(QOpenGLWidget):
         # t0 = time.time() # benchmarking
         self.frame_count += 1
 
+        # Qt uses this GL context between paintGL calls (QOpenGLWidget composits through it) and
+        # documents that state is NOT preserved -- and moderngl cannot know what Qt changed, so
+        # setting state once in initializeGL is setting it for the first frame only. Re-assert
+        # everything the render depends on, every frame.
+        self.ctx.enable(moderngl.BLEND)
+        self.ctx.enable(moderngl.DEPTH_TEST)
+        self.ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA,
+                               moderngl.ONE, moderngl.ONE_MINUS_SRC_ALPHA)
+
         # quit if desired
         if self.server.shutdown_flag.is_set():
             self.app.quit()
@@ -555,6 +564,17 @@ class StimDisplay(QOpenGLWidget):
             # grabFramebuffer, the photodiode square, presentation -- sees an ordinary image.
             self.ctx.copy_framebuffer(target, framebuffer)
             target.use()
+
+        # Force the frame opaque, whatever was drawn into it. The separate alpha blend above keeps
+        # coverage from thinning the framebuffer, but it only governs OUR draws -- and the surface
+        # has an alpha channel whether we want one or not (Mesa grants 8 bits against a request for
+        # 0; see report_surface_format). A compositor composites the window with whatever alpha is
+        # left here, so the only guarantee that holds everywhere is written after the last draw:
+        # clear alpha to 1 with the color channels masked off. glClear respects the write mask, as
+        # the subframe passes above already rely on.
+        target.color_mask = (False, False, False, True)
+        target.clear(0.0, 0.0, 0.0, 1.0)
+        target.color_mask = (True, True, True, True)
 
         # Once per displayed frame, not per subframe: presenting, capturing and logging all describe
         # the frame the display will actually show, which is the packed one.
