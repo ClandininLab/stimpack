@@ -20,15 +20,24 @@ authors:
   - given-names: Steven
     family-names: Herbst
     affiliation: Stanford University
-  - given-names: Bella
-    family-names: Brezovec
-    affiliation: Stanford University
   - given-names: Carl
     family-names: Wienecke
     affiliation: Harvard Medical School
   - given-names: Heberto
     family-names: Mayorquin
     affiliation: CatalystNeuro
+  - given-names: Manze
+    family-names: Zhang
+    affiliation: Stanford University
+  - given-names: Jacob
+    family-names: Simon
+    affiliation: Stanford University
+  - given-names: Bella
+    family-names: Brezovec
+    affiliation: Stanford University
+  - given-names: Andrew
+    family-names: Berger
+    affiliation: Stanford University
   - given-names: Shaul
     family-names: Druckmann
     affiliation: Stanford University
