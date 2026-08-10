@@ -326,9 +326,13 @@ class BaseServer(MySocketServer):
         '''
         This function is called when the connection is closed / dropped.
         Overrides the function in MySocketServer.
-        It calls on_connection_close() for each module.
+        It calls on_connection_close() for each module that defines one -- the hook is optional,
+        and a module's only required method is handle_request_list.
         '''
-        [module.on_connection_close() for module in self.modules.values()]
+        for module in self.modules.values():
+            close_hook = getattr(module, 'on_connection_close', None)
+            if callable(close_hook):
+                close_hook()
         
     def set_current_trial(self, trial_index):
         """
