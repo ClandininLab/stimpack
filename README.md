@@ -32,11 +32,12 @@ Running `stimpack` opens the experiment GUI. See the
 [installation guide](https://stimpack.readthedocs.io/en/latest/install.html) if it doesn't.
 
 <!-- img/gui.png is a copy; the source of truth lives in paper/figures/. -->
-![The stimpack experiment GUI mid-run, with a subject selected and trials counting](img/gui.png)
+![The stimpack experiment GUI: the Main tab mid-run and the Subject tab with lab-declared metadata fields](img/gui.png)
 
-*The experiment GUI mid-run, identical on every rig: a protocol's parameter fields are built from
-the class's own declarations, so a new protocol is drivable without writing interface code; the
-bottom panel tracks the current trial's parameters and progress.*
+*The experiment GUI, identical on every rig. Left: the Main tab mid-run, its parameter fields
+built from the protocol class's own declarations, so a new protocol is drivable without writing
+interface code; the list-valued angle sweeps across trials in randomized order. Right: the
+Subject tab, whose metadata fields beyond the built-ins come from the labpack's config.*
 
 ## A stimulus in ten lines
 
