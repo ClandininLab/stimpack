@@ -380,6 +380,19 @@ class StimDisplay(QOpenGLWidget):
         self.ctx.enable(moderngl.BLEND) # enable alpha blending
         self.ctx.enable(moderngl.DEPTH_TEST) # enable depth test
 
+        # Blend colour normally, but never let alpha be blended DOWN. The default blend function
+        # applies (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) to all four channels, so an analytic edge with
+        # coverage a leaves the framebuffer at a*a + (1-a)*1, which is 0.75 at a = 0.5. On a
+        # compositing window manager that is a hole: the desktop behind the window shows through
+        # the rim of every stimulus. Measured before this line existed, a 15-degree MovingSpot left
+        # 228 pixels below full opacity.
+        #
+        # dst_a = 1*src_a + (1-src_a)*dst_a, so a framebuffer cleared opaque stays opaque exactly,
+        # while one cleared transparent still accumulates coverage correctly. Colour is untouched:
+        # the rendered image is byte-identical either way, anti-aliased edges included.
+        self.ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA,
+                               moderngl.ONE, moderngl.ONE_MINUS_SRC_ALPHA)
+
         # Keep sRGB encoding off, so what a shader writes is what lands in the framebuffer. The
         # default framebuffer here IS sRGB-capable (measured: its color encoding reports GL_SRGB),
         # so the enable bit genuinely matters -- it just happens to default to off.
