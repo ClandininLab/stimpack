@@ -300,8 +300,18 @@ class StimDisplay(QOpenGLWidget):
         for label, want, got in (('samples', requested.samples(), granted.samples()),
                                  ('alpha bits', requested.alphaBufferSize(), granted.alphaBufferSize()),
                                  ('depth bits', requested.depthBufferSize(), granted.depthBufferSize())):
-            note = '' if want == got else '   <-- not granted'
-            print(f'OpenGL {label}: requested {want}, got {got}{note}')
+            # -1 is Qt's "unset": nothing was requested, so nothing can have been denied.
+            if want < 0:
+                print(f'OpenGL {label}: not requested, got {got}')
+            elif want == got:
+                print(f'OpenGL {label}: requested {want}, got {got}')
+            elif got > want:
+                # More than asked for is not a denial -- but for alpha it is the one that bites:
+                # a compositor can see through whatever alpha the driver granted unasked. paintGL
+                # scrubs alpha to 1 at the end of every frame on exactly this condition.
+                print(f'OpenGL {label}: requested {want}, got {got}   <-- more than requested')
+            else:
+                print(f'OpenGL {label}: requested {want}, got {got}   <-- not granted')
 
     def initializeGL(self):
          # get OpenGL context
