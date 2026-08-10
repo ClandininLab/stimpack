@@ -470,8 +470,10 @@ subclass's semantics; then document the multicall parameter in `voltage_out.rst`
 and drop the labpack workaround.
 **Status: fixed 2026-08-09** — branches made exclusive with `return multicall`;
 unit-tested in `tests/unit/test_daq_on_server.py`; the multicall parameter is now
-documented in `voltage_out.rst`. Remaining: drop the now-redundant early-return
-pattern from clandinin_labpack's subclass at leisure (harmless as is).
+documented in `voltage_out.rst`. Follow-up resolved 2026-08-10: clandinin_labpack's
+subclass methods turn out to be novel names (not overrides of the fixed base
+methods), so there is nothing redundant to drop there -- its exclusive pattern
+is simply correct.
 
 ---
 
