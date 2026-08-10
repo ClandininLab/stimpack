@@ -120,12 +120,13 @@ CurvedScreen(
 )   # 94% of the bowl lit, ±65° azimuth and ±53° elevation
 ```
 
-<!-- img/geometry.png is a copy; the source of truth and the regeneration scripts live in paper/figures/. -->
-![Three panels: a rig schematic of projector and bowl, the warped frame sent to the projector, and the animal's view of the checkerboard](img/geometry.png)
+<!-- img/pipeline.png is a copy; the source of truth and the regeneration scripts live in paper/figures/. -->
+![A rig schematic with photodiode, the warped frame with its corner square, the subject's view of the checkerboard, and a photodiode trace with two dropped frames](img/pipeline.png)
 
-*One scene, rendered once into a cube map centered on the animal: the rig (a), the frame sent to
-the projector, warped by the bowl's geometry (b), and the animal's visual field over the same cube
-map (c) — the checkerboard's patches subtend 10° in the animal's own angular coordinates.*
+*The visual path, end to end: the rig with its photodiode (a), the frame sent to the projector
+with the synchronization square in its corner (b), the subject's visual field over the same cube
+map (c), and frame delivery recorded at the photodiode (d), where a dropped frame appears as one
+level held for two frame intervals.*
 
 Because the screen is one draw call however finely it is tessellated, the cost scales with the scene
 and the number of cube faces — not with the screen's complexity. `draw_curved_screen()` plots the

@@ -59,15 +59,18 @@ each fragment sampling the cube along its own interpolated direction. The mesh c
 screen lands in the projector's image and which direction it lies in from the animal -- which is the
 whole of the warp.
 
-.. figure:: /images/geometry.png
+.. figure:: /images/pipeline.png
     :align: center
-    :alt: A rig schematic of projector and bowl, the warped frame sent to the projector, and the animal's view of the checkerboard
+    :alt: A rig schematic with photodiode, the warped frame with its corner square, the subject's view of the checkerboard, and a photodiode trace with two dropped frames
 
-    One scene, rendered once into a cube map centered on the animal. (a) The rig: a projector
-    lights a bowl-shaped screen around the animal. (b) The frame sent to the projector, warped by
-    the bowl's geometry. (c) The animal's visual field over the same cube map: the checkerboard's
-    patches subtend 10 degrees in the animal's own angular coordinates, so the pattern is regular
-    in its frame of reference rather than the projector's.
+    The visual path, end to end. (a) The rig: a projector lights a bowl-shaped screen around the
+    subject, and a photodiode watches the corner of the thrown frame. (b) The frame sent to the
+    projector, rendered once into a cube map centered on the subject and warped by the bowl's
+    geometry, with the synchronization square in that corner. (c) The subject's visual field over
+    the same cube map: the checkerboard's patches subtend 10 degrees in the subject's own angular
+    coordinates. (d) Frame delivery at the photodiode: nominal inversions every 8.3 ms
+    (120.5 Hz), and two dropped frames, one held bright and one held dark, each a level held for
+    16.6--16.7 ms.
 
 The cost structures are different, and it is worth knowing which you are paying:
 
@@ -106,15 +109,8 @@ every subframe -- so a photodiode over it produces a square wave at half the fra
 dropped frame appears as one level held for two frame intervals. Digitized by the acquisition
 system on the same clock as the neural recording, frame delivery is measured *after* the whole
 graphics stack, so stimulus onsets and dropped frames are recoverable from the acquisition data
-alone.
-
-.. figure:: /images/frame_drops.png
-    :align: center
-    :alt: Photodiode traces showing nominal frame inversions and two dropped frames, each a level held for two frame intervals
-
-    Frame delivery recorded by a photodiode over the display's corner square. (a) Nominal: one
-    inversion per frame, 8.3 ms at 120.5 Hz. (b, c) Two real dropped frames, one of each phase,
-    each a level held for 16.6--16.7 ms.
+alone. Panel (d) of the pipeline figure above shows exactly this: nominal inversions at the
+frame rate, and a dropped frame of each phase, each a level held for two frame intervals.
 
 ``paintGL`` is what drains the RPC queue, so a screen whose render loop has stopped accepts every
 command and does nothing. ``report_frame_count`` asks a screen how many frames it has actually
