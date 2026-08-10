@@ -286,6 +286,11 @@ class StimDisplay(QOpenGLWidget):
         assumed -- this is how the alpha channel that made stimuli see-through on Mesa, and not on
         NVIDIA/XWayland, was found.
 
+        Over-grants measured in the field: Mesa gives 8 alpha bits against a request for 0 (the
+        harmful one; see paintGL), and macOS gives 32 depth bits against a request for 24 -- which
+        is harmless, strictly more precision, because depth is only ever read by our own depth
+        test and never leaves the machine the way alpha does.
+
         make_qt_format used to ask for 24 samples here too and was granted 0 on every GPU measured,
         because QOpenGLWidget renders into its own FBO where the surface sample count does not
         apply. That request has been removed rather than left as a claim the code cannot deliver;
