@@ -18,14 +18,19 @@ STIM_SUBMODULES = ('stimuli', 'trajectory', 'distribution')
 
 def load_stim_module_from_path(path, module_name='loaded_module', submodules=STIM_SUBMODULES):
     '''
-    Load a module from specified path. Module must contained specified submodules.
+    Load a module from specified path. The module must contain stimuli.py; trajectory.py and
+    distribution.py are optional companions, loaded when present.
     '''
     full_module_path = convert_labpack_relative_path_to_full_path(path)
     for submodule_name in submodules:
         submodule_name_full = module_name+'.'+submodule_name
         submodule_path = os.path.join(full_module_path, submodule_name+'.py')
         if not os.path.exists(submodule_path):
-            warnings.warn(f'Could not find {submodule_name} at {submodule_path}')
+            # stimuli.py is the module's reason to exist, so its absence means the path is wrong;
+            # the optional companions are routinely absent, and warning about them taught readers
+            # to ignore warnings.
+            if submodule_name == 'stimuli':
+                warnings.warn(f'Could not find {submodule_name} at {submodule_path}')
             continue
         spec = spec_from_file_location(submodule_name_full, submodule_path)
         loaded_mod = module_from_spec(spec)

@@ -30,7 +30,7 @@ def launch_screen(screen, **kwargs):
     new_env_vars = {}
 
     session_type = os.environ.get('XDG_SESSION_TYPE', "unknown")
-    qt_platform_type = os.environ.get('QT_QPA_PLATFORM', "unknown")
+    qt_platform_type = os.environ.get('QT_QPA_PLATFORM', "default (unset)")
     print(f"Display session type: {session_type}")
     print(f"QT platform type: {qt_platform_type}")
 

@@ -16,21 +16,21 @@ def main():
     # Set the background color of the screen
     manager.set_idle_background(0.5)
 
-    # Present 5 epochs of the stimulus
+    # Present 5 trials of the stimulus
     for i in range(5):
         # Load a stimulus
         manager.load_stim(name='Checkerboard')
 
-        # Pre time: wait for 0.5 second
+        # Pre time: wait 1.5 seconds before the stimulus starts
         sleep(1.5)
 
         # Start the stimulus
         manager.start_stim()
 
-        # Stim time: client waits for 4 seconds while server shows the stimulus
+        # Stim time: client waits 2 seconds while the server shows the stimulus
         sleep(2)
 
-        # Tail time: wait for 0.5 second at the end of the stimulus
+        # Tail time: wait 0.5 seconds at the end of the stimulus
         sleep(0.5)
 
         # Stop the stimulus

@@ -51,7 +51,9 @@ creates an EGL context and hands it to ModernGL, and under X11 it uses GLX. It r
 chose when a screen is launched::
 
     Display session type: wayland
-    QT platform type: wayland
+    QT platform type: default (unset)
+
+(The second line reports the ``QT_QPA_PLATFORM`` override, which is normally unset.)
 
 Pass ``Screen(use_egl=...)`` to override the choice.
 

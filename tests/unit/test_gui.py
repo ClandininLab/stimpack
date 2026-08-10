@@ -66,3 +66,17 @@ def test_error_dialog_does_not_stack(monkeypatch):
     ExperimentGUI.on_server_message_received(fake, "error", "second error")
     assert fake.status_label.text == "[server error] second error"
     assert alerts == []
+
+
+def test_version_flag_prints_version_and_exits_zero(capsys):
+    # CONTRIBUTING.md tells bug reporters to paste this output, so the flag must exist and the
+    # line must identify the running code -- version, plus revision when run from a checkout.
+    from stimpack.experiment import gui
+
+    with pytest.raises(SystemExit) as excinfo:
+        gui.main(['--version'])
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert out.startswith('stimpack ')
+    assert len(out.split()) >= 2          # "stimpack <version>", optionally "(<revision>)"

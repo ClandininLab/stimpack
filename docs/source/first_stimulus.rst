@@ -37,7 +37,8 @@ Run it::
     python examples/1-hello_world.py
 
 A window opens and a checkerboard appears five times. On exit, ``print_profile=True`` prints the
-frame-time distribution for the trial, which is the first thing to look at when timing matters.
+frame-rate (fps) distribution for the trial, which is the first thing to look at when timing
+matters.
 
 What just happened
 ==================
@@ -113,11 +114,15 @@ which is handed to the server after it starts:
 
     manager = launch_stim_server(screen)
     sleep(2)
-    manager.import_stim_module('./example_custom_module/')
+    module_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'example_custom_module')
+    manager.import_stim_module(module_dir)
 
     # ShowImage is defined in that directory's stimuli.py
-    manager.load_stim(name='ShowImage', image_path='./assets/cactus.png',
+    manager.load_stim(name='ShowImage', image_path=os.path.join(module_dir, '../assets/cactus.png'),
                       vertical_extent=30, horizontal_extent=30)
+
+Pass absolute paths: the server resolves relative paths against the configured ``labpack`` when
+one is set up, not against the calling script.
 
 Importing the same directory again **reloads** it: the previous import is dropped first, so the
 code on disk now is the code that runs and no duplicate classes accumulate. That is what makes it

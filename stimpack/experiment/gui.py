@@ -2553,6 +2553,9 @@ def quiet_wayland_textinput_logging():
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='stimpack', description='Stimpack experiment GUI.')
+    parser.add_argument('--version', action='store_true',
+                        help="print stimpack's version -- with its git revision when run from a "
+                             "checkout -- and exit. This is the line to paste into bug reports.")
     parser.add_argument('--check-labpack', action='store_true',
                         help="check the configured labpack for problems and exit. Returns nonzero "
                              "if any error was found, so it can be used in a script or CI.")
@@ -2570,6 +2573,24 @@ def main(argv=None):
                              "format a labpack defines itself is reachable only from the config "
                              "or the startup dialog.")
     args = parser.parse_args(argv)
+
+    if args.version:
+        import re
+        from stimpack.experiment.util import provenance
+        package_dir = provenance.stimpack_directory()
+        revision = provenance.git_revision(package_dir)
+        version = provenance.stimpack_version()
+        if revision:
+            # A checkout runs the code on disk, not what pip once recorded -- installed metadata
+            # goes stale for editable installs, so read the checkout's own setup.py instead.
+            try:
+                with open(os.path.join(os.path.dirname(package_dir), 'setup.py')) as f:
+                    match = re.search(r"version\s*=\s*['\"]([^'\"]+)", f.read())
+                version = match.group(1) if match else version
+            except OSError:
+                pass
+        print(f'stimpack {version}' + (f' ({revision})' if revision else ''))
+        sys.exit(0)
 
     if args.check_labpack:
         from stimpack.experiment.util import check_labpack
