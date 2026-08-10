@@ -29,7 +29,7 @@ The main window opens on the **Main** tab:
    above, the stimulus's own parameters below.
 2. Press **View**.
 
-A stimulus window opens and a grating drifts, once per trial, with grey between trials. The small
+A stimulus window opens and a grating drifts, once per trial, with gray between trials. The small
 flickering square in the corner is the photodiode synchronization signal, part of the standard
 render path. **View** presents without recording anything; **Record** writes a data file, and stays
 disabled until an experiment file and a subject exist -- its tooltip says which is missing. That
@@ -37,7 +37,7 @@ distinction is deliberate: checking a stimulus should not be a file you delete a
 
 Try setting a parameter to a list -- ``angle: [0, 45, 90]`` -- and pressing View again: the value
 now sweeps across trials, and the readout at the bottom shows each trial's draw. That one rule
-(a list sweeps) is most of what a parameterised experiment needs.
+(a list sweeps) is most of what a parameterized experiment needs.
 
 The full tour of the window -- tabs, presets, ensembles, pause semantics, notes -- is
 :doc:`the_gui`.

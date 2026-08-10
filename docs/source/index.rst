@@ -26,4 +26,4 @@ backends, including HDF5 and `NWB <https://www.nwb.org/>`_.
     under_the_hood
 
 
-:ref:`genindex` of all functions.
+Looking for a specific function? See the :ref:`index of all functions <genindex>`.
