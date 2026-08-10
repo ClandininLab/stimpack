@@ -39,6 +39,7 @@ They talk over a small JSON protocol. Calls are addressed to a module::
     the_gui
     check_labpack
     modules_and_targets
+    locomotion
     voltage_out
     writing_a_module
     presets_and_ensembles
