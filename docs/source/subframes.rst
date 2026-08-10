@@ -173,8 +173,10 @@ Commissioning a rig
 ===================
 
 Nothing in software can check that the projector is unpacking the patterns. ``SubframeTimingCheck``
-in ``stimpack/experiment/example_protocol.py`` is the stimulus that makes the answer visible: it
-puts a spot at a different azimuth in each subframe, cycling once per video frame.
+in stimpack's diagnostics module is the stimulus that makes the answer visible: it puts a spot at a
+different azimuth in each subframe, cycling once per video frame. Diagnostics are not in the
+default protocol dropdown; load them by adding ``stimpack:experiment/diagnostics_protocol.py`` to a
+config's protocol paths.
 
 If your rig registers ``set_subframes`` as above, it also switches the rig for you -- on at the
 start of the run, back to 1 in the run loop's ``finally``, so an aborted run leaves the rig in

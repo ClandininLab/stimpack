@@ -1,35 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import warnings
-
 import numpy as np
 
 from stimpack.rpc.transceiver import MySocketClient
 from stimpack.rpc.multicall import MyMultiCall
 from stimpack.experiment.protocol import BaseProtocol
-
-# %% Diagnostics
-
-class ServerErrorDemo(BaseProtocol):
-    """
-    Deliberately triggers a server-side error, to demonstrate server -> client error reporting.
-
-    Each trial asks the display server to load a stimulus class that does not exist, so load_stim
-    raises on the server. The error bubbles back to the client: it shows up in the GUI status label
-    (tagged [screen], since it originates in a screen subprocess), the run aborts instead of running
-    to completion, and — when recording — the series group is written with run_status='error' and
-    abort_reason set. Nothing renders; this is a diagnostics/demo protocol, not a real stimulus.
-    """
-    def get_run_parameter_defaults(self):
-        return {'num_trials': 3, 'idle_color': 0.5}
-
-    def get_protocol_parameter_defaults(self):
-        return {'pre_time': 0.5, 'stim_time': 1.0, 'tail_time': 0.5}
-
-    def get_trial_parameters(self):
-        super().get_trial_parameters()
-        # A stimulus class name that does not exist -> load_stim raises ValueError on the server.
-        self.trial_stim_parameters = {'name': 'NoSuchStimulus_ServerErrorDemo'}
 
 # %% Some simple visual stimulus protocol classes
 
@@ -201,166 +176,25 @@ class MovingPatch(BaseProtocol):
 
 #%%
 
-class SubframeTimingCheck(BaseProtocol):
-    """
-    Commissioning stimulus: is the display really showing every subframe, in the right order?
-
-    The subframe path packs up to three timepoints into a frame's color channels for a projector
-    that unpacks them as successive patterns -- 360 Hz from a 120 Hz video link. Whether that
-    happens depends on the projector being in pattern mode, on the channel order matching, and on
-    every subframe reaching the screen. None of it can be checked from the client, and the unit
-    tests cannot check it either: they read pixels back from an offscreen buffer, which says the
-    packing is right and nothing about the display.
-
-    This puts the spot at a *different azimuth in each subframe*, cycling once per video frame, so
-    the answer is visible rather than inferred:
-
-    - **all subframes displayed** -- ``n_subframes`` spots, evenly spaced by ``separation``, and
-      with a high-speed camera they appear in order left to right
-    - **only one channel reaching the screen** -- a single spot, not ``n_subframes`` of them
-    - **channel order wrong** -- the right number of spots, in the wrong sequence, which a camera
-      sees and the eye does not
-
-    Alongside it the corner square toggles once per subframe (see StimDisplay.paint_subframe), so a
-    photodiode on the square reports the rate directly: transitions at ``subframe_rate``, not at the
-    video frame rate. That is the measurement to trust; the spots say what is wrong when the rate is
-    not what it should be.
-
-    ``subframe_rate`` and ``n_subframes`` are parameters rather than read from the screen, because
-    this is the stimulus you run when you do not yet believe the screen is doing what it was told.
-    Set them to what the rig's configuration asks for, and see whether the display agrees.
-
-    It also *switches the rig*, on rigs that can be switched: a labpack registering ``set_subframes``
-    on root -- see the "Subframe multiplexing" page -- gets the whole check in one run rather than a
-    server edit either side of it. Where no such function is registered, this runs at whatever the
-    server was started with, which on most rigs means one subframe and one spot.
-    """
-    def __init__(self, cfg):
-        super().__init__(cfg)
-
-        self.run_parameters = self.get_run_parameter_defaults()
-        self.protocol_parameters = self.get_protocol_parameter_defaults()
-
-    def n_subframes(self):
-        """The count this run asks the rig for, as an int.
-
-        Refused as a list: a list is stimpack's notation for a parameter that varies across trials,
-        and a screen cannot change its temporal structure part-way through a run -- StimDisplay
-        refuses mid-stimulus, and nothing in the data file would record that trial 1 differed from
-        trial 2. Better said before the run starts than discovered afterwards.
-        """
-        value = self.protocol_parameters['n_subframes']
-        if isinstance(value, (list, tuple)):
-            raise ValueError(f'n_subframes must be a single value, not {value}: the screen cannot '
-                             f'change how many subframes it carries between trials of one run.')
-        return int(value)
-
-    def prepare_run(self, manager, recompute_epoch_parameters=True):
-        super().prepare_run(manager, recompute_epoch_parameters)
-
-        # After super(), so a run that fails its parameter checks does not leave the rig switched.
-        if self.has_server_function('set_subframes'):
-            manager.target('root').set_subframes(self.n_subframes())
-        elif self.n_subframes() != 1:
-            warnings.warn(f'This rig registers no set_subframes, so the display stays as the server '
-                          f'started it while the stimulus is drawn for {self.n_subframes()} '
-                          f'subframes. Expect a single spot unless the server was started '
-                          f'multiplexing.')
-
-    def on_run_finish(self, manager, multicall=None):
-        super().on_run_finish(manager, multicall)
-
-        # Back to ordinary rendering. Called from the run loop's finally block, so a stopped or
-        # errored run leaves the rig as it was found -- and a rig left multiplexing is not an error
-        # anyone would see, since the next protocol's color channels are simply reinterpreted as
-        # slices of time.
-        if self.has_server_function('set_subframes'):
-            manager.target('root').set_subframes(1)
-
-    def subframe_positions(self, stim_time, n_subframes, subframe_rate, separation, center):
-        """A staircase in azimuth, one step per subframe, cycling every video frame.
-
-        Held rather than interpolated: each subframe must land on one position, not slide between
-        two. The step boundaries sit half an interval early so that a subframe rendered at exactly
-        k / subframe_rate samples the middle of step k rather than its edge, where floating point
-        could put it on either side.
-        """
-        interval = 1.0 / subframe_rate
-        steps = int(np.ceil(stim_time * subframe_rate)) + 2
-        return [((k - 0.5) * interval, center + separation * (k % n_subframes))
-                for k in range(steps)]
-
-    def get_trial_parameters(self):
-        super().get_trial_parameters()
-
-        center = self.adjust_center(self.trial_protocol_parameters['center'])
-        theta = self.subframe_positions(
-            stim_time=self.trial_protocol_parameters['stim_time'],
-            n_subframes=int(self.trial_protocol_parameters['n_subframes']),
-            subframe_rate=float(self.trial_protocol_parameters['subframe_rate']),
-            separation=float(self.trial_protocol_parameters['separation']),
-            center=center[0])
-
-        self.trial_stim_parameters = {'name': 'MovingSpot',
-                                      'radius': self.trial_protocol_parameters['radius'],
-                                      'sphere_radius': 1,
-                                      'color': self.trial_protocol_parameters['color'],
-                                      'theta': {'name': 'TVPairs',
-                                                'tv_pairs': theta,
-                                                'kind': 'previous'},
-                                      'phi': center[1]}
-
-    def get_protocol_parameter_defaults(self):
-        return {'pre_time': 1.0,
-                'stim_time': 4.0,
-                'tail_time': 1.0,
-
-                'n_subframes': 3,        # match the screen's `subframes`
-                'subframe_rate': 360.0,  # Hz; the video rate times n_subframes
-                'separation': 10.0,      # degrees between consecutive subframe positions
-                'radius': 2.5,
-                'color': 1.0,
-                'center': (0, 0),
-                }
-
-    def get_run_parameter_defaults(self):
-        return {'num_trials': 5,
-                'idle_color': 0.0,       # dark, so a photodiode sees only the corner square
-                'pre_run_time': 0,
-                'post_run_time': 0,
-                'all_combinations': True,
-                'randomize_order': False}
-
 # %%
 
-class ScreenAlignmentCheck(BaseProtocol):
-    """
-    Commissioning stimulus: concentric rings of equal angular width, to check the warp and the
-    screen's centering.
+class WanderingSpot(BaseProtocol):
+    """A spot that wanders like an animal rather than sweeping like a stimulus.
 
-    Two questions, one pattern.
+    Each trial synthesizes a smooth, meandering path -- a random walk with momentum in azimuth and
+    elevation -- and hands it to the renderer as an ordinary time-value trajectory. ``seed`` is an
+    ordinary protocol parameter, so it sweeps like any other: the default run presents five
+    different walks, and the same seed always produces the same path, on this rig or any other.
+    That is what makes a naturalistic stimulus replayable and comparable across setups.
 
-    **Is the warp right?** Every band subtends the same angle at the subject. On a screen that is a
-    sphere centered on the subject, equal angle is equal arc, so every band is the same *physical*
-    width on the surface -- a ruler laid across the screen, or a photograph of it, answers directly,
-    with no model of the rig needed to interpret the reading. Look at the projector image instead
-    and the same bands are visibly unequal, crowding towards the rim. That difference *is* the warp;
-    seeing it is how you know the screen mesh is being used rather than bypassed.
+    The same mechanism replays a RECORDED path. Load times and positions from a file instead of
+    synthesizing them, and keep the trajectory dict the same::
 
-    **Is the screen centered on the projector?** The rings are concentric about
-    ``center``, which defaults to the rig's own ``screen_center`` -- on a rig whose screen has an
-    axis of symmetry, that is the axis, and the rings should come out concentric with the rim. An
-    offset shows up as rings crowding one side, and every ring is a fresh chance to see it, which
-    beats eyeballing a single edge. If they are eccentric, either the screen is off the projector's
-    axis or ``screen_center`` does not describe this rig.
+        t, theta = np.load('my_trajectory.npy')      # or pd.read_pickle, ...
+        {'name': 'TVPairs', 'tv_pairs': list(zip(t, theta)), 'kind': 'linear'}
 
-    Static and non-random on purpose: this is a target to photograph and measure, so nothing here
-    varies across trials, and one trial is enough. It is left up for ``stim_time``, so make that as
-    long as you need to take the picture.
-
-    Run :class:`ProjectorCenterBeam` alongside it. The beam marks the center of the projector image;
-    the rings should be concentric about that mark, which turns "is it centered" into a comparison of
-    two things on the same photograph rather than a judgment about one.
+    That is exactly how measured courtship trajectories are presented (Coen et al. 2014); the
+    recordings themselves belong in a labpack, not in stimpack.
     """
     def __init__(self, cfg):
         super().__init__(cfg)
@@ -370,141 +204,67 @@ class ScreenAlignmentCheck(BaseProtocol):
 
     def get_trial_parameters(self):
         super().get_trial_parameters()
+        params = self.trial_protocol_parameters
 
-        center = self.adjust_center(self.trial_protocol_parameters['center'])
+        rng = np.random.default_rng(int(params['seed']))
+        dt = 1.0 / 60.0
+        n = int(params['stim_time'] / dt) + 1
+        t = np.arange(n) * dt
 
-        # Two scalars rather than one 'colors' pair, because a list in a protocol parameter is
-        # stimpack's notation for a value that varies across trials -- so a color pair written as
-        # a list would be read as two trials, each with one color, and the pattern would come out
-        # a flat disc.
-        colors = (self.trial_protocol_parameters['bright'],
-                  self.trial_protocol_parameters['dark'])
+        def wander(sigma, bound):
+            """A velocity random walk that forgets its speed over ~0.5 s, integrated to position.
 
-        self.trial_stim_parameters = {'name': 'AlternatingAnnuli',
-                                      'band_width': self.trial_protocol_parameters['band_width'],
-                                      'max_radius': self.trial_protocol_parameters['max_radius'],
-                                      'sphere_radius': 1,
-                                      'colors': colors,
-                                      'theta': center[0],
-                                      'phi': center[1],
-                                      'n_azimuth': self.trial_protocol_parameters['n_azimuth']}
+            The momentum is what makes it read as an animal moving rather than as noise: velocity
+            decays toward zero (tau below) while being kicked, so the path has smooth swerves
+            and pauses instead of jitter.
+            """
+            tau = 0.5
+            velocity = np.zeros(n)
+            for i in range(1, n):
+                velocity[i] = velocity[i - 1] * (1 - dt / tau) + rng.normal(0, sigma) * np.sqrt(dt)
+            position = np.cumsum(velocity) * dt
+            return np.clip(position, -bound, +bound)
+
+        center = self.adjust_center(params['center'])
+        theta = center[0] + wander(sigma=params['wander_speed'], bound=60)
+        phi = center[1] + wander(sigma=params['wander_speed'] / 2, bound=30)
+
+        self.trial_stim_parameters = {
+            'name': 'MovingSpot',
+            'radius': params['radius'],
+            'sphere_radius': 1,
+            'color': params['color'],
+            'theta': {'name': 'TVPairs', 'tv_pairs': list(zip(t, theta)), 'kind': 'linear'},
+            'phi': {'name': 'TVPairs', 'tv_pairs': list(zip(t, phi)), 'kind': 'linear'},
+        }
 
     def get_protocol_parameter_defaults(self):
         return {'pre_time': 0.5,
-                'stim_time': 60.0,       # long: this is a target to photograph, not a trial
+                'stim_time': 6.0,
                 'tail_time': 0.5,
 
-                'band_width': 5.0,       # degrees; the quantity the whole check is about
-                # Past the edge of the screen on purpose. A ring that runs off the screen shows
-                # where the edge is; one that stops short of it does not.
-                'max_radius': 60.0,
-                'bright': 1.0,
-                'dark': 0.0,
-                'center': (0, 0),        # relative to screen_center -- see the class docstring
-                'n_azimuth': 128,
-                }
+                'radius': 5.0,
+                'color': [0, 0, 0, 1],
+                'center': (0, 0),
+                'wander_speed': 20.0,           # sets typical speed (~10 deg/s); larger wanders faster
+                'seed': [0, 1, 2, 3, 4]}        # a list, so seeds sweep like any parameter
 
     def get_run_parameter_defaults(self):
-        return {'num_trials': 1,
-                'idle_color': 0.0,       # dark, so the rings are the only thing on the screen
+        return {'num_trials': 5,
+                'idle_color': 0.5,
                 'pre_run_time': 0,
                 'post_run_time': 0,
                 'all_combinations': True,
-                'randomize_order': False}
+                'randomize_order': True}
 
-# %%
-
-class ProjectorCenterBeam(BaseProtocol):
-    """
-    Commissioning stimulus: a narrow spot at the center of the projector image, for aligning the
-    projector against the subject.
-
-    Drawn in *projector* coordinates, after the warp, on an otherwise black screen -- so it marks a
-    known position in the image rather than a direction in the world, and no part of the rendering
-    geometry can move it. That is what makes it an independent reference: everything else on the
-    screen has been through the mesh, and this has not.
-
-    On a rig whose projector is aimed at the subject, the center ray goes from the projector, through
-    the screen, to the subject. So with ``ndc`` at the default (0, 0) the beam should land on the
-    subject itself. Watch it on the behavior camera and move the projector until it does.
-
-    The beam stays lit for the whole run rather than per trial, because what you do with it is
-    physically adjust the rig while looking at it. Press Stop when you are done -- it is taken down
-    from the run loop's finally block, so a stopped or errored run does not leave the screen black
-    with a dot on it.
-
-    Two things it deliberately does: it blacks out the rest of the screen (see
-    :class:`~stimpack.visual_stim.calibration.CalibrationSpot` -- the same mechanism the brightness
-    calibration uses), and while it is up the corner square is suppressed, so a photodiode sees
-    nothing during this protocol. Neither matters for alignment, and both would matter if you tried
-    to use this while recording.
-    """
-    def __init__(self, cfg):
-        super().__init__(cfg)
-
-        self.run_parameters = self.get_run_parameter_defaults()
-        self.protocol_parameters = self.get_protocol_parameter_defaults()
-
-    def on_run_start(self, manager, multicall=None):
-        super().on_run_start(manager, multicall)
-
-        if not self.has_server_function('show_calibration_spot', target='visual'):
-            warnings.warn('This screen server does not answer to show_calibration_spot, so no beam '
-                          'will appear. It is stimpack 1.0+; check the server version.')
-            return
-
-        manager.target('visual').show_calibration_spot(
-            ndc_x=self.protocol_parameters['ndc_x'],
-            ndc_y=self.protocol_parameters['ndc_y'],
-            radius=self.protocol_parameters['radius'],
-            intensity=self.protocol_parameters['intensity'])
-
-    def on_run_finish(self, manager, multicall=None):
-        super().on_run_finish(manager, multicall)
-
-        # From the run loop's finally block, so Stop and an error both take the beam down. A screen
-        # left showing nothing but a dot is not an error anyone would recognize as one.
-        if self.has_server_function('hide_calibration_spot', target='visual'):
-            manager.target('visual').hide_calibration_spot()
-
-    def get_trial_parameters(self):
-        super().get_trial_parameters()
-
-        # No stimulus: the beam is not drawn through the rendering path at all. The trial exists
-        # only to hold the run open while the projector is being moved.
-        self.trial_stim_parameters = None
-
-    def get_protocol_parameter_defaults(self):
-        return {'pre_time': 0.0,
-                'stim_time': 300.0,      # long: you are adjusting hardware. Stop when done.
-                'tail_time': 0.0,
-
-                # Projector image coordinates, [-1, +1] in each axis. (0, 0) is the center of the
-                # image, which is the point this protocol exists to find.
-                'ndc_x': 0.0,
-                'ndc_y': 0.0,
-                # Radius as a fraction of the image half-width, corrected to be round in the image
-                # rather than in NDC. 0.01 is about 9 px across a 912 px panel.
-                'radius': 0.01,
-                'intensity': 1.0,
-                }
-
-    def get_run_parameter_defaults(self):
-        return {'num_trials': 1,
-                'idle_color': 0.0,
-                'pre_run_time': 0,
-                'post_run_time': 0,
-                'all_combinations': True,
-                'randomize_order': False}
-
-# %%
 
 class ReachTheGoal(BaseProtocol):
     """A trial that ends when the subject arrives, not when a timer says so.
 
-    A red tower stands at a goal distance ahead. Walk to it and the trial ends immediately, with
-    ``trial_end_reason='reached_goal'`` recorded; stand still and ``stim_time`` ends the trial as
-    usual, so the run cannot hang on an unwilling subject. This is the runnable version of the
+    A red tower stands at a goal location ahead. Arrive within ``GOAL_RADIUS`` of it and the trial
+    ends immediately, with ``trial_end_reason='reached_goal'`` recorded; stand still -- or walk
+    straight past it -- and ``stim_time`` ends the trial as usual, so the run cannot hang on an
+    unwilling subject and cannot be finished by wandering anywhere sufficiently far forward. This is the runnable version of the
     docs' "Trials that end when the animal does something".
 
     To try it without hardware: on a config with ``loco_available: True`` (the built-in default
@@ -518,12 +278,13 @@ class ReachTheGoal(BaseProtocol):
     tracker update.
     """
 
-    # The goal, in meters -- deliberately a class attribute, not a protocol parameter.
+    # The goal, in meters -- deliberately class attributes, not protocol parameters.
     # server_side_state_dependent_control runs in the server process, which imports this module
     # and reads the *class*; it never sees the protocol object, so a value edited in the GUI would
-    # move the tower (below) without moving the finish line. Keeping the number here means the
+    # move the tower (below) without moving the finish line. Keeping the numbers here means the
     # stimulus and the trial-ending condition cannot disagree.
-    GOAL_Y = 0.10   # 10 presses of the Up arrow at KeyTrac's default 0.01 m step
+    GOAL_LOCATION = (0.0, 0.10)   # (x, y): 10 presses of the Up arrow at KeyTrac's 0.01 m step
+    GOAL_RADIUS = 0.02            # arrive within two presses of the tower, in any direction
 
     def __init__(self, cfg):
         super().__init__(cfg)
@@ -541,13 +302,15 @@ class ReachTheGoal(BaseProtocol):
         is the closed-loop part (a gain, an offset) -- ending the trial is an extra thing it may
         do along the way. This one leaves the update untouched.
         """
-        # Read the fresh value from state_update first, and only fall back to previous_state.
+        # Read fresh values from state_update first, and only fall back to previous_state.
         # state_update holds what the tracker just reported (only the keys that changed);
         # previous_state is the accumulated state as it was BEFORE this update. A condition
         # written against previous_state alone fires one update late -- and if the subject
-        # crosses the line on the run's last update, never.
+        # arrives on the run's last update, never.
+        x = state_update.get('x', previous_state.get('x', 0))
         y = state_update.get('y', previous_state.get('y', 0))
-        if y >= ReachTheGoal.GOAL_Y:
+        goal_x, goal_y = ReachTheGoal.GOAL_LOCATION
+        if (x - goal_x) ** 2 + (y - goal_y) ** 2 <= ReachTheGoal.GOAL_RADIUS ** 2:
             # Ends only the trial in progress, as if its timer had elapsed; the run goes on to
             # the next trial, which re-zeroes the subject at the start line (set_pos_0).
             server.end_trial(reason='reached_goal')
@@ -559,12 +322,15 @@ class ReachTheGoal(BaseProtocol):
         self.trial_stim_parameters = [
             # A floor, so walking is visible as motion even before the tower grows.
             {'name': 'CheckerboardFloor',
-             'mean': 0.3, 'contrast': 0.5, 'center': (0, self.GOAL_Y / 2, -0.05),
-             'side_length': (0.25, self.GOAL_Y + 0.25), 'patch_width': 0.02},
-            # The goal itself, at the same distance the server-side condition tests.
+             'mean': 0.3, 'contrast': 0.5, 'center': (0, self.GOAL_LOCATION[1] / 2, -0.05),
+             'side_length': (0.25, self.GOAL_LOCATION[1] + 0.25), 'patch_width': 0.02},
+            # The goal itself, at the same location the server-side condition tests, sized to the
+            # radius that counts as arrival.
             {'name': 'Tower',
-             'color': [1, 0, 0, 1], 'cylinder_radius': 0.01, 'cylinder_height': 0.1,
-             'cylinder_location': (0, self.GOAL_Y, 0), 'n_faces': 16},
+             'color': [1, 0, 0, 1], 'cylinder_radius': self.GOAL_RADIUS / 2,
+             'cylinder_height': 0.1,
+             'cylinder_location': (self.GOAL_LOCATION[0], self.GOAL_LOCATION[1], 0),
+             'n_faces': 16},
         ]
 
     def get_protocol_parameter_defaults(self):

@@ -51,7 +51,7 @@ def test_sequence_repeats_to_fill_num_trials():
 def test_server_error_demo_requests_a_nonexistent_stim():
     # The demo protocol must ask for a stim class that does not exist, so load_stim raises on the
     # server (demonstrating server -> client error reporting).
-    from stimpack.experiment.example_protocol import ServerErrorDemo
+    from stimpack.experiment.diagnostics_protocol import ServerErrorDemo
     p = ServerErrorDemo(cfg={})
     p.get_trial_parameters()
     assert p.trial_stim_parameters == {"name": "NoSuchStimulus_ServerErrorDemo"}

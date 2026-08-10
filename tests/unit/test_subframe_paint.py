@@ -212,7 +212,7 @@ def test_each_subframe_lands_on_its_own_position():
     one."""
     from scipy.interpolate import interp1d
 
-    from stimpack.experiment.example_protocol import SubframeTimingCheck
+    from stimpack.experiment.diagnostics_protocol import SubframeTimingCheck
 
     protocol = SubframeTimingCheck.__new__(SubframeTimingCheck)
     rate, n, separation = 360.0, 3, 10.0
@@ -233,7 +233,7 @@ def test_the_staircase_holds_rather_than_slides():
     smearing this stimulus exists to detect."""
     from scipy.interpolate import interp1d
 
-    from stimpack.experiment.example_protocol import SubframeTimingCheck
+    from stimpack.experiment.diagnostics_protocol import SubframeTimingCheck
 
     protocol = SubframeTimingCheck.__new__(SubframeTimingCheck)
     pairs = protocol.subframe_positions(0.05, 3, 360.0, 10.0, 0.0)
@@ -250,7 +250,7 @@ def test_the_staircase_holds_rather_than_slides():
 def test_the_check_stimulus_declares_what_the_rig_was_told():
     """subframe_rate and n_subframes are parameters, not read from the screen -- this is the
     stimulus you run when you do not yet believe the screen is doing what it was told."""
-    from stimpack.experiment.example_protocol import SubframeTimingCheck
+    from stimpack.experiment.diagnostics_protocol import SubframeTimingCheck
 
     defaults = SubframeTimingCheck.get_protocol_parameter_defaults(None)
 
@@ -286,7 +286,7 @@ class FakeManager:
 
 @pytest.fixture
 def check_stimulus(monkeypatch):
-    from stimpack.experiment.example_protocol import SubframeTimingCheck
+    from stimpack.experiment.diagnostics_protocol import SubframeTimingCheck
     from stimpack.experiment.protocol import BaseProtocol
 
     # Silence the base implementations: what is under test is only what this protocol adds to them.

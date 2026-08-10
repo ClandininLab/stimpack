@@ -32,8 +32,10 @@ def test_gui_constructs_with_expected_widgets(experiment_gui):
 def test_protocols_are_discovered(experiment_gui):
     names = [c.__name__ for c in experiment_gui.available_protocols]
     assert 'DriftingSquareGrating' in names
-    assert 'ServerErrorDemo' in names
     assert 'BaseProtocol' not in names        # the base class itself is excluded
+    # Diagnostics are deliberately NOT here: a fresh install's dropdown shows only experiments.
+    # They load via module_paths (stimpack:experiment/diagnostics_protocol.py).
+    assert 'ServerErrorDemo' not in names
 
 
 # --- selecting a protocol -----------------------------------------------------------------------
