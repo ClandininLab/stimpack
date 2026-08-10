@@ -45,6 +45,20 @@ They talk over a small JSON protocol. Calls are addressed to a module::
     run_outcomes
     behavior_ended_trials
 
+Where your code goes: the labpack
+=================================
+
+``stimpack`` itself contains nothing lab-specific. Protocols, custom stimuli, rig geometry,
+hardware drivers and saved presets all live in a **labpack**: a separate repository your laboratory
+owns, which stimpack discovers at runtime from a path set once in its startup dialog. That split is
+what lets a lab upgrade stimpack without maintaining a fork, and keep rig configs -- data paths,
+machine addresses -- out of public view.
+
+Start yours from the template at `github.com/ClandininLab/labpack-template
+<https://github.com/ClandininLab/labpack-template>`_: press **Use this template**, clone, rename the
+package for your lab, and install it editable. The step-by-step walkthrough is
+:doc:`install_labpack`; :doc:`customize_labpack` maps what goes where inside it.
+
 Trials and series
 =================
 
@@ -94,5 +108,3 @@ experiment rather than during one.
 **An untargeted call goes to the server's root node**, not to every module. ``manager.load_stim(...)``
 without a ``target`` will not reach the screens.
 
-What is lab-specific -- protocols, stimuli, rig geometry, device drivers -- lives outside stimpack,
-in a ``labpack`` that stimpack loads at runtime. See :doc:`install_labpack`.

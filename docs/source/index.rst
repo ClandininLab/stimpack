@@ -10,7 +10,8 @@ animal's own movement, fed by whatever tracker a laboratory uses.
 
 Everything specific to your laboratory — rig geometry, hardware drivers, stimulus definitions,
 protocols — lives in a ``labpack`` outside the installed package, so one protocol library runs
-unchanged across rigs of different geometry and hardware. Data are written through pluggable
+unchanged across rigs of different geometry and hardware. Start yours from the
+`labpack template <https://github.com/ClandininLab/labpack-template>`_. Data are written through pluggable
 backends, including HDF5 and `NWB <https://www.nwb.org/>`_.
 
 .. _stimpack: https://github.com/ClandininLab/stimpack
