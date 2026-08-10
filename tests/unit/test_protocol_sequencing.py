@@ -117,14 +117,14 @@ class _FakeServer:
         self.ended.append(reason)
 
 
-def test_the_server_regenerates_the_exact_path_the_client_shows(tmp_path):
-    """ChaseTheSpot's whole premise: no spot position is ever sent. The client builds the stimulus
-    trajectory and the server rebuilds it from the seed, through the same function -- so the two
-    must be identical, not merely similar."""
+def test_the_server_regenerates_the_exact_path_the_client_shows():
+    """ChaseTheTower's whole premise: no tower position is ever sent. The client builds the
+    stimulus trajectories and the server rebuilds them from the seed, through the same function --
+    so the two must be identical, not merely similar."""
     import numpy as np
     import stimpack.experiment.example_protocol as ep
 
-    p = ep.ChaseTheSpot(cfg={})
+    p = ep.ChaseTheTower(cfg={})
     p.select_protocol_preset()
     p.protocol_parameters['seed'] = 11
     p.run_parameters['randomize_order'] = False
@@ -132,11 +132,12 @@ def test_the_server_regenerates_the_exact_path_the_client_shows(tmp_path):
     p.load_precomputed_trial_parameters()
     p.get_trial_parameters()
 
-    n = int(p.trial_protocol_parameters['stim_time'] / ep.ChaseTheSpot.DT) + 1
-    client_side = [v for _, v in p.trial_stim_parameters['theta']['tv_pairs']]
-    server_side = ep._chase_path(11, n)
+    n = int(p.trial_protocol_parameters['stim_time'] / ep.ChaseTheTower.DT) + 1
+    box = next(d for d in p.trial_stim_parameters if d['name'] == 'MovingBox')
+    xs, ys = ep._tower_path(11, n)
 
-    assert np.allclose(client_side, server_side)
+    assert np.allclose([v for _, v in box['x']['tv_pairs']], xs)
+    assert np.allclose([v for _, v in box['y']['tv_pairs']], ys)
 
 
 def test_the_chase_arms_stamps_catches_and_disarms(monkeypatch):
@@ -144,9 +145,9 @@ def test_the_chase_arms_stamps_catches_and_disarms(monkeypatch):
 
     now = [1000.0]
     monkeypatch.setattr(ep.time, 'time', lambda: now[0])
-    fn = ep.ChaseTheSpot.server_side_state_dependent_control
-    n = int(20.0 / ep.ChaseTheSpot.DT) + 1
-    path = ep._chase_path(5, n)
+    fn = ep.ChaseTheTower.server_side_state_dependent_control
+    n = int(30.0 / ep.ChaseTheTower.DT) + 1
+    xs, ys = ep._tower_path(5, n)
     server, state = _FakeServer(), {}
 
     def step(update):
@@ -161,25 +162,29 @@ def test_the_chase_arms_stamps_catches_and_disarms(monkeypatch):
     assert state['chase_t0'] == 1000.0, 'first armed update stamps the trial clock'
 
     now[0] = 1003.0
-    step({'theta': 0.0})
-    assert server.ended == [], 'facing forward; the spot never comes to you'
+    i = min(int(3.0 / ep.ChaseTheTower.DT), n - 1)
+    step({'x': 0.0, 'y': 0.0})
+    assert server.ended == [], 'at the start line, the tower is out of reach'
 
-    i = min(int(3.0 / ep.ChaseTheSpot.DT), n - 1)
-    step({'theta': path[i] + ep.ChaseTheSpot.CATCH_HALF_ANGLE - 1})
-    assert server.ended == ['caught']
+    step({'x': xs[i] + 0.01, 'y': ys[i]})
+    assert server.ended == ['caught'], 'within the catch radius: caught'
     assert state['chase_armed'] == 0, 'one catch per arming'
 
-    step({'theta': path[i]})
-    assert server.ended == ['caught'], 'disarmed: a second alignment must not end anything'
+    step({'x': xs[i], 'y': ys[i]})
+    assert server.ended == ['caught'], 'disarmed: standing on the tower must not end anything'
 
 
-def test_the_spot_never_wanders_into_the_catch_zone_unaided():
-    """A stationary subject must not be handed a catch: the path's clip bound keeps the spot at
-    least SPOT_START - WANDER_BOUND degrees off straight ahead, well outside CATCH_HALF_ANGLE."""
+def test_the_tower_never_wanders_into_the_catch_zone_unaided():
+    """A stationary subject must not be handed a catch: over many seeds, the tower's closest
+    approach to the start line stays outside CATCH_RADIUS. Guaranteed by construction
+    (TOWER_START minus WANDER_BOUND), and measured anyway."""
+    import numpy as np
     import stimpack.experiment.example_protocol as ep
 
-    n = int(20.0 / ep.ChaseTheSpot.DT) + 1
-    closest = min(min(abs(v) for v in ep._chase_path(seed, n)) for seed in range(10))
+    n = int(30.0 / ep.ChaseTheTower.DT) + 1
+    closest = min(
+        float(np.min(np.hypot(np.array(xs), np.array(ys))))
+        for xs, ys in (ep._tower_path(seed, n) for seed in range(10)))
 
-    assert closest >= ep.ChaseTheSpot.SPOT_START - ep.ChaseTheSpot.WANDER_BOUND
-    assert closest > ep.ChaseTheSpot.CATCH_HALF_ANGLE
+    assert closest >= ep.ChaseTheTower.TOWER_START[1] - ep.ChaseTheTower.WANDER_BOUND - 1e-9
+    assert closest > ep.ChaseTheTower.CATCH_RADIUS

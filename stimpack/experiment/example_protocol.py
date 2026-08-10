@@ -11,8 +11,8 @@ def _wander(rng, n, dt, sigma, tau=0.5, bound=60.0):
 
     The momentum is what makes it read as an animal moving rather than as noise: velocity decays
     toward zero while being kicked, so the path has smooth swerves and pauses instead of jitter.
-    Deterministic for a given rng state, which ChaseTheSpot depends on: the server regenerates the
-    exact path from the seed alone.
+    Deterministic for a given rng state, which ChaseTheTower depends on: the server regenerates
+    the exact path from the seed alone.
     """
     velocity = np.zeros(n)
     for i in range(1, n):
@@ -353,49 +353,53 @@ class ReachTheGoal(BaseProtocol):
 
 
 @functools.lru_cache(maxsize=32)
-def _chase_path(seed, n):
-    """The spot's azimuth over the trial, as a tuple so it can be cached.
+def _tower_path(seed, n):
+    """The tower's (x, y) path over the trial, in meters, as tuples so it can be cached.
 
-    One function, called from BOTH processes: the protocol (client) builds the stimulus trajectory
-    from it, and server_side_state_dependent_control (server) regenerates it to know where the
-    spot is now. Same seed, same path -- determinism is the channel. Cached because the server
-    half runs at tracker rate.
+    One function, called from BOTH processes: the protocol (client) builds the stimulus
+    trajectories from it, and server_side_state_dependent_control (server) regenerates it to know
+    where the tower is now. Same seed, same path -- determinism is the channel. Cached because the
+    server half runs at tracker rate. The two walks draw from one rng in a fixed order, which is
+    part of the contract: reordering them would change every path.
     """
     rng = np.random.default_rng(int(seed))
-    walk = _wander(rng, n, ChaseTheSpot.DT, sigma=ChaseTheSpot.WANDER_SIGMA,
-                   bound=ChaseTheSpot.WANDER_BOUND)
-    return tuple(ChaseTheSpot.SPOT_START + walk)
+    dt = ChaseTheTower.DT
+    x = ChaseTheTower.TOWER_START[0] + _wander(rng, n, dt, sigma=ChaseTheTower.WANDER_SIGMA,
+                                               bound=ChaseTheTower.WANDER_BOUND)
+    y = ChaseTheTower.TOWER_START[1] + _wander(rng, n, dt, sigma=ChaseTheTower.WANDER_SIGMA,
+                                               bound=ChaseTheTower.WANDER_BOUND)
+    return tuple(x), tuple(y)
 
 
-class ChaseTheSpot(BaseProtocol):
-    """Catch the wandering spot: pursuit, with the trial ending on the catch.
+class ChaseTheTower(BaseProtocol):
+    """ReachTheGoal, except the goal will not stay put: chase a drifting tower and catch it.
 
-    A dark spot wanders in azimuth, starting 45 degrees to the subject's left and never straying
-    into the straight-ahead direction on its own -- so a stationary subject cannot be handed a
-    catch. Turn toward it (hold the Left/Right arrows in the KeyTrac window) and the trial ends the
-    moment the spot is within ``CATCH_HALF_ANGLE`` of straight ahead, with
-    ``trial_end_reason='caught'`` recorded; ``stim_time`` remains the timeout.
+    A short translucent red pillar wanders slowly around the arena. Walk to it -- steer with the
+    Left/Right arrows, walk forward with the Up arrow in the KeyTrac window -- and the trial ends
+    the moment you are within ``CATCH_RADIUS`` of it, with ``trial_end_reason='caught'``
+    recorded. The tower drifts far slower than you walk, so every chase is winnable; stand still
+    and it stays out of reach, and ``stim_time`` ends the trial as a timeout.
 
-    What this exists to demonstrate: the server-side condition needs to know where the SPOT is,
-    and the spot's path is defined on the client. No position is ever sent. Instead the client
-    arms the trial with the path's seed (an ordinary ``set_subject_state`` key), and the server
-    regenerates the identical path from that seed -- _chase_path above is one function called from
-    both processes. Reproducibility is not just for replaying trials; it is what lets two
-    processes agree about a stimulus without talking about it.
+    What this adds over ReachTheGoal is the architectural point: the server-side condition needs
+    to know where the TOWER is, and the tower's path is defined on the client. No position is ever
+    sent. The client arms each trial with the path's seed (ordinary ``set_subject_state`` keys),
+    and the server regenerates the identical path from that seed -- _tower_path above is one
+    function called from both processes. Reproducibility is not just for replaying trials; it is
+    what lets two processes agree about a stimulus without talking about it.
 
-    Timing honesty: the server measures trial time from the first tracker update after arming,
-    on its own clock. That is within one tracker interval of stimulus onset when the loop starts
-    with the stimulus (as BaseProtocol arranges), which is ample for a catch condition; a
+    Timing honesty: the server measures trial time from the first tracker update after arming, on
+    its own clock -- within one tracker interval of stimulus onset, which is ample here. A
     condition needing frame-accurate stimulus time should be designed around the photodiode
     record instead.
     """
 
     # All class attributes, not protocol parameters, for ReachTheGoal's reason: the server
     # imports the class and never sees the protocol object.
-    CATCH_HALF_ANGLE = 8.0     # degrees from straight ahead that counts as caught
-    SPOT_START = 45.0          # degrees left of straight ahead at trial start
-    WANDER_SIGMA = 15.0        # gentler than WanderingSpot: this one is meant to be caught
-    WANDER_BOUND = 30.0        # the spot stays within SPOT_START +/- this: never straight ahead
+    CATCH_RADIUS = 0.02          # arrive within two KeyTrac presses of the tower, any direction
+    TOWER_START = (0.0, 0.08)    # meters ahead at trial start
+    WANDER_SIGMA = 0.02          # typical drift ~0.01 m/s: far slower than walking
+    WANDER_BOUND = 0.03          # the tower stays within this of its start, so a stationary
+                                 # subject is never handed a catch (0.08 - 0.03 > CATCH_RADIUS)
     DT = 1.0 / 60.0
 
     def __init__(self, cfg):
@@ -423,13 +427,14 @@ class ChaseTheSpot(BaseProtocol):
 
         t = now - t0
         n = int(fresh('chase_n', 0))
-        if n <= 0 or t > n * ChaseTheSpot.DT:      # past the timeout; the clock ends this trial
+        if n <= 0 or t > n * ChaseTheTower.DT:     # past the timeout; the clock ends this trial
             return state_update
 
-        spot = _chase_path(int(fresh('chase_seed', 0)), n)[min(int(t / ChaseTheSpot.DT), n - 1)]
-        heading = fresh('theta', 0.0)
-        error = (spot - heading + 180.0) % 360.0 - 180.0
-        if abs(error) <= ChaseTheSpot.CATCH_HALF_ANGLE:
+        xs, ys = _tower_path(int(fresh('chase_seed', 0)), n)
+        i = min(int(t / ChaseTheTower.DT), n - 1)
+        dx = fresh('x', 0.0) - xs[i]
+        dy = fresh('y', 0.0) - ys[i]
+        if dx * dx + dy * dy <= ChaseTheTower.CATCH_RADIUS ** 2:
             server.end_trial(reason='caught')
             state_update['chase_armed'] = 0        # one catch per arming
         return state_update
@@ -439,17 +444,24 @@ class ChaseTheSpot(BaseProtocol):
         params = self.trial_protocol_parameters
 
         n = int(params['stim_time'] / self.DT) + 1
-        path = _chase_path(int(params['seed']), n)
+        xs, ys = _tower_path(int(params['seed']), n)
         t = np.arange(n) * self.DT
 
-        self.trial_stim_parameters = {
-            'name': 'MovingSpot',
-            'radius': params['radius'],
-            'sphere_radius': 1,
-            'color': params['color'],
-            'theta': {'name': 'TVPairs', 'tv_pairs': list(zip(t, path)), 'kind': 'linear'},
-            'phi': 0,
-        }
+        self.trial_stim_parameters = [
+            # The same floor as ReachTheGoal, so walking is visible as motion.
+            {'name': 'CheckerboardFloor',
+             'mean': 0.3, 'contrast': 0.5, 'center': (0, self.TOWER_START[1] / 2, -0.05),
+             'side_length': (0.3, 0.3), 'patch_width': 0.02},
+            # The quarry: a short translucent pillar whose x/y follow the wandering path. Sized
+            # to CATCH_RADIUS so what you see is what the condition tests.
+            {'name': 'MovingBox',
+             'x_length': self.CATCH_RADIUS / 2, 'y_length': self.CATCH_RADIUS / 2,
+             'z_length': 0.04,
+             'color': [1, 0, 0, 0.6],
+             'x': {'name': 'TVPairs', 'tv_pairs': list(zip(t, xs)), 'kind': 'linear'},
+             'y': {'name': 'TVPairs', 'tv_pairs': list(zip(t, ys)), 'kind': 'linear'},
+             'z': -0.03},
+        ]
 
     def load_stimuli(self, manager, multicall=None):
         # Arm the server side: the seed is the whole description of the path, and resetting
@@ -463,12 +475,10 @@ class ChaseTheSpot(BaseProtocol):
 
     def get_protocol_parameter_defaults(self):
         return {'pre_time': 0.5,
-                'stim_time': 20.0,             # a timeout: catches usually come much sooner
+                'stim_time': 30.0,             # a timeout: catches usually come much sooner
                 'tail_time': 0.5,
                 'loco_pos_closed_loop': 1,
 
-                'radius': 5.0,
-                'color': [0, 0, 0, 1],
                 'seed': [0, 1, 2, 3, 4]}
 
     def get_run_parameter_defaults(self):

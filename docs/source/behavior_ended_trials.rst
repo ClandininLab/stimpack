@@ -11,10 +11,10 @@ it changes in your data.
 
    This page has two runnable examples that need no hardware. ``ReachTheGoal``: tick
    ``do_loco``, press View, hold the Up arrow in the KeyTrac window, and the trial ends as you
-   arrive at the tower (``trial_end_reason='reached_goal'``). ``ChaseTheSpot`` is its moving-target
-   sibling -- turn with the Left/Right arrows to catch a wandering spot -- and demonstrates
-   something further: the server-side condition tracks a client-defined stimulus by regenerating
-   its seeded path, with no position ever sent. See :doc:`locomotion` for the moving parts.
+   arrive at the tower (``trial_end_reason='reached_goal'``). ``ChaseTheTower`` is its moving-target
+   sibling -- the tower drifts, so steer with Left/Right and walk it down with Up -- and
+   demonstrates something further: the server-side condition tracks a client-defined stimulus by
+   regenerating its seeded path, with no position ever sent. See :doc:`locomotion` for the moving parts.
 
 Why it has to work this way
 ===========================
