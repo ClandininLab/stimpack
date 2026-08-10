@@ -25,15 +25,17 @@ In the ``.stimpack`` virtual environment, type:
     >>> stimpack
 
 
-This should result in a window opening, that looks like this:
+This should result in a window opening, that looks like this (shown with a ``labpack``
+configured; on a fresh install the Labpack Dir line is empty and only the default config is
+offered):
 
 .. image:: /assets/labpack_query.png
-    :width: 200px
+    :width: 320px
     :align: center
-    :alt: Stimpack window
+    :alt: Stimpack config selection window
 
-If you see this window, you have successfully installed stimpack. 
-Press `Enter` (red). You should now see a window that looks like this:
+If you see this window, you have successfully installed stimpack.
+Press ``Enter``. You should now see a window that looks like this:
 
 .. image:: /assets/stimpack_gui.png
     :width: 500px

@@ -26,13 +26,33 @@ experiment.data module
    :members:
    :show-inheritance:
 
+experiment.data_legacy module
+-----------------------------
+
+The HDF5 layout stimpack wrote before 0.3, selected with ``data_format: legacy_hdf5`` in a config,
+so analysis code that walks the old group names keeps working. See :doc:`labpack_configs`.
+
+.. automodule:: stimpack.experiment.data_legacy
+   :members:
+   :show-inheritance:
+
 experiment.data_nwb module
 --------------------------
 
-The NWB storage backend, selected with ``data_format: nwb`` in a config. Requires ``pynwb``
+The NWB storage backend, selected with ``data_format: nwb`` in a config. Requires ``pynwb``.
 See :doc:`labpack_configs`.
 
 .. automodule:: stimpack.experiment.data_nwb
+   :members:
+   :show-inheritance:
+
+experiment.deprecated_names module
+----------------------------------
+
+The pre-0.3 *epoch* spellings of the trial and series API, kept working with a once-per-process
+warning each. See :doc:`overview` for the rename.
+
+.. automodule:: stimpack.experiment.deprecated_names
    :members:
    :show-inheritance:
 

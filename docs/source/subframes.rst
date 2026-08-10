@@ -2,16 +2,16 @@
 Subframe multiplexing
 =====================
 
-A projector that can read the colour channels of one video frame as successive patterns turns a
+A projector that can read the color channels of one video frame as successive patterns turns a
 120 Hz video link into a 360 Hz monochrome display. ``stimpack`` renders that half: it draws *n*
 timepoints per frame and masks each into one channel. It cannot put the projector into the matching
-mode, and it cannot see whether the projector is in it — that hardware belongs to a labpack.
+mode, and it cannot see whether the projector is in it — that hardware belongs to a ``labpack``.
 
 So this is a feature a lab **completes**. The renderer is in stimpack; the projector driver and the
 one function that keeps the two in step are yours to write. This page is what that takes.
 
-The cost is colour. Under multiplexing each channel is a slice of time rather than a colour, so
-stimuli have to be greyscale — a colour stimulus is not an error, it is three timepoints that happen
+The cost is color. Under multiplexing each channel is a slice of time rather than a color, so
+stimuli have to be grayscale — a color stimulus is not an error, it is three timepoints that happen
 to differ, displayed in sequence.
 
 
@@ -22,10 +22,10 @@ Configuration, on :class:`~stimpack.visual_stim.screen.Screen`:
 
 ``subframes``
     1 for ordinary rendering, or 2–3 to divide each video frame that many ways. Three is the ceiling:
-    a frame has three 8-bit colour channels.
+    a frame has three 8-bit color channels.
 
 ``subframe_channel_order``
-    Which colour channel carries each successive timepoint, as a permutation of ``(0, 1, 2)`` —
+    Which color channel carries each successive timepoint, as a permutation of ``(0, 1, 2)`` —
     red, green, blue. Always the full permutation, even at ``subframes=2``, where the trailing entry
     names the channel that goes unwritten. That is what lets the order survive a change of
     ``subframes``.
@@ -97,14 +97,14 @@ can be handed an ordered list of channel names.
 
     server.register_function_on_root(set_subframes, 'set_subframes')
 
-This lives in a **rig server script** (``server/<rig>.py`` in a labpack), because which projector is
+This lives in a **rig server script** (``server/<rig>.py`` in a ``labpack``), because which projector is
 attached is a property of one rig, not of the lab. See :doc:`labpack_server`.
 
 
 Two vocabularies, one permutation
 =================================
 
-The renderer takes channel **indices**, because a colour write mask is positional. A projector's
+The renderer takes channel **indices**, because a color write mask is positional. A projector's
 pattern LUT takes channel **names**. Both describe the same decision, so a rig that writes it out
 twice can transpose them:
 
@@ -152,17 +152,17 @@ projector rather than refuse to run. See :doc:`modules_and_targets`.
 Limits
 ======
 
-- **1, 2 or 3 subframes.** The ceiling is the three colour channels of a frame. Two suits a rig with
+- **1, 2 or 3 subframes.** The ceiling is the three color channels of a frame. Two suits a rig with
   only two usable LEDs, or one trading rate for exposure per subframe.
-- **Greyscale stimuli only**, as above.
+- **Grayscale stimuli only**, as above.
 - **Between trials only.** ``set_subframes`` is refused while a stimulus is running. A driver's
   pattern-mode call also runs a validation sequence, which is not a per-trial-latency operation.
-- **Multiplexing costs grey levels, on DMD hardware.** Not a stimpack limit, but the one that
-  surprises people, so it belongs here. A DMD makes grey by pulse-width modulating bit-planes, so
+- **Multiplexing costs gray levels, on DMD hardware.** Not a stimpack limit, but the one that
+  surprises people, so it belongs here. A DMD makes gray by pulse-width modulating bit-planes, so
   bit depth *is* time: on a DLPC350 an 8-bit pattern occupies 8333 µs and cannot be shown faster
   than 120 Hz however it is sequenced. Two or three timepoints per frame therefore have to be
-  4-bit — 16 grey levels rather than 256. **The renderer is unaffected**: it writes ordinary 8-bit
-  greyscale and the projector displays the top nibble of each channel. Ask your projector driver
+  4-bit — 16 gray levels rather than 256. **The renderer is unaffected**: it writes ordinary 8-bit
+  grayscale and the projector displays the top nibble of each channel. Ask your projector driver
   for the depth explicitly; it is a property of the experiment, not a detail.
 - **The stimulus has to actually vary within a frame.** A stimulus that moves a degree per second
   gains nothing from being drawn three times 1/360 s apart. This buys temporal resolution, and only

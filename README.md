@@ -1,6 +1,6 @@
 # stimpack
 
-Precise and flexible generation of stimuli for neuroscience experiments.
+A modular framework for precise and flexible stimulus generation in systems neuroscience.
 
 [![Documentation](https://readthedocs.org/projects/stimpack/badge/?version=latest)](https://stimpack.readthedocs.io/en/latest/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
@@ -30,6 +30,13 @@ repository and `pip install -e .[test]`.
 
 Running `stimpack` opens the experiment GUI. See the
 [installation guide](https://stimpack.readthedocs.io/en/latest/install.html) if it doesn't.
+
+<!-- img/gui.png is a copy; the source of truth lives in paper/figures/. -->
+![The stimpack experiment GUI mid-run, with a subject selected and trials counting](img/gui.png)
+
+*The experiment GUI mid-run, identical on every rig: a protocol's parameter fields are built from
+the class's own declarations, so a new protocol is drivable without writing interface code; the
+bottom panel tracks the current trial's parameters and progress.*
 
 ## A stimulus in ten lines
 
@@ -71,7 +78,13 @@ manager.target('visual').load_stim(name='MovingPatch', width=10, height=30)
 manager.target('voltage_out').output_step(output_channels='DAC0', pre_time=0, step_time=1)
 ```
 
-![Client-Server Framework](img/client_server_framework.png)
+<!-- img/architecture.png is a copy; the source of truth and the regeneration scripts live in paper/figures/. -->
+![A protocol's timed module calls on the left, routed by the stimulus server to its modules on the right](img/architecture.png)
+
+*A protocol names the module each call is for, and the server routes it there. Inputs update a
+subject state that outputs follow, so the closed loop does not pass through the client. The
+auditory step is illustrative — no auditory module ships with stimpack; a lab adds one as a new
+module rather than a change to the core.*
 
 **Calls are one-way.** There is no return value to branch on, and attribute access alone never
 fails — a mistyped name still produces a callable. The failure isn't silent, though: the server
@@ -86,7 +99,7 @@ Stimuli are rendered for a subject at a known position relative to a display of 
 placement, so an object subtends the angle it should. There are two paths, chosen by the type of
 screen, and one rig may use both.
 
-**Flat screens** are described by the three physical corners of each region, in metres — `pa`
+**Flat screens** are described by the three physical corners of each region, in meters — `pa`
 lower-left, `pb` lower-right, `pc` upper-left. Each stimulus is drawn once per region through a
 generalized off-axis perspective ([Kooima 2009](https://csc.lsu.edu/~kooima/articles/genperspective/)),
 which is what corrects for a screen that is neither square to the animal nor equidistant from it.
@@ -107,6 +120,13 @@ CurvedScreen(
 )   # 94% of the bowl lit, ±65° azimuth and ±53° elevation
 ```
 
+<!-- img/geometry.png is a copy; the source of truth and the regeneration scripts live in paper/figures/. -->
+![Three panels: a rig schematic of projector and bowl, the warped frame sent to the projector, and the animal's view of the checkerboard](img/geometry.png)
+
+*One scene, rendered once into a cube map centered on the animal: the rig (a), the frame sent to
+the projector, warped by the bowl's geometry (b), and the animal's visual field over the same cube
+map (c) — the checkerboard's patches subtend 10° in the animal's own angular coordinates.*
+
 Because the screen is one draw call however finely it is tessellated, the cost scales with the scene
 and the number of cube faces — not with the screen's complexity. `draw_curved_screen()` plots the
 geometry, and the mesh reports its own coverage and pixels-per-degree, so a rig can be checked before
@@ -114,7 +134,7 @@ anything is projected onto it.
 
 ### Labpacks
 
-stimpack contains no hardware-specific code. A **labpack** is a lab's own directory of protocols,
+stimpack contains no hardware-specific code. A **`labpack`** is a lab's own directory of protocols,
 rig configs, custom stimuli and device drivers, kept in its own repository and pointed at by a
 config file. See [labpack-template](https://github.com/ClandininLab/labpack-template) to start one,
 and [`--check-labpack`](https://stimpack.readthedocs.io/en/latest/check_labpack.html) to verify it.

@@ -6,8 +6,13 @@ The experiment GUI
 the data backend, which is why a protocol written this morning is drivable without writing any
 interface code for it: selecting a protocol reads its declared parameters and builds the fields.
 
-.. image:: /assets/stimpack_gui.png
-   :alt: The stimpack experiment GUI, Main tab, with a protocol selected
+.. figure:: /images/gui.png
+   :align: center
+   :alt: The stimpack experiment GUI, Main tab, mid-run with a subject selected
+
+   The experiment GUI mid-run, identical on every rig: a protocol's parameter fields are built
+   from the class's own declarations, and the bottom panel tracks the run -- the current trial's
+   parameters, elapsed time, and trials completed.
 
 Starting up
 ===========
@@ -68,8 +73,8 @@ The other tabs
 **File**
     Create or load an experiment file, and browse what is in the one you have open as it fills.
 
-Neither tab can start a run while the other is running, and the buttons say so rather than
-silently doing nothing.
+Neither the Main tab nor the Ensemble tab can start a run while the other is running, and the
+buttons say so rather than silently doing nothing.
 
 .. note::
 

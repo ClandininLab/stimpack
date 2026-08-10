@@ -11,9 +11,9 @@ Parameter presets
 Fill in a protocol's parameters, press **Save preset**, give it a name, and it appears in the
 *Param preset* dropdown from then on. Selecting it restores those parameters.
 
-Presets are per protocol and live in the labpack, at
+Presets are per protocol and live in the ``labpack``, at
 ``<parameter_presets_dir>/<ProtocolName>.yaml``, where ``parameter_presets_dir`` comes from the
-config (see :doc:`labpack_configs`). They are therefore shared with everyone using that labpack and
+config (see :doc:`labpack_configs`). They are therefore shared with everyone using that ``labpack`` and
 versioned with it -- which is the point: "the version of this we ran last month" becomes a
 selection rather than a reconstruction.
 
@@ -68,8 +68,8 @@ readable and diffable::
     - !!python/tuple [MovingPatch, Default]
     - !!python/tuple [DriftingSquareGrating, fast_drift]
 
-**Load ensemble** reads one back. A pair naming a protocol this labpack does not have is reported
-and dropped rather than failing the load, so an ensemble written against a labpack with one extra
+**Load ensemble** reads one back. A pair naming a protocol this ``labpack`` does not have is reported
+and dropped rather than failing the load, so an ensemble written against a ``labpack`` with one extra
 protocol still opens.
 
 Running one

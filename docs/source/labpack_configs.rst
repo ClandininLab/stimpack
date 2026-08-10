@@ -1,14 +1,14 @@
 Stimpack Configs
 ================
 
-The configs in this directory are used to define user-specific information.
+The configs in a ``labpack``'s ``configs/`` directory define user- and rig-specific information.
 The following fields must be defined:
 
-- experimenter
-- subject_metadata
-- rig config
-- parameter_presets_dir
-- module_paths
+- ``experimenter``
+- ``subject_metadata``
+- ``rig_config``
+- ``parameter_presets_dir``
+- ``module_paths``
 
 An example may look like:
 
@@ -44,7 +44,7 @@ An example may look like:
 
     ``template_labpack`` is the package name in the template repository. If you renamed the package
     for your lab (recommended), use your own name here — these are file paths relative to your
-    labpack directory, so they must match the directory on disk.
+    ``labpack`` directory, so they must match the directory on disk.
 
 .. note::
 
@@ -109,11 +109,11 @@ backend.
     Tests assert that the group and attribute names it writes are the pre-rename ones, and that
     the two backends hold the same things under their two sets of names.
 
-    Put it in a labpack's ``lab_config.yaml`` to apply it to every rig at once, and set
+    Put it in a ``labpack``'s ``lab_config.yaml`` to apply it to every rig at once, and set
     ``data_format: hdf5`` in one rig's own config to move that rig over when its analysis is ready.
 
     It writes no ``data_format`` root attribute, deliberately: *absence* is how a reader
-    recognises this layout, and means exactly "legacy, or written before 0.3". It does record
+    recognizes this layout, and means exactly "legacy, or written before 0.3". It does record
     provenance, since what this backend guarantees is the names analysis reads, and added root
     attributes cost none of that.
 
@@ -159,14 +159,14 @@ Every experiment records the code that made it — in root attributes for the HD
 =======================  ========================================================================
 ``stimpack_version``     the installed distribution's version
 ``stimpack_revision``    stimpack's git commit, ``.dirty`` if its tree had uncommitted changes
-``labpack_directory``    where the labpack was read from
+``labpack_directory``    where the ``labpack`` was read from
 ``labpack_name``         that directory's name
-``labpack_revision``     the labpack's git commit, with the same ``.dirty`` marker
+``labpack_revision``     the ``labpack``'s git commit, with the same ``.dirty`` marker
 ``config_name``          which config file was used
 =======================  ========================================================================
 
 Both halves are recorded because a stimulus is defined by both: the protocol that ran, the
-parameters it exposed and the stimuli it drew all live in the labpack, so a stimpack version alone
+parameters it exposed and the stimuli it drew all live in the ``labpack``, so a stimpack version alone
 cannot say what an experiment did.
 
 ``stimpack_revision`` is there because ``stimpack_version`` can lie. It comes from installed
@@ -175,7 +175,7 @@ time — a rig running from a git checkout can report 0.1.1 while running 0.3.0 
 revision wherever it is present.
 
 Anything that cannot be determined is left out rather than written empty, so a file never claims
-to know something it does not. A labpack that is not a git checkout simply has no
+to know something it does not. A ``labpack`` that is not a git checkout simply has no
 ``labpack_revision``.
 
 Using your own data class
@@ -191,7 +191,7 @@ Using your own data class
     module_paths:
       data: labpack/data.py     # one class; its base fixes the format
 
-That is a real constraint rather than a missing feature. Honouring a request for ``nwb`` against a
+That is a real constraint rather than a missing feature. Honoring a request for ``nwb`` against a
 ``class Data(BaseData)`` would mean constructing stimpack's ``NWBData`` instead of your class, so
 the format would be right and every override you wrote would be silently gone — a worse failure
 than the wrong format, because a wrong extension is obvious immediately and a missing frame
@@ -214,7 +214,7 @@ labpack/data_nwb.py.`` or ``Written by stimpack's built-in NWBData.`` — so the
 answered even for a config with no data module of its own.
 
 It also offers **every** format, not only the ones you supplied a class for: what stimpack can
-write and what your labpack has customized are different questions. Each entry says which class
+write and what your ``labpack`` has customized are different questions. Each entry says which class
 will write it, and choosing one you have no class for adds what that costs:
 
 .. code-block:: text
@@ -224,7 +224,7 @@ will write it, and choosing one you have no class for adds what that costs:
                   nwb — labpack/data_nwb.py
 
 Two classes in one module are named with a ``:ClassName`` suffix, which is worth knowing for the
-two HDF5 layouts — they differ by five strings, so a labpack supporting both would otherwise put
+two HDF5 layouts — they differ by five strings, so a ``labpack`` supporting both would otherwise put
 its overrides in a mixin and write two three-line modules importing it:
 
 .. code-block:: yaml

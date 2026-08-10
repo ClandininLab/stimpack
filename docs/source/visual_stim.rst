@@ -12,6 +12,30 @@ visual\_stim.base module
    :undoc-members:
    :show-inheritance:
 
+visual\_stim.calibration module
+-------------------------------
+
+.. automodule:: stimpack.visual_stim.calibration
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+visual\_stim.cubemap module
+---------------------------
+
+.. automodule:: stimpack.visual_stim.cubemap
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+visual\_stim.curved\_screen module
+----------------------------------
+
+.. automodule:: stimpack.visual_stim.curved_screen
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 visual\_stim.distribution module
 --------------------------------
 

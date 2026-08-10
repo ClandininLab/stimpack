@@ -22,7 +22,7 @@ A window, and something in it
     manager = launch_stim_server(screen)
     sleep(2)                                  # give the screen subprocess time to come up
 
-    manager.set_idle_background(0.5)          # mid-grey between stimuli
+    manager.set_idle_background(0.5)          # mid-gray between stimuli
 
     for i in range(5):
         manager.load_stim(name='Checkerboard')
@@ -65,7 +65,7 @@ Describing a real screen
 ``Screen(fullscreen=False)`` is fine for a laptop, but on a rig the geometry matters: stimpack
 corrects perspective for a subject at a known position relative to a display of known size and
 placement. That is what a :class:`~stimpack.visual_stim.screen.SubScreen` describes -- three
-physical corners, in metres.
+physical corners, in meters.
 
 ``examples/2-custom_screen_server.py``:
 
@@ -73,7 +73,7 @@ physical corners, in metres.
 
     from stimpack.visual_stim.screen import Screen, SubScreen
 
-    subscreen = SubScreen(pa=(-1, 1, -1),      # lower left corner,  metres
+    subscreen = SubScreen(pa=(-1, 1, -1),      # lower left corner,  meters
                           pb=( 1, 1, -1),      # lower right corner
                           pc=(-1, 1,  1),      # upper left corner
                           viewport_ll=(-1, -1),
@@ -136,7 +136,7 @@ name suggested.
 :class:`stimpack.visual_stim.base.BaseProgram` for what a stimulus must implement, and
 :mod:`stimpack.visual_stim.shapes` for the geometry primitives to build it from.
 
-In a real experiment, custom stimuli live in a labpack rather than in a directory beside the
+In a real experiment, custom stimuli live in a ``labpack`` rather than in a directory beside the
 script, and are named in a config file -- see :doc:`install_labpack`.
 
 Where to go next

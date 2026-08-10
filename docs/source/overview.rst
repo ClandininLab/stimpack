@@ -23,16 +23,27 @@ They talk over a small JSON protocol. Calls are addressed to a module::
     manager.target('visual').load_stim(name='MovingPatch', width=10, height=30)
     manager.target('voltage_out').output_step(output_channels='DAC0', pre_time=0, step_time=1)
 
+.. figure:: /images/architecture.png
+    :align: center
+    :alt: A protocol's timed module calls on the left, routed by the stimulus server to its modules on the right
+
+    A protocol names the module each call is for, and the server routes it there. Inputs update a
+    subject state that outputs follow, so the closed loop does not pass through the client. The
+    auditory step is illustrative -- no auditory module ships with ``stimpack``; the stacked cards
+    are extension points, and a lab adds a capability as a new module rather than a change to the
+    core (see :doc:`writing_a_module`).
+
 .. toctree::
     :maxdepth: 1
 
     the_gui
     check_labpack
     modules_and_targets
+    voltage_out
     writing_a_module
     presets_and_ensembles
     run_outcomes
-    behaviour_ended_trials
+    behavior_ended_trials
 
 Trials and series
 =================
@@ -65,7 +76,7 @@ Before 0.3 stimpack called these an *epoch* and an *epoch run*. Its NWB files ne
 calls a presentation a trial -- so the same thing had two names depending on where you looked.
 Code written for the old names still works: ``get_epoch_parameters``, ``num_epochs`` and the rest
 are accepted, each warning once and naming its replacement. ``stimpack --check-labpack`` lists the
-ones a labpack still uses, and :doc:`labpack_configs` covers reading data files written either way.
+ones a ``labpack`` still uses, and :doc:`labpack_configs` covers reading data files written either way.
 
 Two things follow from that design and are worth knowing early.
 
@@ -84,4 +95,4 @@ experiment rather than during one.
 without a ``target`` will not reach the screens.
 
 What is lab-specific -- protocols, stimuli, rig geometry, device drivers -- lives outside stimpack,
-in a *labpack* that stimpack loads at runtime. See :doc:`install_labpack`.
+in a ``labpack`` that stimpack loads at runtime. See :doc:`install_labpack`.

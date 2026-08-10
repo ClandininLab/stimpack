@@ -11,7 +11,7 @@ A rig server is where hardware that only one rig has gets connected to stimpack.
 live here:
 
 **Rig geometry** -- the ``Screen`` and ``SubScreen`` objects describing the physical displays, in
-metres, relative to the subject at the origin.
+meters, relative to the subject at the origin.
 
 **Rig-specific functions**, registered with ``register_function_on_root(fn, 'name')`` and called
 from a protocol as ``manager.target('root').name()``. A projector's LED current, a shutter, a valve.

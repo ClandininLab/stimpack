@@ -7,7 +7,7 @@ A new capability is a new module, not a change to stimpack. The three that ship 
 and reached by name, and yours is added the same way. This page is the contract.
 
 If what you want is a new *stimulus*, or a new *tracker*, you do not need a module: stimuli are
-loaded from a labpack's ``module_paths.visual_stim`` and trackers subclass ``LocoManager``. A module
+loaded from a ``labpack``'s ``module_paths.visual_stim`` and trackers subclass ``LocoManager``. A module
 is for a capability that is none of the existing three -- a sound card, a treadmill brake, a
 temperature controller.
 
@@ -56,7 +56,7 @@ Registering it
 ==============
 
 Modules are held in ``BaseServer.modules``, keyed by the name protocols will target. Subclass the
-server in your labpack's rig script and add yours::
+server in your ``labpack``'s rig script and add yours::
 
     from stimpack.experiment import server
 
@@ -81,7 +81,7 @@ fail. With ``get_callable_names()`` implemented, a protocol can ask before it ca
         multicall.target('odor').open_valve(channel=2, duration=0.5)
 
 A request to a module the server does not have is a warning, not an error, and the run continues --
-the server cannot tell "this rig has no odour delivery" from "odour was expected here", and only
+the server cannot tell "this rig has no odor delivery" from "odor was expected here", and only
 the protocol knows which it is.
 
 **Ship a software stand-in.** ``keytrac`` is a keyboard that produces the same subject state a real
@@ -93,7 +93,7 @@ tested against in CI.
 What you do not have to build
 =============================
 
-The batching, the socket, the routing by target, the error path back to the client, the labpack
+The batching, the socket, the routing by target, the error path back to the client, the ``labpack``
 loading mechanism, the trial structure and the data file are all the framework's, and apply to your
 module unchanged the moment it is registered. What you write is the object that talks to your
 hardware.

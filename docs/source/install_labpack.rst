@@ -2,7 +2,7 @@
 Installation (Labpack)
 ======================
 
-``stimpack`` allows extensive customization and fine-tuning through a sister package, your *labpack*. A labpack is not published on PyPI: it is a lab-specific local collection of protocols, stimuli, rig configs and device drivers that augment the core ``stimpack`` facilities. You install your own copy from source, in editable mode.
+``stimpack`` allows extensive customization and fine-tuning through a sister package, your ``labpack``. A ``labpack`` is not published on PyPI: it is a lab-specific local collection of protocols, stimuli, rig configs and device drivers that augment the core ``stimpack`` facilities. You install your own copy from source, in editable mode.
 
 1. Make your own copy of the template
 -------------------------------------
@@ -35,6 +35,6 @@ The ``-e`` flag installs it in editable mode, so changes you make take effect im
     ``setup.py``, the ``from template_labpack...`` imports, and the ``module_paths`` entries in your
     configs — those four have to agree.
 
-    Stimpack never imports your labpack by name. It resolves the directory recorded in
+    Stimpack never imports your ``labpack`` by name. It resolves the directory recorded in
     ``path_to_labpack.txt`` and loads modules by file path, so the package name is yours to choose.
 

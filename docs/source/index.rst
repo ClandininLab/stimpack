@@ -1,6 +1,6 @@
-======================================================================
-stimpack: precise and flexible generation of stimuli for neuroscience
-======================================================================
+====================================================================================================
+stimpack: a modular framework for precise and flexible stimulus generation in systems neuroscience
+====================================================================================================
 
 `stimpack`_ is a Python framework for presenting precisely parameterized, flexibly defined
 sensory stimuli to an animal — across multiple perspective-corrected flat screens, calibrated
@@ -9,7 +9,7 @@ precise enough to line up with neural data. Stimuli run open loop or in closed l
 animal's own movement, fed by whatever tracker a laboratory uses.
 
 Everything specific to your laboratory — rig geometry, hardware drivers, stimulus definitions,
-protocols — lives in a *labpack* outside the installed package, so one protocol library runs
+protocols — lives in a ``labpack`` outside the installed package, so one protocol library runs
 unchanged across rigs of different geometry and hardware. Data are written through pluggable
 backends, including HDF5 and `NWB <https://www.nwb.org/>`_.
 

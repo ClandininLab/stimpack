@@ -27,7 +27,7 @@ the client. That is what :meth:`~stimpack.experiment.server.BaseServer.end_trial
 Where your condition runs
 =========================
 
-A labpack supplies a **server-side closed-loop function**, which stimpack calls on every subject
+A ``labpack`` supplies a **server-side closed-loop function**, which stimpack calls on every subject
 state update -- that is, at whatever rate the tracker reports, not once per frame or once per
 trial. It is defined on the protocol class and loaded onto the server when the run starts:
 
@@ -65,7 +65,7 @@ must return one. Ending the trial is an extra thing it may do along the way.
     all. Read the update first and fall back to the accumulated state, as above.
 
 It runs in the server process, so it can only use what is there: the ``server`` object, the
-accumulated ``subject_state``, and whatever the labpack imports. It cannot see the protocol
+accumulated ``subject_state``, and whatever the ``labpack`` imports. It cannot see the protocol
 object, which lives on the client.
 
 What happens next
@@ -78,7 +78,7 @@ current wait -- the pre, stimulus or tail interval, which are interruptible
 **The run continues.** The next trial starts normally. To stop the whole run instead, report an
 error, which aborts it and records why.
 
-Ending an trial is not instantaneous: the request travels over the socket and is acted on when the
+Ending a trial is not instantaneous: the request travels over the socket and is acted on when the
 client next polls, every couple of milliseconds. That is well inside a frame, but it is not a
 hardware trigger, and it is the slowest of the ways a stimulus can respond to an animal.
 
@@ -117,7 +117,7 @@ was missing -- one of the first three rows is.
 What this does to your data
 ===========================
 
-Once trials end on behaviour, the protocol's ``stim_time`` describes what you asked for, not what
+Once trials end on behavior, the protocol's ``stim_time`` describes what you asked for, not what
 happened. Analysis that assumes every trial is the same length will be quietly wrong.
 
 stimpack therefore records, per trial:
@@ -139,11 +139,11 @@ you want to condition the analysis on.
 Late requests
 =============
 
-A criterion met just as an trial was ending would, naively, arrive during the *next* trial and cut
+A criterion met just as a trial was ending would, naively, arrive during the *next* trial and cut
 that one short too -- a truncated trial with nothing in the data to explain it.
 
 To prevent that, the client tells the server which trial it is running, the server stamps each
-request with it, and the client ignores a request for an trial that has already ended. Between
+request with it, and the client ignores a request for a trial that has already ended. Between
 trials the server has nothing to end and ``end_trial()`` does nothing at all.
 
 This is handled for you. It matters only if you are writing something that calls ``end_trial``

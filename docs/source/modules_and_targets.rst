@@ -15,7 +15,7 @@ The server holds a set of modules, and every request names one:
 ``voltage_out`` rather than ``daq``
 ===================================
 
-The module is named for the capability, not the device. Optogenetics, odour delivery, liquid
+The module is named for the capability, not the device. Optogenetics, odor delivery, liquid
 reward and shock are all a voltage appearing on a channel; which of them a given rig does is a fact
 about its wiring, not about stimpack. ``target('daq')`` still works and maps to ``voltage_out``,
 warning once per session.
@@ -95,7 +95,7 @@ that cannot enumerate itself -- a module can make itself enumerable by implement
     rig-specific ones
 
 ``voltage_out``, ``locomotion``
-    their public attributes, since they dispatch on exactly those -- so a labpack's own DAQ
+    their public attributes, since they dispatch on exactly those -- so a ``labpack``'s own DAQ
     subclass is covered without doing anything
 
 ``visual``

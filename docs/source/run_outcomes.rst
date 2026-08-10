@@ -25,10 +25,10 @@ that predates this" rather than "not paused".
 Pausing a run
 =============
 
-Pause takes effect at the end of the trial in progress, never in the middle of one -- an trial cut
+Pause takes effect at the end of the trial in progress, never in the middle of one -- a trial cut
 short would be a partial trial recorded as a whole one. Between pressing Pause and that boundary
 the rig is still presenting and recording, so the GUI distinguishes the two states: *Pausing after
-this trial finishes...* while the series, then *Paused* once the run is genuinely idle.
+this trial finishes...* while the trial plays out, then *Paused* once the run is genuinely idle.
 
 Elapsed time in the GUI excludes paused seconds and reports them separately -- ``Elapsed / Est:
 123 / 300s  (+18)`` -- because the estimate it is measured against is a sum of stimulus durations
@@ -53,7 +53,7 @@ nothing.
 Stopping a run
 --------------
 
-Stop ends the trial in progress rather than waiting for it. An trial's pre, stimulus and tail
+Stop ends the trial in progress rather than waiting for it. A trial's pre, stimulus and tail
 intervals are :meth:`~stimpack.experiment.protocol.BaseProtocol.sleep` -- a wait that drains the
 client's queue as it goes and returns early when asked -- so a run with long trials stops when the
 button is pressed, not when the trial happens to end.
@@ -65,5 +65,5 @@ A protocol that needs an uninterruptible wait can ask for one::
 
     self.sleep(duration, process_server_requests=False)
 
-and one driven without a client -- the labpack checker does this -- falls back to a plain wait and
+and one driven without a client -- the ``labpack`` checker does this -- falls back to a plain wait and
 says so once.
