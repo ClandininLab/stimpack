@@ -100,8 +100,9 @@ multiply scene complexity by screen complexity. Measured on a 7.7 cm bowl at 153
 warp pass is about 0.28 ms of an 8.33 ms frame, and a hundredfold increase in mesh density moves it
 by under a tenth of a millisecond. The scene draws dominate, which is why the renderer draws only
 the faces the mesh actually samples -- and why ``cube_orientation`` reduces that count further by
-turning the cube to suit the screen, which it does by default (see
-``docs/design/cube-orientation.md``).
+turning the cube to suit the screen, which it does by default (see the `cube-orientation design
+note <https://github.com/ClandininLab/stimpack/blob/dev/docs/design/cube-orientation.md>`_ in the
+repository).
 
 The corner square is drawn last on either path, in projector coordinates, as a photodiode timing
 signal: it inverts on every rendered frame -- under :doc:`subframe multiplexing <subframes>`, on

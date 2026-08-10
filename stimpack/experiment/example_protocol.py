@@ -499,6 +499,89 @@ class ProjectorCenterBeam(BaseProtocol):
 
 # %%
 
+class ReachTheGoal(BaseProtocol):
+    """A trial that ends when the subject arrives, not when a timer says so.
+
+    A red tower stands at a goal distance ahead. Walk to it and the trial ends immediately, with
+    ``trial_end_reason='reached_goal'`` recorded; stand still and ``stim_time`` ends the trial as
+    usual, so the run cannot hang on an unwilling subject. This is the runnable version of the
+    docs' "Trials that end when the animal does something".
+
+    To try it without hardware: on a config with ``loco_available: True`` (the built-in default
+    config qualifies; the GUI's local server runs KeyTrac, a keyboard stand-in tracker), tick
+    ``do_loco`` in the run parameters, press View, focus the KeyTrac window and hold the Up arrow.
+    The scene approaches the tower, and the trial ends as you reach it.
+
+    The condition cannot be checked in this class's own methods: they run on the CLIENT, which
+    never sees subject state and cannot ask for it (requests carry no reply). So the check lives
+    in server_side_state_dependent_control below, which stimpack calls on the SERVER on every
+    tracker update.
+    """
+
+    # The goal, in meters -- deliberately a class attribute, not a protocol parameter.
+    # server_side_state_dependent_control runs in the server process, which imports this module
+    # and reads the *class*; it never sees the protocol object, so a value edited in the GUI would
+    # move the tower (below) without moving the finish line. Keeping the number here means the
+    # stimulus and the trial-ending condition cannot disagree.
+    GOAL_Y = 0.10   # 10 presses of the Up arrow at KeyTrac's default 0.01 m step
+
+    def __init__(self, cfg):
+        super().__init__(cfg)
+
+        self.run_parameters = self.get_run_parameter_defaults()
+        self.protocol_parameters = self.get_protocol_parameter_defaults()
+
+        # Ask stimpack to load server_side_state_dependent_control onto the server for the
+        # duration of the run. Without this flag the function below is never called.
+        self.use_server_side_state_dependent_control = True
+
+    @staticmethod
+    def server_side_state_dependent_control(server, previous_state, state_update):
+        """Runs ON THE SERVER, once per tracker update. Must return a state_update; modifying it
+        is the closed-loop part (a gain, an offset) -- ending the trial is an extra thing it may
+        do along the way. This one leaves the update untouched.
+        """
+        # Read the fresh value from state_update first, and only fall back to previous_state.
+        # state_update holds what the tracker just reported (only the keys that changed);
+        # previous_state is the accumulated state as it was BEFORE this update. A condition
+        # written against previous_state alone fires one update late -- and if the subject
+        # crosses the line on the run's last update, never.
+        y = state_update.get('y', previous_state.get('y', 0))
+        if y >= ReachTheGoal.GOAL_Y:
+            # Ends only the trial in progress, as if its timer had elapsed; the run goes on to
+            # the next trial, which re-zeroes the subject at the start line (set_pos_0).
+            server.end_trial(reason='reached_goal')
+        return state_update
+
+    def get_trial_parameters(self):
+        super().get_trial_parameters()
+
+        self.trial_stim_parameters = [
+            # A floor, so walking is visible as motion even before the tower grows.
+            {'name': 'CheckerboardFloor',
+             'mean': 0.3, 'contrast': 0.5, 'center': (0, self.GOAL_Y / 2, -0.05),
+             'side_length': (0.25, self.GOAL_Y + 0.25), 'patch_width': 0.02},
+            # The goal itself, at the same distance the server-side condition tests.
+            {'name': 'Tower',
+             'color': [1, 0, 0, 1], 'cylinder_radius': 0.01, 'cylinder_height': 0.1,
+             'cylinder_location': (0, self.GOAL_Y, 0), 'n_faces': 16},
+        ]
+
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 0.5,
+                'stim_time': 30.0,             # a timeout, not the expected duration
+                'tail_time': 0.5,
+                'loco_pos_closed_loop': 1}     # the scene follows the subject within the trial
+
+    def get_run_parameter_defaults(self):
+        return {'num_trials': 5,
+                'idle_color': 0.5,
+                'pre_run_time': 0,
+                'post_run_time': 0,
+                'all_combinations': True,
+                'randomize_order': False}
+
+
 class LinearTrackWithTowers(BaseProtocol):
     """
     Linear track with towers. Towers can be rotating or stationary, and can be sine or square wave gratings.
@@ -635,7 +718,7 @@ class LinearTrackWithTowers(BaseProtocol):
                 self.trial_stim_parameters.append(tower)
 
     @staticmethod
-    def server_side_state_dependent_control(manager:MySocketClient, previous_state:dict, state_update:dict) -> dict:
+    def server_side_state_dependent_control(server, previous_state:dict, state_update:dict) -> dict:
         y = state_update.get('y', previous_state.get('y', 0))
         y_pos_modulo = state_update.get('y_pos_modulo', previous_state.get('y_pos_modulo', 400)) / 100  # cm -> meters
         y_pos_offset = state_update.get('y_pos_offset', previous_state.get('y_pos_offset', 400)) / 100  # cm -> meters

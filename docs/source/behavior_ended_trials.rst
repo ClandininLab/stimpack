@@ -7,6 +7,13 @@ opposite: the trial ends when the animal fixates long enough, reaches a virtual 
 choice, or stops walking. This page is about how stimpack supports that, and about the one thing
 it changes in your data.
 
+.. tip::
+
+   This page has a runnable example that needs no hardware: the built-in ``ReachTheGoal``
+   protocol. Select it in the GUI, tick ``do_loco``, press View, and hold the Up arrow in the
+   KeyTrac window -- the trial ends as you arrive at the tower, with
+   ``trial_end_reason='reached_goal'`` recorded. See :doc:`locomotion` for the moving parts.
+
 Why it has to work this way
 ===========================
 
