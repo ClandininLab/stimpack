@@ -11,6 +11,7 @@ the GUI) and ``visual_stim`` (screens, stimuli, rendering) are where most reader
    stimpack.daq
    experiment
    stimpack.locomotion
+   stimpack.module
    rpc
    util
    visual_stim

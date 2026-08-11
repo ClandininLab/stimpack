@@ -14,25 +14,36 @@ temperature controller.
 The contract
 ============
 
-One method is required::
+Subclass :class:`stimpack.module.BaseModule` and write the methods your hardware needs::
 
-    class OdorManager:
-        def handle_request_list(self, request_list):
-            for request in request_list:
-                if request['name'] in dir(self):
-                    getattr(self, request['name'])(*request.get('args', []),
-                                                   **request.get('kwargs', {}))
+    from stimpack.module import BaseModule
 
-Requests arrive in batches, because a protocol builds a multicall and sends it in one round trip.
-Everything else is optional, and each option buys something specific:
+    class OdorManager(BaseModule):
+        module_name = 'odor'          # prefix on errors reported to the client
+
+        def open_valve(self, channel, duration):
+            ...
+
+That is a complete module: any public method is callable from a protocol. The base class carries
+the parts that are easy to get subtly wrong -- request dispatch with each handler's errors
+isolated and reported (one bad request cannot kill the batch or the server loop), unknown names
+reported rather than silently skipped (a typo'd call otherwise simply never happens),
+``target('all')`` broadcasts quietly ignored when this module lacks the name -- plus no-op
+defaults for every hook below.
+
+The contract itself stays duck-typed: the server checks for methods, never for the base class,
+so a module may instead be any object with ``handle_request_list(request_list)``, each request a
+dict of ``name``, ``args`` and ``kwargs``. Requests arrive in batches, because a protocol builds
+a multicall and sends it in one round trip. The hooks below are optional either way; with
+``BaseModule`` they exist as no-ops to override, without it they are simply absent.
 
 ``get_callable_names()``
     The names this module answers to. The server sends them to the client when the connection
-    opens, which is what makes ``has_server_function()`` able to answer. Implement it if you can
-    enumerate your surface; **decline to implement it if you cannot**. The visual module forwards
-    to screen subprocesses and so does not know its own surface, and it declines rather than
-    answering wrongly -- callers are then told the answer is unknown, which is honest, instead of
-    being told "no" about a function that exists.
+    opens, which is what makes ``has_server_function()`` able to answer. ``BaseModule``'s version
+    enumerates the public methods, which is exactly right for the inherited dispatch. A module
+    that cannot enumerate itself -- one that forwards requests elsewhere -- should **return
+    None** (or, without the base class, not implement this at all): callers are then told the
+    answer is unknown, which is honest, instead of being told "no" about a function that exists.
 
 ``start()`` / ``close()``
     Called when the server starts and shuts down. Acquire and release the hardware here rather
@@ -51,6 +62,8 @@ Everything else is optional, and each option buys something specific:
     message reaches the client, is shown in the GUI, and aborts the run; ``'warning'`` reports
     without aborting. An exception you let escape ``handle_request_list`` is caught and reported
     for you, but a *silent* failure is not, so report the ones you can detect.
+    ``BaseModule.report(level, text)`` is the same call wrapped so that a broken or absent
+    reporter cannot raise out of your handler.
 
 Registering it
 ==============

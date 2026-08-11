@@ -235,9 +235,14 @@ class BaseServer(MySocketServer):
             if getattr(type(module), 'get_callable_names', None) is None:
                 continue
             try:
-                functions[module_name] = sorted(module.get_callable_names())
+                names = module.get_callable_names()
             except Exception:
-                pass          # a module that cannot say is simply not listed
+                continue      # a module that cannot say is simply not listed
+            if names is None:
+                # The BaseModule form of declining: inheritance makes absence impossible, so a
+                # module that forwards its requests elsewhere returns None to mean "unknown".
+                continue
+            functions[module_name] = sorted(names)
 
         self.write_request_list([
             {'name': 'report_server_modules', 'args': [sorted(self.modules)], 'kwargs': {}},

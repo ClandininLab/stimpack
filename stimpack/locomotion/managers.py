@@ -13,71 +13,18 @@ import threading
 import json
 import warnings, traceback
 
-from stimpack.rpc.transceiver import is_broadcast
+from stimpack.module import BaseModule
 from time import time
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from stimpack.experiment.server import BaseServer
 
-class LocoManager():
-    def __init__(self, verbose=False) -> None:
-        self.verbose = verbose
-        self.error_reporter = None  # optional callback(level, text); set by BaseServer to reach the client
-        pass
-    
-    def set_save_directory(self, save_directory):
-        pass
-    
-    def start(self):
-        pass
-    
-    def close(self):
-        pass
+class LocoManager(BaseModule):
+    """The locomotion module's base: dispatch, enumeration and lifecycle come from BaseModule;
+    a tracker driver subclasses this (or LocoClosedLoopManager below) and adds its hardware."""
+    module_name = 'locomotion'   # prefix on errors reported to the client
 
-    def on_connection_close(self):
-        pass
 
-    def get_callable_names(self):
-        """
-        Names this module will answer to, for the server to advertise (see
-        BaseServer.on_connection_open and BaseProtocol.has_server_function).
-
-        Dispatch here is `request['name'] in dir(self)`, so the surface is exactly the public
-        attributes. A module that cannot enumerate itself -- one that forwards to a subprocess,
-        as the visual module does -- simply does not implement this, and callers are told the
-        answer is unknown rather than given a wrong one.
-        """
-        return sorted(name for name in dir(self)
-                      if not name.startswith('_') and callable(getattr(self, name, None)))
-
-    def handle_request_list(self, request_list):
-        for request in request_list:
-            if request['name'] in dir(self):
-                # If the request is a method of this class, execute it, isolating handler errors.
-                try:
-                    getattr(self, request['name'])(*request.get('args', []), **request.get('kwargs', {}))
-                except Exception as e:
-                    warnings.warn(f"{self.__class__.__name__}: error handling '{request['name']}':\n{traceback.format_exc()}")
-                    reporter = getattr(self, 'error_reporter', None)
-                    if reporter is not None:
-                        try:
-                            reporter('error', f"locomotion: {request['name']}: {type(e).__name__}: {e}")
-                        except Exception:
-                            pass
-            else:
-                # Report rather than silently skip: an unknown name here means the call simply
-                # never happens, which is invisible to the caller.
-                msg = f"{self.__class__.__name__}: no such method '{request['name']}'"
-                if is_broadcast(request):
-                    continue          # a target('all') broadcast this module simply doesn't handle
-                warnings.warn(msg)
-                reporter = getattr(self, 'error_reporter', None)
-                if reporter is not None:
-                    try:
-                        reporter('error', f'locomotion: {msg}')
-                    except Exception:
-                        pass
-    
 class LocoSocketManager():
     def __init__(self, host, port, udp=True, verbose=False) -> None:
         self.host = host
@@ -92,34 +39,6 @@ class LocoSocketManager():
         self.sock_buffer = "\n"
         self.data_prev:dict[str, float] = {}
 
-    def handle_request_list(self, request_list):
-        for request in request_list:
-            if request['name'] in dir(self):
-                # If the request is a method of this class, execute it, isolating handler errors.
-                try:
-                    getattr(self, request['name'])(*request.get('args', []), **request.get('kwargs', {}))
-                except Exception as e:
-                    warnings.warn(f"{self.__class__.__name__}: error handling '{request['name']}':\n{traceback.format_exc()}")
-                    reporter = getattr(self, 'error_reporter', None)
-                    if reporter is not None:
-                        try:
-                            reporter('error', f"locomotion: {request['name']}: {type(e).__name__}: {e}")
-                        except Exception:
-                            pass
-            else:
-                # Report rather than silently skip: an unknown name here means the call simply
-                # never happens, which is invisible to the caller.
-                msg = f"{self.__class__.__name__}: no such method '{request['name']}'"
-                if is_broadcast(request):
-                    continue          # a target('all') broadcast this module simply doesn't handle
-                warnings.warn(msg)
-                reporter = getattr(self, 'error_reporter', None)
-                if reporter is not None:
-                    try:
-                        reporter('error', f'locomotion: {msg}')
-                    except Exception:
-                        pass
-    
     def connect(self):
         '''
         Open / connect to socket
@@ -293,34 +212,6 @@ class LocoClosedLoopManager(LocoManager):
         if start_at_init:
             self.start()
 
-    def handle_request_list(self, request_list):
-        for request in request_list:
-            if request['name'] in dir(self):
-                # If the request is a method of this class, execute it, isolating handler errors.
-                try:
-                    getattr(self, request['name'])(*request.get('args', []), **request.get('kwargs', {}))
-                except Exception as e:
-                    warnings.warn(f"{self.__class__.__name__}: error handling '{request['name']}':\n{traceback.format_exc()}")
-                    reporter = getattr(self, 'error_reporter', None)
-                    if reporter is not None:
-                        try:
-                            reporter('error', f"locomotion: {request['name']}: {type(e).__name__}: {e}")
-                        except Exception:
-                            pass
-            else:
-                # Report rather than silently skip: an unknown name here means the call simply
-                # never happens, which is invisible to the caller.
-                msg = f"{self.__class__.__name__}: no such method '{request['name']}'"
-                if is_broadcast(request):
-                    continue          # a target('all') broadcast this module simply doesn't handle
-                warnings.warn(msg)
-                reporter = getattr(self, 'error_reporter', None)
-                if reporter is not None:
-                    try:
-                        reporter('error', f'locomotion: {msg}')
-                    except Exception:
-                        pass
-        
     def set_save_directory(self, save_directory):
         self.save_directory = save_directory
         
