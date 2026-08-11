@@ -280,6 +280,11 @@ class ReachTheGoal(BaseProtocol):
     never sees subject state and cannot ask for it (requests carry no reply). So the check lives
     in server_side_state_dependent_control below, which stimpack calls on the SERVER on every
     tracker update.
+
+    This is the MINIMAL behavior-ended trial, and the one to copy when writing your own: the
+    control function is a distance check and an end_trial call. ChaseTheTower is the same task
+    with the goal in motion, and carries the extra machinery a moving, client-defined target
+    needs -- start there only if your condition needs it.
     """
 
     # The goal, in meters -- deliberately class attributes, not protocol parameters.
