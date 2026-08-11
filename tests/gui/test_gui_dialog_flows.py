@@ -434,3 +434,58 @@ def test_the_placeholder_never_reaches_the_config(qapp, tmp_path):
     dialog.on_pressed_enter_button()
 
     assert stub.cfg['data_format'] == 'nwb'
+
+
+# --- selecting, keeping, and clearing the labpack -------------------------------------------------
+
+def _rig_dialog(qapp, monkeypatch, recorded='/some/lab/pack'):
+    """A real InitializeRigGUI against a fake recorded labpack path, with writes captured."""
+    import stimpack.experiment.gui as gui_mod
+    from stimpack.experiment.util import config_tools
+
+    writes = []
+    monkeypatch.setattr(config_tools, 'get_labpack_directory', lambda: recorded)
+    monkeypatch.setattr(config_tools, 'set_labpack_directory', writes.append)
+    monkeypatch.setattr(config_tools, 'get_available_config_files', lambda d=None: [])
+
+    class StubGUI:
+        data_format_override = None
+        cfg, cfg_initialized = {}, False
+
+    dialog = gui_mod.InitializeRigGUI()
+    dialog.setupUI(StubGUI(), parent=None)
+    return dialog, writes
+
+
+def test_cancelling_the_labpack_picker_changes_nothing(qapp, monkeypatch, tmp_path):
+    """Cancel used to persist an empty path: pressing Escape silently unconfigured the lab's
+    labpack for every later session. Cancel must mean "no change"."""
+    import stimpack.experiment.gui as gui_mod
+
+    dialog, writes = _rig_dialog(qapp, monkeypatch)
+    monkeypatch.setattr(gui_mod.QFileDialog, 'getExistingDirectory', lambda *a, **k: '')
+
+    dialog.on_pressed_labpack_dir_button()
+
+    assert dialog.labpack_dir == '/some/lab/pack', 'cancel discarded the configured labpack'
+    assert writes == [], 'cancel persisted a change'
+
+
+def test_the_none_button_clears_the_labpack_deliberately(qapp, monkeypatch):
+    dialog, writes = _rig_dialog(qapp, monkeypatch)
+
+    dialog.pb_clear_labpack.click()
+
+    assert dialog.labpack_dir == ''
+    assert writes == [''], 'clearing must persist, so the choice survives a restart'
+    offered = [dialog.config_combobox.itemText(i) for i in range(dialog.config_combobox.count())]
+    assert offered == ['default'], 'no labpack leaves only the built-in default config'
+
+
+def test_the_empty_labpack_state_names_itself(qapp, monkeypatch):
+    """(1) of the discoverability pair: a blank field reads as 'nothing configured yet', not as
+    'you are on stimpack's built-in examples'. The placeholder says which."""
+    dialog, _ = _rig_dialog(qapp, monkeypatch, recorded='')
+
+    assert dialog.le_labpack_dir.text() == ''
+    assert 'built-in' in dialog.le_labpack_dir.placeholderText()

@@ -2203,8 +2203,18 @@ class InitializeRigGUI(QWidget):
         
         self.le_labpack_dir = QLineEdit(self.labpack_dir)
         self.le_labpack_dir.setReadOnly(True)
+        # An empty path is a real state, not an accident, so it says what it means: no labpack
+        # loads stimpack's built-in example protocols and the built-in default config.
+        self.le_labpack_dir.setPlaceholderText("none — stimpack's built-in examples")
         self.init_grid.addWidget(self.le_labpack_dir, 0, 1)
-        
+
+        self.pb_clear_labpack = QPushButton('None')
+        self.pb_clear_labpack.clicked.connect(self.on_pressed_clear_labpack_button)
+        self.pb_clear_labpack.setToolTip(
+            'Use no labpack: stimpack\'s built-in example protocols and default config. '
+            'The recorded labpack path is cleared until one is selected again.')
+        self.init_grid.addWidget(self.pb_clear_labpack, 0, 3)
+
         self.pb_labpack_repo = QPushButton('?')
         self.pb_labpack_repo.clicked.connect(lambda: QtGui.QDesktopServices.openUrl(QUrl("https://www.github.com/ClandininLab/labpack-template")))
         self.pb_labpack_repo.setToolTip("You can customize your Stimpack by importing your own Labpack. Click here for a template Labpack repository.")
@@ -2262,13 +2272,22 @@ class InitializeRigGUI(QWidget):
 
     def on_pressed_labpack_dir_button(self):
         filepath = QFileDialog.getExistingDirectory(self, "Select Labpack directory")
-        if filepath!='' and len(config_tools.get_available_config_files(filepath)) == 0:
+        # Cancel means "no change", never "no labpack". It used to fall through and persist an
+        # empty path, so pressing Escape here silently unconfigured the lab's labpack for every
+        # later session. Clearing is deliberate now: the None button below.
+        if filepath == '':
+            return
+        if len(config_tools.get_available_config_files(filepath)) == 0:
             open_message_window(text='No config files found in ' + filepath)
             return
-        else:
-            self.labpack_dir = filepath
-            config_tools.set_labpack_directory(filepath)
-            self.load_labpack()
+        self.labpack_dir = filepath
+        config_tools.set_labpack_directory(filepath)
+        self.load_labpack()
+
+    def on_pressed_clear_labpack_button(self):
+        self.labpack_dir = ''
+        config_tools.set_labpack_directory('')
+        self.load_labpack()
     
     def load_labpack(self):
         self.le_labpack_dir.setText(self.labpack_dir)
