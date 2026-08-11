@@ -218,3 +218,17 @@ def test_do_loco_is_removed_on_a_rig_without_a_tracker():
     p = ep.ReachTheGoal(cfg=cfg)
     p.select_protocol_preset()
     assert 'do_loco' not in p.run_parameters
+
+
+def test_the_tower_base_is_never_coplanar_with_the_floor():
+    """Coplanar surfaces z-fight, and which wins varies per pixel and per driver: on rig hardware
+    the translucent tower shimmered with blinking lines along its base as it moved. The base must
+    sit strictly below the floor plane, by enough to clear depth-precision noise."""
+    import stimpack.experiment.example_protocol as ep
+
+    c = ep.ChaseTheTower
+    base = (c.FLOOR_Z + c.TOWER_HEIGHT / 2 - c.TOWER_SINK) - c.TOWER_HEIGHT / 2
+    top = base + c.TOWER_HEIGHT
+
+    assert base <= c.FLOOR_Z - 0.001, 'tower base is on (or above) the floor plane: z-fighting'
+    assert top > c.FLOOR_Z + 0.02, 'tower barely rises above the floor'

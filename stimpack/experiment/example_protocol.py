@@ -405,6 +405,15 @@ class ChaseTheTower(BaseProtocol):
     # imports the class and never sees the protocol object.
     CATCH_RADIUS = 0.02          # arrive within two KeyTrac presses of the tower, any direction
     TOWER_START = (0.0, 0.08)    # meters ahead at trial start
+    TOWER_HEIGHT = 0.04
+    FLOOR_Z = -0.05
+    # The tower's base sits 2 mm BELOW the floor plane, never on it. Coplanar surfaces z-fight:
+    # which one wins the depth test varies per pixel with the lowest bits of interpolation, so a
+    # translucent tower resting exactly on the floor shimmers with blinking lines as it moves --
+    # driver-dependent, seen on rig hardware and not reproducible on Mesa offscreen. Sinking the
+    # base also keeps the box's bottom face below the floor, where the depth test removes it,
+    # instead of drawing edge-on as a moving line.
+    TOWER_SINK = 0.002
     WANDER_SIGMA = 0.02          # typical drift ~0.01 m/s: far slower than walking
     WANDER_BOUND = 0.03          # the tower stays within this of its start, so a stationary
                                  # subject is never handed a catch (0.08 - 0.03 > CATCH_RADIUS)
@@ -458,17 +467,18 @@ class ChaseTheTower(BaseProtocol):
         self.trial_stim_parameters = [
             # The same floor as ReachTheGoal, so walking is visible as motion.
             {'name': 'CheckerboardFloor',
-             'mean': 0.3, 'contrast': 0.5, 'center': (0, self.TOWER_START[1] / 2, -0.05),
+             'mean': 0.3, 'contrast': 0.5, 'center': (0, self.TOWER_START[1] / 2, self.FLOOR_Z),
              'side_length': (0.3, 0.3), 'patch_width': 0.02},
             # The quarry: a short translucent pillar whose x/y follow the wandering path. Sized
-            # to CATCH_RADIUS so what you see is what the condition tests.
+            # to CATCH_RADIUS so what you see is what the condition tests; based below the floor
+            # plane so no face is coplanar with it (see TOWER_SINK).
             {'name': 'MovingBox',
              'x_length': self.CATCH_RADIUS / 2, 'y_length': self.CATCH_RADIUS / 2,
-             'z_length': 0.04,
+             'z_length': self.TOWER_HEIGHT,
              'color': [1, 0, 0, 0.6],
              'x': {'name': 'TVPairs', 'tv_pairs': list(zip(t, xs)), 'kind': 'linear'},
              'y': {'name': 'TVPairs', 'tv_pairs': list(zip(t, ys)), 'kind': 'linear'},
-             'z': -0.03},
+             'z': self.FLOOR_Z + self.TOWER_HEIGHT / 2 - self.TOWER_SINK},
         ]
 
     def load_stimuli(self, manager, multicall=None):
