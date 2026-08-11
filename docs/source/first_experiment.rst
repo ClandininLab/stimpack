@@ -42,6 +42,21 @@ now sweeps across trials, and the readout at the bottom shows each trial's draw.
 The full tour of the window -- tabs, presets, ensembles, pause semantics, notes -- is
 :doc:`the_gui`.
 
+The other built-ins
+===================
+
+The example protocols form a progression, each adding one idea, and all of them run right here:
+
+- ``DriftingSquareGrating``, ``MovingPatch`` -- classic parameterized stimuli; sweep anything.
+- ``WanderingSpot`` -- a naturalistic, seeded trajectory; the same seed replays the same path.
+- ``ReachTheGoal`` -- closed loop with your keyboard as the tracker, and the trial ends when you
+  arrive. Instructions in :doc:`locomotion`.
+- ``ChaseTheTower`` -- the goal in motion: chase it down. See :doc:`behavior_ended_trials`.
+- ``LinearTrackWithTowers`` -- a full virtual-reality track.
+
+The closed-loop ones are the thing to try before leaving this page: tick ``do_loco``, press View,
+and drive with the arrow keys in the KeyTrac window.
+
 What you are looking at
 =======================
 
