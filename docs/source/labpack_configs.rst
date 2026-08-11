@@ -79,7 +79,8 @@ Choosing where data goes
 
 .. code-block:: yaml
 
-    data_format: hdf5      # the default; may be omitted
+    data_format: hdf5      # the default when a labpack config omits this key. (The no-labpack
+                           # built-in config selects nwb instead, for new users.)
     # or
     data_format: nwb
 

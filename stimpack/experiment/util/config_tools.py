@@ -189,6 +189,11 @@ LAB_CONFIG_NAME = 'lab_config.yaml'
 def get_default_config():
     """A minimal config, used when no labpack config is available."""
     return {'experimenter': 'JohnDoe',
+            # NWB for new users, deliberately here and not in get_data_format's fallback: this
+            # config exists only where no labpack does, so changing it changes nobody's pipeline.
+            # A labpack config that omits data_format keeps the documented hdf5 default -- flipping
+            # that would silently switch existing labs' file format on upgrade.
+            'data_format': 'nwb',
             'subject_metadata': {},
             'current_rig_name': 'default',
             'current_cfg_name': 'default',

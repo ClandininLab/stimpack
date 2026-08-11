@@ -16,8 +16,9 @@ Launch it
 
 A startup dialog asks which configuration to use. With no labpack installed there is exactly one
 choice, ``default``, already selected -- press **Enter**. Later, this dialog is where your lab's
-own configs and rigs appear; the **Data format** dropdown chooses what the data file will be
-(HDF5 or NWB), and ``default`` is fine for now.
+own configs and rigs appear; the **Data format** dropdown chooses what the data file will be --
+`NWB <https://www.nwb.org/>`_, the community standard, is preselected here -- and ``default``
+is fine for now.
 
 Present a protocol
 ==================

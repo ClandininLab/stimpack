@@ -489,3 +489,16 @@ def test_the_empty_labpack_state_names_itself(qapp, monkeypatch):
 
     assert dialog.le_labpack_dir.text() == ''
     assert 'built-in' in dialog.le_labpack_dir.placeholderText()
+
+
+def test_a_fresh_install_defaults_to_nwb(qapp, tmp_path):
+    """The built-in default config -- the one a user with no labpack lands on -- selects NWB, so
+    new users start on the community standard. Deliberately NOT the fallback for a labpack config
+    that omits data_format: that omission has meant hdf5 since the key existed, and changing its
+    meaning would silently switch existing labs' file format on upgrade. The test above
+    (unset key -> hdf5) pins that half."""
+    from stimpack.experiment.util import config_tools
+
+    dialog, _ = make_startup_dialog(qapp, tmp_path, config_tools.get_default_config())
+
+    assert dialog.data_format_combobox.currentText() == 'nwb'
