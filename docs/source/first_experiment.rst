@@ -54,8 +54,9 @@ The example protocols form a progression, each adding one idea, and all of them 
 - ``ChaseTheTower`` -- the goal in motion: chase it down. See :doc:`behavior_ended_trials`.
 - ``LinearTrackWithTowers`` -- a full virtual-reality track.
 
-The closed-loop ones are the thing to try before leaving this page: tick ``do_loco``, press View,
-and drive with the arrow keys in the KeyTrac window.
+The closed-loop ones are the thing to try before leaving this page. Tracking comes pre-checked
+on them (``do_loco``, in the run parameters) -- just press View and drive with the arrow keys in
+the KeyTrac window.
 
 What you are looking at
 =======================

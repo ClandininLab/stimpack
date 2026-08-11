@@ -349,7 +349,10 @@ class ReachTheGoal(BaseProtocol):
                 'loco_pos_closed_loop': 1}     # the scene follows the subject within the trial
 
     def get_run_parameter_defaults(self):
-        return {'num_trials': 5,
+        return {# This protocol only means anything in closed loop, so tracking comes pre-checked;
+                # untick do_loco in the GUI to rehearse it open loop.
+                'do_loco': True,
+                'num_trials': 5,
                 'idle_color': 0.5,
                 'pre_run_time': 0,
                 'post_run_time': 0,
@@ -487,7 +490,10 @@ class ChaseTheTower(BaseProtocol):
                 'seed': [0, 1, 2, 3, 4]}
 
     def get_run_parameter_defaults(self):
-        return {'num_trials': 5,
+        return {# This protocol only means anything in closed loop, so tracking comes pre-checked;
+                # untick do_loco in the GUI to rehearse it open loop.
+                'do_loco': True,
+                'num_trials': 5,
                 'idle_color': 0.5,
                 'pre_run_time': 0,
                 'post_run_time': 0,
@@ -680,7 +686,10 @@ class LinearTrackWithTowers(BaseProtocol):
                 }
 
     def get_run_parameter_defaults(self):
-        return {'num_trials': 40,
+        return {# This protocol only means anything in closed loop, so tracking comes pre-checked;
+                # untick do_loco in the GUI to rehearse it open loop.
+                'do_loco': True,
+                'num_trials': 40,
                 'idle_color': 0.5,
                 'pre_run_time': 0,  # seconds to wait before starting the run
                 'post_run_time': 0,  # seconds to wait after the run

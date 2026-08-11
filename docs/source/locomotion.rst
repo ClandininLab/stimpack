@@ -12,8 +12,9 @@ Try it with no hardware
 =======================
 
 The GUI's built-in local server already runs **KeyTrac**, a keyboard standing in for a tracker.
-From :doc:`first_experiment`'s setup: select a protocol, tick the ``do_loco`` run parameter, and
-press **View**. A small KeyTrac window opens alongside the stimulus; with it focused, the arrow
+From :doc:`first_experiment`'s setup: select a closed-loop protocol -- ``ReachTheGoal`` and its
+siblings arrive with ``do_loco`` already checked; on other protocols, tick it -- and press
+**View**. A small KeyTrac window opens alongside the stimulus; with it focused, the arrow
 keys walk the subject through the scene (rotation and translation), and ``y``/``h``, ``u``/``j``
 carry the remaining axes. This is the whole closed-loop path -- tracker to subject state to
 re-rendered scene -- with your keyboard as the animal, which is also how closed-loop protocols are

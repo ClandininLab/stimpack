@@ -261,9 +261,17 @@ class BaseProtocol():
         self.run_parameters = self.get_run_parameter_defaults()
         self.protocol_parameters = self.get_protocol_parameter_defaults()
 
-        # If loco is available, add/set "do_loco" boolean to run parameters
+        # If loco is available, make sure "do_loco" is a run parameter. setdefault, not
+        # assignment: a protocol that only means anything in closed loop (ReachTheGoal,
+        # ChaseTheTower) declares 'do_loco': True in its own defaults, and overwriting that gave
+        # first-time users a demo that sat inert until they knew which box to tick. On a rig
+        # without a tracker the key is removed even if a protocol declared it -- offering the
+        # checkbox there offers a thing that cannot work, and running with it set would send
+        # locomotion calls to a module that does not exist.
         if self.loco_available:
-            self.run_parameters['do_loco'] = False
+            self.run_parameters.setdefault('do_loco', False)
+        else:
+            self.run_parameters.pop('do_loco', None)
 
         # If name is the default entry or is not in parameter_presets, just use the current
         # protocol's defaults

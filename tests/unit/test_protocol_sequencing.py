@@ -188,3 +188,33 @@ def test_the_tower_never_wanders_into_the_catch_zone_unaided():
 
     assert closest >= ep.ChaseTheTower.TOWER_START[1] - ep.ChaseTheTower.WANDER_BOUND - 1e-9
     assert closest > ep.ChaseTheTower.CATCH_RADIUS
+
+
+# --- do_loco defaults: pre-checked where the protocol is closed-loop by nature --------------------
+
+def test_a_closed_loop_protocol_arrives_with_tracking_on():
+    """ReachTheGoal without do_loco is thirty seconds of nothing; a demo that sits inert until
+    the user finds a checkbox is a broken demo. The protocol declares it, and
+    select_protocol_preset must respect the declaration rather than overwrite it."""
+    import stimpack.experiment.example_protocol as ep
+
+    for cls in (ep.ReachTheGoal, ep.ChaseTheTower, ep.LinearTrackWithTowers):
+        p = cls(cfg={})
+        p.select_protocol_preset()
+        assert p.run_parameters['do_loco'] is True, cls.__name__
+
+    p = ep.WanderingSpot(cfg={})        # open loop by nature: stays opt-in
+    p.select_protocol_preset()
+    assert p.run_parameters['do_loco'] is False
+
+
+def test_do_loco_is_removed_on_a_rig_without_a_tracker():
+    """Even when the protocol declares it: the checkbox would offer a thing that cannot work, and
+    a run with it set would send locomotion calls to a module that does not exist."""
+    import stimpack.experiment.example_protocol as ep
+
+    cfg = {'current_rig_name': 'norig',
+           'rig_config': {'norig': {'loco_available': False}}}
+    p = ep.ReachTheGoal(cfg=cfg)
+    p.select_protocol_preset()
+    assert 'do_loco' not in p.run_parameters
