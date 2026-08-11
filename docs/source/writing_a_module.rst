@@ -71,8 +71,8 @@ arrives after that has run. From a protocol the module is then addressed like an
 
     multicall.target('odor').open_valve(channel=2, duration=0.5)
 
-Two conventions worth following
-===============================
+Three conventions worth following
+=================================
 
 **Advertise, so protocols can adapt.** A rig without your hardware should degrade rather than
 fail. With ``get_callable_names()`` implemented, a protocol can ask before it calls::
@@ -89,6 +89,14 @@ tracker would, which is what lets closed-loop protocols be written and tested on
 equivalent for your module -- a class that accepts every call and does nothing but log -- means
 protocols using it can be developed away from the rig, and means the module has something to be
 tested against in CI.
+
+**Name it for what it does: a *Server* serves sockets, a *Manager* owns hardware.** Stimpack's own
+modules follow this line. ``VisualStimServer`` is named for a real serving role -- every screen is
+a subprocess it talks to over a socket, and it runs standalone as the stim server -- while
+``LocoClosedLoopManager`` (and the ``OdorManager`` above) own a device or process on the server's
+behalf and serve nothing. Most new modules are managers, and owning *more* hardware does not change
+that: a manager driving four output streams is still a manager. The name changes only when the
+thing starts serving sockets, as it would if each device someday needed its own subprocess.
 
 What you do not have to build
 =============================
