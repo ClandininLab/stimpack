@@ -232,3 +232,16 @@ def test_the_tower_base_is_never_coplanar_with_the_floor():
 
     assert base <= c.FLOOR_Z - 0.001, 'tower base is on (or above) the floor plane: z-fighting'
     assert top > c.FLOOR_Z + 0.02, 'tower barely rises above the floor'
+
+
+def test_do_loco_sits_last_in_every_protocol():
+    """The GUI lays run parameters out in dict insertion order, and do_loco has always been the
+    bottom entry. A protocol that declares it must declare it last, and setdefault appends it
+    last -- so the checkbox is in the same place whichever protocol is selected."""
+    import stimpack.experiment.example_protocol as ep
+
+    for cls in (ep.ReachTheGoal, ep.ChaseTheTower, ep.LinearTrackWithTowers,
+                ep.WanderingSpot, ep.DriftingSquareGrating):
+        p = cls(cfg={})
+        p.select_protocol_preset()
+        assert list(p.run_parameters)[-1] == 'do_loco', cls.__name__

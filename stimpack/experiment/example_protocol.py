@@ -349,15 +349,15 @@ class ReachTheGoal(BaseProtocol):
                 'loco_pos_closed_loop': 1}     # the scene follows the subject within the trial
 
     def get_run_parameter_defaults(self):
-        return {# This protocol only means anything in closed loop, so tracking comes pre-checked;
-                # untick do_loco in the GUI to rehearse it open loop.
-                'do_loco': True,
-                'num_trials': 5,
+        return {'num_trials': 5,
                 'idle_color': 0.5,
                 'pre_run_time': 0,
                 'post_run_time': 0,
                 'all_combinations': True,
-                'randomize_order': False}
+                'randomize_order': False,
+                # This protocol only means anything in closed loop, so tracking
+                # comes pre-checked; untick it in the GUI to rehearse open loop.
+                'do_loco': True}
 
 
 @functools.lru_cache(maxsize=32)
@@ -500,15 +500,15 @@ class ChaseTheTower(BaseProtocol):
                 'seed': [0, 1, 2, 3, 4]}
 
     def get_run_parameter_defaults(self):
-        return {# This protocol only means anything in closed loop, so tracking comes pre-checked;
-                # untick do_loco in the GUI to rehearse it open loop.
-                'do_loco': True,
-                'num_trials': 5,
+        return {'num_trials': 5,
                 'idle_color': 0.5,
                 'pre_run_time': 0,
                 'post_run_time': 0,
                 'all_combinations': True,
-                'randomize_order': True}
+                'randomize_order': True,
+                # This protocol only means anything in closed loop, so tracking
+                # comes pre-checked; untick it in the GUI to rehearse open loop.
+                'do_loco': True}
 
 
 class LinearTrackWithTowers(BaseProtocol):
@@ -696,13 +696,13 @@ class LinearTrackWithTowers(BaseProtocol):
                 }
 
     def get_run_parameter_defaults(self):
-        return {# This protocol only means anything in closed loop, so tracking comes pre-checked;
-                # untick do_loco in the GUI to rehearse it open loop.
-                'do_loco': True,
-                'num_trials': 40,
+        return {'num_trials': 40,
                 'idle_color': 0.5,
                 'pre_run_time': 0,  # seconds to wait before starting the run
                 'post_run_time': 0,  # seconds to wait after the run
                 'all_combinations': True,
-                'randomize_order': True}
+                'randomize_order': True,
+                # This protocol only means anything in closed loop, so tracking
+                # comes pre-checked; untick it in the GUI to rehearse open loop.
+                'do_loco': True}
 
