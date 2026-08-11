@@ -37,7 +37,7 @@ Wiring it up
 The driver runs on the server, next to the hardware. The rig server script
 (:doc:`labpack_server`) passes it as ``daq_class``::
 
-    from labpack.device.daq import MyRigDAQ
+    from labpack.daq import MyRigDAQ
 
     server = BaseServer(visual_stim_kwargs=visual_stim_kwargs,
                         daq_class=MyRigDAQ,
@@ -54,7 +54,7 @@ A minimal driver
 
 Distilled from the template's drivers, with the vendor API left out::
 
-    # labpack/device/daq.py
+    # labpack/daq.py
     import threading, time
     from stimpack import daq
 
@@ -144,7 +144,7 @@ object subclass it to forward more. With no ``trigger`` key, no trigger is sent.
 Full drivers
 ============
 
-``labpack-template`` ships complete, working drivers to copy: ``template_labpack/device/daq.py``
+``labpack-template`` ships complete, working drivers to copy: ``template_labpack/daq.py``
 has NI-DAQ drivers (``NIUSB6001``, ``NIUSB6210``, via ``nidaqmx``), a LabJack T-series driver
 (via ``ljm``) with waveform stream-out, and a ``DAQonServer`` subclass that forwards the streaming
 methods; ``server/example_server.py`` shows where ``daq_class`` goes.

@@ -59,7 +59,7 @@ subclass in your ``labpack``, passed to the rig server:
 
 .. code-block:: python
 
-    from your_labpack.device.locomotion.loco_managers.fictrac_managers import FtClosedLoopManager
+    from your_labpack.locomotion.fictrac import FtClosedLoopManager
 
     server = BaseServer(visual_stim_kwargs=visual_stim_kwargs,
                         loco_class=FtClosedLoopManager,
@@ -75,7 +75,7 @@ which is what lets one protocol serve rigs with and without tracking.
 
 **FicTrac** [#fictrac]_, the spherical-treadmill tracker most of our rigs use, ships in the
 ``labpack`` template as a worked example:
-``template_labpack/device/locomotion/loco_managers/fictrac_managers.py``. It launches the FicTrac
+``template_labpack/locomotion/fictrac.py``. It launches the FicTrac
 binary, reads its output stream, and maps the columns FicTrac reports into subject state. Copy and
 adapt it -- the column indices and socket settings at the top of that file are the parts a
 different FicTrac configuration changes. It is in the template rather than in stimpack
