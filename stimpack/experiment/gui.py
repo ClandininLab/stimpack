@@ -2215,20 +2215,17 @@ class InitializeRigGUI(QWidget):
 
         self.pb_labpack_dir = QPushButton('Browse…')
         self.pb_labpack_dir.clicked.connect(self.on_pressed_labpack_dir_button)
-        self.pb_labpack_dir.setToolTip('Select your labpack directory. Cancelling changes nothing.')
+        self.pb_labpack_dir.setToolTip('Select your labpack directory.')
 
         self.pb_clear_labpack = QPushButton('None')
         self.pb_clear_labpack.clicked.connect(self.on_pressed_clear_labpack_button)
-        self.pb_clear_labpack.setToolTip(
-            "Use no labpack: stimpack's built-in example protocols and default config. "
-            'The recorded labpack path is cleared until one is selected again.')
+        self.pb_clear_labpack.setToolTip("Use no labpack: stimpack's built-in examples.")
 
         self.pb_labpack_repo = QPushButton('?')
         self.pb_labpack_repo.setFixedWidth(
             self.pb_labpack_repo.fontMetrics().horizontalAdvance('?') + 18)
         self.pb_labpack_repo.clicked.connect(lambda: QtGui.QDesktopServices.openUrl(QUrl("https://www.github.com/ClandininLab/labpack-template")))
-        self.pb_labpack_repo.setToolTip('Customize stimpack with your own labpack. '
-                                        'Click for the template repository to start yours from.')
+        self.pb_labpack_repo.setToolTip('Open the labpack template on GitHub.')
 
         # The path takes the slack; the buttons keep to their natural width beside it.
         labpack_row = QHBoxLayout()
