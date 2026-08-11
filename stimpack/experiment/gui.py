@@ -2195,45 +2195,64 @@ class InitializeRigGUI(QWidget):
         self.labpack_dir = config_tools.get_labpack_directory()
         
         self.init_grid = QGridLayout()
+        self.init_grid.setHorizontalSpacing(8)
+        self.init_grid.setVerticalSpacing(8)
+        # Two columns, like a form: labels right-aligned in column 0, content filling column 1.
+        # Everything ragged about the previous layout came from widgets claiming their own
+        # columns -- combos that stopped short of the edge, an Enter that spanned a different
+        # width than the rows above it, and a path squeezed by two full-size buttons.
+        self.init_grid.setColumnStretch(1, 1)
 
-        self.pb_labpack_dir = QPushButton('Labpack Dir')
-        self.pb_labpack_dir.clicked.connect(self.on_pressed_labpack_dir_button)
-        self.pb_labpack_dir.setToolTip("You can customize your Stimpack by importing your own Labpack. Click the \"?\" button for a template Labpack repository.")
-        self.init_grid.addWidget(self.pb_labpack_dir, 0, 0)
-        
+        label_labpack = QLabel('Labpack')
+        label_labpack.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        self.init_grid.addWidget(label_labpack, 0, 0)
+
         self.le_labpack_dir = QLineEdit(self.labpack_dir)
         self.le_labpack_dir.setReadOnly(True)
         # An empty path is a real state, not an accident, so it says what it means: no labpack
         # loads stimpack's built-in example protocols and the built-in default config.
         self.le_labpack_dir.setPlaceholderText("none — stimpack's built-in examples")
-        self.init_grid.addWidget(self.le_labpack_dir, 0, 1)
+
+        self.pb_labpack_dir = QPushButton('Browse…')
+        self.pb_labpack_dir.clicked.connect(self.on_pressed_labpack_dir_button)
+        self.pb_labpack_dir.setToolTip('Select your labpack directory. Cancelling changes nothing.')
 
         self.pb_clear_labpack = QPushButton('None')
         self.pb_clear_labpack.clicked.connect(self.on_pressed_clear_labpack_button)
         self.pb_clear_labpack.setToolTip(
-            'Use no labpack: stimpack\'s built-in example protocols and default config. '
+            "Use no labpack: stimpack's built-in example protocols and default config. "
             'The recorded labpack path is cleared until one is selected again.')
-        self.init_grid.addWidget(self.pb_clear_labpack, 0, 3)
 
         self.pb_labpack_repo = QPushButton('?')
+        self.pb_labpack_repo.setFixedWidth(
+            self.pb_labpack_repo.fontMetrics().horizontalAdvance('?') + 18)
         self.pb_labpack_repo.clicked.connect(lambda: QtGui.QDesktopServices.openUrl(QUrl("https://www.github.com/ClandininLab/labpack-template")))
-        self.pb_labpack_repo.setToolTip("You can customize your Stimpack by importing your own Labpack. Click here for a template Labpack repository.")
-        self.init_grid.addWidget(self.pb_labpack_repo, 0, 2)
+        self.pb_labpack_repo.setToolTip('Customize stimpack with your own labpack. '
+                                        'Click for the template repository to start yours from.')
+
+        # The path takes the slack; the buttons keep to their natural width beside it.
+        labpack_row = QHBoxLayout()
+        labpack_row.setSpacing(6)
+        labpack_row.addWidget(self.le_labpack_dir, stretch=1)
+        labpack_row.addWidget(self.pb_labpack_dir)
+        labpack_row.addWidget(self.pb_clear_labpack)
+        labpack_row.addWidget(self.pb_labpack_repo)
+        self.init_grid.addLayout(labpack_row, 0, 1)
 
         label_config = QLabel('Config')
         label_config.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
         self.init_grid.addWidget(label_config, 1, 0)
-        
+
         self.config_combobox = QComboBox()
         self.config_combobox.activated.connect(self.on_selected_config)
-        self.init_grid.addWidget(self.config_combobox, 1, 1, 1, 2)
-        
+        self.init_grid.addWidget(self.config_combobox, 1, 1)
+
         label_rigname = QLabel('Rig Config')
         label_rigname.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
         self.init_grid.addWidget(label_rigname, 2, 0)
-        
+
         self.rig_combobox = QComboBox()
-        self.init_grid.addWidget(self.rig_combobox, 2, 1, 1, 2)
+        self.init_grid.addWidget(self.rig_combobox, 2, 1)
 
         # Which storage backend to write. Chosen here rather than in the main window because this
         # dialog runs to completion before the data object -- or the File tab's browser, or the
@@ -2245,7 +2264,7 @@ class InitializeRigGUI(QWidget):
 
         self.data_format_combobox = QComboBox()
         self.data_format_combobox.currentIndexChanged.connect(self.update_data_format_note)
-        self.init_grid.addWidget(self.data_format_combobox, 3, 1, 1, 2)
+        self.init_grid.addWidget(self.data_format_combobox, 3, 1)
 
         # Says, at the moment of choosing, when the selection means stimpack's own class rather
         # than the labpack's. What is at stake is not the format -- a wrong extension is obvious
@@ -2254,13 +2273,13 @@ class InitializeRigGUI(QWidget):
         self.data_format_note = QLabel('')
         self.data_format_note.setWordWrap(True)
         self.data_format_note.setVisible(False)
-        self.init_grid.addWidget(self.data_format_note, 4, 1, 1, 2)
+        self.init_grid.addWidget(self.data_format_note, 4, 1)
 
         self.update_available_rigs()
 
         self.pb_enter = QPushButton('Enter')
         self.pb_enter.clicked.connect(self.on_pressed_enter_button)
-        self.init_grid.addWidget(self.pb_enter, 5, 0, 1, 3)
+        self.init_grid.addWidget(self.pb_enter, 5, 0, 1, 2)
 
         self.setLayout(self.init_grid)
 
@@ -2291,6 +2310,10 @@ class InitializeRigGUI(QWidget):
     
     def load_labpack(self):
         self.le_labpack_dir.setText(self.labpack_dir)
+        # A long path truncates in the field; the tooltip always carries all of it.
+        self.le_labpack_dir.setToolTip(self.labpack_dir or
+                                       "No labpack: stimpack's built-in example protocols.")
+        self.le_labpack_dir.setCursorPosition(len(self.labpack_dir))   # show the tail, not the head
 
         self.config_combobox.clear()
         self.config_combobox.addItem('default')

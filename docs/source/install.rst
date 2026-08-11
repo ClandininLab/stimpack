@@ -37,7 +37,7 @@ In the ``.stimpack`` virtual environment:
     stimpack
 
 A startup dialog opens, which looks like this (shown with a ``labpack`` configured; on a fresh
-install the Labpack Dir line reads "none — stimpack's built-in examples" and only the
+install the Labpack line reads "none — stimpack's built-in examples" and only the
 default config is offered; the **None** button returns to that state at any time):
 
 .. image:: /assets/labpack_query.png
