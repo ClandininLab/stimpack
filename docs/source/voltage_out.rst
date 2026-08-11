@@ -11,7 +11,7 @@ named for the capability rather than the device (:doc:`modules_and_targets`).
 What stimpack ships, and what your ``labpack`` defines
 ======================================================
 
-Stimpack ships ``stimpack.device.daq.DAQ``, and it is deliberately close to empty:
+Stimpack ships ``stimpack.daq.DAQ``, and it is deliberately close to empty:
 
 **The module plumbing.** ``handle_request_list`` dispatches each request to the public method of
 the same name, so any public method of your subclass is callable from a protocol with
@@ -44,7 +44,7 @@ The driver runs on the server, next to the hardware. The rig server script
                         daq_kwargs={'dev': '440017544', 'trigger_channel': 'FIO4'})
     server.loop()
 
-``daq_class`` must subclass ``stimpack.device.daq.DAQ``; the instance becomes the server's
+``daq_class`` must subclass ``stimpack.daq.DAQ``; the instance becomes the server's
 ``voltage_out`` module. Leave it ``None`` and the module does not exist: that rig's
 ``voltage_out`` calls are reported as warnings and the run continues, which is what lets one
 protocol serve rigs with and without the hardware.
@@ -56,7 +56,7 @@ Distilled from the template's drivers, with the vendor API left out::
 
     # labpack/device/daq.py
     import threading, time
-    from stimpack.device import daq
+    from stimpack import daq
 
     class MyRigDAQ(daq.DAQ):
         def __init__(self, dev=None, trigger_channel='FIO4'):

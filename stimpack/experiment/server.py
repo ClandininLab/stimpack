@@ -14,8 +14,8 @@ import signal, sys, os, warnings, traceback
 from stimpack.visual_stim.screen import Screen
 from stimpack.visual_stim.stim_server import VisualStimServer
 
-from stimpack.device.locomotion.loco_managers import LocoManager
-from stimpack.device.daq import DAQ
+from stimpack.locomotion import LocoManager
+from stimpack.daq import DAQ
 
 from stimpack.rpc.util import start_daemon_thread, find_free_port
 from stimpack.rpc.transceiver import MySocketServer, reject_private_attribute

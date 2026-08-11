@@ -91,7 +91,7 @@ def test_alias_deprecation_warns_once_not_per_call(visual_only_server_with_volta
 
 @pytest.fixture
 def visual_only_server_with_voltage_out():
-    from stimpack.device.daq import DAQ
+    from stimpack.daq import DAQ
     from stimpack.experiment.server import BaseServer
     class CountingDAQ(DAQ):
         triggered = 0

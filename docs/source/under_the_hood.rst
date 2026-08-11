@@ -18,7 +18,7 @@ Where the boundary sits
 =======================
 
 ``stimpack`` contains no hardware-specific code. ``device.daq`` is abstractions over the RPC link;
-``device.locomotion.keytrac`` is a keyboard application standing in for a tracker so that closed
+``locomotion.keytrac`` is a keyboard application standing in for a tracker so that closed
 loop can be exercised without one. Drivers for particular parts -- a NI card, a LabJack, a DLPC350
 projector -- live in a ``labpack``, alongside the protocols and rig geometry that are equally specific
 to one lab. See :doc:`install_labpack`.

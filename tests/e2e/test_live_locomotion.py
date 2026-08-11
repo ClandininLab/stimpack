@@ -40,7 +40,7 @@ def make_loco_server(port, with_screen=True):
     not need a display, and every screen is another GL context competing with the rest of this
     tier -- which is what made this tier flaky.
     """
-    from stimpack.device.locomotion.loco_managers.keytrac_managers import KeytracClosedLoopManager
+    from stimpack.locomotion.keytrac import KeytracClosedLoopManager
     from stimpack.experiment.server import BaseServer
 
     visual_stim_kwargs = ({'screens': [unobtrusive_screen(display_index=0)]}

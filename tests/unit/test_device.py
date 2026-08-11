@@ -1,10 +1,10 @@
 """Unit tests for the device layer's error reporting (no hardware).
 
-stimpack.device.daq imports only the RPC layer (stdlib), so this runs everywhere.
+stimpack.daq imports only the RPC layer (stdlib), so this runs everywhere.
 """
 import pytest
 
-from stimpack.device.daq import DAQ
+from stimpack.daq import DAQ
 
 pytestmark = pytest.mark.unit
 

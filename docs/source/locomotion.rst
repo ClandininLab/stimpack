@@ -54,7 +54,7 @@ update with the full subject state. That is its own page: :doc:`behavior_ended_t
 Wiring a real tracker
 =====================
 
-A tracker driver is a :class:`~stimpack.device.locomotion.loco_managers.loco_managers.LocoClosedLoopManager`
+A tracker driver is a :class:`~stimpack.locomotion.LocoClosedLoopManager`
 subclass in your ``labpack``, passed to the rig server:
 
 .. code-block:: python
@@ -86,7 +86,7 @@ A tracker stimpack has never heard of needs only the base-class contract: read y
 convert each reading to a position update, and hand it to
 ``update_pos``/``set_subject_state`` -- the base class carries the socket loop, the request
 dispatch and the raw tracker log. :doc:`writing_a_module` covers the general shape; the KeyTrac
-manager (``stimpack/device/locomotion/loco_managers/keytrac_managers.py``) is the smallest real
+manager (``stimpack/locomotion/keytrac/managers.py``) is the smallest real
 example.
 
 Where the data goes

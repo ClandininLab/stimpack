@@ -1,0 +1,105 @@
+"""Locomotion manager for keytrac, the keyboard-driven stand-in tracker."""
+import os
+import subprocess
+import signal
+import sys
+import numpy as np
+
+from stimpack.locomotion.managers import LocoManager, LocoClosedLoopManager
+
+KEYTRAC_HOST = '127.0.0.1'  # The server's hostname or IP address
+KEYTRAC_PORT = 33335         # The port used by the server
+# The interpreter running this server and the app shipped next to this file: defaults that work,
+# so callers no longer need to rebuild this path from stimpack's install directory.
+PYTHON_BIN =   sys.executable
+KEYTRAC_PY =   os.path.join(os.path.dirname(os.path.abspath(__file__)), 'keytrac.py')
+
+class KeytracManager(LocoManager):
+    def __init__(self, python_bin=PYTHON_BIN, kt_py_fn=KEYTRAC_PY, host=KEYTRAC_HOST, port=KEYTRAC_PORT,
+                 relative_control=True, start_at_init=True, verbose=False):
+        super().__init__(verbose=verbose)
+
+        self.python_bin = python_bin
+        self.kt_py_fn = kt_py_fn
+        self.relative_control = relative_control
+        # Where the launched KeyTrac process sends its state to. Must match the socket the
+        # LocoClosedLoopManager binds, so this is passed in rather than hardcoded to the default.
+        self.keytrac_host = host
+        self.keytrac_port = port
+
+        self.started = False
+
+        if start_at_init:
+            self.start()
+
+    def start(self):
+        if self.started:
+            if self.verbose: print("KeytracManager: Keytrac is already running.")
+        else:
+            self.p = subprocess.Popen([self.python_bin, self.kt_py_fn, self.keytrac_host, str(self.keytrac_port), str(self.relative_control)], start_new_session=True)
+            self.started = True
+
+    def close(self, timeout=5):
+        if self.started:
+            self.p.send_signal(signal.SIGINT)
+            
+            try:
+                self.p.wait(timeout=timeout)
+            except:
+                print("KeytracManager: Timeout expired for closing Keytrac. Killing process...")
+                self.p.kill()
+                self.p.terminate()
+
+            del self.p
+            self.started = False
+        else:
+            if self.verbose: print("KeytracManager: Keytrac hasn't been started yet. Cannot be closed.")
+
+class KeytracClosedLoopManager(LocoClosedLoopManager):
+    def __init__(self, stim_server, host=KEYTRAC_HOST, port=KEYTRAC_PORT, 
+                       python_bin=PYTHON_BIN, kt_py_fn=KEYTRAC_PY, 
+                       relative_control=True, start_at_init=False, udp=True):
+        super().__init__(stim_server=stim_server, host=host, port=port, save_directory=None, start_at_init=False, udp=udp)
+        self.kt_manager = KeytracManager(python_bin=python_bin, kt_py_fn=kt_py_fn,
+                                         host=host, port=port,
+                                         relative_control=relative_control, start_at_init=False)
+
+        if start_at_init:    self.start()
+
+    def start(self):
+        super().start()
+        self.kt_manager.start()
+
+    def close(self):
+        super().close()
+        self.kt_manager.close()
+
+    def _parse_line(self, line):
+        toks = line.split(", ")
+
+        # Keytrac lines always starts with KT
+        if toks.pop(0) != "KT":
+            print(line)
+            print('Bad read')
+            empty_dict:dict[str, float] = {}
+            return empty_dict
+        
+        key_count = int(toks[0])
+        x = float(toks[2])
+        y = float(toks[3])
+        z = float(toks[4])
+        theta = np.rad2deg(float(toks[5]))
+        phi = np.rad2deg(float(toks[6]))
+        roll = np.rad2deg(float(toks[7]))
+        ts = float(toks[8])
+
+        return {'x': x, 'y': y, 'z':z, 'theta': theta, 'phi': phi, 'roll': roll, 'frame_num': key_count, 'ts': ts}
+
+    def set_pos_0(self, loco_pos = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}, use_data_prev=True, get_most_recent=True, write_log=False):
+        # For Keytrac, we can command Keytrac to reset its position, so we manually reset stimpack's position to 0 after sending the reset command to Keytrac
+        self.socket_manager.send_message("reset_pos")
+        super().set_pos_0(loco_pos = {'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0}, 
+                          use_data_prev=use_data_prev, 
+                          get_most_recent=get_most_recent, 
+                          write_log=write_log)
+        

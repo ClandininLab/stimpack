@@ -40,7 +40,7 @@ def kt_line(key_count=1, x=0.0, y=0.0, z=0.0, theta=0.0, phi=0.0, roll=0.0, ts=N
 @pytest.fixture
 def loco():
     """A real KeytracClosedLoopManager with its socket bound, but no KeyTrac subprocess launched."""
-    from stimpack.device.locomotion.loco_managers.keytrac_managers import KeytracClosedLoopManager
+    from stimpack.locomotion.keytrac import KeytracClosedLoopManager
 
     server = RecordingStimServer()
     port = free_udp_port()

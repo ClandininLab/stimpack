@@ -7,7 +7,7 @@ chain the way the labpack subclasses established.
 """
 import pytest
 
-from stimpack.device.daq import DAQonServer
+from stimpack.daq import DAQonServer
 from stimpack.rpc.multicall import MyMultiCall
 
 pytestmark = pytest.mark.unit

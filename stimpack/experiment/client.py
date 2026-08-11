@@ -13,7 +13,7 @@ It detects trouble two ways: the server pushes messages back over the same socke
 (``report_server_message``), and a broken connection is noticed directly.
 """
 
-import os, sys
+import os
 import subprocess
 import time
 from time import sleep
@@ -32,9 +32,8 @@ from stimpack.experiment.server import BaseServer
 from stimpack.experiment.protocol import BaseProtocol
 from stimpack.experiment.data import BaseData
 from stimpack.experiment.util import config_tools
-from stimpack.device import daq
-from stimpack.device.locomotion.loco_managers.keytrac_managers import KeytracClosedLoopManager
-from stimpack.util import ROOT_DIR
+from stimpack import daq
+from stimpack.locomotion.keytrac import KeytracClosedLoopManager
 from stimpack.experiment.deprecated_names import add_deprecated_aliases, _warn_once
 
 # How often the run loop looks up while paused. Nothing is being presented or recorded in that
@@ -117,10 +116,8 @@ class BaseClient():
                 loco_kwargs = {
                     'host':          '127.0.0.1',
                     'port':           33335,
-                    'python_bin':    sys.executable,
-                    'kt_py_fn':      os.path.join(ROOT_DIR, "device/locomotion/keytrac/keytrac.py"),
                     'relative_control': 'True',
-                }
+                }   # python_bin and kt_py_fn: the manager's defaults are this interpreter and the shipped app
 
                 # Keep a handle on the server: it lives in THIS process, so nothing else will ever
                 # shut it down. Without this it was a local variable, and closing the GUI left its

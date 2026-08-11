@@ -219,7 +219,7 @@ def test_a_registered_root_function_still_runs():
 def test_a_module_that_dispatches_by_attribute_can_enumerate_itself():
     """DAQ and LocoManager both dispatch with `request['name'] in dir(self)`, so their callable
     surface is exactly their public attributes and the server can advertise it."""
-    from stimpack.device.daq import DAQ
+    from stimpack.daq import DAQ
 
     class LabDAQ(DAQ):
         def __init__(self):
