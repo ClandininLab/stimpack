@@ -78,7 +78,7 @@ which validates, plays, and looks like it is working. The depth matters as much 
 `Limits`_ — 8-bit patterns cannot exceed 120 Hz, so multiplexing means 4-bit.
 
 **2. A driver for it.** ``labpack-template`` ships a DLPC350 driver at
-``template_labpack/dlpc350.py`` with a tested ``pattern_mode()``; a lab with that projector
+``template_labpack/device/dlpc350.py`` with a tested ``pattern_mode()``; a lab with that projector
 can use it as-is. For other hardware, what the rest of this page needs from a driver is only that it
 can be handed an ordered list of channel names.
 

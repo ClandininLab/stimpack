@@ -36,7 +36,7 @@ An example may look like:
       # data: template_labpack/data.py           # class must be named "Data"
       #   Only once it overrides something -- see "Using your own data class" below.
       client: template_labpack/client.py         # class must be named "Client"
-      daq: template_labpack/daq.py
+      daq: template_labpack/daq/__init__.py
       visual_stim:                               # may be a list of directories
         - template_labpack/visual_stim/example
 

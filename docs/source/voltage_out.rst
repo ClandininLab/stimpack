@@ -144,7 +144,8 @@ object subclass it to forward more. With no ``trigger`` key, no trigger is sent.
 Full drivers
 ============
 
-``labpack-template`` ships complete, working drivers to copy: ``template_labpack/daq.py``
-has NI-DAQ drivers (``NIUSB6001``, ``NIUSB6210``, via ``nidaqmx``), a LabJack T-series driver
-(via ``ljm``) with waveform stream-out, and a ``DAQonServer`` subclass that forwards the streaming
-methods; ``server/example_server.py`` shows where ``daq_class`` goes.
+``labpack-template`` ships complete, working drivers to copy, one vendor per file in
+``template_labpack/daq/``: NI-DAQ drivers (``NIUSB6001``, ``NIUSB6210``, via ``nidaqmx``) in
+``ni.py``, a LabJack T-series driver (via ``ljm``) with waveform stream-out in ``labjack.py``,
+and a ``DAQonServer`` subclass that forwards the streaming methods in ``on_server.py``;
+``server/example_server.py`` shows where ``daq_class`` goes.
