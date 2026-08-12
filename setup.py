@@ -27,7 +27,11 @@ setup(
         'deepmerge',      # merging a lab-wide config with a user's own
 
         'moderngl',
-        'PyOpenGL; platform_system=="Linux"',
+        # No platform marker: the marker dated from when only the Linux EGL path
+        # imported PyOpenGL; the cube-map pass (visual_stim/cubemap.py) now needs raw
+        # GL on every platform, and a Mac/Windows install without it loses curved
+        # screens to an ImportError. Pure-Python, so unconditional costs nothing.
+        'PyOpenGL',
         'scikit-image',
     ],
     extras_require={

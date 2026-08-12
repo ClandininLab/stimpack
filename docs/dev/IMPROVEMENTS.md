@@ -477,6 +477,23 @@ is simply correct.
 
 ---
 
+### #48 [Medium] Linux-only PyOpenGL marker breaks curved screens on macOS/Windows
+`setup.py` — `'PyOpenGL; platform_system=="Linux"'` predates the curved-screen
+work: it was written when PyOpenGL served only the Linux EGL path
+(`framework.py`, guarded by `use_egl`). `CubeMapRenderer.__init__`
+(`visual_stim/cubemap.py`) now does `from OpenGL import GL` unconditionally —
+seamless cube filtering, per-face framebuffer attachment, FBO status, error
+draining are raw GL that moderngl does not expose — so on macOS/Windows a
+curved screen dies at construction with `ModuleNotFoundError: No module named
+'OpenGL'`. Nothing caught it: the GL test tiers skip without a context and CI
+has never run. Found 2026-08-12 when a reader asked what the marker does.
+*Fix:* install PyOpenGL unconditionally — pure Python, works on all three
+platforms (opengl32.dll on Windows, OpenGL.framework on macOS), no build step.
+**Status: fixed 2026-08-12** — marker dropped in `setup.py` with a comment
+recording why.
+
+---
+
 ## Cross‑cutting recommendations
 
 These themes tie many of the individual findings together; addressing them at the
