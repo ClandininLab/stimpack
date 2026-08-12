@@ -761,11 +761,16 @@ class NWBData(BaseData):
     browser_attr_exclusions = ['namespace', 'neurodata_type', 'object_id', 'colnames']
 
     def browsable_files(self):
-        """One entry per series file, newest last, plus the subjects registry when it exists.
+        """One entry per series file, newest last, plus the sidecars when they exist.
 
-        The registry (subjects.json) is what holds a subject that has not run a series yet --
-        without it, a fresh experiment with a subject browses as nothing at all."""
+        The subjects registry (subjects.json) is what holds a subject that has not run a series
+        yet -- without it, a fresh experiment with a subject browses as nothing at all. The notes
+        sidecar (notes.csv) is where create_note writes, since there is no shared file to write
+        into -- without it, notes could be taken but never read back in the GUI."""
         files = [(os.path.basename(path), str(path)) for path in self.get_series_files()]
+        notes_path = os.path.join(self.nwb_directory_path, 'notes.csv')
+        if os.path.isfile(notes_path):
+            files.insert(0, ('notes', notes_path))
         if os.path.isfile(self.subjects_file_path):
             files.insert(0, ('subjects', str(self.subjects_file_path)))
         return files

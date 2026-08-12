@@ -14,8 +14,10 @@ attributes must not be edited (pynwb validates a schema that a hand-edited attri
 Both differences are answered by the backend -- browsable_files() and browser_is_editable -- rather
 than by the browser knowing which format it is looking at.
 """
+import csv
 import json
 import os
+from datetime import datetime
 
 import PyQt6.QtCore as QtCore
 import PyQt6.QtGui as QtGui
@@ -126,6 +128,8 @@ class Hdf5DataBrowser(QWidget):
         if path.endswith('.json'):
             with open(path) as f:
                 return {key: {} for key in json.load(f)}
+        if path.endswith('.csv'):
+            return {}                       # a leaf (the NWB notes sidecar): rows go in the table
         # Which groups are noise is a fact about the file layout, so the backend says.
         return h5io.get_hierarchy(path, exclusions=self.data.browser_tree_exclusions)
 
@@ -189,6 +193,14 @@ class Hdf5DataBrowser(QWidget):
             self.populate_attrs(attr_dict={}, editable_values=False, read_only_rows=entry)
             return
 
+        if file_path.endswith('.csv'):
+            # The NWB backend's notes sidecar: timestamped free text, shown on the wall clock.
+            with open(file_path) as f:
+                pairs = [row[:2] for row in csv.reader(f) if len(row) >= 2]
+            self.populate_attrs(attr_dict={}, editable_values=False,
+                                read_only_rows=self._note_rows(pairs))
+            return
+
         if group_path in ('', '/'):
             # The file node itself: show the file's root. For an NWB series file that is the
             # session metadata -- session_description, identifier, start time -- all datasets.
@@ -198,12 +210,37 @@ class Hdf5DataBrowser(QWidget):
             return
 
         attrs, datasets = h5io.get_group_contents(file_path, group_path)
+
+        if group_path.split('/')[-1] == 'Notes':
+            # The HDF5 experiment's notes group: attrs keyed by unix timestamp, which are for
+            # machines. Reformatted for the person who wrote them -- and therefore read-only,
+            # since a row shown under a formatted key cannot be written back to its raw one.
+            self.populate_attrs(attr_dict={}, editable_values=False,
+                                read_only_rows=self._note_rows(attrs.items()))
+            return
+
         # A series' attributes record what was actually presented, so they are read-only whatever
         # the backend allows. Datasets are always read-only (read_only_rows below).
         editable_values = (self.data.browser_is_editable
                            and 'series' not in group_path.split('/')[-1])
         self.populate_attrs(attr_dict=self._without_noise(attrs), editable_values=editable_values,
                             read_only_rows=datasets)
+
+    @staticmethod
+    def _note_rows(pairs):
+        """(timestamp, text) pairs as table rows: wall-clock keys, ordered by time.
+
+        The person who wrote 'subject looks sleepy' wants to know it was 14:32, not
+        1786574513.768. Two notes inside one second keep their fractional stamps, so neither
+        shadows the other.
+        """
+        rows = {}
+        for ts, text in sorted(pairs, key=lambda pair: float(pair[0])):
+            stamp = datetime.fromtimestamp(float(ts)).strftime('%Y-%m-%d %H:%M:%S')
+            if stamp in rows:
+                stamp = f"{stamp} +.{str(float(ts)).partition('.')[2]}s"
+            rows[stamp] = text
+        return rows
 
     def _without_noise(self, attrs):
         """Drop the attribute names the backend calls bookkeeping (NWB's namespace/object_id/...)."""

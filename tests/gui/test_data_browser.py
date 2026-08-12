@@ -419,3 +419,32 @@ def test_nwb_rows_are_never_editable(nwb_browser, nwb_experiment):
         for r in range(nwb_browser.table_attributes.rowCount()):
             flags = nwb_browser.table_attributes.item(r, 1).flags()
             assert not flags & Qt.ItemFlag.ItemIsEditable
+
+
+# --- notes ---------------------------------------------------------------------------------------
+
+def test_notes_read_as_wall_clock_times_not_unix_stamps(browser, experiment):
+    """Notes exist to be read back; a note keyed 1786574513.768072 is visible but illegible.
+    Reformatted keys cannot be written back to their raw ones, so the rows are read-only."""
+    experiment.create_note('subject looks sleepy')
+    browser.refresh()
+    select(browser, ['Notes'])
+
+    rows = table_contents(browser)
+    assert list(rows.values()) == ['subject looks sleepy']
+    key = next(iter(rows))
+    assert '.' not in key.split(' ')[0] and key.count(':') == 2       # a date and a clock time
+    from PyQt6.QtCore import Qt
+    item = browser.table_attributes.item(0, 1)
+    assert not (item.flags() & Qt.ItemFlag.ItemIsEditable)
+
+
+def test_two_notes_in_one_second_both_survive(browser, experiment):
+    with h5py.File(browser.file_path, 'r+') as f:
+        f['/Notes'].attrs['1700000000.10'] = 'first'
+        f['/Notes'].attrs['1700000000.90'] = 'second'
+    browser.refresh()
+    select(browser, ['Notes'])
+
+    rows = table_contents(browser)
+    assert sorted(rows.values()) == ['first', 'second']

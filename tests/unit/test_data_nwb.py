@@ -534,3 +534,14 @@ def test_selecting_a_subject_after_a_restart_restores_its_metadata(tmp_path):
         nwbfile = io.read()
         assert nwbfile.identifier == 's1'
         assert nwbfile.subject.subject_id == 's1'
+
+
+def test_notes_sidecar_is_browsable_once_a_note_exists(tmp_path):
+    """create_note writes to notes.csv because there is no shared file to write into; the browser
+    must list it or notes can be taken but never read back in the GUI."""
+    data = _make_data(tmp_path)
+    assert 'notes' not in dict(data.browsable_files())
+
+    data.create_note('lights dimmed')
+    files = dict(data.browsable_files())
+    assert 'notes' in files and files['notes'].endswith('notes.csv')
