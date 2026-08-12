@@ -1,6 +1,6 @@
 # stimpack
 
-A modular framework for precise and flexible stimulus generation in systems neuroscience.
+A modular framework for precise multisensory stimulus generation in systems neuroscience.
 
 [![Documentation](https://readthedocs.org/projects/stimpack/badge/?version=latest)](https://stimpack.readthedocs.io/en/latest/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)

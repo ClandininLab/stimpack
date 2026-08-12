@@ -1,5 +1,5 @@
 ====================================================================================================
-stimpack: a modular framework for precise and flexible stimulus generation in systems neuroscience
+stimpack: a modular framework for precise multisensory stimulus generation in systems neuroscience
 ====================================================================================================
 
 `stimpack`_ is a Python framework for presenting precisely parameterized, flexibly defined

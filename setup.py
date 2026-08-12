@@ -7,7 +7,7 @@ setup(
     # dev carries breaking changes already named as 1.0.0 in user-facing errors -- see the
     # other_stim_module_paths TypeError in visual_stim/stim_server.py.
     version='1.0.0.dev0',
-    description='A modular framework for precise and flexible stimulus generation in systems neuroscience.',
+    description='A modular framework for precise multisensory stimulus generation in systems neuroscience.',
     url='https://github.com/ClandininLab/stimpack',
     author='Minseung Choi',
     author_email='minseung@stanford.edu',
