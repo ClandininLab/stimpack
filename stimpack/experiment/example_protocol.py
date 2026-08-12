@@ -706,3 +706,172 @@ class LinearTrackWithTowers(BaseProtocol):
                 # comes pre-checked; untick it in the GUI to rehearse open loop.
                 'do_loco': True}
 
+
+# %% Auditory and audiovisual protocol classes
+#
+# These need a server with an audio module. On a rig without one, each load is reported back as a
+# warning and the run continues in silence -- the same way a protocol that asks for opto behaves on
+# a rig with no DAQ. The client deduplicates those messages, so it is one line per run, not per
+# trial.
+#
+# The waveforms are ported from the multistim project (flystim/audio.py, via yh_audio_protocol);
+# the default volumes here are lower than its 1.0, because these are demonstrations that somebody
+# will run on a laptop.
+
+class SineSong(BaseProtocol):
+    """
+    A constant-frequency tone: Drosophila sine song.
+
+    The simplest audio protocol there is, and the one to copy when writing your own. Note that the
+    stimulus descriptor is the same shape a visual protocol builds -- it just names a target.
+    """
+    def __init__(self, cfg):
+        super().__init__(cfg)
+
+        self.run_parameters = self.get_run_parameter_defaults()
+        self.protocol_parameters = self.get_protocol_parameter_defaults()
+
+    def get_trial_parameters(self):
+        super().get_trial_parameters()
+
+        # 'target' is what sends this to the audio module rather than the screens. Without it a
+        # descriptor goes to 'visual', which is what every descriptor meant before targets existed.
+        self.trial_stim_parameters = {'name': 'SineSong',
+                                      'target': 'audio',
+                                      'duration': self.trial_protocol_parameters['stim_time'],
+                                      'freq': self.trial_protocol_parameters['freq'],
+                                      'volume': self.trial_protocol_parameters['volume']}
+
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 0.5,
+                'stim_time': 1.0,
+                'tail_time': 1.0,
+
+                'freq': [225.0, 120.0, 450.0, 900.0],
+                'volume': 0.5,
+                }
+
+    def get_run_parameter_defaults(self):
+        return {'num_trials': 40,
+                'idle_color': 0.5,
+                'pre_run_time': 0,  # seconds to wait before starting the run
+                'post_run_time': 0,  # seconds to wait after the run
+                'all_combinations': True,
+                'randomize_order': True}
+
+# %%
+
+class PulseSong(BaseProtocol):
+    """
+    A train of Gaussian-windowed pulses: Drosophila pulse song.
+
+    ``pcycle`` is the pulse and ``ncycle`` the gap after it, so the inter-pulse interval -- the
+    feature the fly actually discriminates -- is their sum. The realised trial length is quantised
+    to a whole number of those cycles, so it is a little short of ``stim_time``; the audio module
+    logs what was really played.
+    """
+    def __init__(self, cfg):
+        super().__init__(cfg)
+
+        self.run_parameters = self.get_run_parameter_defaults()
+        self.protocol_parameters = self.get_protocol_parameter_defaults()
+
+    def get_trial_parameters(self):
+        super().get_trial_parameters()
+
+        self.trial_stim_parameters = {'name': 'PulseSong',
+                                      'target': 'audio',
+                                      'duration': self.trial_protocol_parameters['stim_time'],
+                                      'freq': self.trial_protocol_parameters['freq'],
+                                      'volume': self.trial_protocol_parameters['volume'],
+                                      'pcycle': self.trial_protocol_parameters['pcycle'],
+                                      'ncycle': self.trial_protocol_parameters['ncycle']}
+
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 0.5,
+                'stim_time': 1.0,
+                'tail_time': 1.0,
+
+                'freq': [225.0, 120.0],
+                'volume': 0.5,
+                'pcycle': 0.016,
+                'ncycle': [0.020, 0.035, 0.050],   # inter-pulse interval, the discriminated feature
+                }
+
+    def get_run_parameter_defaults(self):
+        return {'num_trials': 40,
+                'idle_color': 0.5,
+                'pre_run_time': 0,  # seconds to wait before starting the run
+                'post_run_time': 0,  # seconds to wait after the run
+                'all_combinations': True,
+                'randomize_order': True}
+
+# %%
+
+class AudiovisualPairing(BaseProtocol):
+    """
+    A pulse song and a moving patch, loaded together and started together.
+
+    What a list-valued ``trial_stim_parameters`` is for once descriptors can name a target: the two
+    stimuli go to different modules, in one batch, and are started by the same
+    ``target('all').start_stim()`` -- so they share a trial without either protocol knowing about
+    the other. Both sets of parameters are saved on the trial, under ``stim0_`` and ``stim1_``.
+    """
+    def __init__(self, cfg):
+        super().__init__(cfg)
+
+        self.run_parameters = self.get_run_parameter_defaults()
+        self.protocol_parameters = self.get_protocol_parameter_defaults()
+
+    def get_trial_parameters(self):
+        super().get_trial_parameters()
+
+        center = self.adjust_center(self.trial_protocol_parameters['center'])
+        stim_time = self.trial_protocol_parameters['stim_time']
+        speed = self.trial_protocol_parameters['speed']
+        angle = self.trial_protocol_parameters['angle']
+
+        # Sweep the patch across the visual field over the trial, centered on the rig's own center.
+        start_theta = center[0] - speed * stim_time / 2
+        end_theta = center[0] + speed * stim_time / 2
+
+        self.trial_stim_parameters = [
+            {'name': 'MovingPatch',
+             'width': 10.0,
+             'height': 10.0,
+             'sphere_radius': 1.0,
+             'color': self.trial_protocol_parameters['intensity'],
+             'theta': {'name': 'TVPairs',
+                       'tv_pairs': [(0, start_theta), (stim_time, end_theta)],
+                       'kind': 'linear'},
+             'phi': center[1],
+             'angle': angle},
+
+            {'name': 'PulseSong',
+             'target': 'audio',
+             'duration': stim_time,
+             'freq': self.trial_protocol_parameters['freq'],
+             'volume': self.trial_protocol_parameters['volume']},
+        ]
+
+    def get_protocol_parameter_defaults(self):
+        return {'pre_time': 0.5,
+                'stim_time': 2.0,
+                'tail_time': 1.0,
+
+                'intensity': 0.0,
+                'center': (0, 0),
+                'speed': 60.0,
+                'angle': 0.0,
+
+                'freq': [225.0, 120.0],
+                'volume': 0.5,
+                }
+
+    def get_run_parameter_defaults(self):
+        return {'num_trials': 40,
+                'idle_color': 0.5,
+                'pre_run_time': 0,  # seconds to wait before starting the run
+                'post_run_time': 0,  # seconds to wait after the run
+                'all_combinations': True,
+                'randomize_order': True}

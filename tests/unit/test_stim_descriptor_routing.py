@@ -95,3 +95,53 @@ def test_a_none_entry_in_the_list_is_skipped():
     calls = loaded_calls([None, {'name': 'MovingPatch'}])
     assert sum(1 for target, name, kwargs in calls if name == 'load_stim') == 2   # bg + patch
 
+
+
+# # # The built-in audio protocols # # #
+
+def audio_protocol(name):
+    """Load a built-in protocol the way the GUI does, by name."""
+    import os
+    from stimpack.experiment.util import config_tools
+    from stimpack.util import ROOT_DIR, get_all_subclasses
+
+    path = os.path.join(ROOT_DIR, 'experiment', 'example_protocol.py')
+    config_tools.load_user_module_from_path(path, 'protocol_examples')
+    matches = [c for c in get_all_subclasses(BaseProtocol) if c.__name__ == name]
+    assert matches, f'no built-in protocol named {name}'
+    return matches[-1]
+
+
+@pytest.mark.parametrize('name', ['SineSong', 'PulseSong', 'AudiovisualPairing'])
+def test_the_built_in_audio_protocols_are_discoverable_like_any_other(name):
+    """What puts them in the GUI's dropdown: subclasses of BaseProtocol in example_protocol.py."""
+    assert issubclass(audio_protocol(name), BaseProtocol)
+
+
+@pytest.mark.parametrize('name', ['SineSong', 'PulseSong'])
+def test_the_audio_only_protocols_send_their_sound_to_the_audio_module(name):
+    protocol = audio_protocol(name)(cfg={})
+    protocol.trial_protocol_parameters = protocol.get_protocol_parameter_defaults()
+    protocol.trial_protocol_parameters['freq'] = 225.0      # collapse the sweep to one value
+    protocol.trial_protocol_parameters['ncycle'] = 0.020
+    protocol.get_trial_parameters()
+
+    assert protocol.trial_stim_parameters['target'] == 'audio'
+    assert protocol.trial_stim_parameters['name'] == name
+
+
+def test_the_audiovisual_protocol_pairs_one_descriptor_per_module():
+    """The mixed list, which is the thing Phase 4 exists for."""
+    protocol = audio_protocol('AudiovisualPairing')(cfg={})
+    protocol.trial_protocol_parameters = protocol.get_protocol_parameter_defaults()
+    protocol.trial_protocol_parameters['freq'] = 225.0
+    protocol.get_trial_parameters()
+
+    descriptors = protocol.trial_stim_parameters
+    assert len(descriptors) == 2
+    assert [d.get('target', 'visual') for d in descriptors] == ['visual', 'audio']
+
+    # And it routes as written, through the real load_stimuli.
+    calls = loaded_calls(descriptors)
+    load_targets = [target for target, name, kwargs in calls if name == 'load_stim']
+    assert 'visual' in load_targets and 'audio' in load_targets
