@@ -22,6 +22,7 @@ def _wander(rng, n, dt, sigma, tau=0.5, bound=60.0):
 
 from stimpack.rpc.transceiver import MySocketClient
 from stimpack.rpc.multicall import MyMultiCall
+from stimpack.audio.util import constant_power_gains
 from stimpack.experiment.protocol import BaseProtocol
 
 # %% Some simple visual stimulus protocol classes
@@ -422,6 +423,14 @@ class ChaseTheTower(BaseProtocol):
     # A feedback cue, not a reward marker -- it reaches the speaker a tracker update plus an audio
     # buffer (~10 ms) after the catch; a timestamped reward belongs on voltage_out.
     CATCH_CHIME = {'name': 'SineSong', 'duration': 0.15, 'freq': 880.0, 'volume': 0.5}
+    # The tower's hum: a looping source whose gains the control function retargets from the live
+    # geometry -- louder as the subject closes in, panned toward the tower's bearing on a stereo
+    # rig. 220 Hz over a 1.0 s loop is a whole number of periods, so the loop has no seam; the
+    # gains start at 0 and the first tracker update sets them, so nothing plays at full volume
+    # for the instant before the geometry speaks.
+    HUM = {'name': 'SineSong', 'target': 'audio', 'source_id': 'tower', 'loop': True,
+           'gains': 0.0, 'duration': 1.0, 'freq': 220.0, 'volume': 1.0}
+    HUM_REF_DISTANCE = 0.04      # full volume from twice the catch radius inward; 1/d beyond
 
     def __init__(self, cfg):
         super().__init__(cfg)
@@ -455,6 +464,25 @@ class ChaseTheTower(BaseProtocol):
         i = min(int(t / ChaseTheTower.DT), n - 1)
         dx = fresh('x', 0.0) - xs[i]
         dy = fresh('y', 0.0) - ys[i]
+
+        # Drive the tower's hum from the same geometry the catch condition reads: closer is
+        # louder, and on a stereo device the hum pans toward the tower's bearing. has_source is
+        # the guard that matters -- between trials the source is gone while updates keep coming.
+        audio = server.modules.get('audio')
+        if audio is not None and getattr(audio, 'has_source', lambda _: False)('tower'):
+            distance = (dx * dx + dy * dy) ** 0.5
+            level = min(1.0, ChaseTheTower.HUM_REF_DISTANCE / max(distance, 1e-6))
+            if audio.channels >= 2:
+                # The vector to the tower is (-dx, -dy); its world bearing is measured like
+                # theta (degrees from +y, positive toward +x), so subtracting the heading gives
+                # the bearing in the subject's frame, wrapped to (-180, 180].
+                bearing = np.degrees(np.arctan2(-dx, -dy)) - fresh('theta', 0.0)
+                bearing = (bearing + 180.0) % 360.0 - 180.0
+                audio.set_source_gains('tower',
+                                       constant_power_gains(bearing, audio.channels, gain=level))
+            else:
+                audio.set_source_gains('tower', level)
+
         if dx * dx + dy * dy <= ChaseTheTower.CATCH_RADIUS ** 2:
             # This runs IN the server process, so the audio module is a direct call away -- no
             # RPC, and no round trip for stop_stim to win. Guarded on presence: a rig without a
@@ -490,6 +518,11 @@ class ChaseTheTower(BaseProtocol):
              'y': {'name': 'TVPairs', 'tv_pairs': list(zip(t, ys)), 'kind': 'linear'},
              'z': self.FLOOR_Z + self.TOWER_HEIGHT / 2 - self.TOWER_SINK},
         ]
+
+        # The hum rides along only when this rig has an audio module: on a silent rig the
+        # descriptor would warn every trial about a module that legitimately is not there.
+        if self.has_module('audio'):
+            self.trial_stim_parameters.append(dict(self.HUM))
 
     def load_stimuli(self, manager, multicall=None):
         # Arm the server side: the seed is the whole description of the path, and resetting

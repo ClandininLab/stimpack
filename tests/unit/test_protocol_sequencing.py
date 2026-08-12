@@ -279,3 +279,60 @@ def test_the_catch_rings_the_chime_when_the_rig_has_audio(monkeypatch):
 
     assert server.ended == ['caught']
     assert audio.events == [ep.ChaseTheTower.CATCH_CHIME]
+
+
+def test_the_hum_follows_the_subject_and_pans_on_a_stereo_rig(monkeypatch):
+    """Closer is louder (1/d up to full volume), and on a stereo device the gains become a
+    constant-power pair aimed at the tower's bearing. Between trials the source is gone while
+    updates keep coming -- has_source is the guard, so nothing raises."""
+    import stimpack.experiment.example_protocol as ep
+
+    class _FakeAudio:
+        def __init__(self, channels, loaded=True):
+            self.channels = channels
+            self.gains = []
+            self.loaded = loaded
+
+        def has_source(self, source_id):
+            return self.loaded and source_id == 'tower'
+
+        def set_source_gains(self, source_id, gains):
+            if not self.loaded:
+                raise ValueError(f"no source named '{source_id}' is loaded")
+            self.gains.append(gains)
+
+        def play_event_sound(self, **kwargs):
+            pass
+
+    def run_chase(channels, positions, loaded=True):
+        now = [1000.0]
+        monkeypatch.setattr(ep.time, 'time', lambda: now[0])
+        fn = ep.ChaseTheTower.server_side_state_dependent_control
+        n = int(30.0 / ep.ChaseTheTower.DT) + 1
+        server, state = _FakeServer(), {}
+        server.modules['audio'] = audio = _FakeAudio(channels, loaded=loaded)
+
+        def step(update):
+            state.update(fn(server, state, dict(update)))
+
+        step({'chase_armed': 1, 'chase_t0': 0.0, 'chase_seed': 5, 'chase_n': n})
+        now[0] = 1000.5
+        for position in positions:
+            step(position)
+        return audio
+
+    # Mono: scalar gains, monotonically louder as the subject walks toward the tower's start.
+    audio = run_chase(channels=1, positions=[{'x': 0.0, 'y': 0.0, 'theta': 0.0},
+                                             {'x': 0.0, 'y': 0.04, 'theta': 0.0}])
+    assert len(audio.gains) == 2
+    assert 0 < audio.gains[0] < audio.gains[1] <= 1.0
+
+    # Stereo: a tower ahead-left of a north-facing subject weights the left channel.
+    audio = run_chase(channels=2, positions=[{'x': 0.05, 'y': 0.0, 'theta': 0.0}])
+    left, right = audio.gains[0]
+    assert left > right >= 0.0
+    assert left ** 2 + right ** 2 <= 1.0 + 1e-9
+
+    # No source loaded (between trials): the update passes through without a call or a raise.
+    audio = run_chase(channels=1, positions=[{'x': 0.0, 'y': 0.0}], loaded=False)
+    assert audio.gains == []

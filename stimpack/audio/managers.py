@@ -71,6 +71,17 @@ class AudioManager(BaseManager):
         self._pending_events = []   # rendered interleaved int16 arrays, handler-side
         self._active_events = []    # [samples, cursor] pairs, device-thread-side
 
+        # Sources: continuous (usually looping) mono sounds whose per-channel gains change while
+        # they play -- a tower humming louder as the subject approaches. Same two-thread contract
+        # as events: handlers create source dicts and append them to _pending_sources; the device
+        # thread adopts them into _active_sources and alone advances 'cursor' and 'current_gains'.
+        # Handlers write only whole-value fields ('target_gains' as a fresh tuple, the 'playing'
+        # and 'stopped' flags), so nothing is mutated from two threads and no lock guards the
+        # audio path. _sources_by_id is the handler-side index for set_source_gains and stop_stim.
+        self._pending_sources = []
+        self._active_sources = []
+        self._sources_by_id = {}
+
         # What actually happened, for the log and for reporting. Reset per trial.
         self._requested_at = None   # wall clock when start_stim was handled
         self._onset_dac_time = None # the device's own clock for the first sample, when it can say
@@ -80,7 +91,7 @@ class AudioManager(BaseManager):
 
     # # # The module contract # # #
 
-    def load_stim(self, name, hold=False, **kwargs):
+    def load_stim(self, name, hold=False, source_id=None, loop=False, gains=1.0, **kwargs):
         """
         Render a sound and hold it ready. Called with the trial's stimulus descriptor.
 
@@ -88,22 +99,89 @@ class AudioManager(BaseManager):
         ``target('visual').load_stim(..., hold=True)`` layers stimuli. ``hold=False`` (the default)
         replaces them.
 
+        A descriptor carrying ``source_id`` becomes a **source** instead of joining the trial mix:
+        a mono sound, optionally looping, whose per-channel ``gains`` can be changed while it plays
+        (:meth:`set_source_gains`) -- how a sound follows the run's geometry. Sources share the
+        trial lifecycle: they start with ``start_stim`` and die with ``stop_stim``, unlike event
+        sounds, because a looping sound that outlived its trial would drone forever.
+
         Rendering happens here rather than at ``start_stim`` on purpose: generating a waveform takes
         milliseconds and would otherwise land inside the trial it is timing.
         """
-        if not hold:
-            self.sound_list = []
-
         # make_as pops 'name' from the dict it is given, so hand it a fresh one. It raises for an
         # unknown name, which BaseManager.handle_request_list catches and reports to the client --
         # the same treatment a mistyped visual stimulus gets.
         sound = make_as_sound({'name': name, **kwargs})
         if not isinstance(sound, BaseSound):
             raise ValueError(f"'{name}' is not a BaseSound subclass")
+
+        if source_id is not None:
+            self._load_source(source_id, sound, loop=loop, gains=gains)
+            return
+
+        if not hold:
+            self.sound_list = []
         self.sound_list.append(sound)
 
         self._buffer = self._render(self.sound_list)
         self._cursor = 0
+
+    def _load_source(self, source_id, sound, loop, gains):
+        waveform = np.asarray(sound.generate(self.sample_rate), dtype=np.float64)
+        if waveform.ndim != 1:
+            # Per-channel gains ARE the source's channel content; a sound that renders its own
+            # channels is describing the same thing twice, in ways that could disagree.
+            raise ValueError(f"a gain-controlled source must be mono; "
+                             f"'{type(sound).__name__}' rendered {waveform.shape[1]} channels")
+
+        source = {
+            'samples': np.clip(waveform, -1.0, 1.0).astype(np.float64),
+            'cursor': 0,                                         # device-thread-owned
+            'loop': bool(loop),
+            'target_gains': self._as_channel_gains(gains),       # handler-replaced, whole tuple
+            'current_gains': None,                               # device-side ramp state
+            'playing': False,                                    # flipped by start_stim
+            'stopped': False,                                    # flipped by stop_stim
+        }
+        # Reloading an id replaces the source: the old one is flagged off and forgotten here; the
+        # device thread drops it on its next block.
+        old = self._sources_by_id.get(source_id)
+        if old is not None:
+            old['stopped'] = True
+        self._sources_by_id[source_id] = source
+        self._pending_sources.append(source)
+
+    def _as_channel_gains(self, gains):
+        if isinstance(gains, (int, float)):
+            return (float(gains),) * self.channels
+        gains = tuple(float(g) for g in gains)
+        if len(gains) != self.channels:
+            raise ValueError(f'{len(gains)} gains for a {self.channels}-channel device')
+        return gains
+
+    def has_source(self, source_id):
+        """Whether a source with this id is currently loaded.
+
+        The guard for gain-driving logic that runs on every tracker update: between trials the
+        source is gone (stop_stim removes it) while the updates keep coming, and a raise per
+        update would flood the client with errors for an ordinary moment of the run.
+        """
+        return source_id in self._sources_by_id
+
+    def set_source_gains(self, source_id, gains):
+        """
+        Retarget a source's per-channel gains; the device ramps each channel across one buffer
+        block (~6 ms at the defaults), so a step never clicks.
+
+        ``gains`` may be a scalar (every channel -- a distance rolloff on a mono rig) or one value
+        per channel (a pan; see :func:`stimpack.audio.util.constant_power_gains`). Meant to be
+        called from server-side logic at tracker rate -- the caller that already knows the
+        geometry -- so the update lands with no RPC hop.
+        """
+        source = self._sources_by_id.get(source_id)
+        if source is None:
+            raise ValueError(f"no source named '{source_id}' is loaded")
+        source['target_gains'] = self._as_channel_gains(gains)
 
     def start_stim(self, **kwargs):
         """
@@ -117,7 +195,7 @@ class AudioManager(BaseManager):
         self._underruns = 0
         self._cursor = 0
 
-        if self._buffer is None:
+        if self._buffer is None and not self._sources_by_id:
             # No sound loaded for this trial. Not a problem -- a protocol that plays on some trials
             # and not others is ordinary -- but the trial is a no-op here, and treating it as
             # playback would put a row in the log for every silent trial of every protocol.
@@ -133,7 +211,10 @@ class AudioManager(BaseManager):
                                  f'script driving this manager must call start() itself.')
             return
 
-        self._playing = True
+        for source in self._sources_by_id.values():
+            source['playing'] = True
+        if self._buffer is not None:
+            self._playing = True
 
     def stop_stim(self, **kwargs):
         """
@@ -173,6 +254,13 @@ class AudioManager(BaseManager):
         # hold=True for every descriptor without sounds piling up across trials.
         self.sound_list = []
         self._buffer = None
+
+        # Sources die with their trial -- unlike event sounds, because a looping sound that
+        # outlived stop_stim would drone forever. Flagged rather than removed: the device thread
+        # owns the active list and drops flagged entries on its next block.
+        for source in self._sources_by_id.values():
+            source['stopped'] = True
+        self._sources_by_id = {}
 
     def play_event_sound(self, name, **kwargs):
         """
@@ -224,9 +312,12 @@ class AudioManager(BaseManager):
         if self.started:
             self._close_device()
             self.started = False
-        # Events die with the device, unlike with stop_stim: nothing can play them any more.
+        # Events and sources die with the device, unlike with stop_stim: nothing can play them.
         self._pending_events = []
         self._active_events = []
+        self._pending_sources = []
+        self._active_sources = []
+        self._sources_by_id = {}
         self._close_log()
 
     def on_connection_close(self):
@@ -302,8 +393,10 @@ class AudioManager(BaseManager):
 
         while self._pending_events:
             self._active_events.append([self._pending_events.pop(0), 0])
+        while self._pending_sources:
+            self._active_sources.append(self._pending_sources.pop(0))
 
-        if not self._active_events:
+        if not self._active_events and not self._active_sources:
             if chunk is None:
                 return self._silence(frame_count)
             if len(chunk) < n:
@@ -314,9 +407,9 @@ class AudioManager(BaseManager):
                 return padded.tobytes()
             return chunk.tobytes()
 
-        # Mix in int32 and clip, so a chime over a loud carrier saturates instead of wrapping --
-        # the same verdict to_int16 gives at render time.
-        mixed = np.zeros(n, dtype=np.int32)
+        # Mix wide and clip once, so a chime over a loud carrier saturates instead of wrapping --
+        # the same verdict to_int16 gives at render time. Float because source gains are float.
+        mixed = np.zeros(n, dtype=np.float64)
         if chunk is not None:
             mixed[:len(chunk)] += chunk
         for event in self._active_events:
@@ -324,6 +417,38 @@ class AudioManager(BaseManager):
             mixed[:len(piece)] += piece
             event[1] += n
         self._active_events = [event for event in self._active_events if event[1] < len(event[0])]
+
+        for source in self._active_sources:
+            if source['stopped'] or not source['playing']:
+                continue
+            samples, cursor = source['samples'], source['cursor']
+            if source['loop']:
+                piece = samples[(cursor + np.arange(frame_count)) % len(samples)]
+                source['cursor'] = (cursor + frame_count) % len(samples)
+            else:
+                piece = samples[cursor:cursor + frame_count]
+                source['cursor'] = cursor + frame_count
+                if source['cursor'] >= len(samples):
+                    source['stopped'] = True
+                if len(piece) < frame_count:
+                    piece = np.concatenate([piece, np.zeros(frame_count - len(piece))])
+
+            # Gains ramp linearly across the block from where the last block left them to the
+            # handler's latest target: a step applied instantly is a click; 256 frames (~6 ms at
+            # the defaults) is not. target_gains is read once -- the handler replaces the whole
+            # tuple, so a concurrent update lands next block, never mid-ramp.
+            target = source['target_gains']
+            current = source['current_gains'] or target
+            for channel in range(self.channels):
+                if current[channel] == target[channel]:
+                    envelope = target[channel]
+                else:
+                    envelope = np.linspace(current[channel], target[channel], frame_count)
+                mixed[channel::self.channels] += piece * envelope * 32767.0
+            source['current_gains'] = target
+        self._active_sources = [source for source in self._active_sources
+                                if not source['stopped']]
+
         return np.clip(mixed, -32768, 32767).astype(np.int16).tobytes()
 
     def _silence(self, frame_count):

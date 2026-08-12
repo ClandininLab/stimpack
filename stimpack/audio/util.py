@@ -40,6 +40,33 @@ def to_int16(samples, legacy_overflow=False):
     return np.clip(np.round(samples * INT16_PEAK), -INT16_PEAK - 1, INT16_PEAK).astype(np.int16)
 
 
+def constant_power_gains(bearing_deg, channels, gain=1.0):
+    """
+    Per-channel gains placing a mono source at a bearing, by constant-power stereo pan.
+
+    Loudness tracks power, not amplitude, so a linear crossfade audibly dips mid-pan; with
+    L = cos(theta), R = sin(theta) the power L^2 + R^2 is 1 everywhere and the phantom source
+    sweeps at constant loudness. Bearing is in the rig's convention -- degrees from straight
+    ahead, positive to the subject's right -- and is clipped to [-90, +90]: two speakers span
+    one axis, so a source behind the subject renders at the nearest side, which is the honest
+    front/back collapse of level-only panning rather than a pretend answer.
+
+    One channel gets ``[gain]`` (no axis to pan along); more than two put the pair on the first
+    two channels and silence on the rest -- a speaker ring wants its own bearing-to-pair law,
+    which is a rig-geometry question, not a formula this helper can guess.
+
+    :param bearing_deg: source bearing relative to the subject's heading, degrees
+    :param channels: output channel count of the device
+    :param gain: overall level, applied on top of the pan (e.g. a distance rolloff)
+    """
+    if channels < 2:
+        return [float(gain)]
+    import math
+    theta = (min(max(float(bearing_deg), -90.0), 90.0) + 90.0) / 180.0 * (math.pi / 2)
+    gains = [float(gain) * math.cos(theta), float(gain) * math.sin(theta)]
+    return gains + [0.0] * (channels - 2)
+
+
 def probe_default_output():
     """
     ``(rate, None)`` when this machine can play audio; ``(None, why_not)`` when it cannot.

@@ -118,6 +118,37 @@ subject state). And an event reaches the speaker a tracker update plus an audio 
 condition fired, ~10 ms of soft latency: right for feedback a subject hears, wrong for a
 timestamped reward marker, which belongs on :doc:`voltage_out`.
 
+Sources: continuous sounds with live gains
+==========================================
+
+A descriptor carrying a ``source_id`` becomes a **source**: a mono sound, usually looping, whose
+per-channel gains can be retargeted while it plays -- how a sound follows the run's geometry::
+
+    {'name': 'SineSong', 'target': 'audio', 'source_id': 'tower', 'loop': True,
+     'gains': 0.0, 'duration': 1.0, 'freq': 220.0, 'volume': 1.0}
+
+Sources share the trial lifecycle (they start with ``start_stim`` and die with ``stop_stim`` --
+a looping sound must not outlive its trial), and the descriptor is saved with the trial like any
+stimulus. The gains are driven from server-side logic, which is the code that already knows the
+geometry; the built-in ``ChaseTheTower`` is the worked example, its control function making the
+tower hum louder as the subject closes in::
+
+    audio = server.modules.get('audio')
+    if audio is not None and getattr(audio, 'has_source', lambda _: False)('tower'):
+        audio.set_source_gains('tower', min(1.0, REF_DISTANCE / max(distance, 1e-6)))
+
+Guard with ``has_source``, not just the module's presence: between trials the source is gone while
+tracker updates keep coming. Gains ramp linearly across one buffer block (~6 ms at the defaults),
+so a retarget never clicks; a scalar addresses every channel alike (a distance rolloff on a mono
+rig), and a list gives one gain per channel. On a stereo device
+:func:`stimpack.audio.util.constant_power_gains` turns a bearing into a left/right pair at
+constant loudness -- level-only panning, so it places the sound *ordinally* (left-of, right-of,
+sweeping smoothly) rather than at calibrated angles, and a source behind the subject renders at
+the nearest side. Two practical notes: a looping sine needs a whole number of periods in its
+rendered duration or the loop seam clicks (220 Hz over 1.0 s is seamless; 220.5 Hz is not), and
+the gain trajectory is not separately logged because it is a pure function of the subject-state
+history, which is saved with the series (see :doc:`locomotion`).
+
 Why a sound is a stimulus, and a voltage is not
 ===============================================
 

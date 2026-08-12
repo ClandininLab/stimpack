@@ -388,3 +388,117 @@ def test_an_event_before_the_device_opens_warns_and_queues_nothing():
     m.play_event_sound(name='SineSong', duration=0.01)
     assert any('play_event_sound' in text for _, text in seen)
     assert m._pending_events == []
+
+
+# # # Sources: continuous sounds with live per-channel gains # # #
+
+def _rms(chunk):
+    return float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2)))
+
+
+def _source_manager(**kwargs):
+    m = manager(**kwargs)
+    m.load_stim(name='SineSong', source_id='src', loop=True, gains=1.0,
+                duration=0.01, freq=1000.0, volume=1.0)
+    m.start_stim()
+    return m
+
+
+def test_a_looping_source_keeps_playing_past_its_length():
+    m = _source_manager()                                   # 0.01 s of samples at SR
+    for _ in range(4):                                      # 4 x 80 frames = 4 lengths
+        chunk = np.frombuffer(m._next_chunk(80), dtype=np.int16)
+    assert np.abs(chunk).max() > 0
+
+
+def test_a_source_is_silent_until_start_stim():
+    m = manager()
+    m.load_stim(name='SineSong', source_id='src', loop=True, duration=0.01)
+    chunk = np.frombuffer(m._next_chunk(80), dtype=np.int16)
+    assert np.abs(chunk).max() == 0
+
+
+def test_a_gain_step_ramps_across_one_block_instead_of_clicking():
+    m = _source_manager()
+    loud = _rms(np.frombuffer(m._next_chunk(80), dtype=np.int16))
+    m.set_source_gains('src', 0.0)
+    ramp = _rms(np.frombuffer(m._next_chunk(80), dtype=np.int16))
+    after = _rms(np.frombuffer(m._next_chunk(80), dtype=np.int16))
+    assert 0.1 * loud < ramp < 0.9 * loud, 'the transition block carries the ramp'
+    assert after == 0.0, 'the block after the ramp sits at the target'
+
+
+def test_per_channel_gains_reach_their_channels():
+    m = manager(channels=2)
+    m.load_stim(name='SineSong', source_id='src', loop=True, gains=[1.0, 0.0],
+                duration=0.01, freq=1000.0, volume=1.0)
+    m.start_stim()
+    m._next_chunk(80)                                       # ramp-in block
+    chunk = np.frombuffer(m._next_chunk(80), dtype=np.int16)
+    left, right = chunk[0::2], chunk[1::2]
+    assert np.abs(left).max() > 0 and np.abs(right).max() == 0
+
+
+def test_stop_stim_removes_the_source():
+    m = _source_manager()
+    m._next_chunk(80)
+    m.stop_stim()
+    assert not m.has_source('src')
+    chunk = np.frombuffer(m._next_chunk(80), dtype=np.int16)
+    assert np.abs(chunk).max() == 0
+
+
+def test_a_non_looping_source_ends_on_its_own():
+    m = manager()
+    m.load_stim(name='SineSong', source_id='src', loop=False, duration=0.01)
+    m.start_stim()
+    m._next_chunk(80)                                       # exactly the sound's length
+    chunk = np.frombuffer(m._next_chunk(80), dtype=np.int16)
+    assert np.abs(chunk).max() == 0
+
+
+def test_retargeting_an_unknown_source_is_reported_not_dropped():
+    m = manager()
+    seen = reports(m)
+    m.handle_request_list([{'name': 'set_source_gains', 'args': [],
+                            'kwargs': {'source_id': 'nope', 'gains': 1.0}}])
+    assert any('nope' in text for _, text in seen)
+
+
+def test_a_source_mixes_over_the_trial_sound():
+    m = _source_manager()
+    m.load_stim(name='SineSong', duration=0.01, freq=500.0, volume=0.25, hold=True)
+    m.start_stim()
+    solo = _rms(np.frombuffer(m._next_chunk(80), dtype=np.int16))
+    m.set_source_gains('src', 0.0)
+    m._next_chunk(80)                                       # ramp out
+    m._cursor = 0                                           # replay the trial sound alone
+    duo = _rms(np.frombuffer(m._next_chunk(80), dtype=np.int16))
+    assert solo > duo > 0
+
+
+# # # constant-power pan # # #
+
+def test_constant_power_pan_holds_loudness_across_the_sweep():
+    from stimpack.audio.util import constant_power_gains
+    for bearing in (-90, -45, 0, 30, 90):
+        left, right = constant_power_gains(bearing, channels=2)
+        assert left ** 2 + right ** 2 == pytest.approx(1.0)
+
+
+def test_pan_extremes_and_centre():
+    from stimpack.audio.util import constant_power_gains
+    assert constant_power_gains(-90, 2) == pytest.approx([1.0, 0.0], abs=1e-9)
+    assert constant_power_gains(90, 2)[0] == pytest.approx(0.0, abs=1e-9)
+    centre = constant_power_gains(0, 2)
+    assert centre[0] == pytest.approx(centre[1])
+
+
+def test_pan_behind_collapses_to_the_nearest_side():
+    from stimpack.audio.util import constant_power_gains
+    assert constant_power_gains(135, 2) == pytest.approx(constant_power_gains(90, 2))
+
+
+def test_pan_on_a_mono_device_is_just_the_gain():
+    from stimpack.audio.util import constant_power_gains
+    assert constant_power_gains(42.0, channels=1, gain=0.5) == [0.5]
