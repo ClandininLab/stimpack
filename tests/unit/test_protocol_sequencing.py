@@ -336,3 +336,24 @@ def test_the_hum_follows_the_subject_and_pans_on_a_stereo_rig(monkeypatch):
     # No source loaded (between trials): the update passes through without a call or a raise.
     audio = run_chase(channels=1, positions=[{'x': 0.0, 'y': 0.0}], loaded=False)
     assert audio.gains == []
+
+
+def test_the_hum_frequency_is_a_parameter_and_zero_removes_the_hum():
+    """hum_freq is client-side only, so unlike CATCH_RADIUS it is safe as a GUI parameter; 0
+    means no descriptor at all -- a no-hum trial's record shows no sound, not a silent one."""
+    import stimpack.experiment.example_protocol as ep
+
+    def descriptors(hum_freq):
+        p = ep.ChaseTheTower(cfg={})
+        p.select_protocol_preset()
+        p.protocol_parameters['hum_freq'] = hum_freq
+        p.run_parameters['randomize_order'] = False
+        p.precompute_trial_parameters(refresh=True)
+        p.load_precomputed_trial_parameters()
+        p.get_trial_parameters()
+        return p.trial_stim_parameters
+
+    hum = next(d for d in descriptors(330.0) if d.get('target') == 'audio')
+    assert hum['freq'] == 330.0 and hum['source_id'] == 'tower'
+
+    assert not any(d.get('target') == 'audio' for d in descriptors(0.0))

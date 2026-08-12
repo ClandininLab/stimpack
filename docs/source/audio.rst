@@ -131,7 +131,9 @@ Sources share the trial lifecycle (they start with ``start_stim`` and die with `
 a looping sound must not outlive its trial), and the descriptor is saved with the trial like any
 stimulus. The gains are driven from server-side logic, which is the code that already knows the
 geometry; the built-in ``ChaseTheTower`` is the worked example, its control function making the
-tower hum louder as the subject closes in::
+tower hum louder as the subject closes in. (Its ``hum_freq`` protocol parameter shows the safe
+way to expose a source in the GUI: the frequency is client-side only, and 0 removes the
+descriptor entirely, so hum and no-hum trials can sweep like any other parameter.) ::
 
     audio = server.modules.get('audio')
     if audio is not None and getattr(audio, 'has_source', lambda _: False)('tower'):

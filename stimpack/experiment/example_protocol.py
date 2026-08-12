@@ -425,11 +425,14 @@ class ChaseTheTower(BaseProtocol):
     CATCH_CHIME = {'name': 'SineSong', 'duration': 0.15, 'freq': 880.0, 'volume': 0.5}
     # The tower's hum: a looping source whose gains the control function retargets from the live
     # geometry -- louder as the subject closes in, panned toward the tower's bearing on a stereo
-    # rig. 220 Hz over a 1.0 s loop is a whole number of periods, so the loop has no seam; the
-    # gains start at 0 and the first tracker update sets them, so nothing plays at full volume
-    # for the instant before the geometry speaks.
+    # rig. The gains start at 0 and the first tracker update sets them, so nothing plays at full
+    # volume for the instant before the geometry speaks. The frequency is the protocol's
+    # `hum_freq` parameter -- client-side only, so unlike CATCH_RADIUS it is safe to edit in the
+    # GUI (the server reads nothing from it); 0 removes the hum entirely, and a list such as
+    # [0.0, 220.0] sweeps hum and no-hum trials like any other parameter. Whole-number Hz keeps
+    # the 1.0 s loop seamless (a whole number of periods); 220.5 Hz clicks once per loop.
     HUM = {'name': 'SineSong', 'target': 'audio', 'source_id': 'tower', 'loop': True,
-           'gains': 0.0, 'duration': 1.0, 'freq': 220.0, 'volume': 1.0}
+           'gains': 0.0, 'duration': 1.0, 'volume': 1.0}
     HUM_REF_DISTANCE = 0.04      # full volume from twice the catch radius inward; 1/d beyond
 
     def __init__(self, cfg):
@@ -519,10 +522,13 @@ class ChaseTheTower(BaseProtocol):
              'z': self.FLOOR_Z + self.TOWER_HEIGHT / 2 - self.TOWER_SINK},
         ]
 
-        # The hum rides along only when this rig has an audio module: on a silent rig the
-        # descriptor would warn every trial about a module that legitimately is not there.
-        if self.has_module('audio'):
-            self.trial_stim_parameters.append(dict(self.HUM))
+        # The hum rides along only when this rig has an audio module -- on a silent rig the
+        # descriptor would warn every trial about a module that legitimately is not there -- and
+        # only when this trial's hum_freq says so: 0 means no hum, as a descriptor rather than as
+        # a 0 Hz sine, so a no-hum trial's record shows no sound instead of a silent one.
+        hum_freq = float(self.trial_protocol_parameters['hum_freq'])
+        if hum_freq > 0 and self.has_module('audio'):
+            self.trial_stim_parameters.append({**self.HUM, 'freq': hum_freq})
 
     def load_stimuli(self, manager, multicall=None):
         # Arm the server side: the seed is the whole description of the path, and resetting
@@ -540,7 +546,8 @@ class ChaseTheTower(BaseProtocol):
                 'tail_time': 0.5,
                 'loco_pos_closed_loop': 1,
 
-                'seed': [0, 1, 2, 3, 4]}
+                'seed': [0, 1, 2, 3, 4],
+                'hum_freq': 220.0}
 
     def get_run_parameter_defaults(self):
         return {'num_trials': 5,
