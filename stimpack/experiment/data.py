@@ -372,6 +372,46 @@ class BaseData():
             if reason is not None:
                 series_group.attrs['abort_reason'] = str(reason)
 
+    def save_subject_state_history(self, history):
+        """
+        Write the run's subject-state history under the current series group.
+
+        ``history`` is ``[[unix_time, {key: value}], ...]`` -- the full accumulated state at each
+        ``set_subject_state``, shipped from the server at run end. Stored under
+        ``subject_state_history/`` as a ``time`` dataset plus one dataset per numeric key, aligned
+        row for row and NaN-filled before a key's first appearance (a protocol may introduce a key
+        mid-run). Non-numeric values are rare and lossy to tabulate, so those keys are recorded by
+        name in the ``non_numeric_keys`` attribute rather than silently dropped.
+        """
+        if not history:
+            return
+        if not (self.current_subject_exists() and self.experiment_file_exists()):
+            print('Create a data file and/or define a subject first')
+            return
+
+        times = np.array([entry[0] for entry in history], dtype=np.float64)
+        keys, non_numeric = [], []
+        for _, state in history:
+            for key, value in state.items():
+                if key in keys or key in non_numeric:
+                    continue
+                (keys if isinstance(value, (int, float, bool)) else non_numeric).append(key)
+
+        with h5py.File(os.path.join(self.data_directory, self.experiment_file_name + '.hdf5'), 'r+') as experiment_file:
+            series_group = experiment_file.get(self.series_path())
+            if series_group is None:
+                return
+            group = series_group.require_group('subject_state_history')
+            group.attrs['time_basis'] = 'unix epoch seconds, server clock'
+            group.attrs['non_numeric_keys'] = non_numeric
+            group.create_dataset('time', data=times)
+            for key in keys:
+                column = np.full(len(history), np.nan, dtype=np.float64)
+                for i, (_, state) in enumerate(history):
+                    if key in state:
+                        column[i] = float(state[key])
+                group.create_dataset(key, data=column)
+
     def create_note(self, note_text):
         """Append a timestamped free-text note to the experiment, from the GUI's Notes box."""
         ""

@@ -10,7 +10,9 @@ The routing rule that most often catches people out: a request with no target go
 server's own ``root`` registry, **not** to the modules. Use ``target('all')`` for "whichever
 module handles this". See :meth:`BaseServer.handle_request_list`.
 """
+import json
 import signal, sys, os, warnings, traceback
+from time import time
 
 from stimpack.visual_stim.screen import Screen
 from stimpack.visual_stim.stim_server import VisualStimServer
@@ -45,6 +47,8 @@ ROOT_FUNCTION_NAMES = frozenset({
     'set_current_trial',
     'load_server_side_state_dependent_control',
     'unload_server_side_state_dependent_control',
+    'start_subject_state_history',
+    'send_subject_state_history',
     # Deprecated wire names, registered so a pre-1.0 client still reaches the right method. Listed
     # here because they are genuinely registered: leaving them out would have --check-labpack
     # report a call that works as one that lands nowhere, which is worse than not mentioning it.
@@ -138,6 +142,8 @@ class BaseServer(MySocketServer):
         self.register_function_on_root(self.set_current_trial, "set_current_epoch")
         self.register_function_on_root(self.load_server_side_state_dependent_control, "load_server_side_state_dependent_control")
         self.register_function_on_root(self.unload_server_side_state_dependent_control, "unload_server_side_state_dependent_control")
+        self.register_function_on_root(self.start_subject_state_history, "start_subject_state_history")
+        self.register_function_on_root(self.send_subject_state_history, "send_subject_state_history")
 
         def signal_handler(sig, frame):
             print('Closing server after Ctrl+C...')
@@ -152,6 +158,13 @@ class BaseServer(MySocketServer):
         # end_trial() so a request cannot arrive late and cut short the trial after the one it was
         # meant for. None between trials, when there is nothing to end.
         self.current_trial_index = None
+
+        # Subject-state history: the modality-neutral record of everything set_subject_state
+        # accumulated, collected between the client's start/send marks (run boundaries) and shipped
+        # back once at run end -- once rather than per trial, so nothing is serialized into the
+        # inter-trial gap. None means not collecting.
+        self._subject_state_history = None
+        self._subject_state_log_file = None
 
         # set the subject position parameters
         self.subject_state = {}
@@ -351,6 +364,11 @@ class BaseServer(MySocketServer):
             close_hook = getattr(module, 'on_connection_close', None)
             if callable(close_hook):
                 close_hook()
+
+        # The client that asked for this history is gone; there is nobody to ship it to. The belt
+        # log on disk keeps whatever was collected up to the drop.
+        self._subject_state_history = None
+        self._close_subject_state_log()
         
     def set_current_trial(self, trial_index):
         """
@@ -403,10 +421,60 @@ class BaseServer(MySocketServer):
         # Update the subject state
         for k,v in state_update.items():
             self.subject_state[k] = v
-        
+
+        # Record the accumulated state, not the sparse update: dense rows are what analysis wants,
+        # and which keys a given update carried is the tracker's own log's story. The belt log is
+        # written line-by-line and flushed, so a run that dies mid-trial still has its history up
+        # to the crash on the server machine.
+        if self._subject_state_history is not None:
+            now = time()
+            self._subject_state_history.append([now, dict(self.subject_state)])
+            if self._subject_state_log_file is not None:
+                self._subject_state_log_file.write(json.dumps({'ts': now, 'state': self.subject_state}) + '\n')
+                self._subject_state_log_file.flush()
+
         # Forward state information to each module manager
         self.target('all').set_subject_state(state_update)
     
+    def start_subject_state_history(self, log_dir=None):
+        """
+        Begin collecting subject-state history. Called by the client as a run starts.
+
+        Each subsequent ``set_subject_state`` appends ``[timestamp, full accumulated state]`` --
+        every source funnels through that one method (trackers, KeyTrac, a protocol's own keys),
+        so this is the modality-neutral record the per-module logs are projections of.
+
+        :param log_dir: optional server-side directory for a ``subject_state.jsonl`` belt log,
+            written and flushed per update. It is what survives a client crash mid-run, and it
+            lives on the server machine -- the shipped history (see
+            :meth:`send_subject_state_history`) is the copy that reaches the data file.
+        """
+        self._close_subject_state_log()
+        self._subject_state_history = []
+        if log_dir is not None:
+            os.makedirs(log_dir, exist_ok=True)
+            self._subject_state_log_file = open(os.path.join(log_dir, 'subject_state.jsonl'), 'a')
+
+    def send_subject_state_history(self):
+        """
+        Push the collected history to the client in one message, and stop collecting.
+
+        Called by the client at run END, not per trial, so serializing the history (a few MB for
+        a long closed-loop run) never delays the gap between trials. The client saves it into the
+        data file next to the series it belongs to.
+        """
+        history = self._subject_state_history if self._subject_state_history is not None else []
+        self.write_request_list([{'name': 'receive_subject_state_history',
+                                  'args': [history], 'kwargs': {}}])
+        self._subject_state_history = None
+        self._close_subject_state_log()
+
+    def _close_subject_state_log(self):
+        if self._subject_state_log_file is not None:
+            self._subject_state_log_file.flush()
+            self._subject_state_log_file.close()
+            self._subject_state_log_file = None
+
     def load_server_side_state_dependent_control(self, protocol_module_path, protocol_name):
         '''
         Load a custom state-dependent control function.

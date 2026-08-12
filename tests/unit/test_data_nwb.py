@@ -480,3 +480,38 @@ def test_an_experiment_written_before_the_sidecar_existed_still_opens(tmp_path):
     (tmp_path / 'expt_2026-07-26' / NWBData.SUBJECTS_FILE).unlink()
 
     assert [s['subject_id'] for s in _reopen(tmp_path).get_existing_subject_data()] == ['s1']
+
+
+# --- subject-state history -----------------------------------------------------------------------
+
+def test_subject_state_history_lands_as_behavior_series(tmp_path):
+    """The geometric axes go where the NWB ecosystem looks for them (Position, CompassDirection),
+    lab keys become plain TimeSeries, and timestamps shift onto the file's own basis -- seconds
+    from session_start_time, the same clock the trials table speaks."""
+    import numpy as np
+
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    data.create_series(_Protocol())
+
+    with NWBHDF5IO(str(data.get_nwb_file_path()), 'r') as io:
+        t0 = io.read().session_start_time.timestamp()
+
+    data.save_subject_state_history([
+        [t0 + 1.0, {'x': 0.0, 'y': 0.0, 'z': 0.0, 'theta': 0.0}],
+        [t0 + 1.1, {'x': 0.5, 'y': 0.2, 'z': 0.0, 'theta': 90.0, 'chase_armed': 1}],
+    ])
+
+    with NWBHDF5IO(str(data.get_nwb_file_path()), 'r') as io:
+        nwbfile = io.read()
+        behavior = nwbfile.processing['behavior']
+
+        position = behavior['Position']['subject_position']
+        assert np.allclose(position.timestamps[()], [1.0, 1.1])
+        assert np.allclose(position.data[()], [[0.0, 0.0, 0.0], [0.5, 0.2, 0.0]])
+
+        heading = behavior['CompassDirection']['subject_heading']
+        assert np.allclose(heading.data[()], [0.0, 90.0])
+
+        lab_key = behavior['subject_state_chase_armed']
+        assert np.isnan(lab_key.data[0]) and lab_key.data[1] == 1.0

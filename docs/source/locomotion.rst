@@ -40,12 +40,22 @@ call an ordinary trial needs, gated on two parameters:
     ``loop_stop_closed_loop`` at its end. Without it, tracking is recorded but the stimulus plays
     open loop.
 
-When a run is **recorded** and closed loop is on, the position history for each trial is saved
-alongside the data file, one file per trial, so the animal's trajectory arrives with the stimulus
-parameters that produced it. Two different modules do the writing, for two different records: each
-**screen** logs the subject state it rendered from (``save_pos_history_to_file`` is a screen
-function -- the history of what the animal *saw*), and the locomotion manager can log the raw
-tracker lines (``write_log`` on ``set_pos_0`` -- what the tracker *said*).
+When a run is **recorded**, the subject state itself is saved **in the data file**: the server
+accumulates every ``set_subject_state`` -- whatever the source (a tracker, KeyTrac, a protocol's
+own keys) -- and ships the history to the client once at run end, so nothing is serialized into
+the gap between trials. In HDF5 it lands as ``subject_state_history`` under the series (a ``time``
+dataset plus one per key); in NWB the geometric axes become ``Position`` and ``CompassDirection``
+behavior series and lab-defined keys become ``TimeSeries``, on the file's own time basis. A
+``subject_state.jsonl`` belt copy is also written on the server machine (when the config gives a
+server ``data_directory``), flushed per update, so a run that crashes still has its history up to
+the moment it died.
+
+Two older, narrower records complement this one when closed loop is on. Each **screen** can log
+the subject state it rendered from (``save_pos_history_to_file`` is a screen function -- the
+history of what the animal *saw*, sampled at frame times), and the locomotion manager can log the
+raw tracker lines (``write_log`` on ``set_pos_0`` -- what the tracker *said*, in device frames and
+timestamps). The server history is the analysis-ready record; these are the ground truths it can
+be checked against.
 
 A protocol that needs more than this -- ending a trial when the animal reaches a goal, holding a
 stimulus against fixation -- supplies a server-side control function, which runs on every tracker

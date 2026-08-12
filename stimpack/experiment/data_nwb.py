@@ -380,6 +380,63 @@ class NWBData(BaseData):
         else:
             print('Create an nwb file directory and/or define a subject first')
 
+    def save_subject_state_history(self, history):
+        """
+        Write the run's subject-state history into the series' NWB file as behavior series.
+
+        The geometric axes go where the ecosystem looks for them: ``x/y/z`` as a
+        ``Position``/``SpatialSeries`` and ``theta`` as a ``CompassDirection``, both in a
+        ``behavior`` processing module. Every other numeric key -- including lab-defined ones --
+        becomes a plain ``TimeSeries`` in the same module, named ``subject_state_<key>``.
+        Timestamps are shifted onto the file's own basis (seconds from ``session_start_time``),
+        matching how the trials table records time.
+        """
+        from pynwb import TimeSeries
+        from pynwb.behavior import CompassDirection, Position, SpatialSeries
+
+        if not history:
+            return
+        nwbfile_path = self.get_nwb_file_path()
+        if not os.path.isfile(nwbfile_path):
+            warnings.warn(f'No NWB file at {nwbfile_path}; subject-state history not saved.')
+            return
+
+        keys = []
+        for _, state in history:
+            keys.extend(k for k in state
+                        if k not in keys and isinstance(state[k], (int, float, bool)))
+
+        def column(key):
+            return np.array([float(state[key]) if key in state else np.nan
+                             for _, state in history], dtype=np.float64)
+
+        with NWBHDF5IO(nwbfile_path, 'r+') as io:
+            subject_nwbfile = io.read()
+            t0 = subject_nwbfile.session_start_time.timestamp()
+            times = np.array([entry[0] for entry in history], dtype=np.float64) - t0
+
+            behavior = subject_nwbfile.processing.get('behavior')
+            if behavior is None:
+                behavior = subject_nwbfile.create_processing_module(
+                    'behavior', 'subject state accumulated by the stimpack server')
+
+            frame = 'stimpack rig frame: x right, y forward, z up, meters; angles in degrees'
+            position_keys = [k for k in ('x', 'y', 'z') if k in keys]
+            if position_keys:
+                behavior.add(Position(spatial_series=SpatialSeries(
+                    name='subject_position', reference_frame=frame, timestamps=times,
+                    data=np.column_stack([column(k) for k in position_keys]))))
+            if 'theta' in keys:
+                behavior.add(CompassDirection(spatial_series=SpatialSeries(
+                    name='subject_heading', reference_frame=frame, unit='degrees',
+                    timestamps=times, data=column('theta'))))
+            for key in keys:
+                if key in ('x', 'y', 'z', 'theta'):
+                    continue
+                behavior.add(TimeSeries(name=f'subject_state_{key}', unit='a.u.',
+                                        timestamps=times, data=column(key)))
+            io.write(subject_nwbfile)
+
     def end_series(self, protocol_object, status='completed', reason=None, paused_seconds=0.0):
         """
         NWB requires the stop time to be set when the interval is created, so this runs after the

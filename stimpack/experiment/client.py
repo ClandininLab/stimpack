@@ -164,6 +164,11 @@ class BaseClient():
         # Under its old name too: these are wire names, so a server from before 1.0 -- or a
         # labpack device calling manager.stop_epoch(...) -- still reaches the right method.
         self.manager.register_function(self.stop_trial, name='stop_epoch')
+        # The run's subject-state history arrives as one message when we ask for it at run end;
+        # see collect_subject_state_history.
+        self._subject_state_history = None
+        self.manager.register_function(self.receive_subject_state_history,
+                                       name='receive_subject_state_history')
 
         # The server advertises its modules as soon as it accepts the connection, but that message
         # only takes effect once we drain the queue. Wait briefly for it here so protocols can rely
@@ -300,6 +305,51 @@ class BaseClient():
         never told us (an older server). See BaseProtocol.has_module."""
         return self.manager.available_modules
 
+    def receive_subject_state_history(self, history):
+        """The server's answer to send_subject_state_history; collect_subject_state_history waits
+        on this landing."""
+        self._subject_state_history = history
+
+    def _server_collects_subject_state(self):
+        """Whether this server advertised the subject-state history functions.
+
+        Stricter than has_module's none-means-yes rule, and for a costed reason: a fire-and-forget
+        call to an older server is free, but *waiting for its answer* burns the full timeout at
+        the end of every run. So the round trip is engaged only when the advertisement positively
+        names it, and a server that advertises nothing is treated as unable rather than unknown.
+        """
+        advertised = getattr(self.manager, 'available_server_functions', None)
+        # Positively-shaped or nothing: a test double or older manager may carry anything under
+        # this name, and only a real advertisement dict is a promise the answer will come.
+        if not isinstance(advertised, dict):
+            return False
+        return 'send_subject_state_history' in advertised.get('root', set())
+
+    def collect_subject_state_history(self, data, timeout=5.0):
+        """
+        Ask the server for the run's subject-state history, wait for it, save it.
+
+        One request at run END rather than per trial, so serializing the history never delays the
+        inter-trial gap. The answer comes back over the same channel as server reports, so we
+        drain the queue until it lands or the timeout passes. Skipped entirely against a server
+        that never advertised the capability -- see _server_collects_subject_state.
+        """
+        if not self._server_collects_subject_state():
+            return
+        self._subject_state_history = None
+        self.manager.target('root').send_subject_state_history()
+        deadline = time.time() + timeout
+        while self._subject_state_history is None and time.time() < deadline:
+            self.manager.process_queue()
+            sleep(0.01)
+
+        if self._subject_state_history is None:
+            print('Subject-state history did not arrive from the server (older server, or timeout); '
+                  'not saved with the series.')
+            return
+        if self._subject_state_history:
+            data.save_subject_state_history(self._subject_state_history)
+
     def report_server_message(self, level, text):
         """Handle a message pushed back from the server (run via manager.process_queue()).
 
@@ -354,6 +404,17 @@ class BaseClient():
             data.create_series(protocol_object)
         else:
             print('Warning - you are not saving your metadata!')
+
+        # Have the server collect subject state for this run: the modality-neutral record every
+        # source funnels into, shipped back once at run end (see the teardown below) and saved
+        # with the series. The optional server-side jsonl is the belt that survives a crash.
+        if save_metadata_flag and self._server_collects_subject_state():
+            server_state_dir = None
+            server_data_directory = self.server_options.get('data_directory', None)
+            if server_data_directory is not None:
+                server_state_dir = posixpath.join(server_data_directory, data.get_server_subdir(),
+                                                  str(data.series_count), 'subject_state')
+            self.manager.target('root').start_subject_state_history(log_dir=server_state_dir)
 
         # Set up locomotion data saving on the server and start locomotion device / software
         if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
@@ -452,6 +513,15 @@ class BaseClient():
             # with the rest of the teardown: a run that aborts must not leave the device claimed.
             if protocol_object.has_module('audio'):
                 self.stop_audio()
+
+            # Collect the run's subject-state history from the server and save it with the
+            # series. Before end_series, so the file's completion marker also covers this write;
+            # skipped on a broken link, where asking would hang out the timeout for nothing.
+            if save_metadata_flag and not broken:
+                try:
+                    self.collect_subject_state_history(data)
+                except Exception:
+                    print(f'Saving subject-state history failed:\n{traceback.format_exc()}')
 
             # Note how often each deduplicated server message actually occurred.
             for (level, text), count in self._message_counts.items():
