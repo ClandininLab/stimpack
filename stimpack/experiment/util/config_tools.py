@@ -570,6 +570,18 @@ def get_loco_available(cfg):
         loco_available = True
     return loco_available
 
+def get_audio_available(cfg):
+    """
+    Whether this rig has a sound card.
+
+    Defaults to False, unlike loco_available: a rig that says nothing about audio predates the audio
+    module, and answering True would have every audio-guarded call fire on rigs that have no
+    speaker. A rig opts in by setting ``audio_available: True``.
+    """
+    if 'current_rig_name' in cfg:
+        return ((cfg.get('rig_config') or {}).get(cfg.get('current_rig_name')) or {}).get('audio_available', False)
+    return False
+
 def get_experimenter(cfg):
     """Default experimenter name for this config."""
     return cfg.get('experimenter', '')

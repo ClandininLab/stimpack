@@ -32,6 +32,10 @@ setup(
     ],
     extras_require={
         'test': ['pytest', 'pytest-cov', 'pillow', 'ruff'],  # pillow: GL reference images; ruff: lint
+        # PyAudio needs PortAudio system-side (brew install portaudio / apt install portaudio19-dev),
+        # which is reason enough to keep it optional. Only PyAudioManager imports it, and only when
+        # it opens a device -- NullAudioManager, the sounds and the tests all run without it.
+        'audio': ['pyaudio'],
     },
     entry_points={
         'console_scripts': [
