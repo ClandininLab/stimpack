@@ -11,7 +11,7 @@ Two groups of checks, split by what they cost.
 The cheap ones import nothing, which is what lets them run on every GUI launch::
 
   tier 1  config keys stimpack no longer reads
-  tier 2  every module_paths entry resolves on disk, visual_stim directories look loadable, and
+  tier 2  every module_paths entry resolves on disk, visual_stim/audio_stim directories look loadable, and
           import <package> reaches this labpack rather than another copy of it
 
 The rest import lab code and run each protocol, so they are opt-in (--deep) and never part of
@@ -52,6 +52,7 @@ from dataclasses import dataclass
 
 from stimpack.experiment.util import config_tools
 from stimpack.visual_stim.util import STIM_SUBMODULES
+from stimpack.audio.util import SOUND_SUBMODULES
 
 # module_paths entries that name a single file, and the class each is required to define. A
 # directory is expected for visual_stim instead, so it is handled separately.
@@ -166,6 +167,9 @@ def check_config(cfg, cfg_name='', labpack_dir=None):
 
     for path in config_tools.get_module_paths(cfg, 'visual_stim') if 'visual_stim' in module_paths else []:
         findings.extend(_check_visual_stim_dir(path, labpack_dir, cfg_name))
+
+    for path in config_tools.get_module_paths(cfg, 'audio_stim') if 'audio_stim' in module_paths else []:
+        findings.extend(_check_audio_stim_dir(path, labpack_dir, cfg_name))
 
     # --- presets ---------------------------------------------------------------------------------
     presets_dir = cfg.get('parameter_presets_dir')
@@ -409,6 +413,30 @@ def _check_visual_stim_dir(path, labpack_dir, cfg_name):
                         f"module_paths.visual_stim -> {path} has no "
                         f"{', '.join(s + '.py' for s in missing)}; fine if you define none, but "
                         f"referencing one by name will fail")]
+    return []
+
+
+def _check_audio_stim_dir(path, labpack_dir, cfg_name):
+    """An audio_stim entry is a directory the audio module loads sounds.py from.
+
+    Same quiet-failure profile as visual_stim: the loader warns into the server's own log, so
+    from the client nothing looks wrong until a sound name does not resolve.
+    """
+    full = _resolve(path, labpack_dir)
+
+    if not os.path.exists(full):
+        return [Finding('error', 'missing-module-path', cfg_name,
+                        f"module_paths.audio_stim -> {path} does not exist (looked in {full}); "
+                        f"custom sounds will never load")]
+    if not os.path.isdir(full):
+        return [Finding('error', 'audio-stim-not-a-directory', cfg_name,
+                        f"module_paths.audio_stim -> {path} is a file; a directory containing "
+                        f"{', '.join(s + '.py' for s in SOUND_SUBMODULES)} is expected")]
+    if not any(os.path.exists(os.path.join(full, f'{s}.py')) for s in SOUND_SUBMODULES):
+        return [Finding('error', 'empty-audio-stim-dir', cfg_name,
+                        f"module_paths.audio_stim -> {path} contains none of "
+                        f"{', '.join(s + '.py' for s in SOUND_SUBMODULES)}, so it contributes no "
+                        f"sounds")]
     return []
 
 

@@ -494,6 +494,25 @@ recording why.
 
 ---
 
+### #49 [High] `module_paths.audio_stim` documented but never read
+`experiment/client.py` — `docs/source/audio.rst` instructs labpacks to point
+`module_paths.audio_stim` at a directory of sound classes, and
+`AudioManager.import_sound_module` exists to receive them, but nothing in the
+client read the key: only the `visual_stim` loop was wired. A labpack following
+the docs defined sounds that silently never loaded — the exact failure class
+the preflight exists for, in the module that shipped it. Found 2026-08-12 while
+building the labpack-template audio component against the documentation.
+*Fix:* mirror the visual loop (`target('audio').import_sound_module(path)`),
+factored into `BaseClient._import_user_stim_modules` so it is unit-testable;
+skip silently on rigs that advertise no audio module (one config serves audio
+and silent rigs). Teach `check_labpack` tier 2 to validate `audio_stim`
+directories the way it validates `visual_stim` (`_check_audio_stim_dir`;
+`SOUND_SUBMODULES` was already exported for exactly this purpose and unused).
+**Status: fixed 2026-08-12** — client wiring + checker + 9 tests
+(`test_client_sound_import.py`, `test_check_labpack.py`).
+
+---
+
 ## Cross‑cutting recommendations
 
 These themes tie many of the individual findings together; addressing them at the

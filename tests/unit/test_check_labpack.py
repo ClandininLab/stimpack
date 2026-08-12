@@ -917,3 +917,44 @@ def test_no_audio_promise_means_no_audio_finding(tmp_path, monkeypatch):
     findings, _ = check_labpack.check_labpack(str(tmp_path))
 
     assert 'audio-unavailable-here' not in codes(findings)
+
+
+# --- tier 2: audio_stim directories --------------------------------------------------------------
+
+def test_audio_stim_dir_with_sounds_is_healthy(tmp_path):
+    make_labpack(tmp_path, good_cfg())
+    audio = tmp_path / 'pack' / 'audio'
+    audio.mkdir()
+    (audio / 'sounds.py').write_text('')
+    cfg = good_cfg()
+    cfg['module_paths']['audio_stim'] = 'pack/audio'
+    make_labpack(tmp_path, cfg)
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+    assert findings == []
+
+
+def test_missing_audio_stim_dir_is_an_error(tmp_path):
+    cfg = good_cfg()
+    cfg['module_paths']['audio_stim'] = 'pack/no_such_dir'
+    make_labpack(tmp_path, cfg)
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+    assert 'missing-module-path' in codes(findings, 'error')
+
+
+def test_audio_stim_dir_without_sounds_py_is_an_error(tmp_path):
+    """The docs promise sounds.py resolves by name; an empty directory silently contributes none."""
+    cfg = good_cfg()
+    cfg['module_paths']['audio_stim'] = 'pack/audio'
+    make_labpack(tmp_path, cfg)
+    (tmp_path / 'pack' / 'audio').mkdir()
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+    assert 'empty-audio-stim-dir' in codes(findings, 'error')
+
+
+def test_audio_stim_file_not_directory_is_an_error(tmp_path):
+    cfg = good_cfg()
+    cfg['module_paths']['audio_stim'] = 'pack/audio_sounds.py'
+    make_labpack(tmp_path, cfg)
+    (tmp_path / 'pack' / 'audio_sounds.py').write_text('')
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+    assert 'audio-stim-not-a-directory' in codes(findings, 'error')

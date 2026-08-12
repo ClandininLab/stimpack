@@ -180,8 +180,18 @@ class BaseClient():
         self.manager.target('visual').corner_square_off()
         self.manager.target('visual').set_idle_background(0)
 
+        self._import_user_stim_modules()
+
+    def _import_user_stim_modules(self):
+        """Ship the labpack's stimulus definitions to the server's modules.
+
+        Runs once per connection, after the server has advertised its modules. Custom visual
+        stimuli go to every screen; custom sounds go to the audio module. Sounds are skipped --
+        not warned about -- when this rig advertises no audio module: one labpack config serves
+        audio and silent rigs alike, so declaring sounds is not a promise this rig can play them.
+        A protocol that actually plays a sound on a silent rig still gets the load-time warning.
+        """
         # # # Import user-defined stimpack.visual_stim stimuli modules on server screens # # #
-        visual_stim_modules_exist = config_tools.user_module_paths_exist(self.cfg, 'visual_stim')
         if config_tools.user_module_specified(self.cfg, 'visual_stim'):
             visual_stim_modules_exist = config_tools.user_module_paths_exist(self.cfg, 'visual_stim')
             visual_stim_modules_paths = config_tools.get_module_paths(self.cfg, 'visual_stim')
@@ -190,6 +200,19 @@ class BaseClient():
                     warnings.warn(f"Visual stim module {path} does not exist.")
                 else:
                     self.manager.target('visual').import_stim_module(path)
+
+        # # # Import user-defined sound modules on the server's audio module # # #
+        if config_tools.user_module_specified(self.cfg, 'audio_stim'):
+            # None means an older server that never advertises; attempt, matching has_module().
+            advertised = self.manager.available_modules
+            if advertised is None or 'audio' in advertised:
+                audio_stim_modules_exist = config_tools.user_module_paths_exist(self.cfg, 'audio_stim')
+                audio_stim_modules_paths = config_tools.get_module_paths(self.cfg, 'audio_stim')
+                for exists, path in zip(audio_stim_modules_exist, audio_stim_modules_paths):
+                    if not exists:
+                        warnings.warn(f"Audio stim module {path} does not exist.")
+                    else:
+                        self.manager.target('audio').import_sound_module(path)
 
     def stop_trial(self, trial_index=None, reason=None, epoch_index=None):
         """
