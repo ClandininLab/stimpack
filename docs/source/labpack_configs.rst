@@ -26,6 +26,18 @@ An example may look like:
       ephys_rig:
         data_directory: ~/Desktop
         screen_center: [0, 0]
+        loco_available: True       # offer the do_loco checkbox on this rig. Default True; set
+                                   # False only where locomotion would be meaningless.
+        # audio_available: True    # promise a sound card, so protocols can branch on it before
+        #                          # a server is connected. --check-labpack warns when this
+        #                          # machine cannot keep the promise.
+        server_options:
+          use_remote_server: False
+          # data_directory: /data/on/the/rig
+          #   Where SERVER-side records are written, on the server machine: the locomotion log,
+          #   the subject-state belt log (the crash-surviving copy of the history that is also
+          #   saved into the data file), and -- when a protocol opts in with
+          #   save_screen_pos_history -- each screen's per-trial position history.
 
     # Paths below are relative to the labpack directory recorded in path_to_labpack.txt.
     parameter_presets_dir: presets/jbm
@@ -39,6 +51,10 @@ An example may look like:
       daq: template_labpack/daq/__init__.py
       visual_stim:                               # may be a list of directories
         - template_labpack/visual_stim/example
+      # audio_stim:                              # custom sound classes; may be a list of
+      #   - template_labpack/audio               # directories, each holding a sounds.py --
+      #                                          # see the audio page. Safe on silent rigs:
+      #                                          # a rig with no audio module skips it quietly.
 
 .. note::
 
