@@ -147,7 +147,20 @@ class ExperimentGUI(QWidget):
         # dropdown is also driven programmatically (run_ensemble_item, deselecting), and reading it
         # meant on_selected_protocol_ID(0) left the run buttons live when the index had not moved.
         self.protocol_selected = False
-        self.available_protocols =  [x for x in get_all_subclasses(protocol.BaseProtocol) if x.__name__ not in ['BaseProtocol', 'SharedPixMapProtocol']]
+        # Only classes DEFINED in the modules this config loaded (module_paths.protocol, or the
+        # built-in examples). The subclass scan itself sees every BaseProtocol subclass the
+        # process has ever imported -- another config's module, the diagnostics module pulled in
+        # for any reason -- and offering those would run code the config never asked for.
+        protocol_module_names = {m.__name__ for m in self.protocol_modules}
+        candidates = [x for x in get_all_subclasses(protocol.BaseProtocol)
+                      if x.__name__ not in ['BaseProtocol', 'SharedPixMapProtocol']]
+        self.available_protocols = [x for x in candidates if x.__module__ in protocol_module_names]
+        # Say what was excluded, so a protocol defined in an unlisted helper module is a visible
+        # one-line fix (list that module in module_paths.protocol) rather than a silent absence.
+        ignored = [x.__name__ for x in candidates if x.__module__ not in protocol_module_names]
+        if ignored:
+            print(f"Ignoring {len(ignored)} protocol class(es) from modules not listed in "
+                  f"module_paths.protocol: {', '.join(sorted(set(ignored)))}")
 
         # start a data object
         # The format is settled first, because a config may map a data module per format and so

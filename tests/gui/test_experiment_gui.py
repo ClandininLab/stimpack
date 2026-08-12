@@ -7,7 +7,14 @@ error that isn't surfaced) are caught automatically.
 import pytest
 from PyQt6.QtCore import QThread
 
+from stimpack.experiment.protocol import BaseProtocol
+
 pytestmark = pytest.mark.gui
+
+
+class _RogueProtocol(BaseProtocol):
+    """A BaseProtocol subclass from a module no config lists: must never reach the dropdown.
+    See test_discovery_is_scoped_to_the_configured_modules."""
 
 
 def select_protocol(gui, name):
@@ -36,6 +43,18 @@ def test_protocols_are_discovered(experiment_gui):
     # Diagnostics are deliberately NOT here: a fresh install's dropdown shows only experiments.
     # They load via module_paths (stimpack:experiment/diagnostics_protocol.py).
     assert 'ServerErrorDemo' not in names
+
+
+def test_discovery_is_scoped_to_the_configured_modules(experiment_gui):
+    """The subclass scan sees every BaseProtocol subclass the process ever imported -- other
+    tests' throwaway protocols included, which made this suite order-dependent. Discovery must
+    keep only classes defined in the modules the config loaded. _RogueProtocol below is defined
+    at this module's import, so it exists before the GUI fixture constructs -- exactly the
+    pollution the old global scan exhibited."""
+    names = [c.__name__ for c in experiment_gui.available_protocols]
+    assert '_RogueProtocol' not in names
+    assert all(c.__module__ in {m.__name__ for m in experiment_gui.protocol_modules}
+               for c in experiment_gui.available_protocols)
 
 
 # --- selecting a protocol -----------------------------------------------------------------------
