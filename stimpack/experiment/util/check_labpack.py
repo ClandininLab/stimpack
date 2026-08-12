@@ -562,8 +562,10 @@ def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
 
     check_cfg = _cfg_for_checking(cfg, labpack_dir)
     stimulus_names, stim_findings = _available_stimulus_names(cfg, labpack_dir, cfg_name)
+    sound_names, sound_findings = _available_sound_names(cfg, labpack_dir, cfg_name)
     daq_classes = _daq_classes(cfg, labpack_dir)
     findings.extend(stim_findings)
+    findings.extend(sound_findings)
 
     skipped = []
     for rig, label in _rigs_worth_checking(check_cfg):
@@ -571,7 +573,8 @@ def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
         for protocol_class in sorted(protocols, key=lambda p: p.__name__):
             protocol_findings, why_skipped = _check_one_protocol(
                 protocol_class, rig_cfg, cfg_name, label, max_epochs,
-                KNOWN_TARGETS, ROOT_FUNCTION_NAMES, stimulus_names, daq_classes)
+                KNOWN_TARGETS, ROOT_FUNCTION_NAMES, stimulus_names, daq_classes,
+                sound_names=sound_names)
             findings.extend(protocol_findings)
             if why_skipped is not None:
                 skipped.append(why_skipped)
@@ -593,7 +596,8 @@ def check_protocols(cfg, cfg_name='', labpack_dir=None, max_epochs=2):
 
 
 def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
-                        known_targets, root_function_names, stimulus_names, daq_classes=()):
+                        known_targets, root_function_names, stimulus_names, daq_classes=(),
+                        sound_names=frozenset()):
     name = protocol_class.__name__
     findings = []
 
@@ -671,13 +675,24 @@ def _check_one_protocol(protocol_class, cfg, cfg_name, rig_label, max_epochs,
                 return findings, skipped
 
             # --- tier 4: would load_stim resolve the names this epoch asks for? -----------------
-            for stimulus in _stimulus_names_in(protocol.trial_stim_parameters):
-                if stimulus not in stimulus_names:
-                    add('error', 'unknown-stimulus',
-                        f"loads a stimulus named '{stimulus}', which is not among the stimuli this "
-                        f"config makes available. load_stim raises '0 stimulus candidates found' "
-                        f"when it reaches this epoch. Check the spelling, or add the module that "
-                        f"defines it to module_paths.visual_stim")
+            # A descriptor's target decides which registry its name resolves against: sounds for
+            # 'audio', visual stimuli for 'visual' or no target. Other targets are lab modules
+            # this checker has no registry for, so their names go unjudged rather than misjudged.
+            for stimulus, target in _stimulus_names_in(protocol.trial_stim_parameters):
+                if target == 'audio':
+                    if stimulus not in sound_names:
+                        add('error', 'unknown-sound',
+                            f"loads a sound named '{stimulus}', which is not among the sounds this "
+                            f"config makes available. The audio module reports the unresolvable "
+                            f"name when it reaches this epoch. Check the spelling, or add the "
+                            f"module that defines it to module_paths.audio_stim")
+                elif target == 'visual':
+                    if stimulus not in stimulus_names:
+                        add('error', 'unknown-stimulus',
+                            f"loads a stimulus named '{stimulus}', which is not among the stimuli "
+                            f"this config makes available. load_stim raises '0 stimulus candidates "
+                            f"found' when it reaches this epoch. Check the spelling, or add the "
+                            f"module that defines it to module_paths.visual_stim")
 
             # --- tier 5: where would this epoch's calls actually go? ----------------------------
             for method in ('load_stimuli', 'start_stimuli'):
@@ -896,11 +911,57 @@ def _available_stimulus_names(cfg, labpack_dir, cfg_name):
     return names, findings
 
 
+def _available_sound_names(cfg, labpack_dir, cfg_name):
+    """The sound names this config could resolve, as _available_stimulus_names for sounds.
+
+    The audio module resolves a name against every BaseSound subclass in the process, so the set
+    is stimpack's own sounds plus whatever this config's module_paths.audio_stim directories
+    define. Scoped per config for the same reason as the visual set: the subclass registry never
+    shrinks, so one config's sounds must not vouch for another's protocol.
+    """
+    from stimpack.audio.sounds import BaseSound
+    from stimpack.audio.util import load_sound_module_from_path
+
+    names = {klass.__name__ for klass in _all_subclasses_of(BaseSound)
+             if getattr(klass, '__module__', '').startswith('stimpack.')}
+    findings = []
+
+    for index, path in enumerate(config_tools.get_module_paths(cfg, 'audio_stim')
+                                 if 'audio_stim' in (cfg.get('module_paths') or {}) else []):
+        module_name = f'_check_snd_{abs(hash((cfg_name, index))):x}'
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                load_sound_module_from_path(_resolve(path, labpack_dir), module_name=module_name)
+        except Exception as e:
+            findings.append(Finding(
+                'error', 'audio-stim-will-not-load', cfg_name,
+                f"module_paths.audio_stim -> {path} failed to load ({type(e).__name__}: {e}), so "
+                f"none of its sounds are available"))
+            continue
+
+        for loaded in [m for key, m in sys.modules.items() if key.startswith(f'{module_name}.')]:
+            names.update(obj.__name__ for obj in vars(loaded).values()
+                         if isinstance(obj, type) and issubclass(obj, BaseSound))
+
+    return names, findings
+
+
+def _all_subclasses_of(base):
+    """Transitive subclasses, without importing stimpack.util's copy at module import time."""
+    from stimpack.util import get_all_subclasses
+    return get_all_subclasses(base)
+
+
 def _stimulus_names_in(trial_stim_parameters):
-    """The stimulus names one epoch would load. May be a single dict, a list of them, or None."""
+    """(name, target) per stimulus one epoch would load; input may be a dict, a list, or None.
+
+    The target defaults to 'visual', matching the routing rule: a descriptor with no ``target``
+    goes to the screens, which is what every descriptor meant before targets existed.
+    """
     entries = (trial_stim_parameters if isinstance(trial_stim_parameters, list)
                else [trial_stim_parameters])
-    return [entry['name'] for entry in entries
+    return [(entry['name'], entry.get('target', 'visual')) for entry in entries
             if isinstance(entry, dict) and isinstance(entry.get('name'), str)]
 
 

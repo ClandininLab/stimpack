@@ -513,6 +513,23 @@ directories the way it validates `visual_stim` (`_check_audio_stim_dir`;
 
 ---
 
+### #50 [Medium] Tier-4 stimulus-name check resolves audio descriptors against visual stimuli
+`experiment/util/check_labpack.py` — `_stimulus_names_in` dropped the ``target``
+key, so every descriptor's name was judged against the visual-stimulus registry.
+A `target: 'audio'` descriptor naming a perfectly good sound (`SineSong`,
+`PulseSong`, the built-in audio protocols themselves) was reported as
+`unknown-stimulus` — three false errors on every deep check of an installed
+labpack after the audio merge, loud enough to bury real findings. Found
+2026-08-12 running `--deep` against clandinin_labpack for the template work.
+*Fix:* names carry their target; audio names resolve against a
+`_available_sound_names` set (BaseSound subclasses + this config's
+`audio_stim` modules, scoped per config like the visual set); targets with no
+registry go unjudged rather than misjudged.
+**Status: fixed 2026-08-12** — with 4 helper tests; clandinin --deep back to
+its intended findings (the deliberate ServerErrorDemo one).
+
+---
+
 ## Cross‑cutting recommendations
 
 These themes tie many of the individual findings together; addressing them at the

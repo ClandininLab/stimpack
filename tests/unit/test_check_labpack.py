@@ -958,3 +958,46 @@ def test_audio_stim_file_not_directory_is_an_error(tmp_path):
     (tmp_path / 'pack' / 'audio_sounds.py').write_text('')
     findings, _ = check_labpack.check_labpack(str(tmp_path))
     assert 'audio-stim-not-a-directory' in codes(findings, 'error')
+
+
+# --- tier 4 helpers: descriptor targets and sound availability -----------------------------------
+
+def test_stimulus_names_carry_their_target():
+    from stimpack.experiment.util.check_labpack import _stimulus_names_in
+    names = _stimulus_names_in([
+        {'name': 'MovingPatch', 'width': 10},
+        {'name': 'PulseSong', 'target': 'audio'},
+    ])
+    assert names == [('MovingPatch', 'visual'), ('PulseSong', 'audio')]
+
+
+def test_builtin_sounds_are_available_without_any_audio_stim(tmp_path):
+    from stimpack.experiment.util.check_labpack import _available_sound_names
+    names, findings = _available_sound_names({}, str(tmp_path), 'cfg')
+    assert {'SineSong', 'PulseSong', 'WhiteNoise', 'Silence'} <= names
+    assert findings == []
+
+
+def test_labpack_sounds_join_the_available_set(tmp_path):
+    from stimpack.experiment.util.check_labpack import _available_sound_names
+    audio = tmp_path / 'audio'
+    audio.mkdir()
+    (audio / 'sounds.py').write_text(
+        'from stimpack.audio.sounds import BaseSound\n'
+        'class LabChirp(BaseSound):\n'
+        '    def generate(self, sample_rate):\n'
+        '        return []\n')
+    cfg = {'module_paths': {'audio_stim': str(audio)}}
+    names, findings = _available_sound_names(cfg, str(tmp_path), 'cfg')
+    assert 'LabChirp' in names
+    assert findings == []
+
+
+def test_a_broken_sounds_module_is_reported_not_raised(tmp_path):
+    from stimpack.experiment.util.check_labpack import _available_sound_names
+    audio = tmp_path / 'audio'
+    audio.mkdir()
+    (audio / 'sounds.py').write_text('this is not python\n')
+    cfg = {'module_paths': {'audio_stim': str(audio)}}
+    names, findings = _available_sound_names(cfg, str(tmp_path), 'cfg')
+    assert 'audio-stim-will-not-load' in codes(findings, 'error')
