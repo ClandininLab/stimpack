@@ -1,32 +1,75 @@
 """
-The module contract, hardened once.
+The module contract, stated once and enforced by the class hierarchy.
 
-A *module* is a role, not a type: anything held in ``BaseServer.modules`` and speaking the
-request-list contract is a module -- the server checks for methods, never for a class.
-:class:`BaseManager` is the standard implementation of that contract for the *manager* kind of
-module -- ones that execute requests as calls on themselves and own the hardware behind them,
-which is every module except one. The DAQ and the locomotion managers inherit it, a
-labpack's own modules should (see the docs page ``writing_a_module``), and it carries the parts
-of the contract that are easy to get subtly wrong: dispatch with each handler's errors isolated
-and reported, unknown names reported rather than silently dropped, ``target('all')`` broadcasts
-quietly skipped, and no-op defaults for the lifecycle hooks.
+A *module* is an entry in ``BaseServer.modules``: one capability -- screens, a tracker, a DAQ, a
+lab's own hardware -- reached by ``target(name)``. Two classes carry the contract, with two
+different guarantees and two different mechanisms:
 
-``VisualStimServer`` deliberately does NOT inherit this class. It forwards requests to screen
-subprocesses instead of executing them, and it is a transceiver: ``MyTransceiver.__getattr__``
-turns any *missing* attribute into an RPC stub bound for the screens, so a no-op default
-inherited from here would shadow that forwarding. It implements the same contract natively --
-which is the naming rule in code: a *Server* serves sockets, a *Manager* owns hardware.
+- :class:`BaseModule` guarantees **form**. It is abstract and holds no behavior; every module
+  inherits it, stimpack's own included. Abstractness is the enforcement: a module that misses a
+  contract method cannot even be instantiated, so adding a method to the contract turns every
+  missing implementation into a loud startup error rather than a silently wrong default.
+- :class:`BaseManager` guarantees **behavior**. It implements the contract for the *manager*
+  kind of module -- one that executes requests as calls on itself and owns the hardware behind
+  them, which is every module except the forwarding kind (see below).
 
-The contract itself stays duck-typed: :class:`~stimpack.experiment.server.BaseServer` checks for
-methods, never for this class, so a module may be any object with ``handle_request_list``.
+INVARIANT: ``BaseModule`` must never gain a concrete method or attribute; concrete belongs in
+``BaseManager``. The reason is ``VisualStimServer`` (and any future module that forwards its
+requests elsewhere): it relays calls to screen subprocesses via ``MyTransceiver.__getattr__``,
+which fires only when normal attribute lookup *fails*. A concrete default inherited from a base
+class would be found by that lookup and silently swallow calls meant for the screens -- a
+success-shaped no-op, the worst failure mode this codebase knows. An abstract method is safe
+precisely because the forwarder is forced to override it explicitly. A test pins this invariant.
 """
+from abc import ABC, abstractmethod
 import traceback
 import warnings
 
 from stimpack.rpc.transceiver import is_broadcast
 
 
-class BaseManager():
+class BaseModule(ABC):
+    """The form of a module: what every module implements, with no behavior attached.
+
+    Managers get all of this from :class:`BaseManager`. A module that *forwards* its requests
+    somewhere else (as the visual module does, to its screen subprocesses) inherits this class
+    directly and implements each method explicitly -- including explicit, name-translating
+    forwarding where a hook's real handler lives remotely. See ``writing_a_module`` in the docs
+    for each method's semantics and when the server calls it.
+    """
+
+    @abstractmethod
+    def handle_request_list(self, request_list):
+        """Execute or route a batch of requests, each a dict of ``name``, ``args``, ``kwargs``."""
+
+    @abstractmethod
+    def get_callable_names(self):
+        """The names this module answers to, for the server to advertise -- or ``None`` for
+        "cannot enumerate myself" (honest for a forwarder whose surface lives elsewhere)."""
+
+    @abstractmethod
+    def start(self):
+        """Claim hardware / begin operating; construction in ``__init__`` should not."""
+
+    @abstractmethod
+    def close(self):
+        """Release hardware and child processes. The server closes every module at shutdown."""
+
+    @abstractmethod
+    def on_connection_close(self):
+        """A client disconnected: stop anything that should not outlive the session."""
+
+    @abstractmethod
+    def set_save_directory(self, save_directory):
+        """Where to write files that accompany the data file (a tracker's log, a screen's
+        position history, ...)."""
+
+
+class BaseManager(BaseModule):
+    """The standard implementation of the module contract, for modules that execute requests as
+    their own methods and own hardware. Subclass it, set ``module_name``, and write the methods
+    your hardware needs -- see ``writing_a_module`` in the docs."""
+
     #: Prefix on errors reported to the client ('daq: ...', 'locomotion: ...'); subclasses set it.
     module_name = 'module'
 
@@ -50,10 +93,8 @@ class BaseManager():
 
         Dispatch below is ``request['name'] in dir(self)``, so the surface is exactly the public
         attributes and this enumeration cannot be wrong for a module that keeps that dispatch. A
-        module that cannot enumerate itself -- one that forwards its requests elsewhere -- should
-        override this to **return None**: callers are then told the answer is unknown rather than
-        given a wrong one. (Absence used to carry that meaning, and still does for modules that do
-        not inherit this class; a base class makes absence impossible, so None says it instead.)
+        subclass that forwards its requests elsewhere should override this to return None: callers
+        are then told the answer is unknown rather than given a wrong one.
         """
         return sorted(name for name in dir(self)
                       if not name.startswith('_') and callable(getattr(self, name, None)))
@@ -77,7 +118,7 @@ class BaseManager():
                 warnings.warn(msg)
                 self.report('error', f'{self.module_name}: {msg}')
 
-    # Lifecycle hooks, every one optional -- override the ones your hardware needs.
+    # Lifecycle hooks, no-ops by default -- override the ones your hardware needs.
     # (See writing_a_module for when each is called.)
     def start(self):
         pass

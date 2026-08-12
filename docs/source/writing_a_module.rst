@@ -31,11 +31,23 @@ reported rather than silently skipped (a typo'd call otherwise simply never happ
 ``target('all')`` broadcasts quietly ignored when this module lacks the name -- plus no-op
 defaults for every hook below.
 
-The contract itself stays duck-typed: the server checks for methods, never for the base class,
-so a module may instead be any object with ``handle_request_list(request_list)``, each request a
-dict of ``name``, ``args`` and ``kwargs``. Requests arrive in batches, because a protocol builds
-a multicall and sends it in one round trip. The hooks below are optional either way; with
-``BaseManager`` they exist as no-ops to override, without it they are simply absent.
+Behind ``BaseManager`` sits the form itself: :class:`stimpack.module.BaseModule`, an abstract
+class of six methods -- ``handle_request_list``, ``get_callable_names``, ``start``, ``close``,
+``on_connection_close``, ``set_save_directory`` -- with deliberately no behavior. Every module
+inherits it, stimpack's own included, and its abstractness is the enforcement: a module missing
+a contract method fails at instantiation, loudly, not at the first dropped call. The split is
+deliberate -- ``BaseModule`` guarantees *form*, ``BaseManager`` guarantees *behavior* -- because
+one module cannot take the behavior: ``VisualStimServer`` relays requests to its screen
+subprocesses through ``__getattr__``, which fires only for attributes it does *not* have, so a
+concrete default inherited from any base would silently swallow calls meant for the screens. It
+inherits ``BaseModule`` and implements every contract method explicitly instead (its class
+docstring carries the full argument); any future forwarding module should do the same.
+
+At runtime the contract stays duck-typed: the server checks for methods, never for a class, so
+a module may be any object with ``handle_request_list(request_list)``, each request a dict of
+``name``, ``args`` and ``kwargs``. Requests arrive in batches, because a protocol builds a
+multicall and sends it in one round trip. Prefer the base classes anyway -- managers for the
+hardening above, and ``BaseModule`` so a missing method is a startup error.
 
 ``get_callable_names()``
     The names this module answers to. The server sends them to the client when the connection
@@ -110,9 +122,10 @@ a subprocess it talks to over a socket, and it runs standalone as the stim serve
 behalf and serve nothing. Most new modules are managers, and owning *more* hardware does not change
 that: a manager driving four output streams is still a manager. The name changes only when the
 thing starts serving sockets, as it would if each device someday needed its own subprocess. The
-class hierarchy states the same rule: managers inherit :class:`stimpack.module.BaseManager`,
-while ``VisualStimServer`` implements the module contract natively -- "module" names the role,
-and no class claims to define it.
+class hierarchy states the same rule: every module inherits the abstract
+:class:`stimpack.module.BaseModule` (the form), managers also inherit
+:class:`~stimpack.module.BaseManager` (the behavior), and ``VisualStimServer`` implements each
+contract method explicitly -- forwarding to its screens by name, never by ``__getattr__`` magic.
 
 What you do not have to build
 =============================

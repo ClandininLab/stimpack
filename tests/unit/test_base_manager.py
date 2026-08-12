@@ -1,16 +1,22 @@
-"""BaseManager: the module contract, hardened once and inherited by the method-dispatch modules.
+"""The module contract: BaseModule is the abstract form every module inherits; BaseManager the
+behavior layer for modules that execute requests as their own methods.
 
 DAQ, LocoManager and LocoClosedLoopManager carried byte-identical dispatch loops (and
 LocoSocketManager a fourth, dead copy) that had already drifted in style; now one implementation
-exists and these tests pin its behavior once. VisualStimServer deliberately does NOT inherit: it
-is a transceiver whose __getattr__ turns missing attributes into RPC stubs bound for the screens,
-and a no-op default from a base class would shadow that forwarding.
+exists and these tests pin its behavior once. VisualStimServer inherits the FORM only: it is a
+transceiver whose __getattr__ turns missing attributes into RPC stubs bound for the screens, so
+a concrete default inherited from any base would shadow that forwarding -- which is why
+BaseModule must stay behavior-free (pinned below) and why the visual server implements every
+contract method explicitly.
 """
 import warnings
 
 import pytest
 
-from stimpack.module import BaseManager
+from stimpack.module import BaseModule, BaseManager
+
+CONTRACT_METHODS = ('handle_request_list', 'get_callable_names', 'start', 'close',
+                    'on_connection_close', 'set_save_directory')
 
 pytestmark = pytest.mark.unit
 
@@ -90,12 +96,64 @@ def test_the_method_dispatch_modules_share_the_one_implementation():
     assert LocoClosedLoopManager.handle_request_list is BaseManager.handle_request_list
 
 
-def test_the_visual_server_does_not_inherit():
-    # VisualStimServer forwards requests to screens via MyTransceiver.__getattr__ RPC stubs;
-    # BaseManager's no-op lifecycle defaults would shadow that forwarding, so it implements the
-    # contract natively (see stimpack/module.py's docstring).
+def test_the_form_is_universal_and_the_behavior_is_not():
+    from stimpack.daq import DAQ
+    from stimpack.locomotion import LocoManager
     from stimpack.visual_stim.stim_server import VisualStimServer
-    assert not issubclass(VisualStimServer, BaseManager)
+
+    assert issubclass(DAQ, BaseModule)
+    assert issubclass(LocoManager, BaseModule)
+    assert issubclass(VisualStimServer, BaseModule)       # every module shares the form
+    assert not issubclass(VisualStimServer, BaseManager)  # only executors share the behavior
+    # Every contract method on the visual server is its OWN: a concrete method inherited from
+    # any base would shadow its __getattr__ screen forwarding (see its class docstring).
+    for name in CONTRACT_METHODS:
+        assert name in vars(VisualStimServer), f'{name} must be explicit on VisualStimServer'
+
+
+def test_the_form_stays_behavior_free():
+    # The invariant that makes it safe for a forwarder to inherit BaseModule: nothing concrete,
+    # ever. Concrete belongs in BaseManager. See stimpack/module.py's docstring.
+    concrete = [name for name, attr in vars(BaseModule).items()
+                if not name.startswith('_')
+                and not getattr(attr, '__isabstractmethod__', False)]
+    assert concrete == []
+
+
+def test_an_incomplete_module_cannot_even_be_instantiated():
+    # Abstractness is the enforcement: forgetting a contract method is a loud startup error,
+    # not a silently wrong default.
+    class Incomplete(BaseModule):
+        def handle_request_list(self, request_list):
+            pass
+
+    with pytest.raises(TypeError, match='abstract'):
+        Incomplete()
+
+
+def test_visual_set_save_directory_translates_to_the_screens_vocabulary():
+    # The screens' name for this setting is set_save_pos_history_dir; the explicit contract
+    # method must translate, where __getattr__ would have forwarded the contract name to screens
+    # that have never heard of it.
+    from stimpack.visual_stim.stim_server import VisualStimServer
+
+    server = VisualStimServer.__new__(VisualStimServer)
+    server.functions_on_root = {}
+    sent = []
+
+    class FakeScreenManager:
+        def write_request_list(self, request_list):
+            sent.append(list(request_list))
+
+        def process_queue(self):
+            pass
+
+    server.screen_managers = [FakeScreenManager()]
+    server.set_save_directory('/data/run7')
+
+    names = [r['name'] for rl in sent for r in rl]
+    assert names == ['set_save_pos_history_dir']
+    assert sent[0][0]['args'] == ['/data/run7']
 
 
 def test_a_module_that_returns_none_is_advertised_as_unknown():

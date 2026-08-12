@@ -12,6 +12,7 @@ import stimpack.visual_stim.framework
 from stimpack.visual_stim.screen import Screen
 from stimpack import util
 
+from stimpack.module import BaseModule
 from stimpack.rpc.transceiver import MySocketServer
 from stimpack.rpc.launch import launch_server
 from stimpack.rpc.util import get_kwargs, get_from_dict, start_daemon_thread
@@ -61,10 +62,32 @@ def launch_screen(screen, **kwargs):
     # subprocesses would outlive close() and pile up.
     return screen_client, proc
 
-class VisualStimServer(MySocketServer):
+class VisualStimServer(BaseModule, MySocketServer):
     '''
     This class manages multiple screens and sends commands to them.
     It can also execute certain commands on the server itself ("root"), rather than sending them to the screens.
+
+    **Why this module inherits BaseModule but must never inherit BaseManager.** This is the
+    family's one *server*: every other module executes requests as calls on itself, and inherits
+    BaseManager for exactly that behavior; this one relays requests to screen subprocesses over
+    sockets. So it takes the abstract form only, and implements every contract method natively:
+
+    - Its request handling is routing, not execution: requests are partitioned between the root
+      registry and the screens, timestamped, fanned out, and the screens' replies drained.
+      BaseManager's dispatch loop would execute them locally instead.
+    - Its callable surface is not its own attributes but SCREEN_FUNCTION_NAMES plus the root
+      registry, which BaseManager's ``dir()`` scan cannot see.
+    - Any name this class does not define is forwarded to the screens by
+      ``MyTransceiver.__getattr__``, which fires only when normal attribute lookup FAILS. A
+      concrete method inherited from a base class -- even a harmless-looking no-op -- would be
+      found by that lookup and silently swallow calls meant for the screens. Abstract methods are
+      safe: this class must override them or fail to instantiate, and the ABC machinery enforces
+      that at startup.
+
+    The same reasoning applies to any future module that serves subprocesses or forwards
+    requests elsewhere: inherit BaseModule, implement the contract explicitly (translating names
+    where the remote vocabulary differs -- see set_save_directory below), and stay away from
+    BaseManager. The full argument lives in stimpack/module.py.
     '''
     time_stamp_commands = ['start_stim', 'pause_stim', 'update_stim']
 
@@ -91,6 +114,11 @@ class VisualStimServer(MySocketServer):
 
         self.functions_on_root = {}
         self.register_function_on_root(self.close)
+        # The other explicit module-contract hooks (see the class docstring): registered on root
+        # so a targeted request reaches the same implementation an attribute call does, instead
+        # of being forwarded to screens that do not define these names.
+        self.register_function_on_root(self.start)
+        self.register_function_on_root(self.set_save_directory)
 
         # Shared memory PixMap stim functions to be run on the root node of visual stim server
         self.spms = None
@@ -269,6 +297,25 @@ class VisualStimServer(MySocketServer):
         for screen_manager in self.screen_managers:
             screen_manager.unload_stim_module(barcodes=None)
         return
+
+    def start(self):
+        '''
+        Module-contract hook (BaseModule). Nothing to do: each screen begins its render loop when
+        its subprocess launches, so this module has no separate "begin operating" step. Explicit
+        rather than left to __getattr__, which would forward a 'start' the screens do not define.
+        '''
+        pass
+
+    def set_save_directory(self, save_directory):
+        '''
+        Module-contract hook (BaseModule): where files that accompany the data file go. For this
+        module those are the screens' position histories, and the screens' own name for the
+        setting is set_save_pos_history_dir -- so forward under the translated name. Left to
+        __getattr__, the request would go out under the contract name and reach screens that have
+        never heard of it.
+        '''
+        self.handle_request_list([{'name': 'set_save_pos_history_dir',
+                                   'args': [save_directory], 'kwargs': {}}])
 
     ### Shared memory pixmap stim functions ###
     def load_shared_pixmap_stim(self, **kwargs):
