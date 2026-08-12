@@ -418,6 +418,10 @@ class ChaseTheTower(BaseProtocol):
     WANDER_BOUND = 0.03          # the tower stays within this of its start, so a stationary
                                  # subject is never handed a catch (0.08 - 0.03 > CATCH_RADIUS)
     DT = 1.0 / 60.0
+    # The catch chime: an event sound, so it survives the trial teardown that follows end_trial.
+    # A feedback cue, not a reward marker -- it reaches the speaker a tracker update plus an audio
+    # buffer (~10 ms) after the catch; a timestamped reward belongs on voltage_out.
+    CATCH_CHIME = {'name': 'SineSong', 'duration': 0.15, 'freq': 880.0, 'volume': 0.5}
 
     def __init__(self, cfg):
         super().__init__(cfg)
@@ -452,6 +456,12 @@ class ChaseTheTower(BaseProtocol):
         dx = fresh('x', 0.0) - xs[i]
         dy = fresh('y', 0.0) - ys[i]
         if dx * dx + dy * dy <= ChaseTheTower.CATCH_RADIUS ** 2:
+            # This runs IN the server process, so the audio module is a direct call away -- no
+            # RPC, and no round trip for stop_stim to win. Guarded on presence: a rig without a
+            # sound card has no audio module, and a silent catch is still a caught trial.
+            audio = server.modules.get('audio')
+            if audio is not None and hasattr(audio, 'play_event_sound'):
+                audio.play_event_sound(**ChaseTheTower.CATCH_CHIME)
             server.end_trial(reason='caught')
             state_update['chase_armed'] = 0        # one catch per arming
         return state_update

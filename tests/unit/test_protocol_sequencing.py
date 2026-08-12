@@ -112,6 +112,7 @@ def test_has_server_function_is_true_for_a_target_that_cannot_enumerate():
 class _FakeServer:
     def __init__(self):
         self.ended = []
+        self.modules = {}            # a rig with no audio module, as far as the chase cares
 
     def end_trial(self, reason=None):
         self.ended.append(reason)
@@ -245,3 +246,36 @@ def test_do_loco_sits_last_in_every_protocol():
         p = cls(cfg={})
         p.select_protocol_preset()
         assert list(p.run_parameters)[-1] == 'do_loco', cls.__name__
+
+
+def test_the_catch_rings_the_chime_when_the_rig_has_audio(monkeypatch):
+    """The chime is a direct server-side call, fired in the same update as end_trial -- and only
+    when an audio module exists, because a silent catch is still a caught trial."""
+    import stimpack.experiment.example_protocol as ep
+
+    class _FakeAudio:
+        def __init__(self):
+            self.events = []
+
+        def play_event_sound(self, **kwargs):
+            self.events.append(kwargs)
+
+    now = [1000.0]
+    monkeypatch.setattr(ep.time, 'time', lambda: now[0])
+    fn = ep.ChaseTheTower.server_side_state_dependent_control
+    n = int(30.0 / ep.ChaseTheTower.DT) + 1
+    xs, ys = ep._tower_path(5, n)
+    server, state = _FakeServer(), {}
+    server.modules['audio'] = audio = _FakeAudio()
+
+    def step(update):
+        out = fn(server, state, dict(update))
+        state.update(out)
+
+    step({'chase_armed': 1, 'chase_t0': 0.0, 'chase_seed': 5, 'chase_n': n})
+    now[0] = 1003.0
+    i = min(int(3.0 / ep.ChaseTheTower.DT), n - 1)
+    step({'x': xs[i], 'y': ys[i]})
+
+    assert server.ended == ['caught']
+    assert audio.events == [ep.ChaseTheTower.CATCH_CHIME]

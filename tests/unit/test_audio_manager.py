@@ -339,3 +339,52 @@ def test_chunks_handed_to_the_device_are_always_a_full_block():
     m.start_stim()
     chunk = m._next_chunk(256)
     assert len(chunk) == 256 * 2 * 2            # frames * channels * 2 bytes per int16
+
+
+# # # Event sounds # # #
+
+def test_an_event_sound_plays_with_no_trial_running():
+    m = manager()
+    m.play_event_sound(name='SineSong', duration=0.01, freq=1000.0, volume=1.0)
+    chunk = np.frombuffer(m._next_chunk(80), dtype=np.int16)
+    assert np.abs(chunk).max() > 0
+
+
+def test_an_event_sound_survives_stop_stim():
+    """The whole point: a catch chime fires in the same breath as end_trial, and the stop_stim
+    that trial teardown broadcasts moments later must not silence it."""
+    m = manager()
+    m.load_stim(name='SineSong', duration=0.01)
+    m.start_stim()
+    m.play_event_sound(name='SineSong', duration=0.01, freq=1000.0, volume=1.0)
+    m.stop_stim()
+    chunk = np.frombuffer(m._next_chunk(80), dtype=np.int16)
+    assert np.abs(chunk).max() > 0
+
+
+def test_an_event_ends_when_its_samples_run_out():
+    m = manager()
+    m.play_event_sound(name='SineSong', duration=0.01, freq=1000.0)   # 80 frames at SR
+    m._next_chunk(80)
+    silence = np.frombuffer(m._next_chunk(80), dtype=np.int16)
+    assert np.abs(silence).max() == 0
+    assert m._active_events == []
+
+
+def test_an_event_over_a_full_scale_trial_sound_clips_rather_than_wraps():
+    """Two full-scale sines sum past int16; int32 mixing plus a clip saturates. An int16
+    accumulator would wrap 32767+32767 to -2, and the maximum would collapse."""
+    m = manager()
+    m.load_stim(name='SineSong', duration=0.01, freq=1000.0, volume=1.0)
+    m.start_stim()
+    m.play_event_sound(name='SineSong', duration=0.01, freq=1000.0, volume=1.0)
+    chunk = np.frombuffer(m._next_chunk(80), dtype=np.int16)
+    assert chunk.max() == 32767
+
+
+def test_an_event_before_the_device_opens_warns_and_queues_nothing():
+    m = NullAudioManager(sample_rate=SR)          # never start()ed
+    seen = reports(m)
+    m.play_event_sound(name='SineSong', duration=0.01)
+    assert any('play_event_sound' in text for _, text in seen)
+    assert m._pending_events == []

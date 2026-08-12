@@ -14,7 +14,9 @@ it changes in your data.
    arrive at the tower (``trial_end_reason='reached_goal'``). ``ChaseTheTower`` is its moving-target
    sibling -- the tower drifts, so steer with Left/Right and walk it down with Up -- and
    demonstrates something further: the server-side condition tracks a client-defined stimulus by
-   regenerating its seeded path, with no position ever sent. See :doc:`locomotion` for the moving parts.
+   regenerating its seeded path, with no position ever sent -- and on a rig with a sound card, a
+   chime rings at the catch (an event sound; see :doc:`audio`). See :doc:`locomotion` for the
+   moving parts.
 
 Why it has to work this way
 ===========================

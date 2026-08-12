@@ -62,6 +62,15 @@ class AudioManager(BaseManager):
         self._cursor = 0            # in frames
         self._playing = False
 
+        # Event sounds: one-shot cues that play the moment they are asked for and outlive
+        # stop_stim, because their whole use is firing in the same breath as end_trial (a catch
+        # chime) -- trial teardown must not silence them. Handlers only APPEND to _pending_events
+        # (atomic under the GIL); the device thread alone moves entries to _active_events and
+        # advances their cursors, so the two threads never write the same field and the audio
+        # path stays lock-free.
+        self._pending_events = []   # rendered interleaved int16 arrays, handler-side
+        self._active_events = []    # [samples, cursor] pairs, device-thread-side
+
         # What actually happened, for the log and for reporting. Reset per trial.
         self._requested_at = None   # wall clock when start_stim was handled
         self._onset_dac_time = None # the device's own clock for the first sample, when it can say
@@ -165,6 +174,35 @@ class AudioManager(BaseManager):
         self.sound_list = []
         self._buffer = None
 
+    def play_event_sound(self, name, **kwargs):
+        """
+        Render a sound and play it now, on top of whatever else is playing.
+
+        The counterpart to the load/start/stop lifecycle for sounds that are not trial stimuli:
+        feedback cues fired by server-side logic (a catch chime from a state-dependent control
+        function), which must survive the stop_stim that trial teardown broadcasts moments later.
+        Overlapping events mix additively and each stops when its samples run out.
+
+        Not written to the trial log: an event is not a stimulus descriptor, and the condition
+        that fired it leaves its own record (``trial_end_reason``, subject state). A cue whose
+        precise delivery time matters is not this -- it reaches the speaker a buffer or two after
+        the handler runs -- and belongs on ``voltage_out``.
+        """
+        sound = make_as_sound({'name': name, **kwargs})
+        if not isinstance(sound, BaseSound):
+            raise ValueError(f"'{name}' is not a BaseSound subclass")
+
+        if not self.started:
+            # Same honesty as start_stim, softer verdict: a missing cue is worth a warning, but a
+            # trial's analysis does not hinge on it the way it hinges on the trial's stimulus.
+            self.report('warning', f'{self.module_name}: play_event_sound before the device was '
+                                   f'opened, so nothing will play.')
+            return
+
+        rendered = self._render([sound])
+        if rendered is not None:
+            self._pending_events.append(rendered)
+
     def import_sound_module(self, path):
         """Load a labpack's ``sounds.py``, so its classes resolve by name here."""
         util.load_sound_module_from_path(path)
@@ -186,6 +224,9 @@ class AudioManager(BaseManager):
         if self.started:
             self._close_device()
             self.started = False
+        # Events die with the device, unlike with stop_stim: nothing can play them any more.
+        self._pending_events = []
+        self._active_events = []
         self._close_log()
 
     def on_connection_close(self):
@@ -246,26 +287,44 @@ class AudioManager(BaseManager):
         """
         The next block of samples, as bytes. **Runs on the device's real-time thread.**
 
-        Allocates only the slice and its bytes: no rendering, no logging, no locks. Everything it
-        reads is set before playback starts.
+        Allocates only block-sized slices: no rendering, no logging, no locks. Everything it reads
+        is set before playback starts, except the event queue, whose handoff is single-writer in
+        each direction (see __init__).
         """
+        n = frame_count * self.channels
         buffer = self._buffer     # bound once; a concurrent load_stim may replace it
-        if not self._playing or buffer is None:
-            return self._silence(frame_count)
+        if self._playing and buffer is not None:
+            start = self._cursor * self.channels
+            chunk = buffer[start:start + n]
+            self._cursor += frame_count
+        else:
+            chunk = None
 
-        start = self._cursor * self.channels
-        stop = start + frame_count * self.channels
-        chunk = buffer[start:stop]
-        self._cursor += frame_count
+        while self._pending_events:
+            self._active_events.append([self._pending_events.pop(0), 0])
 
-        if len(chunk) < frame_count * self.channels:
-            # The sound ended mid-block. Pad with silence rather than returning a short block, which
-            # PortAudio would treat as the stream finishing.
-            padded = np.zeros(frame_count * self.channels, dtype=np.int16)
-            padded[:len(chunk)] = chunk
-            return padded.tobytes()
+        if not self._active_events:
+            if chunk is None:
+                return self._silence(frame_count)
+            if len(chunk) < n:
+                # The sound ended mid-block. Pad with silence rather than returning a short block,
+                # which PortAudio would treat as the stream finishing.
+                padded = np.zeros(n, dtype=np.int16)
+                padded[:len(chunk)] = chunk
+                return padded.tobytes()
+            return chunk.tobytes()
 
-        return chunk.tobytes()
+        # Mix in int32 and clip, so a chime over a loud carrier saturates instead of wrapping --
+        # the same verdict to_int16 gives at render time.
+        mixed = np.zeros(n, dtype=np.int32)
+        if chunk is not None:
+            mixed[:len(chunk)] += chunk
+        for event in self._active_events:
+            piece = event[0][event[1]:event[1] + n]
+            mixed[:len(piece)] += piece
+            event[1] += n
+        self._active_events = [event for event in self._active_events if event[1] < len(event[0])]
+        return np.clip(mixed, -32768, 32767).astype(np.int16).tobytes()
 
     def _silence(self, frame_count):
         return np.zeros(frame_count * self.channels, dtype=np.int16).tobytes()

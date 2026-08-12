@@ -94,6 +94,30 @@ stimulus went.
 Several descriptors aimed at ``audio`` are **mixed**, by summing: a short cue over a long carrier
 does what it looks like it does. Layered sounds of different lengths are padded to the longest.
 
+Event sounds: cues outside the trial lifecycle
+==============================================
+
+``play_event_sound(name=..., ...)`` renders a sound and plays it *now*, mixed over whatever else
+is playing, and -- the point -- it survives ``stop_stim``. Trial stimuli cannot do this: a cue
+fired by server-side logic in the same tracker update as ``end_trial`` would be silenced
+milliseconds later by the ``stop_stim`` that trial teardown broadcasts. The built-in
+``ChaseTheTower`` protocol is the worked example: its state-dependent control function rings a
+chime the moment the subject catches the tower, by calling the audio module directly in the server
+process::
+
+    audio = server.modules.get('audio')
+    if audio is not None and hasattr(audio, 'play_event_sound'):
+        audio.play_event_sound(name='SineSong', duration=0.15, freq=880.0, volume=0.5)
+
+Guard on presence, as here: a rig without a sound card has no audio module, and your condition
+should do its real work (ending the trial, updating state) regardless.
+
+Two honesty notes. Event sounds are not written to the trial log -- they are not stimulus
+descriptors, and the condition that fired one leaves its own record (``trial_end_reason``, the
+subject state). And an event reaches the speaker a tracker update plus an audio buffer after the
+condition fired, ~10 ms of soft latency: right for feedback a subject hears, wrong for a
+timestamped reward marker, which belongs on :doc:`voltage_out`.
+
 Why a sound is a stimulus, and a voltage is not
 ===============================================
 
