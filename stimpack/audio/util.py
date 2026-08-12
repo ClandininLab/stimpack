@@ -40,15 +40,20 @@ def to_int16(samples, legacy_overflow=False):
     return np.clip(np.round(samples * INT16_PEAK), -INT16_PEAK - 1, INT16_PEAK).astype(np.int16)
 
 
-def default_output_sample_rate():
+def probe_default_output():
     """
-    The default output device's own sample rate, or None if there is nothing to play on.
+    ``(rate, None)`` when this machine can play audio; ``(None, why_not)`` when it cannot.
 
-    Doubles as the "can this machine do audio at all" probe, which is why every failure returns
-    None rather than raising: PyAudio missing, PortAudio failing to initialize, or no default output
-    device. A headless rig or a CI runner hits the last two with PyAudio installed, and the default
-    local server is constructed while the GUI starts up -- so raising here would stop stimpack
-    opening at all, on a machine that simply has no speaker.
+    This is the "can this machine do audio at all" probe, and every failure returns rather than
+    raises: PyAudio missing, PortAudio failing to initialize, or no default output device. A
+    headless rig or a CI runner hits the last two with PyAudio installed, and the default local
+    server is constructed while the GUI starts up -- so raising here would stop stimpack opening
+    at all, on a machine that simply has no speaker.
+
+    The three failures get three different reasons, because they have three different fixes and
+    the caller is expected to *print the reason*. Collapsing them into one None is how the first
+    symptom becomes a "no audio module on this rig" warning minutes later, at stimulus load,
+    pointing at the rig instead of at pip.
 
     The rate matters because sounds are generated against it: opening at the device's own rate is
     what keeps the ordinary laptop case from being resampled by the OS, and from warning about it
@@ -59,19 +64,31 @@ def default_output_sample_rate():
     try:
         import pyaudio
     except ImportError:
-        return None
+        return None, ("pyaudio is not installed; pip install stimpack[audio] -- PortAudio "
+                      "needed system-side to build it (apt install portaudio19-dev / "
+                      "zypper install portaudio-devel / brew install portaudio)")
 
     try:
         pa = pyaudio.PyAudio()
-    except Exception:
-        return None         # PortAudio present but unable to start: no host API, no sound server
+    except Exception as e:
+        # PortAudio present but unable to start: no host API, no sound server.
+        return None, f'pyaudio is installed but PortAudio could not start ({e})'
 
     try:
-        return int(pa.get_default_output_device_info()['defaultSampleRate'])
+        return int(pa.get_default_output_device_info()['defaultSampleRate']), None
     except Exception:
-        return None         # no output device at all, or one that will not describe itself
+        # No output device at all, or one that will not describe itself.
+        return None, 'pyaudio is installed but PortAudio found no default output device'
     finally:
         pa.terminate()
+
+
+def default_output_sample_rate():
+    """The default output device's own sample rate, or None if there is nothing to play on.
+
+    The rate half of :func:`probe_default_output`; callers who can print should use the probe
+    itself and say *why* when the answer is None."""
+    return probe_default_output()[0]
 
 
 def load_sound_module_from_path(path, module_name='loaded_sound_module', submodules=SOUND_SUBMODULES):

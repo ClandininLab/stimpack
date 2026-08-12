@@ -76,6 +76,12 @@ class Finding:
         return f'{self.level.upper():7s} {where}{self.message}'
 
 
+def _pyaudio_installed():
+    """Monkeypatchable seam; find_spec rather than import, so the check never pays PortAudio
+    start-up (or its stderr spray) just to answer a yes/no question."""
+    return importlib.util.find_spec('pyaudio') is not None
+
+
 def check_config(cfg, cfg_name='', labpack_dir=None):
     """Run tiers 1-2 against one already-loaded config. Returns a list of Findings."""
     findings = []
@@ -123,6 +129,21 @@ def check_config(cfg, cfg_name='', labpack_dir=None):
         except ImportError as e:
             add('error', 'data-backend-unavailable',
                 f"data_format is '{data_format}' but its backend cannot be imported: {e}")
+
+    # --- audio: can a rig that promises audio actually build the module here? -------------------
+    # audio_available is the config's promise, which protocols branch on before a server is
+    # connected; the module itself needs pyaudio, an optional extra. Same reasoning as the
+    # data-backend check above: without this the config looks fine and the first symptom is a
+    # "no audio module" warning mid-run. A warning, not an error: the audio server may
+    # legitimately run on another machine.
+    audio_rigs = sorted(name for name, rig in (cfg.get('rig_config') or {}).items()
+                        if isinstance(rig, dict) and rig.get('audio_available'))
+    if audio_rigs and not _pyaudio_installed():
+        add('warning', 'audio-unavailable-here',
+            f"rig(s) {', '.join(audio_rigs)} set audio_available: True, but pyaudio is not "
+            f"installed here, so no audio module can be built on this machine "
+            f"(pip install stimpack[audio]; PortAudio needed system-side). Expected if the "
+            f"server runs on another machine.")
 
     # --- tier 2: does everything module_paths names actually exist? -----------------------------
     module_paths = cfg.get('module_paths') or {}

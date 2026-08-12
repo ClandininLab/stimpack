@@ -14,7 +14,10 @@ way a sound card's is not -- see `What the timing is worth`_ before choosing.
 
    PyAudio is an optional dependency: ``pip install stimpack[audio]``, plus PortAudio system-side
    (``brew install portaudio``, or ``apt install portaudio19-dev``). Without it the module simply
-   is not built, and audio calls are reported as warnings the way any missing hardware is.
+   is not built, and audio calls are reported as warnings the way any missing hardware is. The
+   local server's startup output says *why* there is no audio (package missing, PortAudio unable
+   to start, or no output device), and ``stimpack --check-labpack`` flags a config whose rig sets
+   ``audio_available: True`` on a machine that cannot build the module.
 
 Sounds are classes
 ==================

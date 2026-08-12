@@ -128,9 +128,14 @@ class BaseClient():
                 # Absent rather than a silent stand-in when it cannot: NullAudioManager would let an
                 # audio protocol run to completion with nothing coming out, whereas no module at all
                 # makes every load a reported warning. Installing the audio extra is the opt-in.
-                device_rate = audio_util.default_output_sample_rate()
+                device_rate, no_audio_reason = audio_util.probe_default_output()
                 audio_class = PyAudioManager if device_rate is not None else None
                 audio_kwargs = {'sample_rate': device_rate} if device_rate is not None else {}
+                if audio_class is None:
+                    # Say WHY, here, once: the alternative is a "no audio module on this rig"
+                    # warning at stimulus-load time, minutes later, pointing at the rig instead
+                    # of at the actual cause.
+                    print(f'Audio output: none ({no_audio_reason})')
 
                 # Keep a handle on the server: it lives in THIS process, so nothing else will ever
                 # shut it down. Without this it was a local variable, and closing the GUI left its
