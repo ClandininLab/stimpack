@@ -11,7 +11,8 @@ An experiment runs as several processes:
 
     ExperimentGUI ── BaseClient ──socket── BaseServer ──┬── visual      ── screen subprocess (GL)
                                                         ├── locomotion  ── tracker subprocess
-                                                        └── voltage_out ── DAQ
+                                                        ├── voltage_out ── DAQ
+                                                        └── audio       ── sound card
 
 The **client** runs the protocol: it decides what each trial contains and writes the data file. The
 **server** owns the hardware, and usually runs on the rig machine while the client runs wherever the
@@ -29,9 +30,9 @@ They talk over a small JSON protocol. Calls are addressed to a module::
 
     A protocol names the module each call is for, and the server routes it there. Inputs update a
     subject state that outputs follow, so the closed loop does not pass through the client. The
-    auditory step is illustrative -- no auditory module ships with ``stimpack``; the stacked cards
-    are extension points, and a lab adds a capability as a new module rather than a change to the
-    core (see :doc:`writing_a_module`).
+    stacked cards are extension points: ``visual``, ``locomotion``, ``voltage_out`` and ``audio``
+    ship, and a lab adds a further capability as a new module rather than a change to the core
+    (see :doc:`writing_a_module`).
 
 .. toctree::
     :maxdepth: 1
@@ -41,6 +42,7 @@ They talk over a small JSON protocol. Calls are addressed to a module::
     modules_and_targets
     locomotion
     voltage_out
+    audio
     writing_a_module
     presets_and_ensembles
     run_outcomes

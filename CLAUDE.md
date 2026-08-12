@@ -59,7 +59,8 @@ authoritative documentation and is kept in step with the code.
 ```
 ExperimentGUI ── BaseClient ──socket── BaseServer ──┬── visual      ── one subprocess per Screen (GL)
                                                     ├── locomotion  ── tracker
-                                                    └── voltage_out ── DAQ
+                                                    ├── voltage_out ── DAQ
+                                                    └── audio       ── sound card
 ```
 
 One message is one line of newline-delimited JSON: a list of
@@ -85,7 +86,7 @@ called again (`docs/dev/ARCHITECTURE.md` §4 says it does not; that note predate
 | `target` | Goes to |
 |---|---|
 | absent → `root` | `functions_on_root` **only** — not the modules |
-| `visual` / `locomotion` / `voltage_out` | that module |
+| `visual` / `locomotion` / `voltage_out` / `audio` | that module |
 | `all` | every module; each ignores names it does not define |
 
 An untargeted call that finds nothing on root is an **error** (it was meant for something and
@@ -114,7 +115,8 @@ Naming rule: a **Server** serves sockets, a **Manager** owns hardware.
 A **run** (series) of **trials**. Parameters live in tiers: `run_parameters` (per run),
 `protocol_parameters` (per run; a list value of length > 1 is a *swept dimension*, tuples are
 single values), `trial_protocol_parameters` (the chosen value per trial), `trial_stim_parameters`
-(the stimulus descriptor). `all_combinations` picks Cartesian product vs. zip-and-tile.
+(the stimulus descriptor; an entry may carry a `target`, defaulting to `visual`).
+`all_combinations` picks Cartesian product vs. zip-and-tile.
 
 The client ships a declarative descriptor once — including trajectory dicts, hydrated server-side
 by `make_as`/`make_as_trajectory` — and the server evaluates motion frame by frame against the
