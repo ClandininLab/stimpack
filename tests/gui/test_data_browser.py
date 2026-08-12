@@ -311,3 +311,97 @@ def test_the_tree_and_the_table_can_be_resized_against_each_other(browser, qapp)
     browser.splitter.setSizes([100, 500])
     qapp.processEvents()
     assert browser.splitter.sizes()[0] < browser.splitter.sizes()[1]
+
+
+# --- the NWB backend -----------------------------------------------------------------------------
+#
+# An .nwb file keeps its payload -- subject fields, session metadata, the trials/epochs tables --
+# in DATASETS, and its group attributes are schema bookkeeping. A browser that showed only groups
+# and attributes was profoundly uninformative here; these tests pin every piece of the fix.
+
+@pytest.fixture
+def nwb_experiment(tmp_path):
+    """A real NWB experiment: one subject with a recorded series, and one who never recorded."""
+    from stimpack.experiment.data_nwb import NWBData
+
+    class Proto:
+        run_parameters = {'num_trials': 2, 'idle_color': 0.0}
+        protocol_parameters = {'angle': [0, 90]}
+        trial_stim_parameters = {'name': 'DriftingSquareGrating'}
+        trial_protocol_parameters = {'pre_time': 1.0, 'stim_time': 2.0, 'tail_time': 1.0}
+        num_trials_completed = 0
+        save_stringified_params = False
+
+    data = NWBData(cfg={'experimenter': 'tester'})
+    data.data_directory = str(tmp_path)
+    data.experiment_file_name = 'browsable_nwb'
+    data.experimenter = 'tester'
+    data.initialize_experiment_file()
+    data.create_subject({'subject_id': 'fly1', 'age': 3, 'genotype': 'PV-Cre', 'notes': ''})
+    proto = Proto()
+    data.prepare_series()
+    data.create_series(proto)
+    data.create_trial(proto)
+    data.end_trial(proto)
+    data.end_series(proto)
+    data.create_subject({'subject_id': 'fly2', 'age': 5, 'notes': ''})
+    return data
+
+
+@pytest.fixture
+def nwb_browser(qapp, nwb_experiment):
+    b = nwb_experiment.make_data_browser()
+    b.refresh()
+    yield b
+    b.close()
+
+
+def _series_label(nwb_experiment):
+    return next(label for label, _ in nwb_experiment.browsable_files() if label.endswith('.nwb'))
+
+
+def test_nwb_tree_lists_the_registry_and_each_series(nwb_browser):
+    labels = tree_labels(nwb_browser.group_tree.invisibleRootItem())
+    assert 'subjects' in labels                             # the registry sidecar
+    assert 'fly1' in labels and 'fly2' in labels            # every subject, recorded or not
+    assert any(label.endswith('.nwb') for label in labels)  # the recorded series file
+    assert 'trials' in labels and 'epochs' in labels        # the trial and series records
+    assert 'specifications' not in labels                   # the schema cache stays hidden
+
+
+def test_a_subject_who_never_recorded_is_still_visible(nwb_browser):
+    select(nwb_browser, ['subjects', 'fly2'])
+    rows = table_contents(nwb_browser)
+    assert rows['subject_id'] == 'fly2'
+    assert rows['age'] == '5'
+
+
+def test_nwb_subject_fields_are_shown_from_the_series_file(nwb_browser, nwb_experiment):
+    select(nwb_browser, [_series_label(nwb_experiment), 'general', 'subject'])
+    rows = table_contents(nwb_browser)
+    assert rows['subject_id'] == 'fly1'
+    assert rows['genotype'] == 'PV-Cre'
+
+
+def test_nwb_series_record_is_shown_in_the_epochs_table(nwb_browser, nwb_experiment):
+    select(nwb_browser, [_series_label(nwb_experiment), 'intervals', 'epochs'])
+    rows = table_contents(nwb_browser)
+    assert 'protocol_id' in rows and 'Proto' in rows['protocol_id']
+    assert 'num_trials' in rows
+
+
+def test_nwb_file_node_shows_session_metadata(nwb_browser, nwb_experiment):
+    select(nwb_browser, [_series_label(nwb_experiment)])
+    rows = table_contents(nwb_browser)
+    assert 'session_description' in rows or 'identifier' in rows
+
+
+def test_nwb_rows_are_never_editable(nwb_browser, nwb_experiment):
+    from PyQt6.QtCore import Qt
+    for path in (['subjects', 'fly1'],
+                 [_series_label(nwb_experiment), 'general', 'subject']):
+        select(nwb_browser, path)
+        assert nwb_browser.table_attributes.rowCount() > 0
+        for r in range(nwb_browser.table_attributes.rowCount()):
+            flags = nwb_browser.table_attributes.item(r, 1).flags()
+            assert not flags & Qt.ItemFlag.ItemIsEditable

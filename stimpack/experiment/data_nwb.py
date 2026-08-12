@@ -671,9 +671,21 @@ class NWBData(BaseData):
     # current_subject_exists() is inherited: BaseData already tests current_subject, which is what
     # current_subject_id now aliases.
 
+    # NWB's 'trials' and 'epochs' are single column tables -- stimpack's trial and series records
+    # live THERE, so the tree must show them (the base list hides them, rightly, for stimpack's
+    # own layout where they explode into per-trial groups). 'specifications' is the embedded
+    # schema cache; 'acquisition' is bulk data, hidden as everywhere.
+    browser_tree_exclusions = ['acquisition', 'specifications']
+
     def browsable_files(self):
-        """One entry per series file, newest last, labeled by file name."""
-        return [(os.path.basename(path), str(path)) for path in self.get_series_files()]
+        """One entry per series file, newest last, plus the subjects registry when it exists.
+
+        The registry (subjects.json) is what holds a subject that has not run a series yet --
+        without it, a fresh experiment with a subject browses as nothing at all."""
+        files = [(os.path.basename(path), str(path)) for path in self.get_series_files()]
+        if os.path.isfile(self.subjects_file_path):
+            files.insert(0, ('subjects', str(self.subjects_file_path)))
+        return files
 
     def get_series_files(self):
         """The .nwb files in this experiment's directory, or none if it has not been made yet."""

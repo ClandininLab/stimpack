@@ -25,7 +25,7 @@ import os
 from datetime import datetime
 import numpy as np
 
-from stimpack.experiment.util import config_tools, provenance
+from stimpack.experiment.util import config_tools, h5io, provenance
 from stimpack.experiment.deprecated_names import add_deprecated_aliases
 
 
@@ -177,6 +177,12 @@ class BaseData():
     # layout and editing one is a supported repair; an NWB file has a schema that pynwb validates,
     # and a hand-edited attribute can make it unreadable.
     browser_is_editable = True
+
+    # Groups the browser's tree hides. What counts as noise is a fact about the file layout, so
+    # the backend says: in this layout 'trials'/'epochs' hold one subgroup per presentation
+    # (hundreds per series would drown the tree) and the rest are bulk data. NWB overrides this
+    # -- there 'trials' and 'epochs' are single tables holding the trial and series records.
+    browser_tree_exclusions = h5io.DEFAULT_TREE_EXCLUSIONS + ['rois']
 
     def make_data_browser(self, parent=None):
         """

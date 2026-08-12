@@ -26,27 +26,29 @@ authors:
   - given-names: Heberto
     family-names: Mayorquin
     affiliation: CatalystNeuro
+    orcid: 'https://orcid.org/0000-0002-5937-7537'
   - given-names: Manze
     family-names: Zhang
     affiliation: Stanford University
   - given-names: Jacob
     family-names: Simon
     affiliation: Stanford University
-  - given-names: Bella
+  - given-names: Bella E.
     family-names: Brezovec
     affiliation: Stanford University
-  - given-names: Andrew
-    family-names: Berger
-    affiliation: Stanford University
+    orcid: 'https://orcid.org/0000-0001-9341-3565'
   - given-names: Shaul
     family-names: Druckmann
     affiliation: Stanford University
+    orcid: 'https://orcid.org/0000-0003-0068-3377'
   - given-names: Stephen
     family-names: Baccus
     affiliation: Stanford University
+    orcid: 'https://orcid.org/0000-0001-8692-5685'
   - given-names: Thomas
     family-names: Clandinin
     affiliation: Stanford University
+    orcid: 'https://orcid.org/0000-0001-6277-6849'
   - given-names: Maxwell
     family-names: Turner
     email: mhturner@albany.edu

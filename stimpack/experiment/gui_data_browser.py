@@ -14,6 +14,7 @@ attributes must not be edited (pynwb validates a schema that a hand-edited attri
 Both differences are answered by the backend -- browsable_files() and browser_is_editable -- rather
 than by the browser knowing which format it is looking at.
 """
+import json
 import os
 
 import PyQt6.QtCore as QtCore
@@ -110,14 +111,23 @@ class Hdf5DataBrowser(QWidget):
         if len(files) == 1:
             label, path = files[0]
             self._files[None] = path
-            hierarchy = h5io.get_hierarchy(path, additional_exclusions='rois')
+            hierarchy = self._file_hierarchy(path)
         else:
             hierarchy = {}
             for label, path in files:
                 self._files[label] = path
-                hierarchy[label] = h5io.get_hierarchy(path, additional_exclusions='rois')
+                hierarchy[label] = self._file_hierarchy(path)
 
         self._populateTree(self.group_tree, hierarchy)
+
+    def _file_hierarchy(self, path):
+        """The tree under one file: HDF5 groups, or -- for the NWB backend's subjects registry,
+        a JSON sidecar -- one node per subject, with the fields left for the table."""
+        if path.endswith('.json'):
+            with open(path) as f:
+                return {key: {} for key in json.load(f)}
+        # Which groups are noise is a fact about the file layout, so the backend says.
+        return h5io.get_hierarchy(path, exclusions=self.data.browser_tree_exclusions)
 
     def file_and_path_for(self, group_path):
         """Split a tree path into the file it names and the path within that file.
@@ -166,37 +176,63 @@ class Hdf5DataBrowser(QWidget):
             return
 
         file_path, group_path = self.file_and_path_for(tree_path)
-        if file_path is None or group_path in ('', '/'):
-            self.populate_attrs(attr_dict={}, editable_values=False)   # a file node itself
+        if file_path is None:
+            self.populate_attrs(attr_dict={}, editable_values=False)
             return
 
-        attr_dict = h5io.get_attributes_from_group(file_path, group_path)
+        if file_path.endswith('.json'):
+            # The NWB backend's subjects registry: the clicked node is a subject id, its fields
+            # are the rows. Read-only -- the GUI's subject tab is where a subject is edited.
+            with open(file_path) as f:
+                subjects = json.load(f)
+            entry = subjects.get(group_path.strip('/'), {})
+            self.populate_attrs(attr_dict={}, editable_values=False, read_only_rows=entry)
+            return
+
+        if group_path in ('', '/'):
+            # The file node itself: show the file's root. For an NWB series file that is the
+            # session metadata -- session_description, identifier, start time -- all datasets.
+            attrs, datasets = h5io.get_group_contents(file_path, '/')
+            self.populate_attrs(attr_dict=attrs, editable_values=False, read_only_rows=datasets)
+            return
+
+        attrs, datasets = h5io.get_group_contents(file_path, group_path)
         # A series' attributes record what was actually presented, so they are read-only whatever
-        # the backend allows.
+        # the backend allows. Datasets are always read-only (read_only_rows below).
         editable_values = (self.data.browser_is_editable
                            and 'series' not in group_path.split('/')[-1])
-        self.populate_attrs(attr_dict=attr_dict, editable_values=editable_values)
+        self.populate_attrs(attr_dict=attrs, editable_values=editable_values,
+                            read_only_rows=datasets)
 
-    def populate_attrs(self, attr_dict=None, editable_values=False):
-        """ Populate attribute for currently selected group """
+    def populate_attrs(self, attr_dict=None, editable_values=False, read_only_rows=None):
+        """Fill the table: ``attr_dict`` rows (HDF5 attributes, editable when the policy allows)
+        followed by ``read_only_rows`` (datasets, or a JSON subject's fields) which never are --
+        a dataset is a record, not a setting. Each key item is tagged with its kind so
+        update_attrs_to_file can refuse to write anything that is not an attribute."""
         self.table_attributes.blockSignals(True)  # block udpate signals for auto-filled forms
         self.table_attributes.setRowCount(0)
         self.table_attributes.setColumnCount(2)
         self.table_attributes.setSortingEnabled(False)
 
-        if attr_dict:
-            for num, key in enumerate(attr_dict):
-                self.table_attributes.insertRow(self.table_attributes.rowCount())
-                key_item = QTableWidgetItem(key)
-                key_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                self.table_attributes.setItem(num, 0, key_item)
+        def add_row(key, value, editable, kind):
+            row = self.table_attributes.rowCount()
+            self.table_attributes.insertRow(row)
+            key_item = QTableWidgetItem(key)
+            key_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
+            key_item.setData(QtCore.Qt.ItemDataRole.UserRole, kind)
+            self.table_attributes.setItem(row, 0, key_item)
 
-                val_item = QTableWidgetItem(str(attr_dict[key]))
-                if editable_values:
-                    val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEditable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                else:
-                    val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                self.table_attributes.setItem(num, 1, val_item)
+            val_item = QTableWidgetItem(str(value))
+            if editable:
+                val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEditable | QtCore.Qt.ItemFlag.ItemIsEnabled)
+            else:
+                val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
+            self.table_attributes.setItem(row, 1, val_item)
+
+        for key in (attr_dict or {}):
+            add_row(key, attr_dict[key], editable_values, 'attribute')
+        for key in (read_only_rows or {}):
+            add_row(key, read_only_rows[key], False, 'record')
 
         self.table_attributes.blockSignals(False)
 
@@ -206,10 +242,14 @@ class Hdf5DataBrowser(QWidget):
         # written to through any path that reaches here.
         if not self.data.browser_is_editable:
             return
+        # Only rows tagged as HDF5 attributes are writable; a dataset or JSON-subject row that
+        # somehow fired here must not be written back as an attribute of the same name.
+        if self.table_attributes.item(item.row(), 0).data(QtCore.Qt.ItemDataRole.UserRole) != 'attribute':
+            return
 
         tree_path = h5io.get_path_from_tree_item(self.group_tree.selectedItems()[0])
         file_path, group_path = self.file_and_path_for(tree_path)
-        if file_path is None:
+        if file_path is None or file_path.endswith('.json'):
             return
 
         attr_key = self.table_attributes.item(item.row(), 0).text()
