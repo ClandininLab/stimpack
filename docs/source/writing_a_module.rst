@@ -14,11 +14,11 @@ temperature controller.
 The contract
 ============
 
-Subclass :class:`stimpack.module.BaseModule` and write the methods your hardware needs::
+Subclass :class:`stimpack.module.BaseManager` and write the methods your hardware needs::
 
-    from stimpack.module import BaseModule
+    from stimpack.module import BaseManager
 
-    class OdorManager(BaseModule):
+    class OdorManager(BaseManager):
         module_name = 'odor'          # prefix on errors reported to the client
 
         def open_valve(self, channel, duration):
@@ -35,11 +35,11 @@ The contract itself stays duck-typed: the server checks for methods, never for t
 so a module may instead be any object with ``handle_request_list(request_list)``, each request a
 dict of ``name``, ``args`` and ``kwargs``. Requests arrive in batches, because a protocol builds
 a multicall and sends it in one round trip. The hooks below are optional either way; with
-``BaseModule`` they exist as no-ops to override, without it they are simply absent.
+``BaseManager`` they exist as no-ops to override, without it they are simply absent.
 
 ``get_callable_names()``
     The names this module answers to. The server sends them to the client when the connection
-    opens, which is what makes ``has_server_function()`` able to answer. ``BaseModule``'s version
+    opens, which is what makes ``has_server_function()`` able to answer. ``BaseManager``'s version
     enumerates the public methods, which is exactly right for the inherited dispatch. A module
     that cannot enumerate itself -- one that forwards requests elsewhere -- should **return
     None** (or, without the base class, not implement this at all): callers are then told the
@@ -62,7 +62,7 @@ a multicall and sends it in one round trip. The hooks below are optional either 
     message reaches the client, is shown in the GUI, and aborts the run; ``'warning'`` reports
     without aborting. An exception you let escape ``handle_request_list`` is caught and reported
     for you, but a *silent* failure is not, so report the ones you can detect.
-    ``BaseModule.report(level, text)`` is the same call wrapped so that a broken or absent
+    ``BaseManager.report(level, text)`` is the same call wrapped so that a broken or absent
     reporter cannot raise out of your handler.
 
 Registering it
@@ -109,7 +109,10 @@ a subprocess it talks to over a socket, and it runs standalone as the stim serve
 ``LocoClosedLoopManager`` (and the ``OdorManager`` above) own a device or process on the server's
 behalf and serve nothing. Most new modules are managers, and owning *more* hardware does not change
 that: a manager driving four output streams is still a manager. The name changes only when the
-thing starts serving sockets, as it would if each device someday needed its own subprocess.
+thing starts serving sockets, as it would if each device someday needed its own subprocess. The
+class hierarchy states the same rule: managers inherit :class:`stimpack.module.BaseManager`,
+while ``VisualStimServer`` implements the module contract natively -- "module" names the role,
+and no class claims to define it.
 
 What you do not have to build
 =============================

@@ -13,14 +13,14 @@ import threading
 import json
 import warnings, traceback
 
-from stimpack.module import BaseModule
+from stimpack.module import BaseManager
 from time import time
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from stimpack.experiment.server import BaseServer
 
-class LocoManager(BaseModule):
-    """The locomotion module's base: dispatch, enumeration and lifecycle come from BaseModule;
+class LocoManager(BaseManager):
+    """The locomotion module's base: dispatch, enumeration and lifecycle come from BaseManager;
     a tracker driver subclasses this (or LocoClosedLoopManager below) and adds its hardware."""
     module_name = 'locomotion'   # prefix on errors reported to the client
 

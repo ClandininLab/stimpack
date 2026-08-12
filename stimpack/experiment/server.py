@@ -239,7 +239,7 @@ class BaseServer(MySocketServer):
             except Exception:
                 continue      # a module that cannot say is simply not listed
             if names is None:
-                # The BaseModule form of declining: inheritance makes absence impossible, so a
+                # The BaseManager form of declining: inheritance makes absence impossible, so a
                 # module that forwards its requests elsewhere returns None to mean "unknown".
                 continue
             functions[module_name] = sorted(names)

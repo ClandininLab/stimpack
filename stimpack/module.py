@@ -1,8 +1,11 @@
 """
-The base class for server modules: the module contract, hardened once.
+The module contract, hardened once.
 
-:class:`BaseModule` is for method-dispatch modules -- ones that execute requests as calls on
-themselves, which is every module except one. The DAQ and the locomotion managers inherit it, a
+A *module* is a role, not a type: anything held in ``BaseServer.modules`` and speaking the
+request-list contract is a module -- the server checks for methods, never for a class.
+:class:`BaseManager` is the standard implementation of that contract for the *manager* kind of
+module -- ones that execute requests as calls on themselves and own the hardware behind them,
+which is every module except one. The DAQ and the locomotion managers inherit it, a
 labpack's own modules should (see the docs page ``writing_a_module``), and it carries the parts
 of the contract that are easy to get subtly wrong: dispatch with each handler's errors isolated
 and reported, unknown names reported rather than silently dropped, ``target('all')`` broadcasts
@@ -23,7 +26,7 @@ import warnings
 from stimpack.rpc.transceiver import is_broadcast
 
 
-class BaseModule():
+class BaseManager():
     #: Prefix on errors reported to the client ('daq: ...', 'locomotion: ...'); subclasses set it.
     module_name = 'module'
 

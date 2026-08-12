@@ -7,11 +7,11 @@ DAQ (data acquisition) device classes
 """
 from typing import Optional
 
-from stimpack.module import BaseModule
+from stimpack.module import BaseManager
 from stimpack.rpc.multicall import MyMultiCall
 from stimpack.rpc.transceiver import MySocketClient
 
-class DAQ(BaseModule):
+class DAQ(BaseManager):
     module_name = 'daq'   # prefix on errors reported to the client
 
     def send_trigger(self, *args, **kwargs):

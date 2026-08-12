@@ -1,4 +1,4 @@
-"""BaseModule: the module contract, hardened once and inherited by the method-dispatch modules.
+"""BaseManager: the module contract, hardened once and inherited by the method-dispatch modules.
 
 DAQ, LocoManager and LocoClosedLoopManager carried byte-identical dispatch loops (and
 LocoSocketManager a fourth, dead copy) that had already drifted in style; now one implementation
@@ -10,12 +10,12 @@ import warnings
 
 import pytest
 
-from stimpack.module import BaseModule
+from stimpack.module import BaseManager
 
 pytestmark = pytest.mark.unit
 
 
-class Valve(BaseModule):
+class Valve(BaseManager):
     module_name = 'odor'
 
     def __init__(self):
@@ -82,26 +82,26 @@ def test_the_method_dispatch_modules_share_the_one_implementation():
     from stimpack.daq import DAQ
     from stimpack.locomotion import LocoManager, LocoClosedLoopManager
 
-    assert issubclass(DAQ, BaseModule) and DAQ.module_name == 'daq'
-    assert issubclass(LocoManager, BaseModule) and LocoManager.module_name == 'locomotion'
+    assert issubclass(DAQ, BaseManager) and DAQ.module_name == 'daq'
+    assert issubclass(LocoManager, BaseManager) and LocoManager.module_name == 'locomotion'
     # The point of the base class: no per-module copies left to drift.
-    assert DAQ.handle_request_list is BaseModule.handle_request_list
-    assert LocoManager.handle_request_list is BaseModule.handle_request_list
-    assert LocoClosedLoopManager.handle_request_list is BaseModule.handle_request_list
+    assert DAQ.handle_request_list is BaseManager.handle_request_list
+    assert LocoManager.handle_request_list is BaseManager.handle_request_list
+    assert LocoClosedLoopManager.handle_request_list is BaseManager.handle_request_list
 
 
 def test_the_visual_server_does_not_inherit():
     # VisualStimServer forwards requests to screens via MyTransceiver.__getattr__ RPC stubs;
-    # BaseModule's no-op lifecycle defaults would shadow that forwarding, so it implements the
+    # BaseManager's no-op lifecycle defaults would shadow that forwarding, so it implements the
     # contract natively (see stimpack/module.py's docstring).
     from stimpack.visual_stim.stim_server import VisualStimServer
-    assert not issubclass(VisualStimServer, BaseModule)
+    assert not issubclass(VisualStimServer, BaseManager)
 
 
 def test_a_module_that_returns_none_is_advertised_as_unknown():
     from stimpack.experiment.server import BaseServer
 
-    class Forwarder(BaseModule):
+    class Forwarder(BaseManager):
         def get_callable_names(self):
             return None                     # "I forward; I cannot enumerate myself"
 
