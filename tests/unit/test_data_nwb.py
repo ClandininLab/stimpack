@@ -515,3 +515,22 @@ def test_subject_state_history_lands_as_behavior_series(tmp_path):
 
         lab_key = behavior['subject_state_chase_armed']
         assert np.isnan(lab_key.data[0]) and lab_key.data[1] == 1.0
+
+
+def test_selecting_a_subject_after_a_restart_restores_its_metadata(tmp_path):
+    """The GUI-restart flow that failed in the field: subjects survive a restart through the
+    sidecar, but select_subject (inherited) only remembered the id -- so the first Record after
+    reopening an experiment built an NWBFile with identifier=None and refused."""
+    _make_data(tmp_path)                              # creates subject s1, session one
+
+    reopened = NWBData(cfg=CFG)                       # session two: fresh object, same experiment
+    reopened.load_experiment(str(tmp_path / 'expt_2026-07-26'))
+    reopened.select_subject('s1')
+    reopened.prepare_series()                         # the call that raised
+
+    path = reopened.get_nwb_file_path()
+    assert path.is_file()
+    with NWBHDF5IO(str(path), 'r') as io:
+        nwbfile = io.read()
+        assert nwbfile.identifier == 's1'
+        assert nwbfile.subject.subject_id == 's1'

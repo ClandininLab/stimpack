@@ -99,6 +99,9 @@ class NWBData(BaseData):
         # Subjects created in this experiment, keyed by id. Mirrored to SUBJECTS_FILE so one that
         # has not run a series yet survives a restart. See get_existing_subject_data.
         self.defined_subjects = {}
+        # Set by define_subject / select_subject; empty until then, so paths that ask before a
+        # subject exists fail the current_subject_exists() guard instead of an AttributeError.
+        self.subject_metadata = {}
 
     # # # NWB-flavored aliases for BaseData's storage-neutral attribute names # # #
 
@@ -280,6 +283,21 @@ class NWBData(BaseData):
         self.build_nwb_subject(subject_metadata)
         print('Created subject {}'.format(subject_metadata.get('subject_id')))
 
+    def select_subject(self, subject_id):
+        """Make this the subject subsequent series record against, restoring its metadata.
+
+        The base class only remembers the id, which is all the HDF5 backend needs (its subject
+        group was written at creation). This backend embeds the full subject in every series
+        file, so selecting one -- typically defined in an earlier session and read back from the
+        sidecar -- must also restore its metadata; without this, prepare_series built an NWBFile
+        whose identifier was None and refused, failing every Record after a GUI restart.
+        """
+        super().select_subject(subject_id)
+        metadata = self.defined_subjects.get(subject_id)
+        if metadata is not None:
+            self.subject_metadata = dict(metadata)
+            self.build_nwb_subject(self.subject_metadata)
+
     def build_nwb_subject(self, subject_metadata):
         """
         Translate a subject-metadata dict into the pynwb Subject and per-subject NWBFile kwargs
@@ -291,7 +309,10 @@ class NWBData(BaseData):
         
         # Here we deep copy the general dictionary and we modify it for the specific subject 
         self.subject_nwbfile_kwargs = deepcopy(self.general_nwb_kwargs)
-        self.subject_nwbfile_kwargs["identifier"] = subject_metadata.get('subject_id')
+        # Falls back to the selected subject's id: they are the same value by construction
+        # (define_subject keys defined_subjects by it), and NWBFile refuses None with an error
+        # that names 'identifier' rather than the missing metadata.
+        self.subject_nwbfile_kwargs["identifier"] = subject_metadata.get('subject_id') or self.current_subject
 
         # Create the subject object
         subject_kwargs = {key: subject_metadata[key] for key in keywords_in_the_nwb_subject_class if key in subject_metadata}
