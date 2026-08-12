@@ -103,6 +103,14 @@ class BaseProtocol():
         # Rig-specific loco_available
         self.loco_available = config_tools.get_loco_available(self.cfg)
 
+        # Per-screen render-time position logging: an opt-in verification record, off by default.
+        # The server's subject-state history (saved with every recorded run) is the analysis
+        # record; each screen's copy of the state it rendered from -- exact frame-time sampling,
+        # one file per screen per trial, on the server machine -- earns its disk only when someone
+        # is checking the render against the state. Pre-1.0 this rode along automatically with
+        # every recorded closed-loop trial; set it True on a protocol to get that behavior back.
+        self.save_screen_pos_history = False
+
         # Rig-specific audio_available. Distinct from has_module('audio'): this is what the config
         # says the rig has, known before a server is connected, so precompute can branch on it.
         self.audio_available = config_tools.get_audio_available(self.cfg)
@@ -541,7 +549,7 @@ class BaseProtocol():
         # locomotion setting variables
         do_loco = self.run_parameters.get('do_loco', False)
         do_loco_closed_loop = do_loco and self.trial_protocol_parameters.get('loco_pos_closed_loop', False)
-        save_pos_history = do_loco_closed_loop and self.save_metadata_flag
+        save_pos_history = self.save_screen_pos_history and self.save_metadata_flag
         
         ### pre time
         self.sleep(self.trial_protocol_parameters['pre_time'])
@@ -839,7 +847,7 @@ class SharedPixMapProtocol(BaseProtocol):
         # locomotion setting variables
         do_loco = self.run_parameters.get('do_loco', False)
         do_loco_closed_loop = do_loco and self.trial_protocol_parameters.get('loco_pos_closed_loop', False)
-        save_pos_history = do_loco_closed_loop and self.save_metadata_flag
+        save_pos_history = self.save_screen_pos_history and self.save_metadata_flag
         
         ### pre time
         self.sleep(self.trial_protocol_parameters['pre_time'])

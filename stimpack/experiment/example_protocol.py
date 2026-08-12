@@ -382,7 +382,7 @@ class LinearTrackWithTowers(BaseProtocol):
         # locomotion setting variables
         do_loco = self.run_parameters.get('do_loco', False)
         do_loco_closed_loop = do_loco and self.trial_protocol_parameters.get('loco_pos_closed_loop', False)
-        save_pos_history = do_loco_closed_loop and self.save_metadata_flag
+        save_pos_history = self.save_screen_pos_history and self.save_metadata_flag
         
         manager.set_subject_state(state_update={'y_pos_modulo': self.trial_protocol_parameters['y_pos_modulo'], 
                                                 'y_pos_offset': self.trial_protocol_parameters['y_pos_offset']})

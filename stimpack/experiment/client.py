@@ -416,6 +416,20 @@ class BaseClient():
                                                   str(data.series_count), 'subject_state')
             self.manager.target('root').start_subject_state_history(log_dir=server_state_dir)
 
+        # Per-screen render-time position logging is opt-in (protocol_object.save_screen_pos_history):
+        # a verification record -- the exact state each screen rendered from, at frame times --
+        # whose analysis-ready counterpart is the subject-state history above. The screens write on
+        # the server machine, so they need the server-side directory.
+        if save_metadata_flag and getattr(protocol_object, 'save_screen_pos_history', False):
+            server_data_directory = self.server_options.get('data_directory', None)
+            if server_data_directory is not None:
+                server_pos_history_dir = posixpath.join(server_data_directory, data.get_server_subdir(),
+                                                        str(data.series_count), 'visual_stim_pos')
+                self.manager.target('all').set_save_pos_history_dir(server_pos_history_dir)
+            else:
+                print("Warning: save_screen_pos_history is set, but the config gives the server no "
+                      "data_directory, so the screens have nowhere to write.")
+
         # Set up locomotion data saving on the server and start locomotion device / software
         if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
             self.start_loco(data, save_metadata_flag=save_metadata_flag)
@@ -621,12 +635,8 @@ class BaseClient():
         if save_metadata_flag:
             server_data_directory: Optional[str] = self.server_options.get('data_directory', None)
             if server_data_directory is not None:
-                # set server-side directory in which to save animal positions from each screen.
-                server_series_dir = posixpath.join(server_data_directory, data.get_server_subdir(), str(data.series_count))
-                server_pos_history_dir = posixpath.join(server_series_dir, 'visual_stim_pos')
-                self.manager.target('all').set_save_pos_history_dir(server_pos_history_dir)
-
                 # set server-side directory in which to save locomotion data
+                server_series_dir = posixpath.join(server_data_directory, data.get_server_subdir(), str(data.series_count))
                 server_loco_dir = posixpath.join(server_series_dir, 'loco')
                 self.manager.target('locomotion').set_save_directory(server_loco_dir)
             else:

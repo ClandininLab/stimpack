@@ -72,20 +72,39 @@ def test_send_with_nothing_collected_ships_an_empty_history():
     assert s._shipped[0]['args'][0] == []
 
 
-def test_the_belt_log_is_written_per_update(tmp_path):
-    """The jsonl on the server machine is what survives a client crash mid-run: line-per-update
-    and flushed, so it is complete up to the moment anything dies."""
+def test_the_belt_log_flushes_at_trial_boundaries_not_per_update(tmp_path):
+    """Updates arrive on the request loop at tracker rate, where a stalling disk (an NFS mount)
+    would stall the routing of everything else -- so lines buffer in memory and reach disk when
+    the client marks a trial edge. A crash loses at most the trial in progress, which is the
+    trial the crash already ruined."""
     s = server()
     s.start_subject_state_history(log_dir=str(tmp_path / 'state'))
     s.set_subject_state({'x': 1.0})
+    assert not (tmp_path / 'state' / 'subject_state.jsonl').exists(), 'buffered, not yet on disk'
 
+    s.set_current_trial(None)                                        # the client ends a trial
     lines = (tmp_path / 'state' / 'subject_state.jsonl').read_text().splitlines()
     assert len(lines) == 1
     row = json.loads(lines[0])
     assert row['state']['x'] == 1.0 and 'ts' in row
 
-    s.send_subject_state_history()
+    s.set_subject_state({'x': 2.0})
+    s.send_subject_state_history()                                   # run end also flushes
+    assert len((tmp_path / 'state' / 'subject_state.jsonl').read_text().splitlines()) == 2
     assert s._subject_state_log_file is None
+
+
+def test_a_stateless_run_leaves_no_belt_file_behind(tmp_path):
+    """A protocol that never touches subject state costs the history nothing: an empty ship, no
+    file, not even the directory -- the belt opens lazily, on the first flush with lines."""
+    s = server()
+    s.start_subject_state_history(log_dir=str(tmp_path / 'state'))
+    s.set_current_trial(0)
+    s.set_current_trial(None)
+    s.send_subject_state_history()
+
+    assert s._shipped[0]['args'][0] == []
+    assert not (tmp_path / 'state').exists()
 
 
 # # # The client side: ask at run end, wait for the answer, hand it to data # # #
@@ -210,3 +229,13 @@ def test_hdf5_non_numeric_keys_are_named_not_dropped(tmp_path):
         group = f[data.series_path() + '/subject_state_history']
         assert list(group.attrs['non_numeric_keys']) == ['phase']
         assert 'phase' not in group
+
+
+# # # The per-screen record is opt-in, now that this history exists # # #
+
+def test_screen_pos_history_is_off_by_default():
+    """The server history is the analysis record; each screen's frame-time copy is a verification
+    record that earns its disk only when someone asks for it. Pre-1.0 it rode along with every
+    recorded closed-loop trial automatically."""
+    from stimpack.experiment.protocol import BaseProtocol
+    assert BaseProtocol(cfg={}).save_screen_pos_history is False

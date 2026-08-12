@@ -62,6 +62,16 @@ KNOWN_TARGETS = frozenset(MODULE_ALIASES) | {'visual', 'locomotion', 'voltage_ou
 
 
 class BaseServer(MySocketServer):
+    # Class-level defaults, so a bare server (tests build one with __new__, skipping __init__)
+    # treats a belt-log flush as the no-op it should be instead of tripping the __getattr__
+    # proxy's private-name guard. The lines default is an immutable tuple on purpose: __init__
+    # replaces it with a real list, and an instance that skipped __init__ cannot accidentally
+    # share a mutable buffer through the class.
+    _subject_state_history = None
+    _subject_state_log_dir = None
+    _subject_state_log_file = None
+    _subject_state_log_lines = ()
+
     def __init__(self,
                  host: str = '127.0.0.1',
                  port: int|None = 60629,
@@ -162,9 +172,13 @@ class BaseServer(MySocketServer):
         # Subject-state history: the modality-neutral record of everything set_subject_state
         # accumulated, collected between the client's start/send marks (run boundaries) and shipped
         # back once at run end -- once rather than per trial, so nothing is serialized into the
-        # inter-trial gap. None means not collecting.
+        # inter-trial gap. None means not collecting. The belt log's file is opened lazily, on the
+        # first flush that has lines: a run whose protocols never touch subject state leaves no
+        # empty directory behind.
         self._subject_state_history = None
+        self._subject_state_log_dir = None
         self._subject_state_log_file = None
+        self._subject_state_log_lines = []
 
         # set the subject position parameters
         self.subject_state = {}
@@ -374,10 +388,12 @@ class BaseServer(MySocketServer):
         """
         Told by the client as each trial begins, and set to None when it ends.
 
-        Only used to stamp :meth:`end_trial`; the server does not otherwise care which trial is
-        running.
+        Only used to stamp :meth:`end_trial` -- the server does not otherwise care which trial is
+        running -- and, since the client calls it at both edges of every trial, it is where the
+        subject-state belt log flushes: between trials, off the presentation's clock.
         """
         self.current_trial_index = trial_index
+        self._flush_subject_state_log()
 
     def end_trial(self, reason=None):
         """
@@ -423,15 +439,17 @@ class BaseServer(MySocketServer):
             self.subject_state[k] = v
 
         # Record the accumulated state, not the sparse update: dense rows are what analysis wants,
-        # and which keys a given update carried is the tracker's own log's story. The belt log is
-        # written line-by-line and flushed, so a run that dies mid-trial still has its history up
-        # to the crash on the server machine.
+        # and which keys a given update carried is the tracker's own log's story. The belt line is
+        # only buffered here -- this method runs on the request loop at tracker rate, and a disk
+        # (worse, an NFS mount) can stall a write for longer than a tracker interval. Flushing
+        # happens at trial boundaries (set_current_trial), so a crash loses at most the trial in
+        # progress, which is the trial the crash already ruined.
         if self._subject_state_history is not None:
             now = time()
             self._subject_state_history.append([now, dict(self.subject_state)])
-            if self._subject_state_log_file is not None:
-                self._subject_state_log_file.write(json.dumps({'ts': now, 'state': self.subject_state}) + '\n')
-                self._subject_state_log_file.flush()
+            if self._subject_state_log_dir is not None:
+                self._subject_state_log_lines.append(
+                    json.dumps({'ts': now, 'state': self.subject_state}) + '\n')
 
         # Forward state information to each module manager
         self.target('all').set_subject_state(state_update)
@@ -445,15 +463,14 @@ class BaseServer(MySocketServer):
         so this is the modality-neutral record the per-module logs are projections of.
 
         :param log_dir: optional server-side directory for a ``subject_state.jsonl`` belt log,
-            written and flushed per update. It is what survives a client crash mid-run, and it
-            lives on the server machine -- the shipped history (see
-            :meth:`send_subject_state_history`) is the copy that reaches the data file.
+            buffered in memory and flushed at trial boundaries. It is what survives a client crash
+            mid-run (to within the trial in progress), and it lives on the server machine -- the
+            shipped history (see :meth:`send_subject_state_history`) is the copy that reaches the
+            data file. The file is created on the first flush that has something to say.
         """
         self._close_subject_state_log()
         self._subject_state_history = []
-        if log_dir is not None:
-            os.makedirs(log_dir, exist_ok=True)
-            self._subject_state_log_file = open(os.path.join(log_dir, 'subject_state.jsonl'), 'a')
+        self._subject_state_log_dir = log_dir
 
     def send_subject_state_history(self):
         """
@@ -469,11 +486,26 @@ class BaseServer(MySocketServer):
         self._subject_state_history = None
         self._close_subject_state_log()
 
+    def _flush_subject_state_log(self):
+        """Write the buffered belt lines. Called between trials, where a slow disk delays nothing
+        that is being presented, and on close/send."""
+        if not self._subject_state_log_lines or self._subject_state_log_dir is None:
+            return
+        if self._subject_state_log_file is None:
+            os.makedirs(self._subject_state_log_dir, exist_ok=True)
+            self._subject_state_log_file = open(
+                os.path.join(self._subject_state_log_dir, 'subject_state.jsonl'), 'a')
+        self._subject_state_log_file.writelines(self._subject_state_log_lines)
+        self._subject_state_log_file.flush()
+        self._subject_state_log_lines = []
+
     def _close_subject_state_log(self):
+        self._flush_subject_state_log()
         if self._subject_state_log_file is not None:
-            self._subject_state_log_file.flush()
             self._subject_state_log_file.close()
             self._subject_state_log_file = None
+        self._subject_state_log_dir = None
+        self._subject_state_log_lines = []
 
     def load_server_side_state_dependent_control(self, protocol_module_path, protocol_name):
         '''

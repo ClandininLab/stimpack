@@ -48,14 +48,17 @@ dataset plus one per key); in NWB the geometric axes become ``Position`` and ``C
 behavior series and lab-defined keys become ``TimeSeries``, on the file's own time basis. A
 ``subject_state.jsonl`` belt copy is also written on the server machine (when the config gives a
 server ``data_directory``), flushed per update, so a run that crashes still has its history up to
-the moment it died.
+the moment it died. (The belt buffers in memory and reaches disk between trials, so a slow disk
+never stalls the request loop mid-presentation; a crash loses at most the trial in progress.)
 
-Two older, narrower records complement this one when closed loop is on. Each **screen** can log
-the subject state it rendered from (``save_pos_history_to_file`` is a screen function -- the
-history of what the animal *saw*, sampled at frame times), and the locomotion manager can log the
-raw tracker lines (``write_log`` on ``set_pos_0`` -- what the tracker *said*, in device frames and
-timestamps). The server history is the analysis-ready record; these are the ground truths it can
-be checked against.
+Two narrower records complement this one. Each **screen** can log the subject state it rendered
+from, sampled at its own frame times -- the history of what the animal *saw*, where the server
+history is what the tracker said. This is an opt-in verification record: set
+``self.save_screen_pos_history = True`` on a protocol to get one file per screen per trial on
+the server machine (before 1.0 it was written automatically with every recorded closed-loop
+trial). And the locomotion manager logs the raw tracker lines (``write_log`` on ``set_pos_0`` --
+device frames and timestamps). The server history is the analysis-ready record; these are the
+ground truths it can be checked against.
 
 A protocol that needs more than this -- ending a trial when the animal reaches a goal, holding a
 stimulus against fixation -- supplies a server-side control function, which runs on every tracker
