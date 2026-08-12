@@ -91,6 +91,32 @@ stimulus went.
 Several descriptors aimed at ``audio`` are **mixed**, by summing: a short cue over a long carrier
 does what it looks like it does. Layered sounds of different lengths are padded to the longest.
 
+Why a sound is a stimulus, and a voltage is not
+===============================================
+
+Descriptors are for *presentations*: things stimpack renders end to end, where the parameters
+fully determine what the animal experiences. Pixels and pressure waves qualify -- the descriptor
+closes the loop from numbers to experience inside stimpack -- which is why visual and audio
+stimuli share ``trial_stim_parameters``, the saved record of what was presented.
+
+A :doc:`voltage_out` call is different in kind, not in importance. Stimpack's part ends at "5 V
+on DAC0", and the same waveform is opto light through one wire and a reward through another: what
+the animal experiences is a fact about the rig's wiring that only the ``labpack`` knows, and the
+DAQ's vocabulary (``output_step``, ``setup_pulse_wave_stream_out``, channel names) is
+deliberately the lab's, not stimpack's. So DAQ calls stay imperative -- made from
+``load_stimuli``, parameters recorded as protocol parameters -- rather than descriptor-routed.
+
+The routing itself does not enforce that line. ``target`` is popped and forwarded, and any module
+implementing ``load_stim`` / ``start_stim`` / ``stop_stim`` can be named by a descriptor: a
+``labpack`` that wants declarative, broadcast-synchronized voltage output can implement those
+verbs on its own DAQ subclass and write ``{'name': ..., 'target': 'voltage_out'}`` today. The
+door is open; it is the lab's to walk through, because only the lab can say what its waveform
+names mean.
+
+One reservation to know about: ``target`` is a routing key, so no stimulus -- visual, audio or
+otherwise -- can take a parameter named ``target``; it is removed from the descriptor before the
+stimulus sees its parameters.
+
 Built-in protocols
 ==================
 

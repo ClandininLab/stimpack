@@ -327,3 +327,46 @@ or `(n, channels)`) so adding it later is not a rewrite, but do not build it in 
 
 Phases 1–3 are a working module on a laptop. Phase 4 makes it usable from a protocol. Phase 5 makes
 the data trustworthy.
+
+## Design review notes (2026-08-12)
+
+Recorded from the design review discussion, so the reasoning is not lost in the PR thread.
+
+**The protocol layer gains vocabulary, not structure.** The litmus applied to this (and any
+future) module PR: does it add *vocabulary* (stimulus names, a target) or *structure* (parallel
+classes a protocol author must choose between)? Vocabulary composes; structure forks. This PR
+adds vocabulary -- there is no `AudioProtocol` base class, and `AudiovisualPairing` is the
+existence proof: one protocol, two modalities, one batch, one start. The example protocols are
+*experiments*, which is the level at which "audio has its own protocols" is category-correct --
+the same way `MovingPatch` is a visual experiment, not visual infrastructure.
+
+**Presentation vs device action, and where the line really is.** Descriptors route to
+*presentations*: things stimpack renders end to end, where the parameters determine the
+experience. `voltage_out` stays imperative not because the animal does not experience opto, but
+because only the lab can close the loop from parameters to experience (the same waveform is
+light, shock or reward depending on wiring), and because stimpack deliberately defines no DAQ
+vocabulary for a descriptor name to resolve against. The routing is target-agnostic on purpose:
+a lab that implements the `load_stim`/`start_stim`/`stop_stim` verbs on its own DAQ subclass gets
+declarative, broadcast-synchronized voltage output with zero stimpack changes. The
+acquisition-trigger TTL, by contrast, is infrastructure -- not experienced by the animal -- and
+will never be a presentation under any design.
+
+**The run-bracket gates differ between modules, deliberately.** Locomotion brackets on user
+intent (`do_loco`: tracking changes the experiment's semantics, so it is a per-run choice); audio
+brackets on hardware presence (`has_module('audio')`: an open idle stream is silent and cheap,
+and holding it open across the run is what keeps onset latency stable trial to trial). A
+`do_audio` checkbox would be a parameter with no decision behind it.
+
+**Failure modes.** No playable output on the default local server means *no module* (every audio
+load is a reported warning), not `NullAudioManager` (which would run an audio protocol to silent
+completion). The Null manager is for *chosen* silence: developing off-rig, CI.
+
+**One reserved word.** `target` in a stimulus descriptor is routing, popped before any stimulus
+sees its parameters -- no stimulus of any modality can take a parameter by that name. Documented
+in audio.rst.
+
+**A sharp edge found during review, not created by this PR.** `end_trial` stops presentations via
+the `stop_stim` broadcast, but a self-scheduled `voltage_out` thread (`stream_with_timing`) runs
+to completion: an ended-early trial does not cancel its opto schedule. Now cautioned in
+behavior_ended_trials.rst; the structural fix is a lab-side `stop_stim` on the DAQ driver --
+the same open door as above.

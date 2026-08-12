@@ -91,6 +91,17 @@ Ending a trial is not instantaneous: the request travels over the socket and is 
 client next polls, every couple of milliseconds. That is well inside a frame, but it is not a
 hardware trigger, and it is the slowest of the ways a stimulus can respond to an animal.
 
+.. warning::
+
+   Ending a trial early stops its *presentations*: the ``stop_stim`` broadcast reaches every
+   module, so the screens and the audio module cut off together. It does **not** cancel a
+   self-scheduled ``voltage_out`` waveform: a driver-side thread like the template's
+   ``stream_with_timing`` sleeps out its own ``pre_time`` and ``stim_time`` and runs to
+   completion, so a 4 s opto schedule keeps stimulating after a trial caught at 2 s. If a
+   behavior-ended protocol drives opto, either keep the schedule shorter than the shortest
+   possible trial, or give your DAQ driver a ``stop_stim`` method that cancels it --
+   ``target('all').stop_stim()`` will then reach it like any other module.
+
 Which of these you want
 -----------------------
 
