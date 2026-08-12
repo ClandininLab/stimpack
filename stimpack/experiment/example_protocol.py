@@ -910,8 +910,8 @@ class ChaseTheTower(BaseProtocol):
                 'tail_time': 0.5,
                 'loco_pos_closed_loop': 1,
 
-                'seed': [0, 1, 2, 3, 4],
-                'hum_freq': 220.0}
+                'seed': [42, 43],
+                'hum_freq': [0, 110, 220]} # Hz, 0 means no hum; 110 Hz is a low hum, 220 Hz is a high hum
 
     def get_run_parameter_defaults(self):
         return {'num_trials': 5,
