@@ -2,14 +2,14 @@
 Writing a module
 ==================
 
-A new capability is a new module, not a change to stimpack. The three that ship -- ``visual``,
-``locomotion``, ``voltage_out`` -- are ordinary Python objects held in a dictionary on the server
-and reached by name, and yours is added the same way. This page is the contract.
+A new capability is a new module, not a change to stimpack. The four that ship -- ``visual``,
+``locomotion``, ``voltage_out``, ``audio`` -- are ordinary Python objects held in a dictionary on
+the server and reached by name, and yours is added the same way. This page is the contract.
 
 If what you want is a new *stimulus*, or a new *tracker*, you do not need a module: stimuli are
 loaded from a ``labpack``'s ``module_paths.visual_stim`` and trackers subclass ``LocoManager``. A module
-is for a capability that is none of the existing three -- a sound card, a treadmill brake, a
-temperature controller.
+is for a capability that is none of the existing four -- a treadmill brake, a thermal stimulator,
+a temperature controller.
 
 The contract
 ============

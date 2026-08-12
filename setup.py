@@ -7,7 +7,7 @@ setup(
     # dev carries breaking changes already named as 1.0.0 in user-facing errors -- see the
     # other_stim_module_paths TypeError in visual_stim/stim_server.py.
     version='1.0.0.dev0',
-    description='A modular framework for precise and flexible stimulus generation in systems neuroscience.',
+    description='A modular framework for precise multisensory stimulus generation in systems neuroscience.',
     url='https://github.com/ClandininLab/stimpack',
     author='Minseung Choi',
     author_email='minseung@stanford.edu',
@@ -36,6 +36,10 @@ setup(
     ],
     extras_require={
         'test': ['pytest', 'pytest-cov', 'pillow', 'ruff'],  # pillow: GL reference images; ruff: lint
+        # PyAudio needs PortAudio system-side (brew install portaudio / apt install portaudio19-dev),
+        # which is reason enough to keep it optional. Only PyAudioManager imports it, and only when
+        # it opens a device -- NullAudioManager, the sounds and the tests all run without it.
+        'audio': ['pyaudio'],
     },
     entry_points={
         'console_scripts': [

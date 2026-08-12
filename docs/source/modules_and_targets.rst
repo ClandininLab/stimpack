@@ -8,6 +8,7 @@ The server holds a set of modules, and every request names one:
 ``visual``       the screens
 ``locomotion``   the tracker (FicTrac, KeyTrac, ...)
 ``voltage_out``  anything driven by an output voltage
+``audio``        a sound card
 ``all``          every module; each takes the calls it knows and ignores the rest
 ``root``         the server itself
 ===============  ==============================================================================

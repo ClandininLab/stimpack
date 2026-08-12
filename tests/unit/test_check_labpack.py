@@ -881,3 +881,39 @@ def test_the_recorder_keeps_arguments_as_well_as_targets():
     assert ('voltage_out', 'set_value', 0, {'output_channels': 'FIO6', 'value': 1}) \
         in recorder.detailed
     assert ('voltage_out', 'output_step', 0, {'step_hi': 2}) in recorder.detailed
+
+
+# --- audio_available vs what this machine can build ----------------------------------------------
+
+def test_audio_available_without_pyaudio_is_flagged(tmp_path, monkeypatch):
+    """The config promises audio; this machine cannot build the module. Without the check the
+    config looks fine and the first symptom is a 'no audio module' warning mid-run."""
+    cfg = good_cfg()
+    cfg['rig_config']['rig_a']['audio_available'] = True
+    make_labpack(tmp_path, cfg)
+    monkeypatch.setattr(check_labpack, '_pyaudio_installed', lambda: False)
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+
+    assert 'audio-unavailable-here' in codes(findings, 'warning')   # warning: the rig may be elsewhere
+
+
+def test_audio_available_with_pyaudio_is_quiet(tmp_path, monkeypatch):
+    cfg = good_cfg()
+    cfg['rig_config']['rig_a']['audio_available'] = True
+    make_labpack(tmp_path, cfg)
+    monkeypatch.setattr(check_labpack, '_pyaudio_installed', lambda: True)
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+
+    assert 'audio-unavailable-here' not in codes(findings)
+
+
+def test_no_audio_promise_means_no_audio_finding(tmp_path, monkeypatch):
+    """A config that says nothing about audio owes nothing about audio, pyaudio or not."""
+    make_labpack(tmp_path, good_cfg())
+    monkeypatch.setattr(check_labpack, '_pyaudio_installed', lambda: False)
+
+    findings, _ = check_labpack.check_labpack(str(tmp_path))
+
+    assert 'audio-unavailable-here' not in codes(findings)

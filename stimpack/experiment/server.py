@@ -2,8 +2,9 @@
 The server side of an experiment: owns the hardware and routes requests to it.
 
 :class:`BaseServer` holds one module per capability -- ``visual`` (screens), ``locomotion`` (a
-tracker), ``voltage_out`` (a DAQ) -- and dispatches each incoming request by its ``target``. It
-usually runs on the rig machine while the client runs wherever the experimenter is sitting.
+tracker), ``voltage_out`` (a DAQ), ``audio`` (a sound card) -- and dispatches each incoming request
+by its ``target``. It usually runs on the rig machine while the client runs wherever the
+experimenter is sitting.
 
 The routing rule that most often catches people out: a request with no target goes to the
 server's own ``root`` registry, **not** to the modules. Use ``target('all')`` for "whichever
@@ -16,6 +17,7 @@ from stimpack.visual_stim.stim_server import VisualStimServer
 
 from stimpack.locomotion import LocoManager
 from stimpack.daq import DAQ
+from stimpack.audio import AudioManager
 
 from stimpack.rpc.util import start_daemon_thread, find_free_port
 from stimpack.rpc.transceiver import MySocketServer, reject_private_attribute
@@ -52,7 +54,7 @@ ROOT_FUNCTION_NAMES = frozenset({
 # Targets a request may name. Modules present depend on the rig (a rig with no voltage-out hardware
 # has no such module), so this is the set of *spellings* stimpack understands, not a claim about
 # what any given server has.
-KNOWN_TARGETS = frozenset(MODULE_ALIASES) | {'visual', 'locomotion', 'voltage_out', 'all', 'root'}
+KNOWN_TARGETS = frozenset(MODULE_ALIASES) | {'visual', 'locomotion', 'voltage_out', 'audio', 'all', 'root'}
 
 
 class BaseServer(MySocketServer):
@@ -64,6 +66,8 @@ class BaseServer(MySocketServer):
                  loco_kwargs: dict = {},
                  daq_class: type|None = None,
                  daq_kwargs: dict = {},
+                 audio_class: type|None = None,
+                 audio_kwargs: dict = {},
                  start_loop: bool = False):
         '''
         host: interface to bind the (unauthenticated) RPC server to. Defaults to loopback
@@ -108,6 +112,15 @@ class BaseServer(MySocketServer):
             assert issubclass(daq_class, DAQ)
             self.modules['voltage_out'] = daq_class(**daq_kwargs)
         ### Voltage out manager ###
+
+        ### Audio manager (a sound card) ###
+        # audio_class=None means this rig has no sound card, the same way daq_class=None does. Use
+        # NullAudioManager for a rig that has none but runs audio protocols anyway -- it renders and
+        # times everything and plays nothing, so the protocol behaves identically off the rig.
+        if audio_class is not None:
+            assert issubclass(audio_class, AudioManager)
+            self.modules['audio'] = audio_class(**audio_kwargs)
+        ### Audio manager ###
 
         self._warned_module_aliases = set()   # so a retired target name warns once, not per call
 

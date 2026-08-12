@@ -1,6 +1,6 @@
 # stimpack
 
-A modular framework for precise and flexible stimulus generation in systems neuroscience.
+A modular framework for precise multisensory stimulus generation in systems neuroscience.
 
 [![Documentation](https://readthedocs.org/projects/stimpack/badge/?version=latest)](https://stimpack.readthedocs.io/en/latest/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
@@ -64,7 +64,8 @@ An experiment runs as several processes:
 ```
 ExperimentGUI ── BaseClient ──socket── BaseServer ──┬── visual      ── screen subprocess (GL)
                                                     ├── locomotion  ── tracker subprocess
-                                                    └── voltage_out ── DAQ
+                                                    ├── voltage_out ── DAQ
+                                                    └── audio       ── sound card
 ```
 
 The **client** runs the protocol, decides what each trial contains, and writes the data file. The
@@ -83,9 +84,9 @@ manager.target('voltage_out').output_step(output_channels='DAC0', pre_time=0, st
 ![A protocol's timed module calls on the left, routed by the stimulus server to its modules on the right](img/architecture.png)
 
 *A protocol names the module each call is for, and the server routes it there. Inputs update a
-subject state that outputs follow, so the closed loop does not pass through the client. The
-auditory step is illustrative — no auditory module ships with stimpack; a lab adds one as a new
-module rather than a change to the core.*
+subject state that outputs follow, so the closed loop does not pass through the client. The four
+modules shown all ship with stimpack; a lab adds a further capability as a new module rather than
+a change to the core.*
 
 **Calls are one-way.** There is no return value to branch on, and attribute access alone never
 fails — a mistyped name still produces a callable. The failure isn't silent, though: the server

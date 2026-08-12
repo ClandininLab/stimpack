@@ -57,6 +57,10 @@ SLEEP_POLL_INTERVAL = 0.002
 # entries with no way to tell them apart.
 DEFAULT_PRESET_NAME = 'Default'
 
+# Where a stimulus descriptor goes when it does not name a target. Visual, because that is what
+# every descriptor meant before they could name one, and a labpack's descriptors all predate that.
+DEFAULT_STIM_TARGET = 'visual'
+
 
 class BaseProtocol():
     def __init__(self, cfg):
@@ -98,6 +102,10 @@ class BaseProtocol():
         
         # Rig-specific loco_available
         self.loco_available = config_tools.get_loco_available(self.cfg)
+
+        # Rig-specific audio_available. Distinct from has_module('audio'): this is what the config
+        # says the rig has, known before a server is connected, so precompute can branch on it.
+        self.audio_available = config_tools.get_audio_available(self.cfg)
 
         # Modules the server advertised, filled in by prepare_run. None until then / for a server
         # that doesn't advertise. See has_module().
@@ -468,13 +476,39 @@ class BaseProtocol():
         # Reset the number of trials completed
         self.num_trials_completed = 0
 
+    def load_stim_descriptor(self, multicall:MyMultiCall, descriptor:dict):
+        """
+        Add one stimulus descriptor to a batch, sent to whichever module it names.
+
+        A descriptor may carry a ``target`` key naming the module that should render it --
+        ``'audio'`` for a sound, ``'visual'`` (the default, and what every descriptor meant before
+        this existed) for a stimulus on the screens::
+
+            self.trial_stim_parameters = [
+                {'name': 'MovingPatch', 'width': 10, 'height': 30, ...},
+                {'name': 'PulseSong', 'target': 'audio', 'freq': 225.0, ...},
+            ]
+
+        Routing here rather than in a parallel ``trial_audio_parameters`` attribute is what makes
+        the sound's parameters get saved with the trial for free: both data backends already write
+        a list-valued ``trial_stim_parameters`` under ``stim0_``/``stim1_`` prefixes. ``target``
+        stays in the saved copy, so the file records where each stimulus went.
+
+        ``hold=True`` throughout, for every target: each module's ``stop_stim`` releases what it
+        loaded at the end of a trial, so the next trial starts from nothing regardless.
+        """
+        descriptor = descriptor.copy()
+        target = descriptor.pop('target', DEFAULT_STIM_TARGET)
+        multicall.target(target).load_stim(**descriptor, hold=True)
+
     def load_stimuli(self, manager:MySocketClient, multicall:MyMultiCall|None=None):
         """
         Send this trial's stimuli to the server, ready to start.
 
-        Loads the background first, then each stimulus in ``trial_stim_parameters``. Batched
-        through a :class:`~stimpack.rpc.multicall.MyMultiCall` so they arrive together; pass your
-        own to add further calls to the same batch.
+        Loads the background first, then each stimulus in ``trial_stim_parameters``, each to the
+        module it names (see :meth:`load_stim_descriptor`). Batched through a
+        :class:`~stimpack.rpc.multicall.MyMultiCall` so they arrive together; pass your own to add
+        further calls to the same batch.
         """
         if multicall is None:
             multicall = MyMultiCall(manager)
@@ -486,10 +520,10 @@ class BaseProtocol():
         if isinstance(self.trial_stim_parameters, list):
             for ep in self.trial_stim_parameters:
                 if ep is not None:
-                    multicall.target('visual').load_stim(**ep.copy(), hold=True)
+                    self.load_stim_descriptor(multicall, ep)
         else:
             if self.trial_stim_parameters is not None:
-                multicall.target('visual').load_stim(**self.trial_stim_parameters.copy(), hold=True)
+                self.load_stim_descriptor(multicall, self.trial_stim_parameters)
 
         multicall()
 
@@ -794,9 +828,9 @@ class SharedPixMapProtocol(BaseProtocol):
 
         if isinstance(self.trial_stim_parameters, list):
             for ep in self.trial_stim_parameters:
-                multicall.target('visual').load_stim(**ep.copy(), hold=True)
+                self.load_stim_descriptor(multicall, ep)
         else:
-            multicall.target('visual').load_stim(**self.trial_stim_parameters.copy(), hold=True)
+            self.load_stim_descriptor(multicall, self.trial_stim_parameters)
 
         multicall()
 

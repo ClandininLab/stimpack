@@ -33,6 +33,8 @@ from stimpack.experiment.protocol import BaseProtocol
 from stimpack.experiment.data import BaseData
 from stimpack.experiment.util import config_tools
 from stimpack import daq
+from stimpack.audio import PyAudioManager
+from stimpack.audio import util as audio_util
 from stimpack.locomotion.keytrac import KeytracClosedLoopManager
 from stimpack.experiment.deprecated_names import add_deprecated_aliases, _warn_once
 
@@ -119,6 +121,22 @@ class BaseClient():
                     'relative_control': 'True',
                 }   # python_bin and kt_py_fn: the manager's defaults are this interpreter and the shipped app
 
+                # Audio, but only if this machine can actually play: PyAudio installed, PortAudio
+                # able to start, and an output device present. The rate probe answers all three at
+                # once, and returns the device's own rate so nothing gets resampled.
+                #
+                # Absent rather than a silent stand-in when it cannot: NullAudioManager would let an
+                # audio protocol run to completion with nothing coming out, whereas no module at all
+                # makes every load a reported warning. Installing the audio extra is the opt-in.
+                device_rate, no_audio_reason = audio_util.probe_default_output()
+                audio_class = PyAudioManager if device_rate is not None else None
+                audio_kwargs = {'sample_rate': device_rate} if device_rate is not None else {}
+                if audio_class is None:
+                    # Say WHY, here, once: the alternative is a "no audio module on this rig"
+                    # warning at stimulus-load time, minutes later, pointing at the rig instead
+                    # of at the actual cause.
+                    print(f'Audio output: none ({no_audio_reason})')
+
                 # Keep a handle on the server: it lives in THIS process, so nothing else will ever
                 # shut it down. Without this it was a local variable, and closing the GUI left its
                 # screen subprocesses -- and KeyTrac, which is spawned detached (start_new_session)
@@ -128,6 +146,8 @@ class BaseClient():
                                     visual_stim_kwargs=visual_stim_kwargs,
                                     loco_class=loco_class,
                                     loco_kwargs=loco_kwargs,
+                                    audio_class=audio_class,
+                                    audio_kwargs=audio_kwargs,
                                     start_loop=True)
                 self.manager = MySocketClient(host=self.local_server.host, port=self.local_server.port)
 
@@ -316,6 +336,12 @@ class BaseClient():
         if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
             self.start_loco(data, save_metadata_flag=save_metadata_flag)
 
+        # Open the sound card, if this server has one. Asked of the server rather than the config:
+        # has_module answers from what the server advertised on connect, so a rig gets audio started
+        # exactly when it has audio, with no run parameter for a protocol author to forget.
+        if protocol_object.has_module('audio'):
+            self.start_audio(data, save_metadata_flag=save_metadata_flag)
+
         # Trigger acquisition of scope and cameras by send triggering TTL through the DAQ device (if device is set)
         if protocol_object.trigger_on_epoch_run is True:
             if self.trigger_device is not None:
@@ -398,6 +424,11 @@ class BaseClient():
             # Stop locomotion device / software
             if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
                 self.stop_loco()
+
+            # Release the sound card, so it is not held open between runs. In the finally block
+            # with the rest of the teardown: a run that aborts must not leave the device claimed.
+            if protocol_object.has_module('audio'):
+                self.stop_audio()
 
             # Note how often each deduplicated server message actually occurred.
             for (level, text), count in self._message_counts.items():
@@ -520,6 +551,27 @@ class BaseClient():
     def stop_loco(self):
         self.manager.target('locomotion').close()
         self.manager.target('locomotion').set_save_directory(None)
+
+    def start_audio(self, data:BaseData, save_metadata_flag:bool=True):
+        '''
+        Open the sound card for this run, and tell it where to log.
+
+        Not gated on the protocol having sounds, unlike locomotion's do_loco: opening an output
+        stream is silent and cheap, and keeping it open for the whole run is what keeps the output
+        latency stable from trial to trial. A protocol with no audio simply never loads one.
+        '''
+        if save_metadata_flag:
+            server_data_directory: Optional[str] = self.server_options.get('data_directory', None)
+            if server_data_directory is not None:
+                server_series_dir = posixpath.join(server_data_directory, data.get_server_subdir(), str(data.series_count))
+                self.manager.target('audio').set_save_directory(posixpath.join(server_series_dir, 'audio'))
+            else:
+                print("Warning: Audio timing log won't be saved without server's data_directory specified in config file.")
+        self.manager.target('audio').start()
+
+    def stop_audio(self):
+        self.manager.target('audio').close()
+        self.manager.target('audio').set_save_directory(None)
     
     def close(self):
         '''
