@@ -193,7 +193,8 @@ class Hdf5DataBrowser(QWidget):
             # The file node itself: show the file's root. For an NWB series file that is the
             # session metadata -- session_description, identifier, start time -- all datasets.
             attrs, datasets = h5io.get_group_contents(file_path, '/')
-            self.populate_attrs(attr_dict=attrs, editable_values=False, read_only_rows=datasets)
+            self.populate_attrs(attr_dict=self._without_noise(attrs), editable_values=False,
+                                read_only_rows=datasets)
             return
 
         attrs, datasets = h5io.get_group_contents(file_path, group_path)
@@ -201,14 +202,19 @@ class Hdf5DataBrowser(QWidget):
         # the backend allows. Datasets are always read-only (read_only_rows below).
         editable_values = (self.data.browser_is_editable
                            and 'series' not in group_path.split('/')[-1])
-        self.populate_attrs(attr_dict=attrs, editable_values=editable_values,
+        self.populate_attrs(attr_dict=self._without_noise(attrs), editable_values=editable_values,
                             read_only_rows=datasets)
 
+    def _without_noise(self, attrs):
+        """Drop the attribute names the backend calls bookkeeping (NWB's namespace/object_id/...)."""
+        hidden = getattr(self.data, 'browser_attr_exclusions', [])
+        return {key: value for key, value in attrs.items() if key not in hidden}
+
     def populate_attrs(self, attr_dict=None, editable_values=False, read_only_rows=None):
-        """Fill the table: ``attr_dict`` rows (HDF5 attributes, editable when the policy allows)
-        followed by ``read_only_rows`` (datasets, or a JSON subject's fields) which never are --
-        a dataset is a record, not a setting. Each key item is tagged with its kind so
-        update_attrs_to_file can refuse to write anything that is not an attribute."""
+        """Fill the table: ``read_only_rows`` (datasets, or a JSON subject's fields -- records,
+        never editable) first, then ``attr_dict`` rows (HDF5 attributes, editable when the policy
+        allows). Each key item is tagged with its kind so update_attrs_to_file can refuse to
+        write anything that is not an attribute."""
         self.table_attributes.blockSignals(True)  # block udpate signals for auto-filled forms
         self.table_attributes.setRowCount(0)
         self.table_attributes.setColumnCount(2)
@@ -229,10 +235,13 @@ class Hdf5DataBrowser(QWidget):
                 val_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
             self.table_attributes.setItem(row, 1, val_item)
 
-        for key in (attr_dict or {}):
-            add_row(key, attr_dict[key], editable_values, 'attribute')
+        # Records first: for NWB they ARE the content (subject fields, table columns), and its
+        # remaining attributes ('description') read naturally below. Stimpack's own HDF5 groups
+        # rarely have datasets, so its attribute-led tables look exactly as before.
         for key in (read_only_rows or {}):
             add_row(key, read_only_rows[key], False, 'record')
+        for key in (attr_dict or {}):
+            add_row(key, attr_dict[key], editable_values, 'attribute')
 
         self.table_attributes.blockSignals(False)
 

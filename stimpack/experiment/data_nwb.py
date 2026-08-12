@@ -677,6 +677,11 @@ class NWBData(BaseData):
     # schema cache; 'acquisition' is bulk data, hidden as everywhere.
     browser_tree_exclusions = ['acquisition', 'specifications']
 
+    # Schema bookkeeping pynwb stamps on every group: true, but never what anyone opened the
+    # browser to read, and it crowded the table's top rows ahead of the actual record.
+    # ('colnames' is the table's own column list -- redundant with the columns shown as rows.)
+    browser_attr_exclusions = ['namespace', 'neurodata_type', 'object_id', 'colnames']
+
     def browsable_files(self):
         """One entry per series file, newest last, plus the subjects registry when it exists.
 

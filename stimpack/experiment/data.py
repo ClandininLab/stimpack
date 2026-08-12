@@ -184,6 +184,10 @@ class BaseData():
     # -- there 'trials' and 'epochs' are single tables holding the trial and series records.
     browser_tree_exclusions = h5io.DEFAULT_TREE_EXCLUSIONS + ['rois']
 
+    # Attribute names the browser's table hides, same logic: this layout's attributes are all
+    # user metadata worth showing; NWB's carry schema bookkeeping nobody browses for.
+    browser_attr_exclusions = []
+
     def make_data_browser(self, parent=None):
         """
         Widget for browsing this experiment's contents on the GUI's File tab, or None.

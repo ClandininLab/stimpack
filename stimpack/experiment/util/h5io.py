@@ -50,7 +50,10 @@ def get_group_contents(file_path, group_path, max_array_elems=8):
                 if item.shape == ():
                     datasets[name] = display(item[()])
                 elif item.size <= max_array_elems:
-                    datasets[name] = [display(v) for v in item[()].tolist()]
+                    values = [display(v) for v in item[()].tolist()]
+                    # A one-row table column reads as its value, not a one-element list:
+                    # 'MovingPatch', not ['MovingPatch']. Multi-row columns keep the list.
+                    datasets[name] = values[0] if len(values) == 1 else values
                 else:
                     datasets[name] = f'{item.dtype} array, shape {item.shape}'
             except Exception:

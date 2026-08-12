@@ -386,8 +386,22 @@ def test_nwb_subject_fields_are_shown_from_the_series_file(nwb_browser, nwb_expe
 def test_nwb_series_record_is_shown_in_the_epochs_table(nwb_browser, nwb_experiment):
     select(nwb_browser, [_series_label(nwb_experiment), 'intervals', 'epochs'])
     rows = table_contents(nwb_browser)
-    assert 'protocol_id' in rows and 'Proto' in rows['protocol_id']
+    # One series -> one row per column, unwrapped: 'Proto', not "['Proto']".
+    assert rows['protocol_id'] == 'Proto'
     assert 'num_trials' in rows
+
+
+def test_nwb_schema_bookkeeping_is_hidden_and_the_record_leads(nwb_browser, nwb_experiment):
+    """namespace/neurodata_type/object_id/colnames are pynwb's business, not the experimenter's;
+    and the record columns render before the remaining attributes, not after."""
+    select(nwb_browser, [_series_label(nwb_experiment), 'intervals', 'epochs'])
+    rows = table_contents(nwb_browser)
+    for bookkeeping in ('namespace', 'neurodata_type', 'object_id', 'colnames'):
+        assert bookkeeping not in rows
+    assert 'description' in rows                        # a real attribute survives the filter
+    last_row = nwb_browser.table_attributes.rowCount() - 1
+    assert nwb_browser.table_attributes.item(last_row, 0).text() == 'description'
+    assert nwb_browser.table_attributes.item(0, 0).text() != 'description'   # records first
 
 
 def test_nwb_file_node_shows_session_metadata(nwb_browser, nwb_experiment):
