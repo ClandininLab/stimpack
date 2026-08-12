@@ -2627,21 +2627,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.version:
-        import re
         from stimpack.experiment.util import provenance
-        package_dir = provenance.stimpack_directory()
-        revision = provenance.git_revision(package_dir)
-        version = provenance.stimpack_version()
-        if revision:
-            # A checkout runs the code on disk, not what pip once recorded -- installed metadata
-            # goes stale for editable installs, so read the checkout's own setup.py instead.
-            try:
-                with open(os.path.join(os.path.dirname(package_dir), 'setup.py')) as f:
-                    match = re.search(r"version\s*=\s*['\"]([^'\"]+)", f.read())
-                version = match.group(1) if match else version
-            except OSError:
-                pass
-        print(f'stimpack {version}' + (f' ({revision})' if revision else ''))
+        # stimpack_version is checkout-aware (it reads the checkout's setup.py when there is a
+        # git revision), so the same truth reaches this flag and every data file's provenance.
+        revision = provenance.git_revision(provenance.stimpack_directory())
+        print(f'stimpack {provenance.stimpack_version()}' + (f' ({revision})' if revision else ''))
         sys.exit(0)
 
     if args.check_labpack:

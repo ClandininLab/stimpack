@@ -9,11 +9,9 @@ do" a year later.
 
 Two of these deserve explanation.
 
-``stimpack_revision`` exists because ``stimpack_version`` can lie. It comes from installed
-distribution metadata, which for an editable install is whatever setup.py said at install time:
-this checkout reports 0.1.1 to pip and 0.2.0 to importlib.metadata while running 1.0.0.dev0 code.
-Every rig running from a git checkout -- which is most of them -- would otherwise stamp its files
-with a number that is not what ran.
+``stimpack_revision`` exists because a version number is coarse: two files can both say 1.0.0.dev0
+across months of development. The revision names the exact commit. (``stimpack_version`` itself is
+checkout-aware -- see its docstring for how installed metadata used to make it lie.)
 
 ``.dirty`` is appended when the working tree has uncommitted changes, because a bare SHA claims
 the file can be reproduced from that commit, and an edited tree makes that false.
@@ -22,19 +20,35 @@ Every lookup here fails soft. Provenance is a nicety; a git binary that is missi
 pointed at a directory that is not a repository must never stop an experiment recording.
 """
 import os
+import re
 import subprocess
 
 GIT_TIMEOUT_SECONDS = 5
 
 
 def stimpack_version() -> str:
-    """The installed distribution's version, or ``'unknown'`` outside an installed distribution.
+    """The version of the stimpack actually running.
 
-    Stale for an editable install -- see this module's docstring, and prefer :func:`git_revision`
-    when it returns something.
+    For a git checkout -- which is what a rig's editable install runs -- the checkout's own
+    setup.py is the truth: installed metadata is a snapshot pip took at install time, and it
+    quietly serves that stale answer after every pull and version bump until someone reinstalls.
+    That is how NWB files recorded ``stimpack 0.1.1`` from a checkout running 1.0 code, in the
+    field named source_script, whose whole job is saying what wrote the file. Outside a checkout
+    the installed metadata IS the truth, and is used.
     """
+    from importlib.metadata import PackageNotFoundError, version
+
+    package_dir = stimpack_directory()
+    if git_revision(package_dir):
+        try:
+            with open(os.path.join(os.path.dirname(package_dir), 'setup.py')) as f:
+                match = re.search(r"version\s*=\s*['\"]([^'\"]+)", f.read())
+            if match:
+                return match.group(1)
+        except OSError:
+            pass
+
     try:
-        from importlib.metadata import PackageNotFoundError, version
         return version('stimpack')
     except PackageNotFoundError:
         return 'unknown'

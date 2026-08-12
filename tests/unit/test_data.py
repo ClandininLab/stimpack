@@ -182,3 +182,22 @@ def test_the_legacy_layout_is_identified_by_the_absence_of_data_format(tmp_path)
         assert 'data_format' not in f.attrs
         assert f.attrs['stimpack_version'] == provenance.stimpack_version()
         assert 'labpack_revision' in f.attrs or 'labpack_directory' not in f.attrs
+
+
+def test_stimpack_version_tells_the_checkout_truth_not_pips():
+    """A rig's editable install runs whatever the checkout holds; installed metadata is a snapshot
+    pip took at install time and goes quietly stale after every pull. NWB files recorded
+    'stimpack 0.1.1' from a checkout running 1.0 code this way -- the version must come from the
+    checkout's own setup.py whenever there is a checkout to ask."""
+    import os
+    import re
+
+    from stimpack.experiment.util import provenance
+
+    package_dir = provenance.stimpack_directory()
+    if not provenance.git_revision(package_dir):
+        pytest.skip('not running from a git checkout')
+
+    with open(os.path.join(os.path.dirname(package_dir), 'setup.py')) as f:
+        declared = re.search(r"version\s*=\s*['\"]([^'\"]+)", f.read()).group(1)
+    assert provenance.stimpack_version() == declared
