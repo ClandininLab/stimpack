@@ -54,6 +54,16 @@ def launch_screen(screen, **kwargs):
             else:
                 print(f"Unknown session type: {session_type}")
 
+    elif platform.system() == 'Darwin':
+        # A screen is a real GL window, and macOS's offscreen Qt platform has no OpenGL at all --
+        # a screen subprocess inheriting it (the test suite sets offscreen for desktop hygiene)
+        # opens a window that can never paint, and since paintGL drains the RPC queue, never
+        # answers anything either. There is no headless GL on macOS to preserve, so an offscreen
+        # screen there is broken by construction; cocoa is the only platform that can work.
+        if qt_platform_type in ('offscreen', 'minimal'):
+            print("Qt platform is offscreen; screens need real GL on macOS -- using cocoa.")
+            new_env_vars['QT_QPA_PLATFORM'] = 'cocoa'
+
     # launch the server and return the resulting client
     screen_client, proc = launch_server(stimpack.visual_stim.framework, screen=screen.serialize(), new_env_vars=new_env_vars, **kwargs)
     # Return the process handle too: a screen only auto-stops when its client disconnects, which

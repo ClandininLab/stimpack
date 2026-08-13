@@ -100,8 +100,9 @@ def live_client(live_manager):
         return c.server_error is not None
 
     if not wait_until(chain_is_live, timeout=30):
-        hint = (' (Qt offscreen has no OpenGL on macOS; run with QT_QPA_PLATFORM=cocoa for '
-                'real windows)' if sys.platform == 'darwin' else '')
+        hint = (' (the launcher gives screens cocoa on macOS automatically; a screen that '
+                'still never paints has no WindowServer access -- an SSH session, a CI runner)'
+                if sys.platform == 'darwin' else '')
         pytest.skip('the live screen subprocess never started dispatching requests' + hint)
 
     c.server_error = None                 # the probe's error is expected; don't leak it into tests
