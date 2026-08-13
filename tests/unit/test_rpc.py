@@ -227,7 +227,10 @@ def test_disable_nagle_sets_tcp_nodelay():
     try:
         assert s.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) == 0  # default: Nagle on
         _disable_nagle(s)
-        assert s.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) == 1  # now off
+        # Nonzero, not 1: getsockopt reports boolean options as "any nonzero means on", and
+        # macOS actually returns 4 here. Asserting == 1 failed every Mac run since the option
+        # was added, over a value the socket API never promised.
+        assert s.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) != 0  # now off
     finally:
         s.close()
 

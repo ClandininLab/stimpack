@@ -7,6 +7,8 @@ socket and stimuli are really rendered.
 
 Requires a working headless GL stack (software Mesa is fine); tests skip if one isn't available.
 """
+import sys
+
 import pytest
 
 from helpers import unobtrusive_screen, wait_until
@@ -98,7 +100,9 @@ def live_client(live_manager):
         return c.server_error is not None
 
     if not wait_until(chain_is_live, timeout=30):
-        pytest.skip('the live screen subprocess never started dispatching requests')
+        hint = (' (Qt offscreen has no OpenGL on macOS; run with QT_QPA_PLATFORM=cocoa for '
+                'real windows)' if sys.platform == 'darwin' else '')
+        pytest.skip('the live screen subprocess never started dispatching requests' + hint)
 
     c.server_error = None                 # the probe's error is expected; don't leak it into tests
     c.server_messages = []

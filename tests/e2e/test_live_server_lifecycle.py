@@ -6,6 +6,8 @@ the whole file; these need servers of their own, and if they lived in the same m
 run while that shared one was still alive -- three GL contexts competing under a software
 renderer, on a tier whose assertions are all "did this message arrive in time".
 """
+import os
+import sys
 import time
 
 import pytest
@@ -46,10 +48,17 @@ def test_a_standalone_stim_server_reports_screen_errors_to_its_client():
         if not wait_until(arrived, timeout=15):
             # Distinguish "the report did not come back" -- the bug this test exists for -- from
             # "there is no usable GL here", which is the rest of this tier's skip condition. A
-            # screen that cannot create a context dies, and the socket to it breaks.
+            # screen that cannot create a context dies on Linux, and the socket to it breaks --
+            # but on macOS under the offscreen Qt platform (which has no OpenGL at all) the
+            # subprocess survives as a window that never paints, and since paintGL is what
+            # drains the RPC queue, nothing is ever dispatched and no report can exist. That is
+            # a platform without GL, not broken reporting, so it skips like its siblings.
             if getattr(manager, 'connection_broken', False):
                 pytest.skip('the screen subprocess died before it could report anything '
                             '(no usable GL on this machine)')
+            if sys.platform == 'darwin' and os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
+                pytest.skip("Qt's offscreen platform has no OpenGL on macOS, so the screen never "
+                            "dispatches; run with QT_QPA_PLATFORM=cocoa for real windows")
             pytest.fail('a standalone stim server never reported the screen-side error to its client')
         level, text = reported[0]
         assert level == 'error'
