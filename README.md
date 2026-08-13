@@ -67,8 +67,8 @@ More, all runnable, in [`examples/`](examples/).
 An experiment runs as several processes:
 
 ```
-ExperimentGUI ── BaseClient ──socket── BaseServer ──┬── visual      ── screen subprocess (GL)
-                                                    ├── locomotion  ── tracker subprocess
+ExperimentGUI ── BaseClient ──socket── BaseServer ──┬── visual      ── one subprocess per screen (GL)
+                                                    ├── locomotion  ── tracker
                                                     ├── voltage_out ── DAQ
                                                     └── audio       ── sound card
 ```
