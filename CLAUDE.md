@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-stimpack presents stimuli to an animal and records what it did, with timing precise enough that the
-two can be aligned afterwards. It drives perspective-corrected visual displays, movement trackers
+stimpack presents multisensory stimuli to a subject, in open or closed loop, and records what was
+presented with timing precise enough to align it with whatever the rig acquires alongside. It drives perspective-corrected visual displays, movement trackers
 and analog output hardware from one protocol. Everything lab-specific — rig geometry, hardware
 drivers, protocols — lives outside the package in a **labpack**; stimpack never imports from one.
 
@@ -139,7 +139,7 @@ touching any of these paths, keep both spellings working:
 - `stimpack.device.*` → `stimpack.daq` / `stimpack.locomotion` (`stimpack/device/` is a re-export
   shim, removed in 2.0)
 
-Aliases are scheduled for removal in 0.4.0; `--check-labpack` reports which ones a labpack uses.
+Aliases are scheduled for removal in 2.0; `--check-labpack` reports which ones a labpack uses.
 
 ### The labpack boundary
 

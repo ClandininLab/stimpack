@@ -98,7 +98,7 @@ def test_the_old_names_say_what_to_use_instead(fresh_warnings):
 
     assert deprecation_names(recorded) == ['epoch_protocol_parameters', 'epoch_stim_parameters',
                                            'get_epoch_parameters', 'num_epochs']
-    assert all('0.4.0' in str(w.message) for w in recorded
+    assert all('2.0' in str(w.message) for w in recorded
                if issubclass(w.category, DeprecationWarning)), 'no removal version given'
 
 

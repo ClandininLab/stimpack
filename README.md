@@ -9,10 +9,11 @@ A modular framework for precise multisensory stimulus generation in systems neur
 [![Documentation](https://readthedocs.org/projects/stimpack/badge/?version=latest)](https://stimpack.readthedocs.io/en/latest/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-**stimpack** presents stimuli to an animal and records what it did, with the timing precise enough
-that the two can be lined up afterwards. It drives perspective-corrected visual displays, movement
-trackers and analog output hardware from one protocol, and keeps everything specific to a
-particular lab — rig geometry, hardware drivers, protocols — outside the package.
+**stimpack** presents multisensory stimuli to a subject, in open or closed loop, and records what
+was presented with timing precise enough to line it up with whatever the rig acquires alongside.
+It drives perspective-corrected visual displays, sound playback, movement trackers and analog
+output hardware from one protocol, and keeps everything specific to a particular lab — rig
+geometry, hardware drivers, protocols — outside the package.
 
 📖 **[Documentation](https://stimpack.readthedocs.io/en/latest/)** ·
 🚀 **[Your first stimulus](https://stimpack.readthedocs.io/en/latest/first_stimulus.html)** ·

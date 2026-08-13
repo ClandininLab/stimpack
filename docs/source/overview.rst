@@ -2,15 +2,16 @@
 Overview
 ========
 
-``stimpack`` presents stimuli to an animal and records what it did, with the timing precise enough
-that the two can be lined up afterwards.
+``stimpack`` presents multisensory stimuli to a subject, in open or closed loop, and records what
+was presented with timing precise enough to line it up with whatever the rig acquires alongside --
+physiology, imaging, behavior.
 
 An experiment runs as several processes:
 
 .. code-block:: text
 
-    ExperimentGUI ── BaseClient ──socket── BaseServer ──┬── visual      ── screen subprocess (GL)
-                                                        ├── locomotion  ── tracker subprocess
+    ExperimentGUI ── BaseClient ──socket── BaseServer ──┬── visual      ── one subprocess per screen (GL)
+                                                        ├── locomotion  ── tracker
                                                         ├── voltage_out ── DAQ
                                                         └── audio       ── sound card
 
@@ -30,9 +31,25 @@ They talk over a small JSON protocol. Calls are addressed to a module::
 
     A protocol names the module each call is for, and the server routes it there. Inputs update a
     subject state that outputs follow, so the closed loop does not pass through the client. The
-    stacked cards are extension points: ``visual``, ``locomotion``, ``voltage_out`` and ``audio``
+    stacked cards are extension points: ``visual``, ``audio``, ``locomotion``, and ``voltage_out``
     ship, and a lab adds a further capability as a new module rather than a change to the core
     (see :doc:`writing_a_module`).
+
+Two things follow from that design and are worth knowing early.
+
+**Calls are one-way.** There is no return value to branch on, and attribute access alone never
+fails -- a mistyped name still produces a callable. The failure is not silent, though: the server
+pushes messages back over the same link. What can only be a mistake (an untargeted call finding
+nothing on the root node, a name a module does not define) is reported as an **error** and aborts
+the run; what legitimately differs between rigs (a module this server has no hardware for, a
+rig-specific function on root) is a **warning**, so one protocol can run across rigs. Broadcasts --
+``target('all')`` -- are the deliberate exception: every module receives them and acts only on the
+names it defines, so an unknown name there stays quiet. Use ``has_server_function()`` to check
+before calling; see :doc:`modules_and_targets`. :doc:`check_labpack` finds the rest before an
+experiment rather than during one.
+
+**An untargeted call goes to the server's root node**, not to every module. ``manager.load_stim(...)``
+without a ``target`` will not reach the screens.
 
 .. toctree::
     :maxdepth: 1
@@ -89,25 +106,9 @@ place that rule applies. A run parameter given a list is just a list.
 So a new setting is a run parameter if stimpack has to understand it, and a protocol parameter if
 only your protocol does.
 
-Before 0.3 stimpack called these an *epoch* and an *epoch run*. Its NWB files never did -- NWB
+Before 1.0 stimpack called these an *epoch* and an *epoch run*. Its NWB files never did -- NWB
 calls a presentation a trial -- so the same thing had two names depending on where you looked.
 Code written for the old names still works: ``get_epoch_parameters``, ``num_epochs`` and the rest
 are accepted, each warning once and naming its replacement. ``stimpack --check-labpack`` lists the
 ones a ``labpack`` still uses, and :doc:`labpack_configs` covers reading data files written either way.
-
-Two things follow from that design and are worth knowing early.
-
-**Calls are one-way.** There is no return value to branch on, and attribute access alone never
-fails -- a mistyped name still produces a callable. The failure is not silent, though: the server
-pushes messages back over the same link. What can only be a mistake (an untargeted call finding
-nothing on the root node, a name a module does not define) is reported as an **error** and aborts
-the run; what legitimately differs between rigs (a module this server has no hardware for, a
-rig-specific function on root) is a **warning**, so one protocol can run across rigs. Broadcasts --
-``target('all')`` -- are the deliberate exception: every module receives them and acts only on the
-names it defines, so an unknown name there stays quiet. Use ``has_server_function()`` to check
-before calling; see :doc:`modules_and_targets`. :doc:`check_labpack` finds the rest before an
-experiment rather than during one.
-
-**An untargeted call goes to the server's root node**, not to every module. ``manager.load_stim(...)``
-without a ``target`` will not reach the screens.
 

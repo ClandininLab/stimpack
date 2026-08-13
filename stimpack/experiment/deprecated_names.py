@@ -10,8 +10,8 @@ Renaming the API would otherwise break every labpack: one lab's alone has 105 pr
 both spellings work, so a labpack can be ported when its authors choose rather than the day they
 upgrade. Each old name warns once per process, naming its replacement.
 
-The aliases are scheduled for removal in 0.4.0. ``stimpack --check-labpack`` reports which ones a
-labpack still uses.
+The aliases are scheduled for removal in 2.0, alongside the ``stimpack.device`` shim.
+``stimpack --check-labpack`` reports which ones a labpack still uses.
 """
 import functools
 import warnings
@@ -31,7 +31,7 @@ def _warn_once(old, new, kind):
     if key in _warn_once.seen:
         return
     _warn_once.seen.add(key)
-    warnings.warn(f"{kind} '{old}' is deprecated and will be removed in stimpack 0.4.0; "
+    warnings.warn(f"{kind} '{old}' is deprecated and will be removed in stimpack 2.0; "
                   f"use '{new}'. Run `stimpack --check-labpack` to find these in a labpack.",
                   DeprecationWarning, stacklevel=3)
 
