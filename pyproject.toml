@@ -11,6 +11,16 @@ addopts = "-ra"
 # waits for input that cannot arrive -- and produces no output at all while it waits. Nothing here
 # takes near two minutes; the slowest tier's own gates (e2e's live-server boot) are 60s and 30s.
 faulthandler_timeout = 120
+# Warnings from stimpack's own modules fail the suite. Every deliberate warning -- the isolation
+# paths, the deprecation aliases, stimulus shadowing -- is asserted with pytest.warns where it is
+# provoked, so one reaching pytest unasserted is a regression, not noise: exactly how a missing
+# client callback sat visible-but-buried in a 300-line warnings summary for a day. Scoped to
+# stimpack's modules on purpose; erroring on third-party deprecation churn (numpy, pynwb) would
+# fail the suite on every dependency bump instead.
+filterwarnings = [
+    "error::UserWarning:stimpack",
+    "error::DeprecationWarning:stimpack",
+]
 markers = [
     "unit: fast test with no hardware, GL context, or GUI",
     "gl: requires an OpenGL context (run headless under xvfb / a standalone moderngl context)",

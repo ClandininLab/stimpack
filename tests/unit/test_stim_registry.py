@@ -143,7 +143,8 @@ def test_a_module_may_shadow_a_builtin_but_says_so(display, tmp_path):
 
 def test_unloading_restores_what_was_shadowed(display, tmp_path):
     builtin = display.stim_classes['MovingPatch']
-    display.import_stim_module(write_module(tmp_path, 'mod_a', ['MovingPatch']))
+    with pytest.warns(UserWarning, match='shadows'):
+        display.import_stim_module(write_module(tmp_path, 'mod_a', ['MovingPatch']))
 
     display.unload_stim_module([display.imported_stim_module_names[-1]])
 
@@ -152,7 +153,8 @@ def test_unloading_restores_what_was_shadowed(display, tmp_path):
 
 def test_unloading_one_of_two_restores_the_earlier(display, tmp_path):
     display.import_stim_module(write_module(tmp_path, 'mod_a', ['Shared']))
-    display.import_stim_module(write_module(tmp_path, 'mod_b', ['Shared']))
+    with pytest.warns(UserWarning, match='shadows'):
+        display.import_stim_module(write_module(tmp_path, 'mod_b', ['Shared']))
     assert display.stim_classes['Shared'].origin == 'mod_b'
 
     display.unload_stim_module([display.imported_stim_module_names[-1]])
@@ -173,7 +175,8 @@ def test_import_order_decides_and_is_stable(display, tmp_path):
     """Rebuilding the registry must replay imports in order, or unloading an unrelated module
     could change which of two shadowing modules wins."""
     display.import_stim_module(write_module(tmp_path, 'mod_a', ['Shared']))
-    display.import_stim_module(write_module(tmp_path, 'mod_b', ['Shared']))
+    with pytest.warns(UserWarning, match='shadows'):
+        display.import_stim_module(write_module(tmp_path, 'mod_b', ['Shared']))
     display.import_stim_module(write_module(tmp_path, 'mod_c', ['Unrelated']))
 
     display.unload_stim_module([display.imported_stim_module_names[-1]])   # drop mod_c

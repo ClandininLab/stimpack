@@ -85,7 +85,8 @@ def test_dispatch_isolates_handler_exceptions():
     ran = []
     t.register_function(lambda: (_ for _ in ()).throw(ValueError("boom")), name="boom")
     t.register_function(lambda: ran.append(True), name="ok")
-    t.handle_request_list([{"name": "boom"}, {"name": "ok"}])  # must not raise
+    with pytest.warns(UserWarning, match="Error handling request 'boom'"):
+        t.handle_request_list([{"name": "boom"}, {"name": "ok"}])  # warns; must not raise
     assert ran == [True]
 
 
@@ -125,8 +126,9 @@ def test_broadcast_to_a_module_without_the_method_is_not_reported():
     t = MyTransceiver()
     reported = []
     t.error_reporter = lambda level, text: reported.append((level, text))
-    t.handle_request_list([{"name": "start_stim", "target": "all"}])
-    assert reported == []
+    with pytest.warns(UserWarning, match="'start_stim' not defined"):   # warned locally...
+        t.handle_request_list([{"name": "start_stim", "target": "all"}])
+    assert reported == []                                               # ...never reported
 
 
 @pytest.mark.parametrize("name", ["_private", "__deepcopy__", "__getstate__", "_repr_html_"])

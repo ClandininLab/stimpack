@@ -67,7 +67,8 @@ def deprecation_names(recorded):
 
 def test_an_unported_protocol_still_runs():
     """stimpack calls get_trial_parameters; the protocol only defines get_epoch_parameters."""
-    protocol = LegacyProtocol(cfg={})
+    with pytest.warns(DeprecationWarning, match='num_epochs'):
+        protocol = LegacyProtocol(cfg={})
 
     with warnings.catch_warnings(record=True):
         warnings.simplefilter('always')
@@ -117,7 +118,8 @@ def test_a_ported_protocol_is_not_warned_at(fresh_warnings):
 def test_super_from_a_legacy_override_does_not_recurse():
     """A legacy override calling super().get_epoch_parameters() reaches the alias, which forwards
     to get_trial_parameters, which would find the override again."""
-    protocol = LegacyProtocol(cfg={})
+    with pytest.warns(DeprecationWarning, match='num_epochs'):
+        protocol = LegacyProtocol(cfg={})
 
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
@@ -199,7 +201,8 @@ def test_a_late_request_under_the_old_wire_name_is_still_ignored():
 def test_each_old_name_is_reported_once_not_once_per_trial(fresh_warnings):
     """These sit on per-trial code paths: a protocol reading trial parameters every trial would
     otherwise bury everything else in the same warning."""
-    protocol = LegacyProtocol(cfg={})
+    with pytest.warns(DeprecationWarning, match='num_epochs'):
+        protocol = LegacyProtocol(cfg={})
 
     with warnings.catch_warnings(record=True) as recorded:
         warnings.simplefilter('always')
@@ -216,7 +219,8 @@ def test_each_old_name_is_reported_once_not_once_per_trial(fresh_warnings):
 def test_run_parameters_are_renamed_however_they_are_assigned():
     """The usual labpack protocol sets run_parameters itself, after stimpack has already built
     them, so normalizing where stimpack assigns them misses every one of those protocols."""
-    protocol = LegacyProtocol(cfg={})
+    with pytest.warns(DeprecationWarning, match='num_epochs'):
+        protocol = LegacyProtocol(cfg={})
     assert protocol.run_parameters['num_trials'] == 3
 
     with warnings.catch_warnings():

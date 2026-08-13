@@ -767,8 +767,14 @@ def test_a_broken_data_error_callback_cannot_take_the_run_with_it(client, data, 
     monkeypatch.setattr(data, 'end_series',
                         lambda *a, **k: (_ for _ in ()).throw(ValueError('write failed')))
 
-    with pytest.warns(UserWarning, match='on_data_error callback failed'):
+    # Two warnings rise here -- the write failure itself, then the broken callback -- and an
+    # unmatched warning inside pytest.warns is re-emitted into the gated summary, so record and
+    # assert them both.
+    with pytest.warns(UserWarning) as recorded:
         client.start_run(TinyProtocol(cfg={}), data, save_metadata_flag=True)   # must not raise
+    messages = [str(w.message) for w in recorded]
+    assert any('on_data_error callback failed' in m for m in messages)
+    assert any('may not open' in m for m in messages), 'the write failure itself is warned too'
 
 
 class NestedParamProtocol(TinyProtocol):

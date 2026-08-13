@@ -49,7 +49,8 @@ def test_on_server_message_callback_is_invoked():
 def test_on_server_message_callback_failure_is_isolated():
     c = _bare_client()
     c.on_server_message = lambda level, text: 1 / 0  # a broken GUI hook must not break reporting
-    c.report_server_message("error", "boom")  # must not raise
+    with pytest.warns(UserWarning, match='on_server_message callback failed'):
+        c.report_server_message("error", "boom")  # warns; must not raise
     assert c.server_error == "boom"
 
 

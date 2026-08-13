@@ -463,7 +463,8 @@ def test_every_stimulus_in_a_multi_stimulus_trial_is_checked(tmp_path):
 # --- data backend availability --------------------------------------------------------------------
 
 def test_unknown_data_format_is_an_error():
-    findings = check_labpack.check_config({'data_format': 'parquet', 'module_paths': {}}, 'c.yaml')
+    with pytest.warns(UserWarning, match="Unknown data_format 'parquet'"):
+        findings = check_labpack.check_config({'data_format': 'parquet', 'module_paths': {}}, 'c.yaml')
     codes = [f.code for f in findings]
     assert 'unknown-data-format' in codes
     assert any(f.level == 'error' for f in findings if f.code == 'unknown-data-format')

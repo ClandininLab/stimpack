@@ -20,13 +20,16 @@ def test_the_old_paths_yield_the_very_same_classes():
     from stimpack.locomotion import LocoManager, LocoClosedLoopManager
     from stimpack.locomotion.keytrac import KeytracClosedLoopManager
 
-    from stimpack.device.daq import DAQ as old_DAQ, DAQonServer as old_DAQonServer
-    from stimpack.device.locomotion.loco_managers import (
-        LocoManager as old_LocoManager, LocoClosedLoopManager as old_LocoClosedLoopManager)
-    from stimpack.device.locomotion.loco_managers.loco_managers import (
-        LocoClosedLoopManager as oldest_LocoClosedLoopManager)
-    from stimpack.device.locomotion.loco_managers.keytrac_managers import (
-        KeytracClosedLoopManager as old_KeytracClosedLoopManager)
+    # The deprecation warning is part of the shim's contract; assert it rather than leak it.
+    # (It fires on first import only, so the whole legacy surface imports inside one block.)
+    with pytest.warns(DeprecationWarning, match='stimpack.device is deprecated'):
+        from stimpack.device.daq import DAQ as old_DAQ, DAQonServer as old_DAQonServer
+        from stimpack.device.locomotion.loco_managers import (
+            LocoManager as old_LocoManager, LocoClosedLoopManager as old_LocoClosedLoopManager)
+        from stimpack.device.locomotion.loco_managers.loco_managers import (
+            LocoClosedLoopManager as oldest_LocoClosedLoopManager)
+        from stimpack.device.locomotion.loco_managers.keytrac_managers import (
+            KeytracClosedLoopManager as old_KeytracClosedLoopManager)
 
     assert old_DAQ is DAQ
     assert old_DAQonServer is DAQonServer

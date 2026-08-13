@@ -159,10 +159,12 @@ def test_live_run_aborts_when_the_protocol_asks_for_a_bad_stimulus(live_client, 
     protocol.protocol_parameters = {'pre_time': 1.0, 'stim_time': 1.0, 'tail_time': 0.1,
                                     'radius': [10.0, 20.0]}
 
-    # Assert on the recorded outcome rather than on warning emission: Python's per-location warning
-    # registry makes "was a warning raised" flaky across a shared process, while run_status is the
-    # behavior actually under test.
-    live_client.start_run(protocol, live_data, save_metadata_flag=True)
+    # run_status is the behavior under test; the pytest.warns wrapper both asserts the abort
+    # warning and keeps it out of the suite's gated summary. (Its catch_warnings context forces
+    # the 'always' filter, which is what makes warning assertions reliable here where the bare
+    # per-location registry made them flaky.)
+    with pytest.warns(UserWarning, match='Aborting run'):
+        live_client.start_run(protocol, live_data, save_metadata_flag=True)
 
     path = f'{live_data.data_directory}/{live_data.experiment_file_name}.hdf5'
     with h5py.File(path, 'r') as f:

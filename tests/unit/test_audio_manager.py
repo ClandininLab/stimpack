@@ -460,8 +460,9 @@ def test_a_non_looping_source_ends_on_its_own():
 def test_retargeting_an_unknown_source_is_reported_not_dropped():
     m = manager()
     seen = reports(m)
-    m.handle_request_list([{'name': 'set_source_gains', 'args': [],
-                            'kwargs': {'source_id': 'nope', 'gains': 1.0}}])
+    with pytest.warns(UserWarning, match="no source named 'nope'"):
+        m.handle_request_list([{'name': 'set_source_gains', 'args': [],
+                                'kwargs': {'source_id': 'nope', 'gains': 1.0}}])
     assert any('nope' in text for _, text in seen)
 
 
