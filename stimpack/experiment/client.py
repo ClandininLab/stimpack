@@ -128,9 +128,14 @@ class BaseClient():
                 # Absent rather than a silent stand-in when it cannot: NullAudioManager would let an
                 # audio protocol run to completion with nothing coming out, whereas no module at all
                 # makes every load a reported warning. Installing the audio extra is the opt-in.
-                device_rate, no_audio_reason = audio_util.probe_default_output()
+                device_rate, device_channels, no_audio_reason = audio_util.probe_default_output()
                 audio_class = PyAudioManager if device_rate is not None else None
-                audio_kwargs = {'sample_rate': device_rate} if device_rate is not None else {}
+                # Channels come from the probe too (capped at stereo): without this the manager
+                # defaulted to mono on every auto-built server, and stereo panning could never
+                # engage -- heard in the field as ChaseTheTower's hum refusing to move between
+                # headphone ears.
+                audio_kwargs = ({'sample_rate': device_rate, 'channels': device_channels}
+                                if device_rate is not None else {})
                 if audio_class is None:
                     # Say WHY, here, once: the alternative is a "no audio module on this rig"
                     # warning at stimulus-load time, minutes later, pointing at the rig instead

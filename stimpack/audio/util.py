@@ -69,7 +69,14 @@ def constant_power_gains(bearing_deg, channels, gain=1.0):
 
 def probe_default_output():
     """
-    ``(rate, None)`` when this machine can play audio; ``(None, why_not)`` when it cannot.
+    ``(rate, channels, None)`` when this machine can play audio; ``(None, None, why_not)`` when
+    it cannot.
+
+    ``channels`` is the device's own output count **capped at two**: stereo is what panning
+    wants and what headphones and laptop speakers are, while a "7.1" chipset reporting eight
+    would cost six interleaved lanes of silence every block. A rig with a real speaker array
+    sets its channel count explicitly when constructing the server; this probe serves the
+    machine whose audio is whatever the OS calls default.
 
     This is the "can this machine do audio at all" probe, and every failure returns rather than
     raises: PyAudio missing, PortAudio failing to initialize, or no default output device. A
@@ -91,21 +98,23 @@ def probe_default_output():
     try:
         import pyaudio
     except ImportError:
-        return None, ("pyaudio is not installed; pip install stimpack[audio] -- PortAudio "
-                      "needed system-side to build it (apt install portaudio19-dev / "
-                      "zypper install portaudio-devel / brew install portaudio)")
+        return None, None, ("pyaudio is not installed; pip install stimpack[audio] -- PortAudio "
+                            "needed system-side to build it (apt install portaudio19-dev / "
+                            "zypper install portaudio-devel / brew install portaudio)")
 
     try:
         pa = pyaudio.PyAudio()
     except Exception as e:
         # PortAudio present but unable to start: no host API, no sound server.
-        return None, f'pyaudio is installed but PortAudio could not start ({e})'
+        return None, None, f'pyaudio is installed but PortAudio could not start ({e})'
 
     try:
-        return int(pa.get_default_output_device_info()['defaultSampleRate']), None
+        info = pa.get_default_output_device_info()
+        channels = max(1, min(int(info.get('maxOutputChannels', 1)), 2))
+        return int(info['defaultSampleRate']), channels, None
     except Exception:
         # No output device at all, or one that will not describe itself.
-        return None, 'pyaudio is installed but PortAudio found no default output device'
+        return None, None, 'pyaudio is installed but PortAudio found no default output device'
     finally:
         pa.terminate()
 
