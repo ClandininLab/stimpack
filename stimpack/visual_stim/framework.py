@@ -555,9 +555,18 @@ class StimDisplay(QOpenGLWidget):
         self.ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA,
                                moderngl.ONE, moderngl.ONE_MINUS_SRC_ALPHA)
 
-        # quit if desired
+        # Exit when the stim server disconnects -- directly, not via app.quit(). Quitting lets
+        # the event loop wind down and Qt destroy a QOpenGLWidget whose GL context live moderngl
+        # objects still reference, in whatever order teardown visits them: measured to SEGFAULT
+        # after every clean run, silently on Linux (returncode -11) and as a 'Python quit
+        # unexpectedly' crash dialog per screen on macOS. This worker's job is over the moment
+        # the flag is set -- the socket is dead, and everything it writes is flushed per write --
+        # so nothing needs a destructor, and skipping them all is the only order that cannot
+        # crash.
         if self.server.shutdown_flag.is_set():
-            self.app.quit()
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(0)
 
         # handle RPC input
         self.server.process_queue()
@@ -1294,7 +1303,17 @@ def main():
     # Use Ctrl+C to exit.
     # ref: https://stackoverflow.com/questions/2300401/qapplication-how-to-shutdown-gracefully-on-ctrl-c
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    sys.exit(app.exec())
+    exit_code = app.exec()
+
+    # Exit without running interpreter teardown. Once the event loop has returned, this worker is
+    # done: its sockets are closed and everything it writes is flushed per write. What remains is
+    # destroying the QOpenGLWidget, its GL context and the QApplication in whatever order
+    # interpreter shutdown happens to visit them -- destructor-order roulette that reliably
+    # ABORTS on macOS, putting a 'Python quit unexpectedly' crash dialog on the desk after every
+    # clean run, one per screen. There is nothing to win at that table; skip it.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(exit_code)
 
 if __name__ == '__main__':
     main()
