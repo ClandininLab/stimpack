@@ -17,6 +17,14 @@ This creates a new virtual environment in the current directory. Activate it:
 
     source .stimpack/bin/activate
 
+On Windows the interpreter is usually ``py`` rather than ``python3``, and activation lives under
+``Scripts``:
+
+.. code-block:: console
+
+    py -m venv .stimpack
+    .stimpack\Scripts\activate
+
 2. ``pip`` install stimpack 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -108,6 +116,22 @@ it explicitly:
 
 If you just want the rest of stimpack working now, install without the extra -- audio is optional
 by design and can be added later.
+
+**Windows**
+
+Three things to know, none of them stimpack-specific:
+
+- **PyAudio** ships prebuilt wheels for Windows on the Python versions it supports; if ``pip``
+  starts *compiling* instead (a wall of C compiler output), your Python is newer than the wheels
+  and the path of least resistance is a Python version that has them, rather than assembling a
+  PortAudio build environment.
+- **Remote Desktop has no real OpenGL.** An RDP session hands programs a software renderer far
+  older than the OpenGL 3.3 stimpack's screens need, so screens that work at the machine fail
+  over RDP. Administer rigs over a screen-sharing tool that mirrors the local session (VNC and
+  the like), or launch stimpack from the console session.
+- **The firewall will ask.** The server binds loopback by default, which needs no permission;
+  a rig serving a remote client binds a real interface, and Windows Defender prompts to allow
+  Python through on first launch -- decline it and the client's connection quietly times out.
 
 **Qt dependency issues**
 
