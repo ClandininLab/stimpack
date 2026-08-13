@@ -20,11 +20,28 @@ This creates a new virtual environment in the current directory. Activate it:
 2. ``pip`` install stimpack 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-In your virtual environment, install stimpack via ``pip``:
+In your virtual environment, install stimpack via ``pip`` (Python 3.10 or newer):
 
 .. code-block:: console
 
     python3 -m pip install stimpack
+
+**Audio is an optional extra.** Rigs that play sound install it as
+``pip install "stimpack[audio]"``; everything else works without it, and audio calls on a rig
+without it report warnings rather than playing. It needs PortAudio system-side -- see
+`Installation issues`_ below before installing it on macOS.
+
+**Installing from a checkout** (how rig machines usually run, so data files can record the git
+revision that produced them):
+
+.. code-block:: console
+
+    git clone https://github.com/ClandininLab/stimpack.git
+    cd stimpack
+    python3 -m pip install -e ".[audio]"
+
+The quotes keep shells like zsh from interpreting the brackets; extras combine, so developers
+typically want ``-e ".[audio,test]"``. Leave ``[audio]`` off entirely for a silent rig.
 
 
 3. Confirm installation 
@@ -70,6 +87,27 @@ Pass ``Screen(use_egl=...)`` to override the choice.
 An X11 session with several X screens per display is supported, as are Windows and macOS. Which
 physical display a screen appears on is set by ``display_index``; see
 :class:`stimpack.visual_stim.screen.Screen`.
+
+**Audio: PyAudio needs PortAudio**
+
+The ``[audio]`` extra installs PyAudio, which builds against the PortAudio library when no
+prebuilt wheel matches your Python. The telltale failure is
+``fatal error: 'portaudio.h' file not found``. Install PortAudio first:
+
+.. code-block:: console
+
+    brew install portaudio          # macOS
+    sudo apt install portaudio19-dev   # Debian / Ubuntu
+
+On Apple Silicon, Homebrew lives in ``/opt/homebrew`` and the compiler may not look there; point
+it explicitly:
+
+.. code-block:: console
+
+    CFLAGS="-I$(brew --prefix)/include" LDFLAGS="-L$(brew --prefix)/lib" pip install "stimpack[audio]"
+
+If you just want the rest of stimpack working now, install without the extra -- audio is optional
+by design and can be added later.
 
 **Qt dependency issues**
 
