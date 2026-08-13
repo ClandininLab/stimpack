@@ -5,11 +5,11 @@ The rest -- lens vignetting, uneven illumination of the DMD, an apodizing filter
 material's transmission at angle -- has to be measured on the rig. This module is the measuring end:
 pick where to measure, and put a spot there.
 
-**Measure from where the animal sits, aimed at the screen, not with a sensor on the screen surface.**
+**Measure from where the subject sits, aimed at the screen, not with a sensor on the screen surface.**
 A sensor on the screen reads the irradiance arriving at it; what the correction should even out is
-the radiance leaving the screen *towards the animal*, and those differ by the material's angular
+the radiance leaving the screen *towards the subject*, and those differ by the material's angular
 behavior -- which is exactly the part no model predicts, and which a diffusing rear-projection
-screen has plenty of. Measuring from the animal's position folds it in for free, and is far easier
+screen has plenty of. Measuring from the subject's position folds it in for free, and is far easier
 than reaching a sensor into a 7 cm bowl past the objective.
 
 A photometer is recommended over photographing the screen. A camera's own falloff is radially

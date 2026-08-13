@@ -233,14 +233,14 @@ class AudioManager(BaseManager):
 
         if was_playing:
             if self._underruns:
-                # The card ran dry mid-sound: samples were dropped and the waveform the animal heard
+                # The card ran dry mid-sound: samples were dropped and the waveform the subject heard
                 # is not the one that was loaded. Worth aborting the run over -- silently keeping a
                 # trial whose stimulus is wrong is worse than stopping.
                 self.report('error', f'audio: {self._underruns} buffer underrun(s) during the '
                                      f'trial; samples were dropped. Try a larger frames_per_buffer.')
 
             if total_frames - played_frames > self._truncation_tolerance():
-                # The trial was much shorter than the sound, so the animal heard a truncated
+                # The trial was much shorter than the sound, so the subject heard a truncated
                 # version. A warning, not an error: a protocol may cut a sound off deliberately,
                 # and only it knows.
                 self.report('warning',

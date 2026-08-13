@@ -155,13 +155,13 @@ Why a sound is a stimulus, and a voltage is not
 ===============================================
 
 Descriptors are for *presentations*: things stimpack renders end to end, where the parameters
-fully determine what the animal experiences. Pixels and pressure waves qualify -- the descriptor
+fully determine what the subject experiences. Pixels and pressure waves qualify -- the descriptor
 closes the loop from numbers to experience inside stimpack -- which is why visual and audio
 stimuli share ``trial_stim_parameters``, the saved record of what was presented.
 
 A :doc:`voltage_out` call is different in kind, not in importance. Stimpack's part ends at "5 V
 on DAC0", and the same waveform is opto light through one wire and a reward through another: what
-the animal experiences is a fact about the rig's wiring that only the ``labpack`` knows, and the
+the subject experiences is a fact about the rig's wiring that only the ``labpack`` knows, and the
 DAQ's vocabulary (``output_step``, ``setup_pulse_wave_stream_out``, channel names) is
 deliberately the lab's, not stimpack's. So DAQ calls stay imperative -- made from
 ``load_stimuli``, parameters recorded as protocol parameters -- rather than descriptor-routed.
@@ -220,7 +220,7 @@ Two arguments are worth setting explicitly on a rig:
 
 ``frames_per_buffer`` (default 256, i.e. 5.8 ms at 44.1 kHz) trades timing precision against
 underrun safety. If a run reports underruns, raise it; underruns mean samples were dropped and the
-waveform the animal heard is not the one that was loaded, so they abort the run.
+waveform the subject heard is not the one that was loaded, so they abort the run.
 
 Developing without a sound card
 ===============================

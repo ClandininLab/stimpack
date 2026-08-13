@@ -214,7 +214,7 @@ class StimDisplay(QOpenGLWidget):
     def show_calibration_spot(self, ndc_x, ndc_y, radius=0.05, intensity=1.0):
         """Put a spot at a known place in the projector image, on an otherwise black screen.
 
-        For measuring the rig's brightness falloff: aim a photometer at it from where the animal
+        For measuring the rig's brightness falloff: aim a photometer at it from where the subject
         sits. See stimpack.visual_stim.calibration, which also picks where to put them.
         """
         self.calibration_spot.show(ndc_x, ndc_y, radius=radius, intensity=intensity)
@@ -509,7 +509,7 @@ class StimDisplay(QOpenGLWidget):
         # and would quietly undo subframe multiplexing.
         display_fbo = self.ctx.fbo
 
-        # Only the faces the screen samples. A bowl above the animal never looks down, so -Z would
+        # Only the faces the screen samples. A bowl above the subject never looks down, so -Z would
         # be a whole scene draw feeding a face nothing reads.
         #
         # The first face drawn prepares each stimulus -- evaluates it and uploads its geometry --

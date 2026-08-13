@@ -4,7 +4,7 @@ The failure mode this exists for is silence. A labpack that names something stim
 find does not crash: the GUI opens, the protocol list populates, Record works, and the experiment is
 simply wrong -- custom stimuli never loaded, or an opto call routed nowhere. Every such failure seen
 so far reduces to *a name that no longer resolves*, and nothing checks names until the moment they
-are used, which is when an animal is already on the rig.
+are used, which is when a subject is already on the rig.
 
 Two groups of checks, split by what they cost.
 
@@ -100,7 +100,7 @@ def check_config(cfg, cfg_name='', labpack_dir=None):
     # --- data backend: is the requested one actually usable here? -------------------------------
     # data_format picks a built-in backend, and the NWB one needs pynwb, which is an optional
     # dependency. Without this the config looks fine and the GUI dies on import at start-up --
-    # at the rig, with an animal on it.
+    # at the rig, with a subject on it.
     mapped = config_tools.get_data_module_paths_by_format(cfg)
     available = config_tools.get_available_data_formats(cfg)
     default_format = config_tools.get_default_data_format(cfg)

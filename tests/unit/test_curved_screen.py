@@ -382,7 +382,7 @@ def test_the_pole_survives_serialization():
 
 def test_a_tilted_bowl_lit_along_its_own_axis_stays_inside_its_rim():
     """The flymax rig: a hemisphere mounted at an angle, with the projector on its axis aimed at
-    the animal at the sphere's center. Everything drawn must land on real screen."""
+    the subject at the sphere's center. Everything drawn must land on real screen."""
     from stimpack.visual_stim.curved_screen import (SphericalSurface, PinholeProjector,
                                                     build_screen_mesh)
 
@@ -767,7 +767,7 @@ def test_a_screen_covering_only_the_front_needs_four():
 
 
 def test_the_face_set_follows_direction_not_size():
-    """A smaller bowl subtends the same directions from the animal's eye, so it needs the same
+    """A smaller bowl subtends the same directions from the subject's eye, so it needs the same
     faces. flymax's 71.5 mm hemisphere and the 150 mm default agree."""
     from stimpack.visual_stim.cubemap import faces_for_mesh
     from stimpack.visual_stim.curved_screen import (PinholeProjector, SphericalSurface,

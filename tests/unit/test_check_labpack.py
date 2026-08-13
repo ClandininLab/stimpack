@@ -390,7 +390,7 @@ class LabSpecialStimulus(BaseProgram):
 
 
 def test_an_unknown_stimulus_name_is_an_error(tmp_path):
-    """This is the '0 stimulus candidates found' failure, caught before the animal is on the rig."""
+    """This is the '0 stimulus candidates found' failure, caught before the subject is on the rig."""
     labpack_with_protocol(tmp_path, "        pass")
     path = tmp_path / 'pack' / 'protocol' / 'my_protocol.py'
     path.write_text(path.read_text().replace("'name': 'MovingSpot'", "'name': 'NoSuchStimulus'"))

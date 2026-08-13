@@ -1705,7 +1705,7 @@ def test_preset_controls_cannot_be_used_without_a_protocol(experiment_gui):
 @pytest.mark.parametrize('when', ['never selected', 'deselected'])
 def test_the_preset_handlers_refuse_rather_than_abort_the_process(experiment_gui, when):
     """Backstops for the disabled controls above, at the one place every route passes through.
-    A ValueError here is not an error message -- it is the end of the session, with an animal
+    A ValueError here is not an error message -- it is the end of the session, with a subject
     mounted."""
     gui = experiment_gui
     if when == 'deselected':

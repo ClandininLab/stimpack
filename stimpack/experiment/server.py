@@ -415,7 +415,7 @@ class BaseServer(MySocketServer):
         """
         Ask the client to end the trial in progress early, and go on to the next one.
 
-        For trials whose length is decided by what the animal does rather than by the clock: a
+        For trials whose length is decided by what the subject does rather than by the clock: a
         fixation held long enough, a virtual goal reached, a choice made. The condition has to be
         evaluated here rather than on the client, because the client never sees subject state and
         could not ask for it if it wanted to -- requests carry no reply.

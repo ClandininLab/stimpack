@@ -417,11 +417,11 @@ class LoomingCircle(BaseProgram):
 
     def configure(self, radius=0.5, color=(1, 1, 1, 1), starting_distance=1, speed=-1, n_steps=8):
         """
-        Circle looming towards animal.
+        Circle looming towards the subject.
 
         :param radius: radius of circle in meters
         :param color: [r,g,b,a] or mono. Color of the circle
-        :param starting_distance: distance from animal to start the circle in meters
+        :param starting_distance: distance from the subject to start the circle in meters
         :param speed: speed of the circle in meters per second
         :param n_steps: sides of the polygon standing in for the circle. It is built once here and
             only translated afterwards, so sides cost nothing per frame -- 128 is about a
@@ -495,7 +495,7 @@ class AlternatingAnnuli(BaseProgram):
         :param colors: the two colors to alternate, innermost first. Each ``[r,g,b,a]`` or mono.
         :param theta: degrees, azimuth of the pattern's axis
         :param phi: degrees, elevation of the pattern's axis. For a screen whose axis is tilted
-            away from the subject's horizontal -- a bowl below the animal, say -- put the axis
+            away from the subject's horizontal -- a bowl below the subject, say -- put the axis
             along it, and the rings come out concentric with the screen's rim.
         :param n_azimuth: steps around the axis; sets how polygonal the ring boundaries are.
         """

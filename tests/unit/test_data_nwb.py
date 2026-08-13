@@ -460,7 +460,7 @@ def test_an_unreadable_sidecar_warns_rather_than_stopping_the_experiment(tmp_pat
 
 
 def test_a_sidecar_that_cannot_be_written_warns_rather_than_raising(tmp_path, monkeypatch):
-    """Creating a subject happens mid-session, often with an animal already mounted."""
+    """Creating a subject entry happens mid-session, often with the subject already mounted."""
     data = _make_data(tmp_path, subject=None)
 
     def refuse(*args, **kwargs):

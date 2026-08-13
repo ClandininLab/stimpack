@@ -109,7 +109,7 @@ screen, and one rig may use both.
 **Flat screens** are described by the three physical corners of each region, in meters — `pa`
 lower-left, `pb` lower-right, `pc` upper-left. Each stimulus is drawn once per region through a
 generalized off-axis perspective ([Kooima 2009](https://csc.lsu.edu/~kooima/articles/genperspective/)),
-which is what corrects for a screen that is neither square to the animal nor equidistant from it.
+which is what corrects for a screen that is neither square to the subject nor equidistant from it.
 
 ![Display coordinates](img/display_coordinates.png)
 
@@ -119,7 +119,7 @@ then the screen is drawn *once* in projector coordinates, each fragment sampling
 own direction. The screen is described by a surface and a projector:
 
 ```python
-# a 7.7 cm bowl in front of the animal, lit by a projector on the bowl's own axis
+# a 7.7 cm bowl in front of the subject, lit by a projector on the bowl's own axis
 CurvedScreen(
     surface=SphericalSurface(radius=0.0775, elevation_range=(25, 90), pole=(0, 1, 0)),
     projector=PinholeProjector(position=(0, 0.35, 0), look_at=(0, 0, 0), up=(0, 0, 1),

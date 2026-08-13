@@ -15,7 +15,7 @@ Why
 A ``labpack`` that names something stimpack can no longer find does not crash. The GUI opens, the
 protocol list populates, Record works, and the experiment is simply wrong -- custom stimuli never
 loaded, or a call routed nowhere. Every failure of this kind seen so far reduces to *a name that no
-longer resolves*, and nothing checks names until the moment they are used, which is when an animal
+longer resolves*, and nothing checks names until the moment they are used, which is when a subject
 is already on the rig.
 
 Errors and warnings

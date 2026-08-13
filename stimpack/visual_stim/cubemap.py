@@ -302,7 +302,7 @@ def face_view_projections(subject_position=None, near=DEFAULT_NEAR, far=1000.0, 
 def faces_for_directions(directions, triangles=None):
     """Which cube faces a set of view directions actually lands on, in GL face order.
 
-    A screen rarely fills the sphere. A bowl above the animal never sends a direction downwards, so
+    A screen rarely fills the sphere. A bowl above the subject never sends a direction downwards, so
     the -Z face is rendered every frame and sampled by nothing; a screen covering only the front
     misses two. Rendering the scene into a face nothing samples costs a full scene draw for nothing.
 
@@ -373,7 +373,7 @@ class CubeMapRenderer:
         what sets angular resolution: each fragment samples the cube along its own interpolated
         direction, so facets approximate the surface rather than the image.
     :param faces: which cube faces to render, by default only those the mesh actually samples --
-        five for a bowl above the animal, four for a screen covering the front. Pass an iterable of
+        five for a bowl above the subject, four for a screen covering the front. Pass an iterable of
         indices to choose explicitly, or an integer N for the first N in GL order. The texture
         always has six faces; this decides how many times the scene is drawn.
     """

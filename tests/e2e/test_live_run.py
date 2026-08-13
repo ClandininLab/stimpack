@@ -219,7 +219,7 @@ def test_a_live_server_can_end_an_trial_early(live_server, live_manager, live_cl
             self.trial_stim_parameters = {'name': 'MovingSpot', 'radius': 10, 'sphere_radius': 1,
                                           'color': [1, 1, 1, 1], 'theta': 0, 'phi': 0}
         def start_stimuli(self, manager, append_stim_frames=False, print_profile=True, multicall=None):
-            # the "animal" reaches the goal 0.3 s in
+            # the "subject" reaches the goal 0.3 s in
             threading.Timer(0.3, lambda: live_server.set_subject_state({'x': 1.0})).start()
             super().start_stimuli(manager, append_stim_frames=append_stim_frames,
                                   print_profile=print_profile, multicall=multicall)

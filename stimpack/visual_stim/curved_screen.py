@@ -172,7 +172,7 @@ class SphericalSurface(CurvedSurface):
 
     ``pole`` tilts the whole patch. The ranges above are measured in the surface's *own* frame, so
     they can only describe a bowl whose rim is horizontal; a bowl mounted at an angle -- which is
-    the usual way to put a hemisphere in front of an animal rather than under it -- has a rim that
+    the usual way to put a hemisphere in front of a subject rather than under it -- has a rim that
     is not a range of rig elevations at all. Naming where the surface's own axis points says it
     directly, and leaves the ranges meaning what they meant.
 
@@ -949,8 +949,8 @@ class CurvedScreen(Screen):
         """The screen mesh. subject_position is where the subject physically sits, not where it is
         in the virtual world.
 
-        For a tethered animal those differ, and only the first belongs here: the mesh describes
-        fixed geometry -- which direction each part of the screen lies in, as seen from the animal.
+        For a tethered subject those differ, and only the first belongs here: the mesh describes
+        fixed geometry -- which direction each part of the screen lies in, as seen from the subject.
         Virtual movement is handled entirely by rendering the cube map from the virtual position,
         exactly as the planar path handles it (GenPerspective keeps its eye at the rig origin and
         translates the world instead). Passing the virtual position here as well applies the

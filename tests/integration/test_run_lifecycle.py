@@ -362,10 +362,10 @@ def test_waiting_does_not_spin_the_cpu(client, data, fake_manager):
     assert cpu_used < 0.1, f'used {cpu_used:.2f}s of CPU waiting 0.5s; it is spinning'
 
 
-# --- trials the animal ends ------------------------------------------------------------------------
+# --- trials the subject ends ------------------------------------------------------------------------
 
 def test_the_server_can_end_an_trial_early(client, data, fake_manager):
-    """The point of the whole mechanism: a trial that lasts until the animal does something.
+    """The point of the whole mechanism: a trial that lasts until the subject does something.
 
     The condition can only be evaluated on the server -- the client never receives subject state,
     and could not ask for it, since requests carry no reply.

@@ -268,7 +268,7 @@ class ReachTheGoal(BaseProtocol):
     ends immediately, with ``trial_end_reason='reached_goal'`` recorded; stand still -- or walk
     straight past it -- and ``stim_time`` ends the trial as usual, so the run cannot hang on an
     unwilling subject and cannot be finished by wandering anywhere sufficiently far forward. This is the runnable version of the
-    docs' "Trials that end when the animal does something".
+    docs' "Trials that end when the subject does something".
 
     To try it without hardware: on a config with ``loco_available: True`` (the built-in default
     config qualifies; the GUI's local server runs KeyTrac, a keyboard stand-in tracker), tick

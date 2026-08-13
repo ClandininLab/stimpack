@@ -319,11 +319,11 @@ class BaseData():
         Record when the trial ended, and why.
 
         :param reason: None if it ran its full length, otherwise why it was cut short -- the
-            string a labpack passed to BaseServer.end_trial, for a trial ended by the animal's
+            string a labpack passed to BaseServer.end_trial, for a trial ended by the subject's
             behavior.
 
         Also stores the trial's actual duration. With a fixed stim_time that is redundant, but a
-        behavior-ended trial is as long as the animal made it, and the protocol parameters then
+        behavior-ended trial is as long as the subject made it, and the protocol parameters then
         describe the intent rather than what happened.
         """
         # Match the guard used by the sibling create_* methods; without it, opening 'r+' on a missing

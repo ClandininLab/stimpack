@@ -47,8 +47,8 @@ the type of the screen, and a rig may mix them -- one screen of each, in the sam
 physical corners in meters -- ``pa`` lower-left, ``pb`` lower-right, ``pc`` upper-left -- and each
 stimulus is drawn once per subscreen through a generalized (off-axis) perspective matrix computed
 from those corners and the subject's position and heading. This is Kooima's construction, and it is
-what makes an object subtend the angle it should from where the animal actually sits, on a screen
-that is neither square to the animal nor equidistant from it. Nothing is resampled: the stimulus is
+what makes an object subtend the angle it should from where the subject actually sits, on a screen
+that is neither square to the subject nor equidistant from it. Nothing is resampled: the stimulus is
 rasterized straight into the window.
 
 **Curved screens: a cube map, then one warp.** A flat frustum cannot describe a bowl, so a
@@ -56,7 +56,7 @@ rasterized straight into the window.
 subject's position, and then the screen's mesh is drawn **once**, in projector coordinates, with
 each fragment sampling the cube along its own interpolated direction. The mesh comes from
 ``build_screen_mesh(surface, projector)`` and carries, per vertex, both where that point of the
-screen lands in the projector's image and which direction it lies in from the animal -- which is the
+screen lands in the projector's image and which direction it lies in from the subject -- which is the
 whole of the warp.
 
 .. figure:: /images/pipeline.png

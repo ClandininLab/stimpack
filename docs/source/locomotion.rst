@@ -4,7 +4,7 @@ Locomotion: closing the loop
 
 The ``locomotion`` module owns a movement tracker. It reads positions from the tracker and forwards
 them to the server as **subject state**, which every module follows -- so the visual scene turns as
-the animal turns, at whatever rate the tracker reports, without a round trip through the client.
+the subject turns, at whatever rate the tracker reports, without a round trip through the client.
 The tracker itself is hardware, so the driver lives in your ``labpack``; stimpack ships the base
 classes and one tracker that needs no hardware at all.
 
@@ -17,7 +17,7 @@ siblings arrive with ``do_loco`` already checked; on other protocols, tick it --
 **View**. A small KeyTrac window opens alongside the stimulus; with it focused, the arrow
 keys walk the subject through the scene (rotation and translation), and ``y``/``h``, ``u``/``j``
 carry the remaining axes. This is the whole closed-loop path -- tracker to subject state to
-re-rendered scene -- with your keyboard as the animal, which is also how closed-loop protocols are
+re-rendered scene -- with your keyboard as the subject, which is also how closed-loop protocols are
 developed and tested before they meet a rig.
 
 ``do_loco`` appears in the run parameters only when the rig config says
@@ -33,10 +33,10 @@ call an ordinary trial needs, gated on two parameters:
 ``do_loco`` (run parameter)
     Tracking is on for this run. At each trial's start the subject position is re-zeroed to the
     tracker's current reading (``set_pos_0``), so trials start from a common origin however far
-    the animal wandered between them.
+    the subject wandered between them.
 
 ``loco_pos_closed_loop`` (trial/protocol parameter)
-    The scene follows the animal within the trial: ``loop_start_closed_loop`` at stimulus onset,
+    The scene follows the subject within the trial: ``loop_start_closed_loop`` at stimulus onset,
     ``loop_stop_closed_loop`` at its end. Without it, tracking is recorded but the stimulus plays
     open loop.
 
@@ -52,7 +52,7 @@ the moment it died. (The belt buffers in memory and reaches disk between trials,
 never stalls the request loop mid-presentation; a crash loses at most the trial in progress.)
 
 Two narrower records complement this one. Each **screen** can log the subject state it rendered
-from, sampled at its own frame times -- the history of what the animal *saw*, where the server
+from, sampled at its own frame times -- the history of what the subject *saw*, where the server
 history is what the tracker said. This is an opt-in verification record: set
 ``self.save_screen_pos_history = True`` on a protocol to get one file per screen per trial on
 the server machine (before 1.0 it was written automatically with every recorded closed-loop
@@ -60,7 +60,7 @@ trial). And the locomotion manager logs the raw tracker lines (``write_log`` on 
 device frames and timestamps). The server history is the analysis-ready record; these are the
 ground truths it can be checked against.
 
-A protocol that needs more than this -- ending a trial when the animal reaches a goal, holding a
+A protocol that needs more than this -- ending a trial when the subject reaches a goal, holding a
 stimulus against fixation -- supplies a server-side control function, which runs on every tracker
 update with the full subject state. That is its own page: :doc:`behavior_ended_trials`.
 
@@ -116,7 +116,7 @@ functions read. The flow, end to end::
                               server-side control function (optional)
 
 Two properties follow, both worth knowing before designing an experiment around them. The client
-never sees any of this -- requests are one-way, so a protocol cannot ask where the animal is
+never sees any of this -- requests are one-way, so a protocol cannot ask where the subject is
 (:doc:`overview`), and conditions on position must run server-side. And the scene follows at
 *tracker* rate, not frame rate: a 200 Hz tracker updates subject state 200 times a second, and each
 frame renders from the latest state at draw time.
