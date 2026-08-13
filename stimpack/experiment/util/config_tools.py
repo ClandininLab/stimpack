@@ -362,8 +362,7 @@ def get_module_paths(cfg, module_name: str) -> list[str]:
     Returns list of module paths specified in cfg file for the given module_name
     """
     if not user_module_specified(cfg, module_name):
-        warnings.warn(f'No user module specified for {module_name} in the cfg file.')
-        return []
+        return []                    # unspecified is the documented empty answer, not a warning
     
     module_paths = cfg.get('module_paths', {}).get(module_name, [])
     if isinstance(module_paths, dict):
@@ -423,8 +422,7 @@ def user_module_paths_exist(cfg, module_name: str) -> list[bool]:
     Checks whether the specified paths for the user module of given module_name exist.
     """
     if not user_module_specified(cfg, module_name):
-        warnings.warn(f'No user module specified for {module_name} in the cfg file.')
-        return []
+        return []                    # unspecified is the documented empty answer, not a warning
     module_paths = get_module_full_paths(cfg, module_name)
     return [os.path.exists(p) for p in module_paths]
 
@@ -446,10 +444,13 @@ def load_user_module(cfg, module_name: str, allow_multiple=False, distinct_modul
     :return: the loaded modules, in the order their paths were listed. Empty if the config
         names none.
     """
+    # An unspecified module is the documented empty return, not a warning: every module_paths
+    # entry is optional, callers that require one handle absence themselves (the GUI falls back
+    # to the built-in example protocols), and warning here meant the supported no-labpack state
+    # complained twice at every GUI launch.
     if not user_module_specified(cfg, module_name):
-        warnings.warn(f'No user module specified for {module_name} in the cfg file.')
         return []
-    
+
     paths_to_module = get_module_full_paths(cfg, module_name)
     if len(paths_to_module) > 1 and not allow_multiple:
         warnings.warn("Only one module import is allowed but there are multiple module files specified. Using only the first one.")
