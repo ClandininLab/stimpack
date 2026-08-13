@@ -69,5 +69,10 @@ exclude_patterns = []
 
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+# The mark from stimpack/_assets (two screens around a subject), shown above the sidebar search
+# on every page; the favicon is the same mark rendered small.
+html_logo = '_static/stimpack_icon.svg'
+html_favicon = '_static/stimpack_favicon.png'
+html_theme_options = {'logo_only': False}
 
 # -- Options for HTMLHelp output ---------------------------------------------

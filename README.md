@@ -1,6 +1,10 @@
+<img src="https://raw.githubusercontent.com/ClandininLab/stimpack/main/stimpack/_assets/icon.svg" align="left" width="90" alt="stimpack: two display screens angled around a subject"/>
+
 # stimpack
 
 A modular framework for precise multisensory stimulus generation in systems neuroscience.
+
+<br clear="left"/>
 
 [![Documentation](https://readthedocs.org/projects/stimpack/badge/?version=latest)](https://stimpack.readthedocs.io/en/latest/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)

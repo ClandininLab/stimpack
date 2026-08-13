@@ -1,4 +1,11 @@
+import os
+
 from setuptools import setup, find_packages
+
+# The README is the PyPI page; its images use absolute raw.githubusercontent URLs so they render
+# there as well as on GitHub.
+with open(os.path.join(os.path.dirname(__file__), 'README.md'), encoding='utf-8') as _readme:
+    long_description = _readme.read()
 
 setup(
     name='stimpack',
@@ -8,6 +15,8 @@ setup(
     # other_stim_module_paths TypeError in visual_stim/stim_server.py.
     version='1.0.0.dev0',
     description='A modular framework for precise multisensory stimulus generation in systems neuroscience.',
+    long_description=long_description,
+    long_description_content_type='text/markdown',
     url='https://github.com/ClandininLab/stimpack',
     author='Minseung Choi',
     author_email='minseung@stanford.edu',
