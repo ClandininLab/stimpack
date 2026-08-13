@@ -1,6 +1,11 @@
 Labpack
 =================
 
+.. image:: /_static/labpack_icon.svg
+   :width: 80px
+   :align: right
+   :alt: The labpack mark: the stimpack screens-and-subject motif, in labpack yellow
+
 The ``labpack``'s Python package (``template_labpack/`` in the template; renamed for your lab)
 holds the code side of the ``labpack``: protocols, custom stimuli, a data class, a client class,
 and device drivers. Stimpack loads these **by file path at runtime**, from the paths a config
