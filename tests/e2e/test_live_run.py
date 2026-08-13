@@ -204,7 +204,8 @@ def test_a_live_server_can_end_an_trial_early(live_server, live_manager, live_cl
         return state_update
 
     live_server.loaded_custom_state_dependent_control = control
-    live_manager.register_function(live_client.stop_trial, name='stop_trial')
+    # stop_trial is registered by the fixture (_register_server_callbacks), like every other
+    # callback the server may push.
 
     class GoalProtocol(BaseProtocol):
         def get_run_parameter_defaults(self):

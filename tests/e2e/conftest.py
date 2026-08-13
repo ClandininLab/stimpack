@@ -82,8 +82,10 @@ def live_client(live_manager):
     c.manager = live_manager
     c.trigger_device = None
     c.server_options = {}
-    # BaseClient.__init__ normally registers this so the server can push messages back
-    live_manager.register_function(c.report_server_message, name='report_server_message')
+    # Everything the server may call back, registered by the same method __init__ uses -- a
+    # hand-mirrored list here drifted the moment __init__ grew a registration (the subject-state
+    # receiver), which surfaced as a warning plus a run-end collect timeout in every e2e run.
+    c._register_server_callbacks()
 
     # Readiness gate: wait until the screen subprocess's render loop is actually dispatching
     # requests. paintGL is what drains the RPC queue, so until the first frame runs, requests just

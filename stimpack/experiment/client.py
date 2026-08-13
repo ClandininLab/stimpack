@@ -160,20 +160,7 @@ class BaseClient():
         if isinstance(self.trigger_device, daq.DAQonServer):
             self.trigger_device.set_manager(self.manager)
 
-        # Let the server push warnings/errors back to us; delivered when we drain the queue (run loop).
-        self.manager.register_function(self.report_server_message, name='report_server_message')
-        # Lets the server end an trial early -- see BaseServer.end_trial. Registered here rather
-        # than on BaseServer's side of the link because the server can only ask; the client is
-        # what actually runs the trial.
-        self.manager.register_function(self.stop_trial, name='stop_trial')
-        # Under its old name too: these are wire names, so a server from before 1.0 -- or a
-        # labpack device calling manager.stop_epoch(...) -- still reaches the right method.
-        self.manager.register_function(self.stop_trial, name='stop_epoch')
-        # The run's subject-state history arrives as one message when we ask for it at run end;
-        # see collect_subject_state_history.
-        self._subject_state_history = None
-        self.manager.register_function(self.receive_subject_state_history,
-                                       name='receive_subject_state_history')
+        self._register_server_callbacks()
 
         # The server advertises its modules as soon as it accepts the connection, but that message
         # only takes effect once we drain the queue. Wait briefly for it here so protocols can rely
@@ -309,6 +296,29 @@ class BaseClient():
         """Modules the server advertised ('visual', 'locomotion', 'voltage_out', ...), or None if it
         never told us (an older server). See BaseProtocol.has_module."""
         return self.manager.available_modules
+
+    def _register_server_callbacks(self):
+        """Register everything the server may call back on self.manager.
+
+        One method rather than inline in __init__, because a harness that builds a client around
+        its own manager (the e2e fixtures do, bypassing the config-driven __init__) must register
+        the same set -- and a hand-mirrored copy silently drifts: the subject-state receiver was
+        missed exactly that way, costing each e2e run a warning and the collect timeout.
+        """
+        # Let the server push warnings/errors back to us; delivered when we drain the queue (run loop).
+        self.manager.register_function(self.report_server_message, name='report_server_message')
+        # Lets the server end a trial early -- see BaseServer.end_trial. Registered here rather
+        # than on BaseServer's side of the link because the server can only ask; the client is
+        # what actually runs the trial.
+        self.manager.register_function(self.stop_trial, name='stop_trial')
+        # Under its old name too: these are wire names, so a server from before 1.0 -- or a
+        # labpack device calling manager.stop_epoch(...) -- still reaches the right method.
+        self.manager.register_function(self.stop_trial, name='stop_epoch')
+        # The run's subject-state history arrives as one message when we ask for it at run end;
+        # see collect_subject_state_history.
+        self._subject_state_history = None
+        self.manager.register_function(self.receive_subject_state_history,
+                                       name='receive_subject_state_history')
 
     def receive_subject_state_history(self, history):
         """The server's answer to send_subject_state_history; collect_subject_state_history waits
