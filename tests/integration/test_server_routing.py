@@ -76,3 +76,28 @@ def test_configured_module_and_broadcast_are_not_reported(visual_only_server):
             {'target': 'root', 'name': 'print_on_server', 'args': ['hi'], 'kwargs': {}},
         ])
     assert server._reported == []
+
+
+def test_a_print_with_no_working_console_is_dropped_not_an_error(visual_only_server, monkeypatch):
+    """Regression: print_on_server against a dead stdout must drop the message quietly.
+
+    The client fires its console diagnostics ('Run ended.', 'Trial completed.') fire-and-forget at
+    exactly the moments a console can be gone: a daemonized rig server whose ssh session dropped,
+    or pytest's capture teardown closing a test's stdout before the socket thread got to the run's
+    last prints (seen on macOS as EBADF from the e2e tier). Routed through the root error
+    isolation, the failed print became report_to_client('error', ...) -- and an error aborts the
+    client's run, over a message nobody could have read.
+    """
+    import io
+    import sys
+
+    server = visual_only_server
+    dead = io.StringIO()
+    dead.close()                                            # print() -> 'I/O operation on closed file'
+    monkeypatch.setattr(sys, 'stdout', dead)
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')                      # the isolation warning would fail the test
+        server.handle_request_list([
+            {'target': 'root', 'name': 'print_on_server', 'args': ['hi'], 'kwargs': {}},
+        ])
+    assert server._reported == []

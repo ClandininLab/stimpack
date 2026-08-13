@@ -145,7 +145,7 @@ class BaseServer(MySocketServer):
         # Register functions to be executed on the server's root node, and not in modules.
         # Keep this in step with ROOT_FUNCTION_NAMES above; an e2e test asserts they match.
         self.functions_on_root = {}
-        self.register_function_on_root(lambda x: print(x), "print_on_server")
+        self.register_function_on_root(self.print_on_server, "print_on_server")
         self.register_function_on_root(self.set_subject_state, "set_subject_state")
         self.register_function_on_root(self.set_current_trial, "set_current_trial")
         # Wire names, so a client from before 1.0 keeps working against this server.
@@ -384,6 +384,22 @@ class BaseServer(MySocketServer):
         self._subject_state_history = None
         self._close_subject_state_log()
         
+    @staticmethod
+    def print_on_server(text):
+        """
+        Console diagnostics from the client ('Trial completed.', 'Run ended.'), best-effort by
+        contract. These are fire-and-forget messages that can outlive the console they were aimed
+        at: a daemonized rig server may have lost its stdout (a dropped ssh session raises EBADF,
+        a closed file object ValueError), and under pytest a run's last prints race the capture
+        teardown that closes the test's stdout. Routing that through the root error isolation
+        would report an *error* to the client -- aborting a live run over a message nobody could
+        have read -- so a print that cannot land is dropped instead.
+        """
+        try:
+            print(text)
+        except (OSError, ValueError):
+            pass
+
     def set_current_trial(self, trial_index):
         """
         Told by the client as each trial begins, and set to None when it ends.
