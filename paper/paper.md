@@ -52,17 +52,17 @@ authors:
     equal-contrib: true
     affiliation: "1, 6"
 affiliations:
-  - name: Department of Neurobiology, Stanford University, United States
+  - name: Department of Neurobiology, Stanford University, USA
     index: 1
-  - name: Department of Electrical Engineering, Stanford University, United States
+  - name: Department of Electrical Engineering, Stanford University, USA
     index: 2
-  - name: Department of Neurobiology, Harvard Medical School, United States
+  - name: Department of Neurobiology, Harvard Medical School, USA
     index: 3
-  - name: CatalystNeuro, United States
+  - name: CatalystNeuro, USA
     index: 4
-  - name: Biohub, San Francisco, United States
+  - name: Biohub, San Francisco, USA
     index: 5
-  - name: Department of Biological Sciences, University at Albany, SUNY, United States
+  - name: Department of Biological Sciences, University at Albany, SUNY, USA
     index: 6
 date: 14 August 2026
 bibliography: paper.bib
