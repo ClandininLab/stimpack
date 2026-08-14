@@ -2,9 +2,9 @@
 
 Stimpack ships **no lab‑specific configuration**. A *labpack* is a separate repo
 that supplies everything a rig needs: config YAMLs, protocols, custom stimuli,
-device drivers, and rig‑server scripts. This guide covers how to build one
-(`labpack`, the template) and tours the Clandinin Lab's real instantiation
-(`clandinin_labpack`).
+device drivers, and rig‑server scripts. This guide covers how to build one from
+the template (`labpack-template`) and tours the patterns a production labpack
+grows into.
 
 ---
 
@@ -54,8 +54,8 @@ classes — that is the point; you copy and fill it in.
 
 > **Important:** `labpack/visual_stim/example/` is an *additive extension* of
 > stimpack's `visual_stim` (new subclasses that import the originals), **not** a
-> copy or a fork of it. The one real duplication is that `example/` (template)
-> and `clandinin/` (live) are parallel forks of *each other's* extension library.
+> copy or a fork of it. The one real duplication is that the template's `example/` and a
+> lab's live extension directory tend to become parallel forks of each other.
 
 ### Writing a protocol
 
@@ -104,26 +104,25 @@ class as `{'name': 'MyStim', 'size': 12}` from a protocol.
 
 ---
 
-## The Clandinin instantiation (`clandinin_labpack`)
+## Patterns from a production labpack
 
 A production labpack for fly‑VR + two‑photon + optogenetics rigs. Same structure,
 much larger.
 
 ### Protocols (`labpack/protocol/*`)
 
-* **Per‑user modules** (`mc`, `MHT`, `yw`, `ah`, `et`, `lj`, `na`, `dt`, `JCS`,
-  `izs`, `mz`, `JBM`, `JohnDoe`). Each researcher owns a `<initials>_protocol.py`
-  loaded by their own `<initials>_config.yaml` — this is the intended ownership
-  model, not accidental duplication.
+* **Per‑user modules.** Each researcher owns a `<initials>_protocol.py` loaded
+  by their own `<initials>_config.yaml` — this is the intended ownership model,
+  not accidental duplication; a dozen or more coexist comfortably.
 * **`base_protocol.py`** adds lab‑wide helpers `get_moving_patch_parameters(...)`
   / `get_moving_spot_parameters(...)` that build `MovingPatch`/`MovingEllipse`
   stim dicts with linear `TVPairs` trajectories from center/angle/speed/size.
-* `mc_protocol.py` (~2.5k lines) is the richest — opto pulse trains, DLPC current
+* A power user's module can run to thousands of lines — opto pulse trains, DLPC current
   changes, PMT shutter gating, dot‑field coherence stimuli, `PanGlomSuite`,
   `OcclusionShape`, `LinearTrackWithTowers` (server‑side closed loop),
   tracked‑trajectory playback.
 
-### Custom stimuli (`labpack/visual_stim/clandinin/*`)
+### Custom stimuli (`labpack/visual_stim/<lab>/*`)
 
 New `BaseProgram` subclasses not in stimpack core: `HorizonCylinder`
 (image‑textured horizon), many dot‑field/coherence stimuli
@@ -182,10 +181,10 @@ no DAQ).
 * `presets/<user>/*.spens` — ordered `(protocol, preset)` run sequences for the
   Ensemble tab.
 
-### Onboarding a new user (Clandinin pattern)
+### Onboarding a new user (an example pattern)
 
 1. Add `configs/<initials>_config.yaml` (protocol path → your protocol module;
-   `visual_stim` path → `labpack/visual_stim/clandinin`).
+   `visual_stim` path → `labpack/visual_stim/<lab>`).
 2. Add `labpack/protocol/<initials>_protocol.py` subclassing the lab
    `base_protocol.BaseProtocol`.
 3. Add a `presets/<initials>/` directory.

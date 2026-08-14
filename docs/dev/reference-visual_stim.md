@@ -102,7 +102,7 @@ shaders, and pre‑reserved VBOs (sized by `num_tri`, default 500). Contract:
   writes geometry into the VBOs, then renders once per subscreen with that
   subscreen's `Mvp` matrix and viewport.
 * `update(*args, **kwargs)` — RPC‑driven mid‑stimulus hook (unused by shipped
-  core stimuli; used by some clandinin dot‑field stimuli).
+  core stimuli; used by some labpack dot‑field stimuli).
 * `add_texture_gl(img, interpolation)` / `update_texture_gl(img)` — texture upload.
 * `destroy()` — subclass cleanup (e.g. `PixMap` closes its shared memory).
 

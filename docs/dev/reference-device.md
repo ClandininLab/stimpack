@@ -1,5 +1,10 @@
 # Reference: `stimpack.device`
 
+> **Naming note (1.0):** `stimpack.device.*` is now a re-export shim, removed
+> in 2.0 -- the code lives in `stimpack.daq` and `stimpack.locomotion`, and the
+> RPC target `daq` is now `voltage_out`. The classes documented below are
+> otherwise unchanged.
+
 The hardware/IO abstraction between the experiment server and physical rigs. Two
 independent concerns: **DAQ triggering** (synchronizing external acquisition) and
 **closed‑loop locomotion** (feeding a subject's movement into the renderer).

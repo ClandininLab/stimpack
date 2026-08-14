@@ -8,20 +8,18 @@ behind each step, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 ## Install
 
 ```bash
-git clone https://github.com/clandininlab/stimpack
-cd stimpack
 python3 -m venv ~/.stimpack_env && source ~/.stimpack_env/bin/activate
-pip install -e .
+pip install stimpack            # or, to work on stimpack itself:
+git clone https://github.com/ClandininLab/stimpack
+cd stimpack && pip install -e .[test]
 ```
 
 Requirements: **Python ≥ 3.10** (the code uses `X | Y` type unions at import
 time). Core deps (numpy, scipy, pandas, matplotlib, PyQt6, moderngl, h5py,
-PyYAML, scikit-image, platformdirs; PyOpenGL on Linux) install automatically. A
-GPU with OpenGL 3.3 is required for rendering.
-
-> The README currently tells you to `git checkout beyond_xorg`; that branch is
-> stale. Use `main` unless you have a specific reason not to (see
-> [`IMPROVEMENTS.md`](IMPROVEMENTS.md) #10).
+PyYAML, scikit-image, platformdirs, PyOpenGL) install automatically; the audio
+module's PyAudio is the `.[audio]` extra. A GPU with OpenGL 3.3 is required for
+rendering. See the [install guide](https://stimpack.readthedocs.io/en/latest/install.html)
+for platform-specific notes.
 
 ---
 

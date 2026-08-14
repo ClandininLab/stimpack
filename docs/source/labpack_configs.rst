@@ -145,7 +145,7 @@ backend.
     break, where an HDF5 experiment is stimpack's own layout and editing one is a supported repair.
 
     Every NWB file records its provenance in ``source_script``, the schema's own field for what
-    software wrote a file, as one line: ``stimpack 1.0.0.dev0 (28a303e); labpack clandinin_labpack
+    software wrote a file, as one line: ``stimpack 1.0.0.dev0 (28a303e); labpack my_labpack
     (18b2dfe); config mc_config.yaml``.
 
     Two things an experiment knows before any series exists have no series file to live in, so
@@ -158,7 +158,7 @@ backend.
 
     .. code-block:: yaml
 
-        lab: Clandinin
+        lab: MyLab
         institution: Stanford University
 
 The same GUI handles all three; it adapts to whichever backend the config names. The interface
@@ -281,7 +281,7 @@ instead of being copied into each rig's config where they drift apart:
 .. code-block:: yaml
 
     # configs/lab_config.yaml
-    lab: Clandinin
+    lab: MyLab
     institution: Stanford University
     data_format: nwb
     subject_metadata:

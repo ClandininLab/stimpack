@@ -380,9 +380,10 @@ Only `KeyTrac` (keyboard‑driven fake locomotion) ships in stimpack core;
 
 Two consequences worth internalizing:
 
-* Because RPC handlers on a screen run **inside `paintGL`**, an exception in a
-  handler propagates out of the Qt paint callback — there is no per‑request
-  exception isolation (see [`IMPROVEMENTS.md`](IMPROVEMENTS.md) #1).
+* RPC handlers on a screen run **inside `paintGL`**, serialized with drawing.
+  `process_queue` catches and reports handler errors rather than letting them
+  propagate out of the Qt paint callback (this was IMPROVEMENTS.md #1, since
+  fixed).
 * `sleep()`‑based epoch timing on the client means run timing is *approximate*
   and can drift under GUI load; the corner square is the authoritative timing
   record, not the client clock.

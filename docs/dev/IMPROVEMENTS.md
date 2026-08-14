@@ -1,5 +1,13 @@
 # Potential improvements
 
+> **Historical document.** This is a point-in-time audit from before the 1.0
+> release, preserved because other docs cite its stable issue numbers (`#N`).
+> Much of it has since been addressed -- per-request error isolation, the
+> module contract, packaging, the naming migration, and the test suite all
+> landed in 1.0 -- and some findings reference a private lab labpack that the
+> public template has replaced. Verify anything here against the current code
+> before acting on it.
+
 A prioritized, **verified** review of stimpack / labpack / clandinin_labpack.
 Each finding was checked against the actual code by an independent adversarial
 pass; 7 candidate findings were refuted and dropped (see the end). Severities are
