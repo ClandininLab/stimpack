@@ -36,13 +36,14 @@ repository and `pip install -e .[test]`.
 Running `stimpack` opens the experiment GUI. See the
 [installation guide](https://stimpack.readthedocs.io/en/latest/install.html) if it doesn't.
 
-<!-- img/gui.png is a copy; the source of truth lives in paper/figures/. -->
-![The stimpack experiment GUI: the Main tab mid-run and the Subject tab with lab-declared metadata fields](img/gui.png)
+<!-- img/gui.png is a copy of paper/figures/gui_code.png; the scripts that make it live there too. -->
+![The AudiovisualPairing protocol class beside the GUI's Main tab built from it, captured mid-run](img/gui.png)
 
-*The experiment GUI, identical on every rig. Left: the Main tab mid-run, its parameter fields
-built from the protocol class's own declarations, so a new protocol is drivable without writing
-interface code; the list-valued angle sweeps across trials in randomized order. Right: the
-Subject tab, whose metadata fields beyond the built-ins come from the labpack's config.*
+*From protocol code to a running experiment. Left: the built-in `AudiovisualPairing` protocol,
+abridged, and the module calls stimpack makes from its descriptors on each trial — one visual,
+one audio, one shared start. Right: the Main tab mid-run, its parameter fields built from the
+class's own declarations, so a new protocol is drivable without writing interface code; the
+list-valued `freq` sweeps across trials, and "This trial" shows the current draw.*
 
 ## A stimulus in ten lines
 
@@ -128,12 +129,14 @@ CurvedScreen(
 ```
 
 <!-- img/pipeline.png is a copy; the source of truth and the regeneration scripts live in paper/figures/. -->
-![A rig schematic with photodiode, the warped frame with its corner square, the subject's view of the checkerboard, and a photodiode trace with two dropped frames](img/pipeline.png)
+![Three rigs, the frames sent to their displays, and the subject's visual field reconstructed from those frames](img/pipeline.png)
 
-*The visual path, end to end: the rig with its photodiode (a), the frame sent to the projector
-with the synchronization square in its corner (b), the subject's visual field over the same cube
-map (c), and frame delivery recorded at the photodiode (d), where a dropped frame appears as one
-level held for two frame intervals.*
+*One stimulus specification, three display geometries, one visual experience. A single monitor,
+two monitors meeting ahead of the subject, and a hemisphere lit by a projector (a) each receive
+their own frames (b) — the same scene, warped per display — yet the subject's visual field,
+reconstructed from those very frames (c), matches wherever coverages overlap. Red: the
+photodiode watching each display's synchronization square; its trace (d) catches two dropped
+frames.*
 
 Because the screen is one draw call however finely it is tessellated, the cost scales with the scene
 and the number of cube faces — not with the screen's complexity. `draw_curved_screen()` plots the

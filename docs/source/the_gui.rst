@@ -8,12 +8,13 @@ interface code for it: selecting a protocol reads its declared parameters and bu
 
 .. figure:: /images/gui.png
    :align: center
-   :alt: The stimpack experiment GUI, the Main tab mid-run and the Subject tab with lab-declared metadata fields
+   :alt: The AudiovisualPairing protocol class beside the GUI's Main tab built from it, mid-run
 
-   The experiment GUI, identical on every rig. Left: the Main tab mid-run, its parameter fields
-   built from the protocol class's own declarations; the list-valued angle sweeps across trials
-   in randomized order, and the bottom panel tracks the run. Right: the Subject tab, whose
-   metadata fields beyond the built-ins are declared in the labpack's config.
+   From protocol code to a running experiment. Left: the built-in ``AudiovisualPairing`` example
+   protocol, abridged, and the module calls stimpack makes from its descriptors on each trial.
+   Right: the Main tab mid-run, its parameter fields built from the class's own declarations;
+   the list-valued ``freq`` sweeps across trials in randomized order, and "This trial" shows
+   the current draw.
 
 Starting up
 ===========
