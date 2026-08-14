@@ -6,6 +6,13 @@ epoch/run lifecycle, an end‑to‑end trace of a single stimulus, and the
 threading/process model. Once these are clear, every individual module reads as
 an obvious consequence.
 
+> **Scope.** This is the internals tour, written for someone changing stimpack
+> itself; `docs/source/` is the user-facing documentation and is the
+> authoritative description of current behavior. Parts of this document predate
+> the 1.0 renames — it still says target `daq` in places, where 1.0 uses
+> `voltage_out`, and *epoch*/*epoch run* where 1.0 uses *trial*/*series* (both
+> spellings still work; see `stimpack/experiment/deprecated_names.py`).
+
 ---
 
 ## 1. The core idea: processes wired by fire‑and‑forget RPC
@@ -16,18 +23,31 @@ talk over TCP sockets using a deliberately minimal RPC scheme:
 * **One message = one line of newline‑terminated JSON**, decoding to a *request
   list* — a JSON array of request dicts `{"name": <fn>, "args": [...],
   "kwargs": {...}, "target": <module>?}`.
-* **There are no responses.** No return values, no request IDs, no error
-  channel. A caller fires a remote function call and never hears back. Both ends
-  can independently *originate* requests, which is the only reason the channel
-  looks bidirectional.
+* **There are no responses.** No return values, no request IDs, no reply
+  correlated with a request. A caller fires a remote function call and never
+  hears back *from that call*.
+* **The channel is nonetheless two-way, by design.** Both ends originate
+  requests on the same socket, and the server→client direction carries real
+  traffic: `report_server_message` (a **warning** the run survives, or an
+  **error** that aborts it), `stop_trial`/`stop_epoch` for behavior-ended
+  trials, and `receive_subject_state_history` at the end of a run. The client
+  registers these handlers in `BaseClient._register_server_callbacks` and
+  drains them with `manager.process_queue()` inside its run loop. So a failed
+  call is invisible *to the caller*, but not invisible: the far end reports it
+  over the return path.
 * A `__getattr__` proxy makes remote calls look exactly like local method calls:
   `client.load_stim("MovingPatch", width=10)` serializes and sends; it does not
   execute anything locally.
 
-This one‑way, schemaless design is what keeps latency low and the layers
-decoupled — but it is also the root of several robustness limitations noted in
-[`IMPROVEMENTS.md`](IMPROVEMENTS.md) (a failed remote call is silently invisible
-to the caller; a raised handler exception isn't isolated).
+This response-free, schemaless design is what keeps latency low and the layers
+decoupled. Two robustness gaps it once had are now closed: handler exceptions
+are isolated per request (`BaseManager`, and `handle_request_list_to_root` on
+the server), and unreachable or unknown calls are reported back over the
+channel described above rather than dropped. What remains true is that the
+*caller* cannot branch on a result: use `BaseProtocol.has_server_function()` /
+`has_module()` (populated by `BaseServer.on_connection_open`) to ask what the
+far end supports, never `hasattr`, which a `__getattr__` proxy always answers
+yes to.
 
 See [`reference-rpc.md`](reference-rpc.md) for the class‑level detail.
 
@@ -162,8 +182,9 @@ multicall()          # flush: one JSON line containing both requests
 
 The whole batch is parsed and executed in one `handle_request_list` call, so the
 commands are near‑coincident. `protocol.py:start_stimuli` uses this pervasively.
-(Note: `MyMultiCall.__call__` does **not** clear its request list — reusing an
-instance re‑sends everything; the protocol code always makes a fresh one.)
+(`MyMultiCall.__call__` clears its request list after flushing, so an instance
+can be refilled and called again. It did not always: re-invoking one used to
+re-send every request it had ever accumulated.)
 
 ---
 
@@ -352,7 +373,7 @@ Only `KeyTrac` (keyboard‑driven fake locomotion) ships in stimpack core;
 | Context | What executes there |
 |---|---|
 | **Client main thread** | The GUI event loop; `start_run`'s epoch loop, which calls `QApplication.processEvents()` and `sleep()`s for pre/stim/tail. The actual run is on a `runSeriesThread` (QThread) so the GUI stays responsive. |
-| **`MySocketClient` reader thread** (daemon) | Reads inbound lines and `queue.put`s them. Nobody drains the client queue by default — server→client pushes are effectively unused. |
+| **`MySocketClient` reader thread** (daemon) | Reads inbound lines and `queue.put`s them. `BaseClient` drains that queue with `process_queue()` in its run loop (and around trial boundaries), which is where server→client pushes — server messages, behavior-ended trials, subject-state history — actually execute. |
 | **Server accept loop** | `MySocketServer.loop()` accepts **one connection at a time** and reads request lines. `BaseServer`/`VisualStimServer` run `threaded=False`, so handlers execute inline on this loop. |
 | **Screen subprocess** | A Qt event loop; the reader thread enqueues requests and **`paintGL` drains the queue every frame**, so `load_stim`/`start_stim`/`set_subject_state` run on the GL/render thread, serialized with drawing. |
 | **Locomotion loop thread** (daemon) | Reads the tracker socket and pushes subject state. |
@@ -393,11 +414,9 @@ See [`labpack-guide.md`](labpack-guide.md) and
 
 ---
 
-## 11. A note on branches & packaging
+## 11. A note on packaging
 
-The stimpack README instructs users to `git checkout beyond_xorg`, but that
-branch is stale relative to `main` (the code documented here is `main`). The
-`experiment`, `visual_stim`, and other subpackages require **Python ≥ 3.10**
-(they use PEP 604 `X | Y` unions at import time), which `setup.py` does not
-declare. These and other packaging issues are catalogued in
-[`IMPROVEMENTS.md`](IMPROVEMENTS.md).
+stimpack requires **Python ≥ 3.10** (PEP 604 `X | Y` unions are evaluated at
+import time), which `setup.py` declares. Installing is `pip install stimpack`,
+or `pip install -e .[test]` from a checkout to work on stimpack itself; the
+audio module's PyAudio dependency is the extra `.[audio]`.

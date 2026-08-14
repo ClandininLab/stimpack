@@ -51,8 +51,9 @@ and the whole-suite run are `continue-on-error` — they are informational, the 
 ## Architecture
 
 Read `docs/dev/ARCHITECTURE.md` for the long version, but note it predates the 1.0 renames below
-(it says target `daq`, and its §11 packaging notes are stale). `docs/source/` is the current,
-authoritative documentation and is kept in step with the code.
+(it says target `daq` in places, and *epoch*/*epoch run* for *trial*/*series*); its own header
+says so. `docs/source/` is the current, authoritative documentation and is kept in step with the
+code.
 
 ### Processes wired by fire-and-forget RPC
 
@@ -79,7 +80,7 @@ consequences worth internalizing:
 
 Calls that must land together are batched with `MyMultiCall` — one JSON line, one
 `handle_request_list`. `__call__` clears the batch on dispatch, so an instance can be refilled and
-called again (`docs/dev/ARCHITECTURE.md` §4 says it does not; that note predates the fix).
+called again.
 
 ### Target routing (`BaseServer.handle_request_list`)
 
