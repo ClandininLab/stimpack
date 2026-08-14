@@ -45,12 +45,12 @@ authors:
   - name: Thomas R. Clandinin
     orcid: 0000-0001-6277-6849
     equal-contrib: true
-    affiliation: 1
+    affiliation: "1, 5"
   - name: Maxwell H. Turner
     orcid: 0000-0002-4164-9995
     corresponding: true
     equal-contrib: true
-    affiliation: "1, 5"
+    affiliation: "1, 6"
 affiliations:
   - name: Department of Neurobiology, Stanford University, United States
     index: 1
@@ -60,8 +60,10 @@ affiliations:
     index: 3
   - name: CatalystNeuro, United States
     index: 4
-  - name: Department of Biological Sciences, University at Albany, SUNY, United States
+  - name: Biohub, San Francisco, United States
     index: 5
+  - name: Department of Biological Sciences, University at Albany, SUNY, United States
+    index: 6
 date: 14 August 2026
 bibliography: paper.bib
 ---
@@ -147,7 +149,7 @@ All primary architectural design decisions and implementations were made by auth
 
 # Acknowledgements
 
-We thank the Clandinin, Turner, Baccus, Mitra, and Murthy Labs for testing across rigs and preparations. This work was supported by Stanford Graduate Fellowships (MC, SGH), a DoD NDSEG Fellowship (MC), a Hertz Fellowship (SGH), and NIH grants R00-EY032549, R01-EY022638, R01-EY022933, R01-EY025087, R01-EY034566 and P30-EY026877. TRC is a Chan-Zuckerberg BioHub Investigator.
+We thank the Clandinin, Turner, Baccus, Mitra, and Murthy Labs for testing across rigs and preparations. This work was supported by Stanford Graduate Fellowships (MC, SGH), a DoD NDSEG Fellowship (MC), a Hertz Fellowship (SGH), and NIH grants R00-EY032549, R01-EY022638, R01-EY022933, R01-EY025087, R01-EY034566 and P30-EY026877. TRC is a Biohub, San Francisco, Investigator.
 
 # References
 
