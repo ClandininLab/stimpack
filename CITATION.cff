@@ -13,43 +13,51 @@ authors:
     affiliation: Stanford University
     email: minseung@stanford.edu
     orcid: 'https://orcid.org/0000-0001-5398-219X'
-  - given-names: Joshua
+  - given-names: Joshua B.
     family-names: Melander
     email: melander@stanford.edu
     affiliation: Stanford University
-  - given-names: Steven
+    orcid: 'https://orcid.org/0000-0001-9673-0224'
+  - given-names: Steven G.
     family-names: Herbst
     affiliation: Stanford University
-  - given-names: Carl
+    orcid: 'https://orcid.org/0000-0001-7128-9014'
+  - given-names: Carl F.R.
     family-names: Wienecke
     affiliation: Harvard Medical School
   - given-names: Heberto
     family-names: Mayorquin
     affiliation: CatalystNeuro
     orcid: 'https://orcid.org/0000-0002-5937-7537'
+  - given-names: Alex Y.
+    family-names: Hao
+    affiliation: Stanford University
+    orcid: 'https://orcid.org/0000-0002-3454-5733'
   - given-names: Manze
     family-names: Zhang
     affiliation: Stanford University
-  - given-names: Jacob
+    orcid: 'https://orcid.org/0009-0004-8899-4667'
+  - given-names: Jacob C.
     family-names: Simon
     affiliation: Stanford University
+    orcid: 'https://orcid.org/0000-0001-7683-9839'
+  - given-names: David D.
+    family-names: Au
+    affiliation: Stanford University
+    orcid: 'https://orcid.org/0000-0002-0248-5385'
   - given-names: Bella E.
     family-names: Brezovec
     affiliation: Stanford University
     orcid: 'https://orcid.org/0000-0001-9341-3565'
-  - given-names: Shaul
-    family-names: Druckmann
-    affiliation: Stanford University
-    orcid: 'https://orcid.org/0000-0003-0068-3377'
-  - given-names: Stephen
+  - given-names: Stephen A.
     family-names: Baccus
     affiliation: Stanford University
     orcid: 'https://orcid.org/0000-0001-8692-5685'
-  - given-names: Thomas
+  - given-names: Thomas R.
     family-names: Clandinin
     affiliation: Stanford University
     orcid: 'https://orcid.org/0000-0001-6277-6849'
-  - given-names: Maxwell
+  - given-names: Maxwell H.
     family-names: Turner
     email: mhturner@albany.edu
     affiliation: 'University at Albany, SUNY'
