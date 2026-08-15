@@ -1,0 +1,54 @@
+# Trigger the Read the Docs build matching the pushed branch: `dev` -> the dev version,
+# `main` -> latest. A workflow_dispatch can name any version explicitly.
+#
+# This exists because the repo's RTD webhook is missing (the hooks list shows only Zenodo), so RTD
+# never hears about pushes and its versions go stale until someone builds them by hand -- which is
+# exactly how /en/latest/ served pre-1.0 docs for a day after the 1.0 merge. The proper fix is
+# reconnecting the integration in the RTD dashboard (Admin -> Integrations), which makes RTD build
+# every pushed branch natively -- IF THAT IS DONE, DELETE THIS WORKFLOW, or every push will build
+# twice.
+#
+# Needs one secret: RTD_TOKEN, an API token from https://app.readthedocs.org/accounts/tokens/ for
+# an account with rights on the stimpack project, saved in GitHub -> Settings -> Secrets ->
+# Actions. Until the secret exists, the workflow runs and skips with a notice rather than failing.
+#
+# No paths filter, deliberately: the docs are not just docs/ -- the API pages autodoc the package,
+# so a code-only push changes the rendered documentation too.
+name: readthedocs
+
+on:
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'RTD version slug to build (e.g. latest, dev, stable)'
+        required: false
+        default: 'latest'
+
+permissions: {}
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ask Read the Docs to build the matching version
+        env:
+          RTD_TOKEN: ${{ secrets.RTD_TOKEN }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -z "$RTD_TOKEN" ]; then
+            echo "::notice::RTD_TOKEN secret not set; skipping (see this workflow's header)."
+            exit 0
+          fi
+          if [ -n "$DISPATCH_VERSION" ]; then
+            version="$DISPATCH_VERSION"
+          elif [ "$GITHUB_REF_NAME" = "main" ]; then
+            version=latest
+          else
+            version="$GITHUB_REF_NAME"
+          fi
+          echo "Building RTD version: $version"
+          curl -sf -X POST -H "Authorization: Token $RTD_TOKEN" \
+            "https://readthedocs.org/api/v3/projects/stimpack/versions/$version/builds/"
