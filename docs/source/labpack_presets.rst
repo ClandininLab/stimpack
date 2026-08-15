@@ -1,6 +1,6 @@
 Labpack Presets
 ================
 
-Labpack presets are a collection of configuration files for various stimpack protocols.
-These are generated through the gui, and saved to the `presets` directory.
+Saved parameter sets for your protocols, written by the GUI into the ``labpack``'s preset directory.
 
+See :doc:`presets_and_ensembles`.

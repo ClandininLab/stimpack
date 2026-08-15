@@ -1,20 +1,365 @@
+"""
+Geometry primitives: triangle meshes with per-vertex colors and texture coordinates.
+
+Every stimulus builds one of these in :meth:`~stimpack.visual_stim.base.BaseProgram.eval_at` and
+hands its vertex, color and texture-coordinate arrays to the GPU. Shapes compose -- ``add()``
+merges one into another -- and transform in place, so a stimulus assembles what it needs and then
+positions the whole thing::
+
+    patch = GlSphericalRect(width=10, height=30, color=[1, 1, 1, 1])
+    patch = patch.rotate(np.radians(theta), np.radians(phi), np.radians(angle))
+
+Coordinates are stimpack's: meters, with the subject at the origin and heading ``(0, 0, 0)``
+looking along **+y**. Shapes named ``Spherical`` or ``Cylindrical`` take their extents in
+**degrees** subtended at the subject, and lie on a sphere or cylinder of the given radius, which
+is what keeps a patch the same angular size wherever it is placed.
+"""
 import numpy as np
-from numpy import matlib
 from math import radians
 from . import util
 
+# Edge kinds the fragment shader can evaluate. A shape declaring one hands the shader an equation
+# for its true boundary; the triangles then only have to *cover* that boundary, and the shader
+# clips them back to it. NONE is every shape that has not opted in: the geometry defines the edge,
+# exactly as it always has.
+EDGE_NONE = 0
+EDGE_CONE = 1                # inside the cone of a flat ellipse of half-extents `extent`
+EDGE_ANGULAR_RECT = 2        # |azimuth| <= extent.x and |elevation| <= extent.y, in the shape's frame
+EDGE_WORLD_DISC = 3          # within extent.x meters of the anchor, for a flat disc
+
+# Kinds 1 and 2 are *angular*: they ask which direction a fragment lies in. Kind 3 is *metric*: it
+# asks how far away it is, in meters. Both measure from the shape's anchor, which is what lets one
+# shader serve them and what lets a transform move a shape without invalidating its declaration.
+
+# Both are statements about *direction*, so neither mentions the surface the triangles sit on. A
+# patch on a cylinder covers exactly the directions its spherical twin does -- only the distance
+# along each ray differs -- so the same two kinds serve both, and the shader needs nothing new.
+
+
+#: How far past its true bound a spherical rectangle draws, as a fraction. Only has to swallow
+#: rounding: the geometry is a cover, and every surplus fragment is given zero coverage by the
+#: shader. The cone shapes need no margin at all -- see :func:`cone_bound_directions` for why.
+EDGE_BOUND_MARGIN = 0.01
+
+#: Rows are the axes a sphere patch is built against at theta = phi = pi/2: the azimuth tangent,
+#: the elevation tangent, and the outward direction. Every shape here is constructed in this frame
+#: and rotated into place by its caller, so the frame turns with the shape.
+CANONICAL_PATCH_FRAME = ((-1.0, 0.0, 0.0),     # +azimuth  (d/dtheta)
+                         (0.0, 0.0, -1.0),     # +elevation (d/dphi)
+                         (0.0, 1.0, 0.0))      # forward
+
+
+def cone_bound_directions(extent_x, extent_y, n_steps, frame=CANONICAL_PATCH_FRAME):
+    """Directions of a polygon whose edges are tangent to the cone of the given half-extents.
+
+    Gnomonic projection -- divide a direction by its forward component, giving the coordinates of
+    the flat card the cone is projected from -- takes great circles to straight lines. The edge the
+    GPU rasterizes between two vertices on a sphere sweeps a great circle, so it *is* a straight
+    line in these coordinates. That makes the bound exact rather than approximate: a polygon
+    circumscribing the ellipse on the card circumscribes the real shape, at any size, with no
+    margin needed and nothing to tune.
+
+    A regular n-gon with its vertices at radius 1/cos(pi/n) has its edges tangent to the unit
+    circle, and scaling that by (tan extent_x, tan extent_y) is an affine map, which preserves both
+    the tangency and the containment.
+
+    :param extent_x: half-extent across, radians; must be under 90 degrees, since a cone cannot
+        describe more than a hemisphere
+    :param extent_y: half-extent up, radians
+    :param n_steps: sides of the polygon. Sets surplus area only, never accuracy.
+    """
+    reach = 1.0 / np.cos(np.pi / n_steps)
+    bearings = np.linspace(0, 2*np.pi, n_steps, endpoint=False)
+    x = np.tan(extent_x) * reach * np.cos(bearings)
+    y = np.tan(extent_y) * reach * np.sin(bearings)
+    frame = np.asarray(frame, dtype=float)
+    directions = x[:, None]*frame[0] + y[:, None]*frame[1] + frame[2]
+    return directions / np.linalg.norm(directions, axis=1, keepdims=True)
+
+
+def _add_cone_patch(shape, extent_x, extent_y, surface_radius, color, location, n_steps,
+                    to_cartesian=util.spherical_to_cartesian):
+    """Fill `shape` with a bounding fan for a cone patch, and declare its analytic edge.
+
+    Shared by every disc and ellipse here, on either surface. A disc *is* the equal-extent case of
+    an ellipse -- the same cone with different numbers -- and a cylindrical patch is the same cone
+    again, its vertices merely pushed further along the same rays. One builder, one shader branch.
+
+    :param to_cartesian: where a (radius, theta, phi) lands -- the sphere or the cylinder wall.
+        Both put a given (theta, phi) in the same *direction*, which is the only thing the edge
+        declaration is about.
+    """
+    v_center = to_cartesian(surface_radius, np.pi/2, np.pi/2)
+
+    if not (0 < max(extent_x, extent_y) < np.pi/2):
+        # A cone cannot describe more than a hemisphere, so past that there is no analytic form to
+        # declare. Fall back to the inscribed fan this drew before, and to a geometry-defined edge
+        # -- the path every unconverted shape takes.
+        shape.EDGE_KIND = EDGE_NONE
+        bearings = np.linspace(0, 2*np.pi, n_steps+1)
+        for wedge in range(n_steps):
+            v1 = to_cartesian(surface_radius, np.pi/2 + extent_x*np.cos(bearings[wedge]),
+                              np.pi/2 + extent_y*np.sin(bearings[wedge]))
+            v2 = to_cartesian(surface_radius, np.pi/2 + extent_x*np.cos(bearings[wedge+1]),
+                              np.pi/2 + extent_y*np.sin(bearings[wedge+1]))
+            shape.add(GlTri(v1, v2, v_center, color).translate(location))
+        return
+
+    # The bound is a set of directions; put each one on whichever surface this shape lives on.
+    # Which surface cannot affect whether it covers: a straight segment seen from the subject
+    # sweeps a great-circle arc whatever distance its endpoints are at, so the directions a
+    # triangle spans depend only on the directions of its corners.
+    _, theta, phi = util.cartesian_to_spherical(*cone_bound_directions(extent_x, extent_y, n_steps).T)
+    corners = np.array(to_cartesian(surface_radius, theta, phi)).T
+    for wedge in range(n_steps):
+        shape.add(GlTri(corners[wedge], corners[(wedge + 1) % n_steps], v_center,
+                        color).translate(location))
+
+    # What the shader needs to rebuild the cone: where it is measured from, the frame the patch was
+    # built in, and how far out on the flat card its ellipse reaches in each axis. The anchor is
+    # `location` and not the origin -- a patch put somewhere else subtends its angles from there.
+    shape.edge_frame = CANONICAL_PATCH_FRAME
+    shape.edge_anchor = tuple(float(v) for v in location)
+    shape.edge_extent = (float(extent_x), float(extent_y))
+
+
+def _add_angular_rect_patch(shape, width, height, surface_radius, color, n_steps_x, n_steps_y,
+                            to_cartesian=util.spherical_to_cartesian,
+                            texture=False, texture_shift=(0, 0)):
+    """Fill `shape` with a bounding grid for a rectangular patch, and declare its analytic edge.
+
+    Shared by the spherical and cylindrical rectangles, for the same reason the cone builder is:
+    the declaration is about direction, and both surfaces put a given (theta, phi) in the same one.
+
+    :param width: degrees of azimuth subtended
+    :param height: degrees of elevation subtended
+    """
+    # The grid is a bound, and the shader clips it to the true rectangle. Its sides already cover:
+    # a constant-azimuth boundary is a great circle, which a triangle edge reproduces exactly, and
+    # a constant-elevation one is a small circle, which the great-circle arc between two of its
+    # points bulges outside. Only the four corners land exactly on the bound, so widen by a whisker
+    # to keep rounding from nicking them.
+    drawn_width = radians(width) * (1.0 + EDGE_BOUND_MARGIN)
+    drawn_height = radians(height) * (1.0 + EDGE_BOUND_MARGIN)
+
+    d_theta = (1/n_steps_x) * drawn_width
+    d_phi = (1/n_steps_y) * drawn_height
+    for rr in range(n_steps_y):
+        for cc in range(n_steps_x):
+            # render the patch at the equator (phi=pi/2) so it is not near the poles, and at
+            # theta = 90 degrees, where stimpack's heading (0,0,0) looks
+            theta = np.pi/2 + drawn_width * (-1/2 + (cc/n_steps_x))
+            phi = np.pi/2 + drawn_height * (-1/2 + (rr/n_steps_y))
+            v1 = to_cartesian(surface_radius, theta, phi)
+            v2 = to_cartesian(surface_radius, theta, phi + d_phi)
+            v3 = to_cartesian(surface_radius, theta + d_theta, phi)
+            v4 = to_cartesian(surface_radius, theta + d_theta, phi + d_phi)
+            if not texture:
+                shape.add(GlTri(v1, v2, v4, color))
+                shape.add(GlTri(v1, v3, v4, color))
+                continue
+            # The picture spans the *true* rectangle, not the widened grid it is drawn on --
+            # otherwise the margin would scale the image by a percent, which is far more than the
+            # pixel the margin exists to protect. Coordinates therefore run slightly outside [0, 1]
+            # in the margin, on fragments the shader gives zero coverage to anyway.
+            def tc(across, up):
+                return (0.5 + (1.0 + EDGE_BOUND_MARGIN) * (across/n_steps_x - 0.5) + texture_shift[0],
+                        0.5 + (1.0 + EDGE_BOUND_MARGIN) * (up/n_steps_y - 0.5) + texture_shift[1])
+            shape.add(GlTri(v1, v2, v4, color, tc(cc, rr), tc(cc, rr+1), tc(cc+1, rr+1)))
+            shape.add(GlTri(v1, v3, v4, color, tc(cc, rr), tc(cc+1, rr), tc(cc+1, rr+1)))
+
+    shape.edge_frame = CANONICAL_PATCH_FRAME
+    shape.edge_extent = (float(radians(width) / 2), float(radians(height) / 2))
+
+
+class EdgeSpan:
+    """One component's edge declaration, and the run of vertices it applies to.
+
+    ``add()`` concatenates shapes into a single vertex array, which used to mean a composite could
+    carry only one edge equation -- so a field of twenty analytic patches lost all twenty. Recording
+    where each component landed lets the renderer draw the runs separately, one set of edge uniforms
+    each, at about 0.8 microseconds per extra draw.
+
+    Carries the same four attributes a shape does, so :func:`_carry_edge` transforms a span and a
+    shape through the same code.
+    """
+    __slots__ = ('start', 'count', 'EDGE_KIND', 'edge_frame', 'edge_anchor', 'edge_extent')
+
+    def __init__(self, start, count, source):
+        self.start = int(start)
+        self.count = int(count)
+        self.EDGE_KIND = source.EDGE_KIND
+        self.edge_frame = source.edge_frame
+        self.edge_anchor = source.edge_anchor
+        self.edge_extent = source.edge_extent
+
+    @property
+    def edge_kind(self):
+        return self.EDGE_KIND
+
+    def moved(self, by):
+        """A copy of this span sitting `by` vertices further into a larger buffer."""
+        shifted = EdgeSpan(self.start + by, self.count, self)
+        return shifted
+
+
+def _carry_edge(source, result, rotation=None, translation=None, scale=None):
+    """Move a declared analytic edge onto a transformed copy.
+
+    Because a declaration is anchored -- it says where it is measured from, not just what it
+    measures -- a rigid motion carries it exactly: move the anchor with the shape and every
+    direction and distance from it is unchanged. So rotation, translation and uniform scaling all
+    survive, as do the appearance-only transforms.
+
+    Only a *non-uniform* scale drops the declaration, and it has to: it turns a disc into an
+    ellipse and a spherical patch into something this file has no equation for. A wrong analytic
+    edge is worse than none, so that case falls back to the geometry-defined edge -- the path every
+    unconverted shape already takes.
+
+    :param rotation: a callable turning a (3, N) array, or None
+    :param translation: an (x, y, z) offset in meters, or None
+    :param scale: a single factor, or None. Callers must not pass a non-uniform one -- it turns a
+        disc into an ellipse and a cone into something with no name here, so those drop instead.
+    """
+    spans = [_carry_edge(span, EdgeSpan(span.start, span.count, span), rotation, translation, scale)
+             for span in getattr(source, 'edge_spans', ())]
+    if spans:
+        result.edge_spans = spans          # a span has no spans of its own, so this stops here
+    if source.edge_kind == EDGE_NONE:
+        return result
+    frame = np.asarray(source.edge_frame, dtype=float)
+    anchor = np.asarray(source.edge_anchor, dtype=float)
+    extent = np.asarray(source.edge_extent, dtype=float)
+
+    if rotation is not None:
+        frame = np.asarray(rotation(frame.T)).T
+        anchor = np.asarray(rotation(anchor.reshape(3, 1))).reshape(3)
+    if scale is not None:
+        # Scaling is about the origin, and the anchor rides along, so every direction from the
+        # anchor is unchanged and an angular declaration survives untouched. A metric one does not:
+        # its extent is a length, and lengths scale.
+        anchor = anchor * scale
+        if source.EDGE_KIND == EDGE_WORLD_DISC:
+            extent = extent * scale
+    if translation is not None:
+        anchor = anchor + np.asarray(translation, dtype=float)
+
+    result.EDGE_KIND = source.EDGE_KIND
+    result.edge_frame = tuple(tuple(axis) for axis in frame)
+    result.edge_anchor = tuple(float(v) for v in anchor)
+    result.edge_extent = tuple(float(v) for v in extent)
+    return result
+
+
+def _uniform_scale(amt):
+    """The single factor `amt` scales by, or None if it scales the axes differently."""
+    values = np.unique(np.asarray(amt, dtype=float).reshape(-1))
+    return float(values[0]) if values.size == 1 else None
+
+
+def edge_coverage(distance, pixel):
+    """What fraction of a pixel a shape covers, given how far its edge is from the pixel center.
+
+    The reference implementation of what the fragment shader computes, kept in Python so the rule
+    can be stated and tested without a GL context.
+
+    Linear, not ``smoothstep``. The graphics convention is the latter, whose S-curve makes edges
+    look soft rather than creased, and it is wrong here twice over. A pixel 30% covered should emit
+    30% of the light and smoothstep emits 22%, worst case 9.6 percentage points of luminance. Worse,
+    it makes emitted intensity a non-linear function of edge position, so a constant-velocity edge
+    appears to stall and then hurry once per pixel crossed -- which is a smaller copy of the motion
+    artifact analytic coverage exists to remove. This form is the true covered fraction for a
+    straight edge, which is what a photoreceptor integrating over that pixel receives.
+
+    :param distance: how far the edge is beyond the pixel, in the same units as `pixel`;
+        negative is inside the shape
+    :param pixel: the size of one pixel in those units
+    """
+    if pixel <= 0:
+        return float(distance <= 0)
+    return float(np.clip(0.5 - distance / pixel, 0.0, 1.0))
+
+
+def sharp_texel_coord(texel_position, texels_per_pixel):
+    """Where to sample a texture so a hard-edged pattern keeps its edges but not their aliasing.
+
+    The reference implementation of what the fragment shader computes, kept in Python so the rule
+    can be stated and tested without a GL context.
+
+    ``NEAREST`` filtering exists so a checkerboard stays a checkerboard rather than being blurred
+    into a gradient, and that intent is right. What it costs is the same thing an unantialiased
+    polygon costs: a texel boundary cannot sit between pixels, so it stays on one and then jumps.
+    Measured on a drifting square grating at 10 deg/s, the edge is frozen for 17 frames in 19.
+
+    So sample with ``LINEAR`` filtering, but move the sample point. Everywhere but within one pixel
+    of a texel boundary this lands exactly on a texel center, which is what ``NEAREST`` would have
+    returned. Across the boundary it ramps, and the hardware's own interpolation then mixes the two
+    texels in exactly the proportion the pixel is covered by each -- the same covered-fraction rule
+    :func:`edge_coverage` states for shapes, arrived at through the filter rather than through alpha.
+
+    :param texel_position: the fragment's position in texels, i.e. texture coordinate times size
+    :param texels_per_pixel: how much of the texture one pixel spans, ``fwidth`` of the above.
+        Clamped to 1 texel: past that the texture is minified rather than magnified, there is no
+        single boundary to antialias, and this degrades to ordinary bilinear filtering, which is
+        the right thing to degrade to.
+    :returns: the position, in texels, to sample at
+    """
+    width = np.clip(texels_per_pixel, 1e-6, 1.0)
+    boundary = np.floor(texel_position + 0.5)          # the texel edge this fragment is nearest
+    across = np.clip((texel_position - boundary) / width + 0.5, 0.0, 1.0)
+    return boundary - 0.5 + across
+
+
 class GlVertices:
+    """
+    A triangle mesh: vertices, per-vertex RGBA colors, and texture coordinates.
+
+    The base of every shape below, and usable directly for arbitrary geometry. Transform methods
+    (:meth:`rotate`, :meth:`translate`, :meth:`scale`) return the object, so they chain.
+
+    :param vertices: 3 x n array of vertex positions, in meters
+    :param colors: 4 x n array of RGBA values, one per vertex
+    :param tex_coords: 2 x n array of texture coordinates, for textured shapes
+    """
+    EDGE_KIND = EDGE_NONE
+    edge_frame = CANONICAL_PATCH_FRAME
+    edge_anchor = (0.0, 0.0, 0.0)
+    edge_extent = (0.0, 0.0)
+
+    @property
+    def edge_kind(self):
+        """Which edge equation the fragment shader should evaluate for this shape, if any."""
+        return self.EDGE_KIND
+
     def __init__(self, vertices=None, colors=None, tex_coords=None):
         self.vertices = vertices
         self.colors = colors
         self.tex_coords = tex_coords
+        #: Declarations belonging to components merged in by :meth:`add`, each with the run of
+        #: vertices it covers. Empty for a shape that is drawn as itself -- that one uses the
+        #: attributes above.
+        self.edge_spans = []
 
     def add(self, obj):
+        """Merge another shape into this one, concatenating its vertices, colors and texture coordinates.
+
+        Anything the merged shape declared about its edge is kept, along with where its vertices
+        landed, so a composite of analytic shapes stays analytic. Merging is still one buffer; it
+        is the drawing that separates, one call per declared run.
+        """
+        start = 0 if self.vertices is None else self.vertices.shape[1]
+
         # add vertices
         if self.vertices is None:
             self.vertices = obj.vertices
         else:
             self.vertices = np.concatenate((self.vertices, obj.vertices), axis=1)
+
+        if obj.edge_kind != EDGE_NONE:
+            self.edge_spans.append(EdgeSpan(start, obj.vertices.shape[1], obj))
+        else:
+            # a composite of composites: its children's runs are still meaningful, just further in
+            self.edge_spans.extend(span.moved(start) for span in getattr(obj, 'edge_spans', ()))
 
         # add colors
         if self.colors is None:
@@ -34,30 +379,54 @@ class GlVertices:
         :param x: rotation around x axis (pitch), radians
         :param y: rotation around y axis (roll), radians
         """
-        return GlVertices(vertices=util.rotate(self.vertices, z, x, y), colors=self.colors, tex_coords=self.tex_coords)
+        return _carry_edge(self, GlVertices(vertices=util.rotate(self.vertices, z, x, y), colors=self.colors,
+                                            tex_coords=self.tex_coords),
+                          rotation=lambda v: util.rotate(v, z, x, y))
 
     def rotx(self, th):
-        return GlVertices(vertices=util.rotx(self.vertices, th), colors=self.colors, tex_coords=self.tex_coords)
+        """Rotate about the x axis by ``th`` radians. Returns self, so calls chain."""
+        return _carry_edge(self, GlVertices(vertices=util.rotx(self.vertices, th), colors=self.colors,
+                                            tex_coords=self.tex_coords),
+                          rotation=lambda v: util.rotx(v, th))
 
     def roty(self, th):
-        return GlVertices(vertices=util.roty(self.vertices, th), colors=self.colors, tex_coords=self.tex_coords)
+        """Rotate about the y axis by ``th`` radians. Returns self, so calls chain."""
+        return _carry_edge(self, GlVertices(vertices=util.roty(self.vertices, th), colors=self.colors,
+                                            tex_coords=self.tex_coords),
+                          rotation=lambda v: util.roty(v, th))
 
     def rotz(self, th):
-        return GlVertices(vertices=util.rotz(self.vertices, th), colors=self.colors, tex_coords=self.tex_coords)
+        """Rotate about the z axis by ``th`` radians. Returns self, so calls chain."""
+        return _carry_edge(self, GlVertices(vertices=util.rotz(self.vertices, th), colors=self.colors,
+                                            tex_coords=self.tex_coords),
+                          rotation=lambda v: util.rotz(v, th))
 
     def scale(self, amt):
-        return GlVertices(vertices=util.scale(self.vertices, amt), colors=self.colors, tex_coords=self.tex_coords)
+        """Scale about the origin. Returns self, so calls chain."""
+        result = GlVertices(vertices=util.scale(self.vertices, amt), colors=self.colors,
+                            tex_coords=self.tex_coords)
+        uniform = _uniform_scale(amt)
+        # A non-uniform scale is the one transform that stops a shape being the shape it declared,
+        # so it alone drops the declaration -- and the declarations of anything merged into it.
+        return result if uniform is None else _carry_edge(self, result, scale=uniform)
 
     def translate(self, amt):
-        return GlVertices(vertices=util.translate(self.vertices, amt), colors=self.colors, tex_coords=self.tex_coords)
+        """Translate by an (x, y, z) offset in meters. Returns self, so calls chain."""
+        return _carry_edge(self, GlVertices(vertices=util.translate(self.vertices, amt),
+                                            colors=self.colors, tex_coords=self.tex_coords),
+                          translation=amt)
 
     def set_color(self, color):
+        """Set every vertex to one color."""
         new_colors = np.tile(np.array(color), (self.vertices.shape[1], 1)).T
-        return GlVertices(vertices=self.vertices, colors=new_colors, tex_coords=self.tex_coords)
+        return _carry_edge(self, GlVertices(vertices=self.vertices, colors=new_colors,
+                                            tex_coords=self.tex_coords))
 
     def shift_texture(self, shift):
+        """Offset texture coordinates by (u, v) -- how a texture is scrolled across a shape."""
         new_tex_coords = self.tex_coords + np.tile(shift, (self.tex_coords.shape[1], 1)).T
-        return GlVertices(vertices=self.vertices, colors=self.colors, tex_coords=new_tex_coords)
+        return _carry_edge(self, GlVertices(vertices=self.vertices, colors=self.colors,
+                                            tex_coords=new_tex_coords))
 
     @property
     def data(self):
@@ -69,6 +438,11 @@ class GlVertices:
 
 
 class GlTri(GlVertices):
+    """
+    A single triangle from three vertices, optionally textured.
+
+    The unit every other shape is built from.
+    """
     def __init__(self, v1, v2, v3, color, tc1=None, tc2=None, tc3=None, texture=None):
         vertices = np.concatenate((v1, v2, v3)).reshape((3, 3), order='F')
         colors = np.concatenate((color, color, color)).reshape((4, 3), order='F')
@@ -81,6 +455,12 @@ class GlTri(GlVertices):
 
 
 class GlQuad(GlVertices):
+    """
+    A planar quadrilateral from four vertices, drawn as two triangles.
+
+    Vertices are taken in order around the perimeter. Texture coordinates default to the corners
+    of the texture, so ``use_texture=True`` maps one full copy across the quad.
+    """
     def __init__(self, v1, v2, v3, v4, color, tc1=(0, 0), tc2=(1, 0), tc3=(1, 1), tc4=(0, 1), texture_shift=(0, 0), use_texture=False):
         super().__init__()
         if use_texture:
@@ -97,27 +477,49 @@ class GlQuad(GlVertices):
             self.add(GlTri(v1, v3, v4, color))
 
 class GlCircle(GlVertices):
-    '''
-    Circle parallel to the xz plane
-    '''
-    def __init__(self, color=(1, 1, 1, 1), center=(0, 0, 0), radius=1.0, n_steps=36):
-        # call the super constructor
-        super().__init__()
+    """
+    A flat disc parallel to the xz plane, of a radius in meters.
 
+    Flat rather than spherical: it is an object at a place, so its apparent size changes with the
+    subject's distance from it. For a patch that subtends a fixed angle wherever it is put, use
+    :class:`GlSphericalCirc`.
+
+    Its edge is analytic and *metric* rather than angular -- every fragment of a flat disc lies in
+    the disc's plane, so the distance from the center in three dimensions is the radius in two, and
+    ``length(v_world - anchor) - radius`` is the boundary exactly. That makes the triangles a bound
+    here too, so ``n_steps`` sets surplus area rather than roundness.
+
+    The bound needs no margin. Polygon and circle are both planar and a triangle edge is a straight
+    line in that plane, so a circumscribing polygon contains the circle exactly -- and perspective
+    scales both by the same factor, so it keeps containing it at every distance.
+
+    :param center: (x, y, z) of the disc's center, meters
+    :param radius: meters
+    :param n_steps: sides of the bounding polygon. Not the accuracy of the disc.
+    """
+    EDGE_KIND = EDGE_WORLD_DISC
+
+    def __init__(self, color=(1, 1, 1, 1), center=(0, 0, 0), radius=1.0, n_steps=8):
+        super().__init__()
         color = util.get_rgba(color)
 
-        angles = np.linspace(0, 2*np.pi, n_steps+1)
+        bound = radius / np.cos(np.pi / n_steps)     # edges tangent to the circle, not vertices on it
+        angles = np.linspace(0, 2*np.pi, n_steps, endpoint=False)
+        rim = [(bound*np.sin(a), 0.0, bound*np.cos(a)) for a in angles]
         for wedge in range(n_steps):
-            v1 = (radius*np.sin(angles[wedge]),
-                  0,
-                  radius*np.cos(angles[wedge]))
-            v2 = (radius*np.sin(angles[wedge+1]),
-                  0,
-                  radius*np.cos(angles[wedge+1]))
+            self.add(GlTri(rim[wedge], rim[(wedge + 1) % n_steps], (0, 0, 0), color).translate(center))
 
-            self.add(GlTri(v1, v2, (0,0,0), color).translate(center))
+        self.edge_anchor = tuple(float(v) for v in center)
+        self.edge_extent = (float(radius), 0.0)
+
 
 class GlCube(GlVertices):
+    """
+    An axis-aligned cube, one color per face.
+
+    :param colors: dict of face name to color, or None for a default set of six distinct
+        colors -- useful as a visible reference object when checking perspective.
+    """
     def __init__(self, colors=None, center=[0, 0, 0], side_length=1.0):
         # call the super constructor
         super().__init__()
@@ -150,6 +552,11 @@ class GlCube(GlVertices):
         self.add(GlQuad((+s, -s, -s), (+s, +s, -s), (-s, +s, -s), (-s, -s, -s), colors['-z']).translate(center))
 
 class GlBox(GlVertices):
+    """
+    An axis-aligned rectangular box, one color per face.
+
+    :class:`GlCube` with independent side lengths in x, y and z.
+    """
     def __init__(self, colors=None, center=(0, 0, 0), side_lengths={'x':1.0, 'y':1.0, 'z':1.0}):
         # call the super constructor
         super().__init__()
@@ -184,6 +591,23 @@ class GlBox(GlVertices):
         self.add(GlQuad((+x, -y, -z), (+x, +y, -z), (-x, +y, -z), (-x, -y, -z), colors['-z']).translate(center))
 
 class GlSphericalRect(GlVertices):
+    """
+    A patch on the surface of a sphere, rectangular in spherical coordinates.
+
+    Width and height are angles subtended at the center of the sphere, so the patch keeps its
+    angular size however the sphere is scaled. Built at the equator and at theta = 90 degrees --
+    facing the subject's default heading -- then rotated into place by the caller, which avoids
+    the distortion a patch would pick up near the poles.
+
+    :param width: degrees of azimuth (theta)
+    :param height: degrees of elevation (phi)
+    :param sphere_radius: meters
+    :param n_steps_x: subdivisions across the width; more make the patch follow the sphere's
+        curvature more closely, at the cost of vertices
+    :param n_steps_y: subdivisions down the height
+    """
+    EDGE_KIND = EDGE_ANGULAR_RECT
+
     def __init__(self,
                  width=20,  # degrees, theta
                  height=20,  # degrees, phi
@@ -192,24 +616,19 @@ class GlSphericalRect(GlVertices):
                  n_steps_x=6,
                  n_steps_y=6):
         super().__init__()
-        color = util.get_rgba(color)
-
-        d_theta = (1/n_steps_x) * radians(width)
-        d_phi = (1/n_steps_y) * radians(height)
-        for rr in range(n_steps_y):
-            for cc in range(n_steps_x):
-                # render patch at the equator (phi=pi/2) so it's not near the poles
-                # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-                theta = np.pi/2 + radians(width) * (-1/2 + (cc/n_steps_x))
-                phi = np.pi/2 + radians(height) * (-1/2 + (rr/n_steps_y))
-                v1 = util.spherical_to_cartesian(sphere_radius, theta, phi)
-                v2 = util.spherical_to_cartesian(sphere_radius, theta, phi + d_phi)
-                v3 = util.spherical_to_cartesian(sphere_radius, theta + d_theta, phi)
-                v4 = util.spherical_to_cartesian(sphere_radius, theta + d_theta, phi + d_phi)
-                self.add(GlTri(v1, v2, v4, color))
-                self.add(GlTri(v1, v3, v4, color))
+        _add_angular_rect_patch(self, width, height, sphere_radius, util.get_rgba(color),
+                                n_steps_x, n_steps_y)
 
 class GlSphericalTexturedRect(GlVertices):
+    """
+    :class:`GlSphericalRect` carrying texture coordinates, for image and grating stimuli.
+
+    Takes the same analytic edge, since it has the same boundary. That antialiases the patch's
+    outer border only -- the texture's own texel boundaries are a separate matter, handled by the
+    fragment shader's sharp-texel sampling rather than by a shape declaration.
+    """
+    EDGE_KIND = EDGE_ANGULAR_RECT
+
     def __init__(self,
                  width=20,  # degrees, theta
                  height=20,  # degrees, phi
@@ -220,114 +639,181 @@ class GlSphericalTexturedRect(GlVertices):
                  texture=False,
                  texture_shift=(0, 0)):
         super().__init__()
-        color = util.get_rgba(color)
+        _add_angular_rect_patch(self, width, height, sphere_radius, util.get_rgba(color),
+                                n_steps_x, n_steps_y, texture=texture, texture_shift=texture_shift)
 
-        d_theta = (1/n_steps_x) * radians(width)
-        d_phi = (1/n_steps_y) * radians(height)
-        for rr in range(n_steps_y):
-            for cc in range(n_steps_x):
-                # render patch at the equator (phi=pi/2) so it's not near the poles
-                # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-                theta = np.pi/2 + radians(width) * (-1/2 + (cc/n_steps_x))
-                phi = np.pi/2 + radians(height) * (-1/2 + (rr/n_steps_y))
-                v1 = util.spherical_to_cartesian(sphere_radius, theta, phi)
-                v2 = util.spherical_to_cartesian(sphere_radius, theta, phi + d_phi)
-                v3 = util.spherical_to_cartesian(sphere_radius, theta + d_theta, phi)
-                v4 = util.spherical_to_cartesian(sphere_radius, theta + d_theta, phi + d_phi)
-                if texture:
-                    tc1 = (cc/n_steps_x, rr/n_steps_y)
-                    tc2 = (cc/n_steps_x, (rr+1)/n_steps_y)
-                    tc3 = ((cc+1)/n_steps_x, rr/n_steps_y)
-                    tc4 = ((cc+1)/n_steps_x, (rr+1)/n_steps_y)
-                    self.add(GlTri(v1, v2, v4, color, [sum(x) for x in zip(tc1, texture_shift)],
-                                                      [sum(x) for x in zip(tc2, texture_shift)],
-                                                      [sum(x) for x in zip(tc4, texture_shift)]))
-
-                    self.add(GlTri(v1, v3, v4, color, [sum(x) for x in zip(tc1, texture_shift)],
-                                                      [sum(x) for x in zip(tc3, texture_shift)],
-                                                      [sum(x) for x in zip(tc4, texture_shift)]))
-                else:
-                    self.add(GlTri(v1, v2, v4, color))
-                    self.add(GlTri(v1, v3, v4, color))
 
 class GlSphericalEllipse(GlVertices):
+    """
+    An elliptical patch, of fixed angular width and height, on the surface of a sphere.
+
+    Defined as the sphere cut by the cone of a flat ellipse: the shape an elliptical hole held in
+    front of the subject would leave unblocked, and the shape an ellipse drawn on a flat screen
+    subtends. As with :class:`GlSphericalCirc`, the triangles are a *bound* and the fragment shader
+    clips them to the true boundary, so the edge is exact at any size and carries sub-pixel
+    coverage.
+
+    This is the same cone as the disc, with the two half-extents allowed to differ -- so
+    ``GlSphericalEllipse(w, w)`` is exactly ``GlSphericalCirc(w/2)``, which was not true of the
+    ellipse this replaces. That one was built on the azimuth/elevation grid, which is not uniform,
+    and so came out pinched at the diagonals: 0.35 degrees, four pixels, on a 60 degree shape.
+
+    :param width: degrees of azimuth subtended at the subject
+    :param height: degrees of elevation subtended at the subject
+    :param n_steps: sides of the bounding polygon. Not the accuracy of the ellipse.
+    """
+    EDGE_KIND = EDGE_CONE
+
     def __init__(self,
                  width=20,  # degrees in spherical coordinates
                  height=10,  # degrees in spherical coordinates
                  sphere_radius=1,  # meters
                  color=[1, 1, 1, 1],  # [r,g,b,a] or single value for monochrome, alpha = 1
                  sphere_location=(0, 0, 0),  # (x,y,z) meters. (0,0,0) is center of sphere
-                 n_steps=36):
+                 n_steps=8):
         super().__init__()
-        color = util.get_rgba(color)
-
-        v_center = util.spherical_to_cartesian(sphere_radius, np.pi/2, np.pi/2)
-
-        angles = np.linspace(0, 2*np.pi, n_steps+1)
-        for wedge in range(n_steps):
-            # render circle at the equator (phi=pi/2) so it's not near the poles
-            # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-            v1 = util.spherical_to_cartesian(sphere_radius,
-                                        np.pi/2 + radians(width/2)*np.cos(angles[wedge]),
-                                        np.pi/2 + radians(height/2)*np.sin(angles[wedge]))
-            v2 = util.spherical_to_cartesian(sphere_radius,
-                                        np.pi/2 + radians(width/2)*np.cos(angles[wedge+1]),
-                                        np.pi/2 + radians(height/2)*np.sin(angles[wedge+1]))
-
-            self.add(GlTri(v1, v2, v_center, color).translate(sphere_location))
+        _add_cone_patch(self, radians(width/2), radians(height/2), sphere_radius,
+                        util.get_rgba(color), sphere_location, n_steps)
 
 class GlCylindricalWithPhiEllipse(GlVertices):
+    """
+    :class:`GlSphericalEllipse` laid on a cylinder rather than a sphere.
+
+    Azimuth follows the cylinder wall; elevation is still an angle subtended at the subject, so
+    the shape suits rigs whose screens wrap horizontally but not vertically.
+
+    It carries the same analytic edge as its spherical twin, and for a reason worth stating: the
+    two occupy *identical directions*, and differ only in how far along each ray the vertices sit.
+    An edge declaration is a statement about direction, so the surface never enters into it.
+
+    :param n_steps: sides of the bounding polygon. Not the accuracy of the ellipse.
+    """
+    EDGE_KIND = EDGE_CONE
+
     def __init__(self,
                  width=20,  # degrees in spherical coordinates
                  height=10,  # degrees in spherical coordinates
                  cylinder_radius=1,  # meters
                  color=[1, 1, 1, 1],  # [r,g,b,a] or single value for monochrome, alpha = 1
                  cylinder_location=(0, 0, 0),  # (x,y,z) meters. (0,0,0) is center of cylinder
-                 n_steps=36):
+                 n_steps=8):
         super().__init__()
-        color = util.get_rgba(color)
-
-        v_center = util.cylindrical_w_phi_to_cartesian(cylinder_radius, np.pi/2, np.pi/2)
-
-        angles = np.linspace(0, 2*np.pi, n_steps+1)
-        for wedge in range(n_steps):
-            # render circle at the equator (phi=pi/2) so it's not near the poles
-            # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-            v1 = util.cylindrical_w_phi_to_cartesian(cylinder_radius,
-                                            np.pi/2 + radians(width/2)*np.cos(angles[wedge]),
-                                            np.pi/2 + radians(height/2)*np.sin(angles[wedge]))
-            v2 = util.cylindrical_w_phi_to_cartesian(cylinder_radius,
-                                            np.pi/2 + radians(width/2)*np.cos(angles[wedge+1]),
-                                            np.pi/2 + radians(height/2)*np.sin(angles[wedge+1]))
-
-            self.add(GlTri(v1, v2, v_center, color).translate(cylinder_location))
+        _add_cone_patch(self, radians(width/2), radians(height/2), cylinder_radius,
+                        util.get_rgba(color), cylinder_location, n_steps,
+                        to_cartesian=util.cylindrical_w_phi_to_cartesian)
 
 class GlSphericalCirc(GlVertices):
+    """
+    A circular patch on the surface of a sphere, of fixed angular radius.
+
+    The triangles are a *bound*, not the shape. They are pushed out until their edges are tangent
+    to the true circle, and the fragment shader clips them back to it -- so the disc is exact at
+    any radius, and its edge carries sub-pixel coverage rather than snapping to whole pixels.
+
+    That inverts what `n_steps` is for. It used to set accuracy: vertices sat on the circle, so the
+    chords between them cut 1 - cos(pi/n) inside it -- 0.38% of the radius at 36 steps, which is
+    0.076 degrees on a 20 degree disc and nearly twice a pixel on a flat rig. Now it only sets how
+    much surplus area is drawn and then found to be outside, so 8 is enough and cheaper than 36.
+
+    :param circle_radius: degrees subtended at the subject
+    :param n_steps: sides of the bounding polygon. Not the accuracy of the disc.
+    """
+    EDGE_KIND = EDGE_CONE
+
     def __init__(self,
                  circle_radius=10,  # degrees in spherical coordinates
                  sphere_radius=1,  # meters
                  color=[1, 1, 1, 1],  # [r,g,b,a] or single value for monochrome, alpha = 1
                  sphere_location=(0, 0, 0),  # (x,y,z) meters. (0,0,0) is center of sphere
-                 n_steps=36):
+                 n_steps=8):
         super().__init__()
-        color = util.get_rgba(color)
+        _add_cone_patch(self, radians(circle_radius), radians(circle_radius), sphere_radius,
+                        util.get_rgba(color), sphere_location, n_steps)
 
-        v_center = util.spherical_to_cartesian(sphere_radius, np.pi/2, np.pi/2)
 
-        angles = np.linspace(0, 2*np.pi, n_steps+1)
-        for wedge in range(n_steps):
-            # render circle at the equator (phi=pi/2) so it's not near the poles
-            # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-            v1 = util.spherical_to_cartesian(sphere_radius,
-                                        np.pi/2 + radians(circle_radius)*np.cos(angles[wedge]),
-                                        np.pi/2 + radians(circle_radius)*np.sin(angles[wedge]))
-            v2 = util.spherical_to_cartesian(sphere_radius,
-                                        np.pi/2 + radians(circle_radius)*np.cos(angles[wedge+1]),
-                                        np.pi/2 + radians(circle_radius)*np.sin(angles[wedge+1]))
+class GlSphericalAnnuli(GlVertices):
+    """
+    Concentric annuli of equal angular width about the forward axis, in alternating colors.
 
-            self.add(GlTri(v1, v2, v_center, color).translate(sphere_location))
+    A commissioning pattern rather than an experimental stimulus. Every band subtends the same
+    angle at the subject, so on a screen that is a sphere centered on the subject every band is the
+    same *physical* width on the surface -- which makes a ruler or a photograph a direct test of
+    the renderer's geometry, needing no model of the rig to interpret. In the projector image the
+    same bands are emphatically not equal: they compress towards the rim, and that compression is
+    the warp doing its job.
+
+    Built exactly, from the angle-from-axis definition, rather than by offsetting theta and phi
+    around the canonical patch center the way :class:`GlSphericalCirc` does. That parameterization
+    is a tangent-plane approximation, exact only to first order in the offset -- fine for a patch a
+    few degrees across, and wrong by a degree or so at the 45 degrees these rings are meant to
+    reach, which is exactly the error this pattern exists to detect.
+
+    No analytic edge: the shader carries one edge equation per draw, and this is many rings. The
+    boundaries are therefore polygonal, and ``n_azimuth`` says how finely. The radial error is
+    ``1 - cos(pi / n_azimuth)`` of the ring radius -- at the default 128 that is 0.03% of it, about
+    0.01 degrees at 45, well under a projector pixel on any rig this is useful for.
+
+    :param band_width: angular width of each band, in degrees
+    :param max_radius: how far out to draw, in degrees from the axis. Rounded up to a whole band,
+        so the outermost band is never a partial one masquerading as a full one.
+    :param sphere_radius: meters. Only has to put the pattern outside anything else in the scene.
+    :param colors: the two colors to alternate, innermost first. ``[r,g,b,a]`` or mono.
+    :param n_azimuth: steps around the axis. See above for what it costs.
+    """
+
+    def __init__(self,
+                 band_width=5.0,
+                 max_radius=45.0,
+                 sphere_radius=1.0,
+                 colors=(1.0, 0.0),
+                 n_azimuth=128):
+        super().__init__()
+
+        if band_width <= 0:
+            raise ValueError(f'band_width must be positive, got {band_width}')
+        if max_radius <= 0:
+            raise ValueError(f'max_radius must be positive, got {max_radius}')
+        if n_azimuth < 3:
+            raise ValueError(f'n_azimuth must be at least 3, got {n_azimuth}')
+
+        # Whole bands only. A truncated outer band reads as a band of its own, and someone checking
+        # that the widths are equal would find one that is not and go looking for a bug in the warp.
+        n_bands = int(np.ceil(max_radius / band_width))
+        edges = np.radians(np.arange(n_bands + 1) * band_width)
+
+        inner, outer = edges[:-1, None], edges[1:, None]            # (B, 1)
+        azimuth = np.linspace(0, 2 * np.pi, n_azimuth + 1)
+        left, right = azimuth[None, :-1], azimuth[None, 1:]         # (1, A)
+
+        def direction(angle, around):
+            """Unit vectors `angle` from +y, at `around` about it. Exact at any angle."""
+            angle, around = np.broadcast_arrays(angle, around)
+            return np.stack([np.sin(angle) * np.cos(around),
+                             np.cos(angle) * np.ones_like(around),
+                             np.sin(angle) * np.sin(around)])       # (3, B, A)
+
+        # Each cell of the (band, azimuth) grid becomes two triangles. The innermost band's inner
+        # edge is a point, so its first triangle is degenerate and draws nothing -- cheaper than
+        # special-casing a fan, and it keeps one array shape for the whole pattern.
+        corners = (direction(inner, left), direction(inner, right),
+                   direction(outer, right), direction(outer, left))
+        a, b, c, d = corners
+        triangles = np.stack([a, b, c, a, c, d], axis=-1)           # (3, B, A, 6)
+
+        band_colors = np.stack([util.get_rgba(colors[index % len(colors)])
+                                for index in range(n_bands)], axis=1)   # (4, B)
+
+        self.vertices = (sphere_radius * triangles).reshape(3, -1)
+        self.colors = np.broadcast_to(band_colors[:, :, None, None],
+                                      (4, n_bands, n_azimuth, 6)).reshape(4, -1)
+
 
 class GlCylindricalPoints(GlVertices):
+    """
+    Points placed on a cylinder wall at given azimuths and elevations.
+
+    Drawn as GL points rather than triangles -- see ``draw_mode`` on the stimulus.
+    """
     def __init__(self,
                  cylinder_radius=1,  # meters
                  cylinder_location=(0, 0, 0),  # (x,y,z) meters. (0,0,0) is center of cylinder (r = 0 and z = height/2)
@@ -342,11 +828,14 @@ class GlCylindricalPoints(GlVertices):
             cartesian_coords.append(util.cylindrical_w_phi_to_cartesian(cylinder_radius, radians(theta[pt]), radians(phi[pt])))
 
         vertices = np.vstack(cartesian_coords).T  # 3 x n_points
-        colors = matlib.repmat(color, len(theta), 1).T  # 4 x n_points
+        colors = np.tile(color, (len(theta), 1)).T  # 4 x n_points
 
         super().__init__(vertices=vertices, colors=colors)
 
 class GlSphericalPoints(GlVertices):
+    """
+    Points placed on a sphere at given azimuths (``theta``) and elevations (``phi``), in degrees.
+    """
     def __init__(self,
                  sphere_radius=1,  # meters
                  color=[1, 1, 1, 1],
@@ -360,22 +849,40 @@ class GlSphericalPoints(GlVertices):
             cartesian_coords.append(util.spherical_to_cartesian(sphere_radius, np.pi/2 + radians(theta[pt]), np.pi/2 + radians(phi[pt])))
 
         vertices = np.vstack(cartesian_coords).T  # 3 x n_points
-        colors = matlib.repmat(color, len(theta), 1).T  # 4 x n_points
+        colors = np.tile(color, (len(theta), 1)).T  # 4 x n_points
 
         super().__init__(vertices=vertices, colors=colors)
 
 class GlPointCollection(GlVertices):
+    """
+    Points at arbitrary Cartesian positions, all one color.
+
+    :param locations: sequence of (x, y, z) positions in meters
+    """
     def __init__(self,
                  locations=[[0, 0, 0]],
                  color=[1, 1, 1, 1]):
         color = util.get_rgba(color)
 
         vertices = np.vstack(locations)  # 3 x n_points
-        colors = matlib.repmat(color, vertices.shape[1], 1).T  # 4 x n_points
+        colors = np.tile(color, (vertices.shape[1], 1)).T  # 4 x n_points
 
         super().__init__(vertices=vertices, colors=colors)
 
 class GlCylinder(GlVertices):
+    """
+    A cylinder wall around the subject -- the surface most panoramic stimuli are painted on.
+
+    :param cylinder_height: meters
+    :param cylinder_radius: meters
+    :param cylinder_angular_extent: degrees of azimuth covered; 360 closes the cylinder, less
+        leaves an arc
+    :param n_faces: flat faces approximating the wall
+    :param alpha_by_face: per-face alpha, for fading a cylinder out towards its edges
+    :param texture: whether to generate texture coordinates
+    :param n_texture_repeat_x: how many times the texture tiles around the cylinder
+    :param n_texture_repeat_y: how many times it tiles vertically
+    """
     def __init__(self,
                  cylinder_height=10,  # meters
                  cylinder_radius=1,  # meters
@@ -417,6 +924,14 @@ class GlCylinder(GlVertices):
                 self.add(GlQuad(v1, v2, v3, v4, color).translate(cylinder_location))
 
 class GlCylindricalWithPhiRect(GlVertices):
+    """
+    A rectangular patch on a cylinder wall, sized in degrees of azimuth and elevation.
+
+    The cylindrical counterpart of :class:`GlSphericalRect`, and analytic on the same terms: the
+    two cover identical directions, so the same declaration describes both.
+    """
+    EDGE_KIND = EDGE_ANGULAR_RECT
+
     def __init__(self,
                  width=20,  # degrees, theta
                  height=20,  # degrees, phi
@@ -425,19 +940,6 @@ class GlCylindricalWithPhiRect(GlVertices):
                  n_steps_x=6,
                  n_steps_y=6):
         super().__init__()
-        color = util.get_rgba(color)
-
-        d_theta = (1/n_steps_x) * radians(width)
-        d_phi = (1/n_steps_y) * radians(height)
-        for rr in range(n_steps_y):
-            for cc in range(n_steps_x):
-                # render patch at the equator (phi=pi/2) so it's not near the poles
-                # Also render it at theta = 90 degrees, for stimpack.visual_stim coordinates where heading (0,0,0) is +y axis
-                theta = np.pi/2 + radians(width) * (-1/2 + (cc/n_steps_x))
-                phi = np.pi/2 + radians(height) * (-1/2 + (rr/n_steps_y))
-                v1 = util.cylindrical_w_phi_to_cartesian(cylinder_radius, theta, phi)
-                v2 = util.cylindrical_w_phi_to_cartesian(cylinder_radius, theta, phi + d_phi)
-                v3 = util.cylindrical_w_phi_to_cartesian(cylinder_radius, theta + d_theta, phi)
-                v4 = util.cylindrical_w_phi_to_cartesian(cylinder_radius, theta + d_theta, phi + d_phi)
-                self.add(GlTri(v1, v2, v4, color))
-                self.add(GlTri(v1, v3, v4, color))
+        _add_angular_rect_patch(self, width, height, cylinder_radius, util.get_rgba(color),
+                                n_steps_x, n_steps_y,
+                                to_cartesian=util.cylindrical_w_phi_to_cartesian)

@@ -1,3 +1,10 @@
+"""
+Streaming frames from another process into a stimulus via shared memory.
+
+Lets a camera feed, a rendering engine, or a stimulus generator written elsewhere drive the
+display: the other process writes frames into a shared buffer and
+:class:`~stimpack.visual_stim.stimuli.PixMap` paints whatever is there.
+"""
 from multiprocessing import shared_memory
 import numpy as np
 import time
@@ -27,11 +34,26 @@ class SharedPixMapStimulus:
         self.global_frame[:] = np.zeros(self.frame_shape)
 
     def close(self):
-        self.memblock.close()
-        self.recblock.close()
-        self.memblock.unlink()
-        self.recblock.unlink()
-        self.thread.join()
+        # Cancel any pending scheduled frames so the writer thread's scheduler returns promptly
+        # (otherwise it runs until every remaining frame fires, up to `dur` seconds), then join it
+        # so nothing is writing into the block while we tear it down.
+        scheduler = getattr(self, 's', None)
+        if scheduler is not None:
+            for event in list(scheduler.queue):
+                try:
+                    scheduler.cancel(event)
+                except ValueError:
+                    pass
+        thread = getattr(self, 'thread', None)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=5)
+        # Drop the ndarray view into the shared buffer before closing; otherwise SharedMemory.close()
+        # raises BufferError ("cannot close exported pointers exist") and the segments leak in /dev/shm.
+        self.global_frame = None
+        for block in (getattr(self, 'memblock', None), getattr(self, 'recblock', None)):
+            if block is not None:
+                block.close()
+                block.unlink()
 
     def genframe(self):
         '''
@@ -40,18 +62,18 @@ class SharedPixMapStimulus:
         pass
         
     def load_stream(self):
-
         self.s = sched.scheduler(time.time, time.sleep)
-        
-        tis = np.arange(0,self.dur,1/self.nominal_frame_rate)
-        tis = tis[1:]
-        for ti in tis: 
-            self.s.enter(ti, 1, self.genframe)
-
-        self.thread = threading.Thread(target=self.s.run)
+        self.thread = threading.Thread(target=self.s.run, daemon=True)
 
     def start_stream(self):
         self.t = time.time()
+        # Anchor frame deadlines to stream START, not load time. sched.enter() fixes the absolute
+        # deadline when it is called, so scheduling at load time made the stream fire a catch-up
+        # burst and stop updating (self.t - load_time) seconds early. enterabs anchors to now.
+        tis = np.arange(0, self.dur, 1/self.nominal_frame_rate)
+        tis = tis[1:]
+        for ti in tis:
+            self.s.enterabs(self.t + ti, 1, self.genframe)
         self.thread.start()
 
 class WhiteNoise(SharedPixMapStimulus):

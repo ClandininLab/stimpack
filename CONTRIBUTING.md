@@ -1,11 +1,22 @@
 # Contributing to stimpack
 
+## Reporting issues and getting support
+
+- **Bugs and feature requests**: open an issue at
+  [github.com/ClandininLab/stimpack/issues](https://github.com/ClandininLab/stimpack/issues).
+  For bugs, include your OS, Python version, `stimpack --version` output, and — if the problem
+  involves a labpack — the output of `stimpack --check-labpack`.
+- **Questions and usage help**: also welcome as GitHub issues; label them as questions. Please
+  check the documentation at [stimpack.readthedocs.io](https://stimpack.readthedocs.io) first.
+
+## Pull requests
+
 The following pull request flow description is slightly modified from a similar document in the [DragonPHY project](https://github.com/StanfordVLSI/DragonPHY).  More details on using pull requests can be found in [this tutorial](https://yangsu.github.io/pull-request-tutorial/).
 
-We use pull requests (PRs) to manage updates to the code base, and block merging of PRs unless automated tests pass (they're stored in the **stimpack/tests** subdirectory).  Here are the steps to go through to use this system.
-1. Make sure that you're up-to-date with the latest changes from the **master** branch:
+We use pull requests (PRs) to manage updates to the code base.  The test suite lives in the top-level **tests/** directory and runs on every PR via GitHub Actions (see `.github/workflows/test.yml`); please make sure it passes before asking for a review.  Here are the steps to go through to use this system.
+1. Make sure that you're up-to-date with the latest changes from the **main** branch:
 ```shell
-> git pull origin master
+> git pull origin main
 ```
 2. Create a new branch to store your work, and change to that branch.  The name of the branch should give some brief indictation of the feature that you're working on.  For example, you might call the branch **new_vert_bars** if it represents a new kind of vertical bar stimulus.
 ```shell
@@ -22,17 +33,84 @@ We use pull requests (PRs) to manage updates to the code base, and block merging
 ```
 5. Go to the [stimpack GitHub page](https://github.com/ClandininLab/stimpack).
 6. Click Pull Requests -> New Pull Request.
-7. Make sure "base" is at **master** and set **compare** to the name of your branch.
+7. Make sure "base" is at **main** and set **compare** to the name of your branch.
 8. Add a title and description of your pull request and click "Create Pull Request".
-  * If the tests pass, then you should be able to click a button at the bottom of the page to merge the pull request.  At that point it is safe to click the button that deletes the branch you created, since the changes have been merged into the **master** branch.
+  * If the tests pass, then you should be able to click a button at the bottom of the page to merge the pull request.  At that point it is safe to click the button that deletes the branch you created, since the changes have been merged into the **main** branch.
   * If the tests don't pass, then modify the code and push it to your branch.  The checks will automatically be re-run and the pull request will be updated with the build status.  In other words,
 ```shell
 <make changes to code>
 > git commit -am "description of changes"
 > git push origin NAME_OF_YOUR_BRANCH
 ```
-10. Now that the changes are merged, switch back to the **master** branch and pull the changes on you machine.
+10. Now that the changes are merged, switch back to the **main** branch and pull the changes on you machine.
 ```shell
-> git checkout master
-> git pull origin master
+> git checkout main
+> git pull origin main
 ```
+
+## Running the tests
+
+The suite is split into tiers by what each needs (see `tests/conftest.py`). A bare `pytest`
+runs everything in one process:
+
+```shell
+> pip install -e .[test]
+> pytest
+```
+
+Individual tiers, which is what CI runs so a failure says which layer broke:
+
+```shell
+> pytest -m unit                    # pure logic; no GL, GUI or hardware
+> pytest -m "integration or gui"    # real objects over a fake RPC link; the PyQt6 GUI, offscreen
+> pytest -m gl                      # needs an OpenGL context (software Mesa is fine)
+> pytest -m e2e                     # a live server with real screen subprocesses
+```
+
+`-m hardware` needs an actual rig and is not run in CI.
+
+The suite tries not to take over the desktop it runs on. The process renders offscreen
+(`QT_QPA_PLATFORM=offscreen`), so the GUI, its dialogs and the KeyTrac window never appear. Screen
+subprocesses need a real GL context and so cannot be offscreen — those windows do appear, but they
+open without taking the keyboard (the default now, and `STIMPACK_NO_FOCUS=1` is still set explicitly
+here; honored under X11/XWayland, while Wayland has no such hint, which is why tests name an X
+display via `helpers.unobtrusive_screen`). Both are `setdefault`, so
+`QT_QPA_PLATFORM=wayland pytest -m gui` still shows you a run. To make the stimulus
+windows invisible as well as unfocused, use a virtual display: `xvfb-run -a pytest`.
+
+Golden-image tests under `tests/gl/` compare renders against `tests/gl/reference/`. If you change
+a stimulus deliberately, regenerate them with `pytest -m gl --update-goldens` and review the diff.
+
+## Checking a labpack
+
+Changes to how stimpack loads user modules can break a labpack silently. Against a real one:
+
+```shell
+> stimpack --check-labpack           # config keys and module_paths; imports nothing
+> stimpack --check-labpack --deep    # also imports each protocol and checks where its calls go
+```
+
+### Choosing a GPU for the GL tests
+
+On a machine with both integrated and discrete graphics, moderngl's default context picks the
+integrated one, so `-m gl` may not exercise the GPU a rig uses. To force the NVIDIA card:
+
+```shell
+> __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia pytest -m gl
+```
+
+The golden images are generated on software/Mesa but their tolerances are wide enough to pass on
+NVIDIA unchanged; if you regenerate them, do it on Mesa so they stay portable.
+
+This works for `-m gl`, which creates a standalone moderngl context, but **not** for `-m e2e`,
+whose screen subprocesses are Qt widgets. Under PRIME offload those fail to get a usable GL
+context — on native Wayland the context is refused outright (`QEGLPlatformContext: Failed to
+create context: 3009`, i.e. `EGL_BAD_MATCH`), and under XWayland it is created but
+`makeCurrent` fails. Either way `paintGL` never runs, so the screen never dispatches its RPC
+queue and the e2e tests that need a live render loop skip rather than fail. Note
+`__GLX_VENDOR_LIBRARY_NAME=nvidia` alone does *not* select the NVIDIA card for Qt — it still
+renders on the integrated GPU.
+
+This is a hybrid-graphics artifact rather than a stimpack problem: a rig drives its displays
+from the discrete card directly and never goes through PRIME offload. Run `-m e2e` without those
+variables.

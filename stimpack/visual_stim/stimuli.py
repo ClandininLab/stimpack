@@ -15,6 +15,12 @@ import copy
 from multiprocessing import shared_memory
 
 class ConstantBackground(BaseProgram):
+    """
+    A uniform background filling the whole visual field.
+
+    Drawn behind everything else, and loaded automatically at the start of each trial from the
+    protocol's ``idle_color``.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -39,6 +45,9 @@ class ConstantBackground(BaseProgram):
         pass
 
 class Floor(BaseProgram):
+    """
+    An untextured plane below the subject, extending to the horizon.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -70,6 +79,11 @@ class Floor(BaseProgram):
         pass
 
 class TexturedGround(BaseProgram):
+    """
+    A ground plane carrying a random texture, giving optic flow as the subject translates.
+
+    Where :class:`Floor` is featureless and so gives no motion cue, this one does.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
         self.use_texture = True
@@ -113,6 +127,9 @@ class TexturedGround(BaseProgram):
         pass
 
 class CheckerboardFloor(BaseProgram):
+    """
+    A ground plane with a grayscale checkerboard, for visible optic flow with a regular period.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
         self.use_texture = True
@@ -166,6 +183,13 @@ class CheckerboardFloor(BaseProgram):
         pass
 
 class MovingPatch(BaseProgram):
+    """
+    A rectangular patch on a sphere -- the workhorse for moving-object experiments.
+
+    Rectangular in *spherical* coordinates, so it subtends a fixed angle wherever it is placed.
+    Any parameter may be given as a trajectory dictionary to vary it over time, which is how the
+    patch is made to move, change color or change size.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -180,7 +204,9 @@ class MovingPatch(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.width = make_as_trajectory(width)
         self.height = make_as_trajectory(height)
@@ -204,6 +230,11 @@ class MovingPatch(BaseProgram):
                                                 color=color).rotate(np.radians(theta), np.radians(phi), np.radians(angle))
 
 class MovingPatchOnCylinder(BaseProgram):
+    """
+    A rectangular patch on a cylinder wall, for rigs whose screens wrap horizontally.
+
+    The cylindrical counterpart of :class:`MovingPatch`.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -218,7 +249,9 @@ class MovingPatchOnCylinder(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.width = make_as_trajectory(width)
         self.height = make_as_trajectory(height)
@@ -242,12 +275,15 @@ class MovingPatchOnCylinder(BaseProgram):
                                                         color=color).rotate(np.radians(theta), np.radians(phi), np.radians(angle))
 
 class MovingEllipse(BaseProgram):
+    """
+    An elliptical patch on a sphere, sized in degrees of azimuth and elevation.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
     def configure(self, width=20, height=10, sphere_radius=1, color=[1, 1, 1, 1], theta=0, phi=0, angle=0):
         """
-        Stimulus consisting of a circular patch on the surface of a sphere. Patch is circular in spherical coordinates.
+        Stimulus consisting of an elliptical patch on the surface of a cylinder.
 
         :param width: width of ellipse in degrees
         :param height: height of ellipse in degrees
@@ -256,7 +292,9 @@ class MovingEllipse(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.sphere_radius = sphere_radius
 
@@ -275,13 +313,17 @@ class MovingEllipse(BaseProgram):
         angle = return_for_time_t(self.angle, t)
         color = return_for_time_t(self.color, t)
         # TODO: is there a way to make this object once in configure then update with radius in eval_at?
-        self.stim_object = shapes.GlSphericalEllipse(width=width, 
+        self.stim_object = shapes.GlSphericalEllipse(width=width,
                                                     height=height,
                                                     sphere_radius=self.sphere_radius,
-                                                    color=color,
-                                                    n_steps=36).rotate(np.radians(theta), np.radians(phi), np.radians(angle))
+                                                    color=color).rotate(np.radians(theta), np.radians(phi), np.radians(angle))
 
 class MovingEllipseOnCylinder(BaseProgram):
+    """
+    An elliptical patch on a cylinder wall.
+
+    The cylindrical counterpart of :class:`MovingEllipse`.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -296,7 +338,9 @@ class MovingEllipseOnCylinder(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.cylinder_radius = cylinder_radius
 
@@ -315,13 +359,17 @@ class MovingEllipseOnCylinder(BaseProgram):
         angle = return_for_time_t(self.angle, t)
         color = return_for_time_t(self.color, t)
         # TODO: is there a way to make this object once in configure then update with radius in eval_at?
-        self.stim_object = shapes.GlCylindricalWithPhiEllipse(width=width, 
+        self.stim_object = shapes.GlCylindricalWithPhiEllipse(width=width,
                                                             height=height,
                                                             cylinder_radius=self.cylinder_radius,
-                                                            color=color,
-                                                            n_steps=36).rotate(np.radians(theta), np.radians(phi), np.radians(angle))
+                                                            color=color).rotate(np.radians(theta), np.radians(phi), np.radians(angle))
 
 class MovingSpot(BaseProgram):
+    """
+    A circular patch on a sphere, of fixed angular radius.
+
+    :class:`MovingEllipse` with one radius instead of two.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -334,7 +382,9 @@ class MovingSpot(BaseProgram):
         :param color: [r,g,b,a] or mono. Color of the patch
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.sphere_radius = sphere_radius
 
@@ -349,24 +399,37 @@ class MovingSpot(BaseProgram):
         phi = return_for_time_t(self.phi, t)
         color = return_for_time_t(self.color, t)
         # TODO: is there a way to make this object once in configure then update with radius in eval_at?
+        # n_steps left at its default: it bounds the disc rather than approximating it now, so 36
+        # sides buy nothing that the shader is not already computing exactly.
         self.stim_object = shapes.GlSphericalCirc(circle_radius=radius,
                                                 sphere_radius=self.sphere_radius,
-                                                color=color,
-                                                n_steps=36).rotate(np.radians(theta), np.radians(phi), 0)
+                                                color=color).rotate(np.radians(theta), np.radians(phi), 0)
 
 class LoomingCircle(BaseProgram):
+    """
+    A circle expanding as though an object were approaching on a collision course.
+
+    Angular size follows the standard looming profile from the object's half-size and approach
+    speed, so the expansion is the one a real approach would produce rather than a linear ramp.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
-    def configure(self, radius=0.5, color=(1, 1, 1, 1), starting_distance=1, speed=-1, n_steps=36):
+    def configure(self, radius=0.5, color=(1, 1, 1, 1), starting_distance=1, speed=-1, n_steps=8):
         """
-        Circle looming towards animal.
-        
+        Circle looming towards the subject.
+
         :param radius: radius of circle in meters
         :param color: [r,g,b,a] or mono. Color of the circle
-        :param starting_distance: distance from animal to start the circle in meters
+        :param starting_distance: distance from the subject to start the circle in meters
         :param speed: speed of the circle in meters per second
-        :param n_steps: number of steps to draw the circle
+        :param n_steps: sides of the polygon standing in for the circle. It is built once here and
+            only translated afterwards, so sides cost nothing per frame -- 128 is about a
+            millisecond at trial setup and nothing thereafter. The old 36 left the polygon inside
+            the true circle by 0.51% of its *area*, constant through the whole approach, which is
+            a systematic bias on exactly the quantity a looming experiment reads. At 128 that is
+            0.04%. See docs/design/analytic-edges.md; unlike the spherical shapes this one has no
+            analytic edge, so the polygon really is the shape.
         """
         self.color = make_as_trajectory(color)
         self.speed = make_as_trajectory(speed)
@@ -388,7 +451,70 @@ class LoomingCircle(BaseProgram):
                                 ).set_color(util.get_rgba(color))
         self.t_prev = t
 
+class AlternatingAnnuli(BaseProgram):
+    """
+    Concentric rings of equal angular width, in alternating colors. A commissioning pattern.
+
+    What it is for, on a curved screen:
+
+    - **is the warp right?** Every band subtends the same angle at the subject, so on a screen that
+      is a sphere centered on the subject every band is the same width *on the screen surface*. A
+      ruler across the bowl, or a photograph of it, checks that directly -- no model of the rig is
+      needed to read the answer. In the projector image the same bands are visibly unequal,
+      compressing towards the rim; that difference is the warp, and seeing it is how you know the
+      mesh is being used at all.
+    - **is the screen centered on the projector?** Point ``theta``/``phi`` along the screen's own
+      axis of symmetry and the rings become concentric with its rim. An offset between the two
+      shows up as rings crowding one side, at a sensitivity far better than eyeballing an edge --
+      each ring is a fresh chance to see the eccentricity.
+
+    On a flat screen the rings are conic sections, so widths are equal only in angle. The physical
+    check above is specific to a spherical screen.
+
+    The pattern is static, so it is built once in :meth:`configure` rather than per frame.
+
+    .. note::
+       ``theta`` and ``phi`` aim the *axis* of the pattern and are ordinary numbers, not
+       trajectories. This is an alignment target: a moving one would be harder to photograph and
+       impossible to measure with a ruler.
+    """
+    def __init__(self, screen):
+        # Enough for the default 45 degrees at 5 degree bands and 128 azimuth steps (2304), with
+        # room to make the bands finer or the rings smoother before this has to be revisited.
+        super().__init__(screen=screen, num_tri=20000)
+
+    def configure(self, band_width=5.0, max_radius=45.0, sphere_radius=1, colors=(1.0, 0.0),
+                  theta=0, phi=0, n_azimuth=128):
+        """
+        :param band_width: degrees. The width of every band, and the quantity the whole check is
+            about -- see the class docstring.
+        :param max_radius: degrees from the axis to draw out to, rounded up to a whole band. Set it
+            past the edge of the screen: a ring that runs off the screen tells you where the edge
+            is, and one that stops short of it does not.
+        :param sphere_radius: meters. Only has to sit outside anything else in the scene.
+        :param colors: the two colors to alternate, innermost first. Each ``[r,g,b,a]`` or mono.
+        :param theta: degrees, azimuth of the pattern's axis
+        :param phi: degrees, elevation of the pattern's axis. For a screen whose axis is tilted
+            away from the subject's horizontal -- a bowl below the subject, say -- put the axis
+            along it, and the rings come out concentric with the screen's rim.
+        :param n_azimuth: steps around the axis; sets how polygonal the ring boundaries are.
+        """
+        self.stim_object = shapes.GlSphericalAnnuli(
+            band_width=band_width, max_radius=max_radius, sphere_radius=sphere_radius,
+            colors=colors, n_azimuth=n_azimuth,
+        ).rotate(np.radians(theta), np.radians(phi), 0)
+
+    def eval_at(self, t, subject_position={'x':0, 'y':0, 'z':0, 'theta':0, 'phi':0, 'roll':0}):
+        pass
+
+
 class UniformWhiteNoise(BaseProgram):
+    """
+    A patch whose intensity is redrawn from a distribution at a fixed rate.
+
+    The seed is derived from elapsed time and ``start_seed``, so the same protocol replays the
+    same sequence. See :mod:`stimpack.visual_stim.distribution` for the available distributions.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -406,7 +532,9 @@ class UniformWhiteNoise(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.width = width
         self.height = height
@@ -437,6 +565,11 @@ class UniformWhiteNoise(BaseProgram):
                                                 color=color).rotate(np.radians(self.theta), np.radians(self.phi), np.radians(self.angle))
 
 class TexturedSphericalPatch(BaseProgram):
+    """
+    Base class for stimuli that paint a texture on a spherical patch.
+
+    Subclasses supply the texture; this handles the geometry and the upload.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
         self.use_texture = True
@@ -452,7 +585,9 @@ class TexturedSphericalPatch(BaseProgram):
         :param theta: degrees, azimuth of the center of the patch (yaw rotation around z axis)
         :param phi: degrees, elevation of the center of the patch (pitch rotation around y axis)
         :param angle: degrees orientation of patch (roll rotation around x axis)
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.width = width
         self.height = height
@@ -477,6 +612,9 @@ class TexturedSphericalPatch(BaseProgram):
         pass
 
 class RandomGridOnSphericalPatch(TexturedSphericalPatch):
+    """
+    A grid of randomly-valued squares painted on a spherical patch.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -543,6 +681,13 @@ class RandomGridOnSphericalPatch(TexturedSphericalPatch):
         self.updateTexture(t)
 
 class TexturedCylinder(BaseProgram):
+    """
+    Base class for stimuli that paint a texture on a cylinder around the subject.
+
+    Subclasses supply the texture -- gratings, bars, grids, checkerboards. The subject is at the
+    cylinder's center, so the texture surrounds them and its angular period does not depend on
+    the cylinder's radius.
+    """
     def __init__(self, screen, **kwargs):
         super().__init__(screen=screen, **kwargs)
         self.use_texture = True
@@ -574,13 +719,50 @@ class TexturedCylinder(BaseProgram):
         # overwrite in subclass
         pass
 
+def _texel_centres(extent, n):
+    """The `n` texel centers spanning `extent`.
+
+    A texel's stored value is displayed across the whole texel, so it has to describe the texel --
+    which means sampling at its center. Sampling at its leading edge instead, as this did, shifts
+    the whole pattern by half a texel: 0.35 degrees of a 30 degree grating at the old resolution.
+    """
+    return (np.arange(n) + 0.5) * (extent / n)
+
+
+def _square_wave_coverage(phase, phase_per_texel):
+    """A square wave stored as the fraction of each texel the bar covers, not a threshold at a point.
+
+    Thresholding a sampled sine puts every bar edge on a texel boundary, so a bar edge that should
+    run diagonally comes out as a staircase, and no amount of filtering downstream recovers the
+    line -- the jaggedness is in the data. Storing coverage puts the edge where it belongs, to a
+    fraction of a texel.
+
+    The phase field is linear, so this is the same rule the fragment shader uses for shape edges:
+    the covered fraction is the distance to the boundary over the width of one texel, clamped. See
+    shapes.edge_coverage. Matches 16x16 supersampling to a mean of 0.004 for 1/200th of the cost.
+    """
+    if phase_per_texel <= 0:
+        return np.where(np.sin(phase) >= 0, 1.0, -1.0)
+    within = np.mod(phase, 2*np.pi)
+    # signed distance to the nearest bar edge, positive inside the bright half of the cycle
+    distance = np.where(within < np.pi,
+                        np.minimum(within, np.pi - within),
+                        -np.minimum(within - np.pi, 2*np.pi - within))
+    return 2*np.clip(0.5 + distance/phase_per_texel, 0.0, 1.0) - 1.0
+
+
 class CylindricalGrating(TexturedCylinder):
+    """
+    A grating wrapped around the subject, square or sinusoidal.
+
+    Set ``angle`` for orientation and give ``theta`` a trajectory to drift it.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
     def configure(self, period=20, mean=0.5, contrast=1.0, offset=0.0, grating_angle=0.0, profile='sine',
                   color=[1, 1, 1, 1], cylinder_radius=1, cylinder_location=(0,0,0), cylinder_height=10, theta=0, phi=0, angle=0.0,
-                  n_steps_x=512, n_steps_y=512):
+                  n_steps_x=2048, n_steps_y=2048):
         """
         Grating texture painted on a cylinder.
 
@@ -589,11 +771,18 @@ class CylindricalGrating(TexturedCylinder):
         :param contrast: Weber contrast of grating texture
         :param offset: phase offset of grating texture, degrees
         :param profile: 'sine' or 'square'; spatial profile of grating texture
-        :param n_steps_x: number of steps in x direction to draw the texture (approximate; lowerbound)
-        :param n_steps_y: number of steps in y direction to draw the texture (approximate; lowerbound)
+        :param n_steps_x: texels across the whole cylinder in x (approximate; a lower bound, since the
+            texture is one tile repeated a whole number of times). This is the resolution the bar
+            edges are stored at, and for an angled grating it is what makes them straight: at the
+            old 512 an edge wandered 2.5 pixels RMS from a straight line on a bowl rig, at 2048 it
+            is 0.55. Larger is not automatically better -- past about 4096 a texel is finer than a
+            projector pixel, and a minified texture aliases where a magnified one does not.
+        :param n_steps_y: texels in y, as above
 
         :params color, cylinder_radius, cylinder_height, theta, phi, angle: see parent class
-        *Any of these params except cylinder_radius, cylinder_height, profile, n_steps_x, and n_steps_y can be passed as a trajectory dict to vary as a function of time
+
+        .. note::
+           Any of these params except cylinder_radius, cylinder_height, profile, n_steps_x, and n_steps_y can be passed as a trajectory dict to vary as a function of time
         """
         super().configure(color=color, cylinder_radius=cylinder_radius, cylinder_location=cylinder_location, cylinder_height=cylinder_height, theta=theta, phi=phi, angle=angle)
 
@@ -626,14 +815,15 @@ class CylindricalGrating(TexturedCylinder):
             n_patches_x = cylinder_x_angular_extent_rad / period_x_rad
             n_patches_y = 1 # placeholder
             n_steps_x_per_patch = int(np.ceil(n_steps_x / n_patches_x))
-            xx_patch = np.linspace(0, patch_x_angular_extent_rad, n_steps_x_per_patch, endpoint=False)
+            xx_patch = _texel_centres(patch_x_angular_extent_rad, n_steps_x_per_patch)
 
-            img = np.sin(np.radians(offset) + xx_patch)
+            phase = np.radians(offset) + xx_patch
+            phase_per_texel = patch_x_angular_extent_rad / n_steps_x_per_patch
 
             if np.isclose(np.mod(self.grating_angle, 360), 180.0): # If grating angle is 180, flip the image
-                img = np.flip(img, axis=0)
-            
-            img = np.expand_dims(img, axis=0)  # pass as x by 1, gets stretched out by shader
+                phase = np.flip(phase, axis=0)
+
+            phase = np.expand_dims(phase, axis=0)  # pass as x by 1, gets stretched out by shader
         
         # If the grating is orthogonal to the cylinder axis:
         #    Define the 1-cycle texture in the y direction, then repeat it along y direction and stretch it out in the x direction
@@ -645,14 +835,15 @@ class CylindricalGrating(TexturedCylinder):
             n_patches_x = 1 # placeholder
             n_patches_y = cylinder_y_angulear_extent_rad / period_y_rad
             n_steps_y_per_patch = int(np.ceil(n_steps_y / n_patches_y))
-            yy_patch = np.linspace(0, patch_y_angular_extent_rad, n_steps_y_per_patch, endpoint=False)
-            
-            img = np.sin(np.radians(offset) + yy_patch)
+            yy_patch = _texel_centres(patch_y_angular_extent_rad, n_steps_y_per_patch)
+
+            phase = np.radians(offset) + yy_patch
+            phase_per_texel = patch_y_angular_extent_rad / n_steps_y_per_patch
 
             if np.isclose(np.mod(self.grating_angle, 360), 270.0): # If grating angle is 270, flip the image
-                img = np.flip(img, axis=0)
-            
-            img = np.expand_dims(img, axis=1)  # pass as 1 by y, gets stretched out by shader
+                phase = np.flip(phase, axis=0)
+
+            phase = np.expand_dims(phase, axis=1)  # pass as 1 by y, gets stretched out by shader
         
         # If the grating is at an angle to the cylinder axis:
         #    Each cycle of the grating is sheared by the grating angle, 
@@ -680,23 +871,28 @@ class CylindricalGrating(TexturedCylinder):
             n_steps_x_per_patch = int(np.ceil(n_steps_x / n_patches_x))
             n_steps_y_per_patch = int(np.ceil(n_steps_y / n_patches_y))
 
-            xx_patch = np.linspace(0, patch_x_angular_extent_rad, n_steps_x_per_patch, endpoint=False)
-            yy_patch = np.linspace(0, patch_y_angular_extent_rad, n_steps_y_per_patch, endpoint=False)
-                
-            img = np.zeros((n_steps_y_per_patch, n_steps_x_per_patch))
-            for i in range(n_steps_x_per_patch):
-                for j in range(n_steps_y_per_patch):
-                    x_rot = xx_patch[i] + yy_patch[j]*tangent_angle
-                    img[j,i] = np.sin(np.radians(offset) + x_rot)
+            xx_patch = _texel_centres(patch_x_angular_extent_rad, n_steps_x_per_patch)
+            yy_patch = _texel_centres(patch_y_angular_extent_rad, n_steps_y_per_patch)
+
+            phase = np.radians(offset) + xx_patch[None, :] + yy_patch[:, None]*tangent_angle
+            # both axes shear the phase here, so a texel spans the sum of what each contributes
+            phase_per_texel = (patch_x_angular_extent_rad / n_steps_x_per_patch
+                               + abs(tangent_angle) * patch_y_angular_extent_rad / n_steps_y_per_patch)
 
         if self.profile == 'square':
-            img[img >= 0] = 1
-            img[img < 0] = -1
+            img = _square_wave_coverage(phase, phase_per_texel)
+        else:
+            img = np.sin(phase)
         img = (255*(mean + contrast*mean*img)).astype(np.uint8)
 
-        texture_interpolation = 'LINEAR' if self.profile == 'sine' else 'NEAREST'
-
-        self.add_texture_gl(img, texture_interpolation=texture_interpolation)
+        # LINEAR for both profiles, and for the square one that is not a regression. NEAREST is
+        # right when a texel IS the datum -- a checker square, a noise cell -- because there is no
+        # sub-texel structure to recover and the shader reconstructs the hard edge and antialiases
+        # it. Here the texture stores *coverage*, so the edge position is already encoded in the
+        # gray values between texels, and interpolating recovers it continuously. Snapping to texel
+        # centers instead would quantize that edge back onto the texel grid, which is the staircase
+        # this was meant to remove.
+        self.add_texture_gl(img, texture_interpolation='LINEAR')
 
         self.stim_object = shapes.GlCylinder(cylinder_height=self.cylinder_height,
                                             cylinder_radius=self.cylinder_radius,
@@ -715,12 +911,17 @@ class CylindricalGrating(TexturedCylinder):
         pass
 
 class RotatingGrating(CylindricalGrating):
+    """
+    A :class:`CylindricalGrating` that rotates about the axis its bars run along.
+
+    Distinct from drifting: the bars turn rather than translating past the subject.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
     def configure(self, rate=10, hold_duration = 0, period=20, mean=0.5, contrast=1.0, offset=0.0, grating_angle=0.0, profile='sine',
                   color=[1, 1, 1, 1], cylinder_radius=1, cylinder_location=(0,0,0), cylinder_height=10, theta=0, phi=0, angle=0.0,
-                  n_steps_x=512, n_steps_y=512):
+                  n_steps_x=2048, n_steps_y=2048):
         """
         Subclass of CylindricalGrating that rotates the grating along the varying axis of the grating.
 
@@ -767,6 +968,9 @@ class RotatingGrating(CylindricalGrating):
         self.angle_prev = angle
 
 class ExpandingEdges(TexturedCylinder):
+    """
+    Bars on a cylinder whose edges move outward from a center, expanding over time.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -854,6 +1058,9 @@ class ExpandingEdges(TexturedCylinder):
         self.update_texture_gl(img)
 
 class RandomBars(TexturedCylinder):
+    """
+    Vertical bars of independently random intensity on a cylinder.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -935,6 +1142,12 @@ class RandomBars(TexturedCylinder):
         self.update_texture_gl(img)
 
 class RandomGrid(TexturedCylinder):
+    """
+    A grid of randomly-valued patches covering a cylinder.
+
+    Each patch subtends ``patch_width`` by ``patch_height`` degrees; the cylinder is sized to fit
+    a whole number of them within the requested vertical extent.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -964,7 +1177,7 @@ class RandomGrid(TexturedCylinder):
         # actual vert. extent is based on floor-nearest integer number of patch heights
         assert cylinder_vertical_extent < 180
         self.n_patches_height = int(np.floor(cylinder_vertical_extent/patch_height))
-        patch_height_m = cylinder_radius * np.tan(np.radians(patch_height))  # in meters
+        patch_height_m = 2 * cylinder_radius * np.tan(np.radians(patch_height/2))  # in meters
         cylinder_height = self.n_patches_height * patch_height_m
 
         super().configure(color=color, angle=angle, cylinder_radius=cylinder_radius, cylinder_height=cylinder_height, theta=theta, phi=phi)
@@ -1011,6 +1224,9 @@ class RandomGrid(TexturedCylinder):
         self.update_texture_gl(img)
 
 class Checkerboard(TexturedCylinder):
+    """
+    A regular checkerboard on a cylinder, for a broadband spatial pattern of known period.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
@@ -1069,12 +1285,19 @@ class Checkerboard(TexturedCylinder):
         pass
 
 class MovingBox(BaseProgram):
+    """
+    A rectangular box in Cartesian space, positioned and oriented freely.
+
+    Unlike the spherical and cylindrical stimuli, this is an object at a place in the world: its
+    apparent size changes as the subject moves relative to it, which is what makes it useful in
+    closed loop.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
     def configure(self, x_length=1, y_length=1, z_length=1, color=[1, 1, 1, 1], x=0, y=0, z=0, yaw=0, pitch=0, roll=0):
         """
-        Stimulus consisting of a rectangular patch on the surface of a sphere. Patch is rectangular in spherical coordinates.
+        A rectangular box in Cartesian space, positioned and oriented freely.
 
         :param x_length: meters, length of box in x direction
         :param y_length: meters, length of box in y direction
@@ -1086,7 +1309,9 @@ class MovingBox(BaseProgram):
         :param yaw: degrees, rotation around z axis
         :param pitch: degrees, rotation around y axis
         :param roll: degrees, rotation around x axis
-        *Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
+
+        .. note::
+           Any of these params can be passed as a trajectory dict to vary these as a function of time elapsed
         """
         self.x_length = make_as_trajectory(x_length)
         self.y_length = make_as_trajectory(y_length)
@@ -1124,10 +1349,13 @@ class MovingBox(BaseProgram):
                                     ).set_color(util.get_rgba(color))
 
 class Tower(BaseProgram):
+    """
+    A single cylindrical tower standing at an arbitrary position -- a landmark in a virtual world.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen)
 
-    def configure(self, color=[1, 0, 0, 1], cylinder_radius=0.5, cylinder_height=0.5, cylinder_location=[+5, 0, 0], n_faces=16):
+    def configure(self, color=[1, 0, 0, 1], cylinder_radius=0.5, cylinder_height=0.5, cylinder_location=[+5, 0, 0], n_faces=64):
         """
         Cylindrical tower object in arbitrary x, y, z coords.
 
@@ -1135,7 +1363,12 @@ class Tower(BaseProgram):
         :param cylinder_radius: meters
         :param cylinder_height: meters
         :param cylinder_location: [x, y, z] location of the center of the cylinder, meters
-        :param n_faces: number of quad faces to make the cylinder out of
+        :param n_faces: quad faces the wall is made of. Built once here and never rebuilt, so
+            faces cost nothing per frame. The silhouette of an n-gon sits inside the true cylinder
+            by 1 - cos(pi/n) of the radius, and that error grows as the subject approaches -- which
+            is when a landmark matters. At the old 16 a 0.5 m tower was 5.8 pixels narrow at 1 m;
+            at 64 it is 0.36. :class:`Forest` keeps a lower count deliberately, since it pays this
+            per tree.
         """
         self.color = color
         self.cylinder_radius = cylinder_radius
@@ -1153,13 +1386,26 @@ class Tower(BaseProgram):
         pass
 
 class Forest(BaseProgram):
+    """
+    Many identical towers drawn by one shader program.
+
+    :class:`Tower` repeated across a list of positions, cheaply enough to fill an environment.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen, num_tri=1000)
 
     def configure(self, color=[1, 1, 1, 1], cylinder_radius=0.5, cylinder_height=0.5, n_faces=16, cylinder_locations=[[+5, 0, 0]]):
         """
-        Collection of tower objects created with a single shader program.
+        Many identical towers drawn by one shader program, for a landmark-rich environment.
 
+        One cylinder is built and then translated into copies, rather than rebuilt at each
+        location, because constructing the geometry is the slow part.
+
+        :param color: [r,g,b,a] or mono. Color shared by every tower
+        :param cylinder_radius: meters, radius of each tower
+        :param cylinder_height: meters, height of each tower
+        :param n_faces: flat faces approximating each tower's wall
+        :param cylinder_locations: list of (x, y, z) positions in meters, one per tower
         """
         self.color = color
         self.cylinder_radius = cylinder_radius
@@ -1186,12 +1432,34 @@ class Forest(BaseProgram):
 # %%
 
 class PixMap(TexturedCylinder):
+    """
+    A texture read live from shared memory and painted on a cylinder or sphere.
+
+    Lets another process drive the display frame by frame. See
+    :mod:`stimpack.visual_stim.shared_pixmap`.
+    """
     def __init__(self, screen):
         super().__init__(screen=screen, num_tri=10000)
 
     def configure(self, memname='test', frame_size=None, rgb_texture=True, width=180, radius=1, 
                         n_steps=16, surface='cylindrical'):
+        """
+        A texture read live from shared memory and painted on a cylinder or sphere.
 
+        Lets another process -- a camera feed, a rendering engine, a stimulus generator written
+        elsewhere -- drive the display by writing frames into a shared buffer, which this reads
+        each update. See :mod:`stimpack.visual_stim.shared_pixmap`.
+
+        :param memname: name of the :class:`multiprocessing.shared_memory.SharedMemory` block
+            the writing process created
+        :param frame_size: (rows, columns) of the frame in that block. Required: it is how the
+            raw buffer is interpreted, and it sets the aspect ratio
+        :param rgb_texture: True for color frames, False for monochrome
+        :param width: degrees of azimuth the image spans; height follows from the aspect ratio
+        :param radius: meters, radius of the surface it is painted on
+        :param n_steps: subdivisions of the surface
+        :param surface: 'cylindrical' or 'spherical'
+        """
         height = frame_size[0] / frame_size[1]
         height *= width
 

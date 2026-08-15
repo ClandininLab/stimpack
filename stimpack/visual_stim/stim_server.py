@@ -1,13 +1,21 @@
-import platform, os
-from time import time
+"""
+The visual module: manages screen subprocesses and forwards requests to them.
+
+:class:`VisualStimServer` launches one subprocess per :class:`~stimpack.visual_stim.screen.Screen`
+so that one display stalling cannot stall another, and fans each request out to all of them.
+Some calls are handled on the server itself rather than forwarded -- see ``register_function_on_root``.
+"""
+import platform, os, subprocess, warnings, traceback
+from time import time, sleep
 
 import stimpack.visual_stim.framework
 from stimpack.visual_stim.screen import Screen
 from stimpack import util
 
+from stimpack.module import BaseModule
 from stimpack.rpc.transceiver import MySocketServer
 from stimpack.rpc.launch import launch_server
-from stimpack.rpc.util import get_kwargs, get_from_dict
+from stimpack.rpc.util import get_kwargs, get_from_dict, start_daemon_thread
 
 from stimpack.visual_stim.shared_pixmap import SharedPixMapStimulus
 
@@ -23,7 +31,7 @@ def launch_screen(screen, **kwargs):
     new_env_vars = {}
 
     session_type = os.environ.get('XDG_SESSION_TYPE', "unknown")
-    qt_platform_type = os.environ.get('QT_QPA_PLATFORM', "unknown")
+    qt_platform_type = os.environ.get('QT_QPA_PLATFORM', "default (unset)")
     print(f"Display session type: {session_type}")
     print(f"QT platform type: {qt_platform_type}")
 
@@ -46,29 +54,81 @@ def launch_screen(screen, **kwargs):
             else:
                 print(f"Unknown session type: {session_type}")
 
+    elif platform.system() == 'Darwin':
+        # A screen is a real GL window, and macOS's offscreen Qt platform has no OpenGL at all --
+        # a screen subprocess inheriting it (the test suite sets offscreen for desktop hygiene)
+        # opens a window that can never paint, and since paintGL drains the RPC queue, never
+        # answers anything either. There is no headless GL on macOS to preserve, so an offscreen
+        # screen there is broken by construction; cocoa is the only platform that can work.
+        if qt_platform_type in ('offscreen', 'minimal'):
+            print("Qt platform is offscreen; screens need real GL on macOS -- using cocoa.")
+            new_env_vars['QT_QPA_PLATFORM'] = 'cocoa'
+
     # launch the server and return the resulting client
     screen_client, proc = launch_server(stimpack.visual_stim.framework, screen=screen.serialize(), new_env_vars=new_env_vars, **kwargs)
-    return screen_client
+    # Return the process handle too: a screen only auto-stops when its client disconnects, which
+    # happens when the stim server PROCESS exits. When VisualStimServer is constructed in-process
+    # (BaseServer does this), the parent keeps running, so without this handle the screen
+    # subprocesses would outlive close() and pile up.
+    return screen_client, proc
 
-class VisualStimServer(MySocketServer):
+class VisualStimServer(BaseModule, MySocketServer):
     '''
     This class manages multiple screens and sends commands to them.
     It can also execute certain commands on the server itself ("root"), rather than sending them to the screens.
+
+    **Why this module inherits BaseModule but must never inherit BaseManager.** This is the
+    family's one *server*: every other module executes requests as calls on itself, and inherits
+    BaseManager for exactly that behavior; this one relays requests to screen subprocesses over
+    sockets. So it takes the abstract form only, and implements every contract method natively:
+
+    - Its request handling is routing, not execution: requests are partitioned between the root
+      registry and the screens, timestamped, fanned out, and the screens' replies drained.
+      BaseManager's dispatch loop would execute them locally instead.
+    - Its callable surface is not its own attributes but SCREEN_FUNCTION_NAMES plus the root
+      registry, which BaseManager's ``dir()`` scan cannot see.
+    - Any name this class does not define is forwarded to the screens by
+      ``MyTransceiver.__getattr__``, which fires only when normal attribute lookup FAILS. A
+      concrete method inherited from a base class -- even a harmless-looking no-op -- would be
+      found by that lookup and silently swallow calls meant for the screens. Abstract methods are
+      safe: this class must override them or fail to instantiate, and the ABC machinery enforces
+      that at startup.
+
+    The same reasoning applies to any future module that serves subprocesses or forwards
+    requests elsewhere: inherit BaseModule, implement the contract explicitly (translating names
+    where the remote vocabulary differs -- see set_save_directory below), and stay away from
+    BaseManager. The full argument lives in stimpack/module.py.
     '''
     time_stamp_commands = ['start_stim', 'pause_stim', 'update_stim']
 
-    def __init__(self, screens=[], host=None, port=None, auto_stop=None, other_stim_module_paths=None, **kwargs):
+    def __init__(self, screens=None, host=None, port=None, auto_stop=None, **kwargs):
         # call super constructor
         super().__init__(host=host, port=port, threaded=False, auto_stop=auto_stop)
 
-        # If other_stim_module_paths specified in kwargs, use that.
-        if other_stim_module_paths is None:
-            other_stim_module_paths = []
-        if not isinstance(other_stim_module_paths, list):
-            other_stim_module_paths = [other_stim_module_paths]
-        
+        # Removed in 1.0.0. Left as an explicit error rather than swallowed by **kwargs: the
+        # modules it loaded were dropped the moment a client disconnected and never re-imported, so
+        # anyone passing it had custom stimuli for exactly one session. Silently accepting it now
+        # would reproduce that, without even the first session working.
+        if 'other_stim_module_paths' in kwargs:
+            raise TypeError(
+                "other_stim_module_paths was removed in stimpack 1.0.0. Import stimulus modules "
+                "from the client instead: manager.target('visual').import_stim_module(path), or "
+                "name them under module_paths.visual_stim in your config. Re-importing is safe -- "
+                "it reloads rather than duplicating.")
+
+        # Screen-side errors reach whoever is connected, even with no BaseServer wrapping this one.
+        # Without this default the reporter stayed None and every error a screen bubbled up was
+        # dropped here -- so a script driving launch_stim_server directly, which is what the
+        # examples do, saw a failing stimulus do nothing at all and say nothing about it.
+        self.error_reporter = self.report_to_client
+
         self.functions_on_root = {}
         self.register_function_on_root(self.close)
+        # The other explicit module-contract hooks (see the class docstring): registered on root
+        # so a targeted request reaches the same implementation an attribute call does, instead
+        # of being forwarded to screens that do not define these names.
+        self.register_function_on_root(self.start)
+        self.register_function_on_root(self.set_save_directory)
 
         # Shared memory PixMap stim functions to be run on the root node of visual stim server
         self.spms = None
@@ -77,15 +137,55 @@ class VisualStimServer(MySocketServer):
         self.register_function_on_root(self.clear_shared_pixmap_stim)
 
         # If no screens are specified, create a default screen
-        if screens is None or len(screens) == 0:
+        # screens=None means "you did not say", and gets a default aux screen, as it always has.
+        # screens=[] means "none", and gets none -- a rig that outputs voltage or reads a tracker
+        # but drives no display should not open a window, and neither should a test that only
+        # exercises those. Every screen is a subprocess with its own GL context, so the difference
+        # is not free.
+        if screens is None:
             screens = [Screen(x_display=None, display_index=0, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
         
         # launch screens
-        self.screen_managers = [launch_screen(screen=screen, other_stim_module_paths=other_stim_module_paths, **kwargs) for screen in screens]
+        launched = [launch_screen(screen=screen, **kwargs) for screen in screens]
+        self.screen_managers = [client for client, _ in launched]
+        self.screen_processes = [proc for _, proc in launched]
+
+        # Let each screen subprocess bubble its errors up to us (and thence to the client). The screen
+        # pushes a 'report_server_message' back on its socket, which we drain below.
+        for screen_manager in self.screen_managers:
+            screen_manager.register_function(self._forward_screen_message, name='report_server_message')
+
+        # Screen replies arrive asynchronously, so draining only when a new request comes in would
+        # strand a message (forever, if no further requests follow). Pump the screen queues on a
+        # background thread so screen-side errors propagate promptly regardless of traffic.
+        start_daemon_thread(self._pump_screen_messages)
 
         self.corner_square_toggle_stop()
         self.corner_square_off()
         self.set_idle_background(0)
+
+    def report_to_client(self, level, text):
+        '''
+        Push a message back to the connected client, which surfaces it and, for level='error',
+        aborts the run. Best-effort: no-ops when nothing is connected.
+
+        A BaseServer replaces this with its own reporter when it owns this module, so messages
+        reach the experiment client rather than stopping here.
+        '''
+        self.write_request_list([{'name': 'report_server_message', 'args': [level, str(text)], 'kwargs': {}}])
+
+    def get_callable_names(self):
+        """
+        Names target('visual') answers to: this server's own root functions, plus the ones each
+        screen subprocess registers.
+
+        The screen half comes from framework.SCREEN_FUNCTION_NAMES rather than from asking a
+        screen. The link to a screen is fire-and-forget like every other, so there is nothing to
+        ask over -- but there is also no need, since what a screen registers is fixed in stimpack's
+        own source and known here at import time.
+        """
+        from stimpack.visual_stim.framework import SCREEN_FUNCTION_NAMES
+        return sorted(set(SCREEN_FUNCTION_NAMES) | set(self.functions_on_root))
 
     def register_function_on_root(self, function, name=None):
         '''
@@ -123,23 +223,81 @@ class VisualStimServer(MySocketServer):
             args = request.get('args', [])
             kwargs = request.get('kwargs', {})
 
-            # call function
+            # call function, isolating handler errors so one bad root request cannot kill the server loop
             # print(f"Server root node executing: {str(request)}")
-            function(*args, **kwargs)
+            try:
+                function(*args, **kwargs)
+            except Exception as e:
+                warnings.warn(f"Error handling root request '{request['name']}':\n{traceback.format_exc()}")
+                self._report_error(f"visual: {request['name']}: {type(e).__name__}: {e}")
 
-        # pre-process the request list as necessary
-        for request in screen_request_list:
-            if isinstance(request, dict) and ('name' in request) and (request['name'] in self.time_stamp_commands):
-                if 'kwargs' not in request:
-                    request['kwargs'] = {}
-                request['kwargs']['t'] = time()
+        # Stamp the screen-bound requests with the current time, copying rather than editing in
+        # place. Under target='all' the server hands the SAME dict objects to every module, and this
+        # module runs first, so mutating one here would deliver a stray 't' kwarg to locomotion and
+        # voltage_out as well. That is invisible today only because neither implements any of
+        # time_stamp_commands; the first one that does would get a TypeError on a signature that
+        # looks correct. 't' is a screen frame timestamp and should not leave this module.
+        screen_request_list = [
+            {**request, 'kwargs': {**request.get('kwargs', {}), 't': time()}}
+            if isinstance(request, dict) and request.get('name') in self.time_stamp_commands
+            else request
+            for request in screen_request_list
+        ]
 
         # send modified request list to screens
         for screen_manager in self.screen_managers:
             screen_manager.write_request_list(screen_request_list)
 
+        # Drain any messages the screens pushed back (e.g. handler errors) and forward them upward.
+        for screen_manager in self.screen_managers:
+            screen_manager.process_queue()
+
+    def _pump_screen_messages(self, interval=0.05):
+        '''Continuously drain the screen subprocesses' inbound queues (see __init__).'''
+        while not self.shutdown_flag.is_set():
+            for screen_manager in self.screen_managers:
+                try:
+                    screen_manager.process_queue()
+                except Exception:
+                    pass
+            sleep(interval)
+
+    def _forward_screen_message(self, level, text):
+        '''Forward a message a screen subprocess pushed back up toward the client.'''
+        if self.error_reporter is not None:
+            try:
+                self.error_reporter(level, f"[screen] {text}")
+            except Exception:
+                pass
+
     def close(self):
         self.shutdown_flag.set()
+
+        # Shut the screen subprocesses down rather than leaving them running. Ask nicely first (the
+        # auto-registered 'shutdown' makes paintGL quit the Qt app), then insist.
+        for manager in self.screen_managers:
+            try:
+                manager.shutdown()
+            except Exception:
+                pass
+
+        for proc in getattr(self, 'screen_processes', []):
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+
+        # Close our end of each screen socket too. The subprocess is gone, but our reader thread is
+        # still parked on the connection; only close() unblocks and joins it.
+        for manager in self.screen_managers:
+            try:
+                manager.close()
+            except Exception:
+                pass
 
     def on_connection_close(self):
         '''
@@ -149,6 +307,25 @@ class VisualStimServer(MySocketServer):
         for screen_manager in self.screen_managers:
             screen_manager.unload_stim_module(barcodes=None)
         return
+
+    def start(self):
+        '''
+        Module-contract hook (BaseModule). Nothing to do: each screen begins its render loop when
+        its subprocess launches, so this module has no separate "begin operating" step. Explicit
+        rather than left to __getattr__, which would forward a 'start' the screens do not define.
+        '''
+        pass
+
+    def set_save_directory(self, save_directory):
+        '''
+        Module-contract hook (BaseModule): where files that accompany the data file go. For this
+        module those are the screens' position histories, and the screens' own name for the
+        setting is set_save_pos_history_dir -- so forward under the translated name. Left to
+        __getattr__, the request would go out under the contract name and reach screens that have
+        never heard of it.
+        '''
+        self.handle_request_list([{'name': 'set_save_pos_history_dir',
+                                   'args': [save_directory], 'kwargs': {}}])
 
     ### Shared memory pixmap stim functions ###
     def load_shared_pixmap_stim(self, **kwargs):

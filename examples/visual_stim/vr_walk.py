@@ -2,7 +2,6 @@
 from stimpack.visual_stim.stim_server import launch_stim_server
 from stimpack.visual_stim.screen import Screen, SubScreen
 import numpy as np
-from stimpack.visual_stim.draw import draw_screens
 
 from time import sleep
 

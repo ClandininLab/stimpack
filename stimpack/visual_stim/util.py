@@ -1,3 +1,4 @@
+"""Color, coordinate and geometry helpers shared across stimuli and shapes."""
 from math import sin, cos
 from numbers import Number
 import numpy as np
@@ -10,16 +11,26 @@ import gc
 
 from stimpack.experiment.util.config_tools import convert_labpack_relative_path_to_full_path
 
-def load_stim_module_from_path(path, module_name='loaded_module', submodules=['stimuli', 'trajectory', 'distribution']):
+# The submodules a visual_stim module directory is expected to provide. Named here so that the
+# labpack checker can look for the same files this loader will look for.
+STIM_SUBMODULES = ('stimuli', 'trajectory', 'distribution')
+
+
+def load_stim_module_from_path(path, module_name='loaded_module', submodules=STIM_SUBMODULES):
     '''
-    Load a module from specified path. Module must contained specified submodules.
+    Load a module from specified path. The module must contain stimuli.py; trajectory.py and
+    distribution.py are optional companions, loaded when present.
     '''
     full_module_path = convert_labpack_relative_path_to_full_path(path)
     for submodule_name in submodules:
         submodule_name_full = module_name+'.'+submodule_name
         submodule_path = os.path.join(full_module_path, submodule_name+'.py')
         if not os.path.exists(submodule_path):
-            warnings.warn(f'Could not find {submodule_name} at {submodule_path}')
+            # stimuli.py is the module's reason to exist, so its absence means the path is wrong;
+            # the optional companions are routinely absent, and warning about them taught readers
+            # to ignore warnings.
+            if submodule_name == 'stimuli':
+                warnings.warn(f'Could not find {submodule_name} at {submodule_path}')
             continue
         spec = spec_from_file_location(submodule_name_full, submodule_path)
         loaded_mod = module_from_spec(spec)
@@ -38,28 +49,36 @@ def unload_module(module_name):
         warnings.warn(f'Module {module_name} not found in sys.modules.')
     return
 
-def generate_lowercase_barcode(length=5, existing_barcodes=[]):
+def generate_lowercase_barcode(length=5, existing_barcodes=None):
     """Generates a random barcode that is not in existing_barcodes"""
+    if existing_barcodes is None:
+        existing_barcodes = []
     barcode = ''.join(random.choice(string.ascii_lowercase) for i in range(length))
     while barcode in existing_barcodes:
         barcode = ''.join(random.choice(string.ascii_lowercase) for i in range(length))
     return barcode
 
 def normalize(vec):
+    """Return the unit vector along ``vec``."""
     return vec / np.linalg.norm(vec)
 
 def qimage2ndarray(qimage):
-    '''  Converts a QImage into an opencv MAT format  '''
+    '''Convert a QImage to an (H, W, 4) uint8 ndarray in R, G, B, A channel order (an independent copy).'''
+    # Lazy import so this widely-used module stays importable without PyQt6; only the movie-recording
+    # path calls this. Uses the PyQt6 API (Qt5's convertToFormat(int)/byteCount() were removed).
+    from PyQt6.QtGui import QImage
 
-    qimage = qimage.convertToFormat(4)
+    qimage = qimage.convertToFormat(QImage.Format.Format_RGBA8888)  # unambiguous R,G,B,A byte order
 
     width = qimage.width()
     height = qimage.height()
 
     ptr = qimage.bits()
-    ptr.setsize(qimage.byteCount())
-    arr = np.array(ptr).reshape(height, width, 4)  #  Copies the data
-    return arr
+    ptr.setsize(qimage.sizeInBytes())
+    # bytesPerLine may include row padding; reshape to it then trim to width. copy() so the result
+    # does not alias the QImage buffer (freed when qimage goes out of scope).
+    arr = np.frombuffer(ptr, dtype=np.uint8).reshape(height, qimage.bytesPerLine() // 4, 4)
+    return arr[:, :width, :].copy()
 
 # rotation matrix reference:
 # https://en.wikipedia.org/wiki/Rotation_matrix
@@ -82,33 +101,44 @@ def rot_mat(yaw, pitch, roll):
     return rotz_mat(yaw) @ rotx_mat(pitch) @ roty_mat(roll)
 
 def rotx(pts, th):
+    """Rotate points about the x axis by ``th`` radians."""
     return rotx_mat(th).dot(pts)
 
 def rotx_mat(th):
+    """Rotation matrix about the x axis, ``th`` radians."""
     return np.array([[1,       0,         0],
                      [0, +cos(th), -sin(th)],
                      [0, +sin(th), +cos(th)]], dtype=float)
 
 def roty(pts, th):
+    """Rotate points about the y axis by ``th`` radians."""
     return roty_mat(th).dot(pts)
 
 def roty_mat(th):
+    """Rotation matrix about the y axis, ``th`` radians."""
     return np.array([[+cos(th), 0, +sin(th)],
                      [0,        1,        0],
                      [-sin(th), 0, +cos(th)]], dtype=float)
 
 def rotz(pts, th):
+    """Rotate points about the z axis by ``th`` radians."""
     return rotz_mat(th).dot(pts)
 
 def rotz_mat(th):
+    """Rotation matrix about the z axis, ``th`` radians."""
     return np.array([[+cos(th), -sin(th), 0],
                      [+sin(th), +cos(th), 0],
                      [       0,        0, 1]], dtype=float)
 
 def scale(pts, amt):
+    """Scale points about the origin."""
     return np.multiply(amt, pts)
 
 def spherical_to_cartesian(r, theta, phi):
+    """
+    Spherical to Cartesian, in stimpack's convention: ``theta`` is azimuth and ``phi`` elevation,
+    both in radians, with heading (0, 0, 0) looking along +y.
+    """
     x = r * np.sin(phi) * np.cos(theta)
     y = r * np.sin(phi) * np.sin(theta)
     z = r * np.cos(phi)
@@ -181,6 +211,7 @@ def get_rgba(val, def_alpha=1):
             raise ValueError(f'Unknown color: {val}')
 
     # convert single value to float
+    #
     # .item() rather than float(): a size-1 value here is usually an ARRAY, not a scalar --
     # distribution.get_random_values(1) returns shape (1,) -- and float() on an ndim>0 array is
     # deprecated since NumPy 1.25 and slated to raise. That would break every monochrome stimulus

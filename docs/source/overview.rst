@@ -1,4 +1,114 @@
+========
 Overview
+========
+
+``stimpack`` presents multisensory stimuli to a subject, in open or closed loop, and records what
+was presented with timing precise enough to line it up with whatever the rig acquires alongside --
+physiology, imaging, behavior.
+
+An experiment runs as several processes:
+
+.. code-block:: text
+
+    ExperimentGUI ── BaseClient ──socket── BaseServer ──┬── visual      ── one subprocess per screen (GL)
+                                                        ├── locomotion  ── tracker
+                                                        ├── voltage_out ── DAQ
+                                                        └── audio       ── sound card
+
+The **client** runs the protocol: it decides what each trial contains and writes the data file. The
+**server** owns the hardware, and usually runs on the rig machine while the client runs wherever the
+experimenter is sitting. Each **screen** is its own subprocess with its own GL context, so one
+display stalling cannot stall another.
+
+They talk over a small JSON protocol. Calls are addressed to a module::
+
+    manager.target('visual').load_stim(name='MovingPatch', width=10, height=30)
+    manager.target('voltage_out').output_step(output_channels='DAC0', pre_time=0, step_time=1)
+
+.. figure:: /images/architecture.png
+    :align: center
+    :alt: A protocol's timed module calls on the left, routed by the stimulus server to its modules on the right
+
+    A protocol names the module each call is for, and the server routes it there. Inputs update a
+    subject state that outputs follow, so the closed loop does not pass through the client. The
+    stacked cards are extension points: ``visual``, ``audio``, ``locomotion``, and ``voltage_out``
+    ship, and a lab adds a further capability as a new module rather than a change to the core
+    (see :doc:`writing_a_module`).
+
+Two things follow from that design and are worth knowing early.
+
+**Calls are one-way.** There is no return value to branch on, and attribute access alone never
+fails -- a mistyped name still produces a callable. The failure is not silent, though: the server
+pushes messages back over the same link. What can only be a mistake (an untargeted call finding
+nothing on the root node, a name a module does not define) is reported as an **error** and aborts
+the run; what legitimately differs between rigs (a module this server has no hardware for, a
+rig-specific function on root) is a **warning**, so one protocol can run across rigs. Broadcasts --
+``target('all')`` -- are the deliberate exception: every module receives them and acts only on the
+names it defines, so an unknown name there stays quiet. Use ``has_server_function()`` to check
+before calling; see :doc:`modules_and_targets`. :doc:`check_labpack` finds the rest before an
+experiment rather than during one.
+
+**An untargeted call goes to the server's root node**, not to every module. ``manager.load_stim(...)``
+without a ``target`` will not reach the screens.
+
+.. toctree::
+    :maxdepth: 1
+
+    the_gui
+    check_labpack
+    modules_and_targets
+    locomotion
+    voltage_out
+    audio
+    writing_a_module
+    presets_and_ensembles
+    run_outcomes
+    behavior_ended_trials
+
+Where your code goes: the labpack
+=================================
+
+``stimpack`` itself contains nothing lab-specific. Protocols, custom stimuli, rig geometry,
+hardware drivers and saved presets all live in a **labpack**: a separate repository your laboratory
+owns, which stimpack discovers at runtime from a path set once in its startup dialog. That split is
+what lets a lab upgrade stimpack without maintaining a fork, and keep rig configs -- data paths,
+machine addresses -- out of public view.
+
+Start yours from the template at `github.com/ClandininLab/labpack-template
+<https://github.com/ClandininLab/labpack-template>`_: press **Use this template**, clone, rename the
+package for your lab, and install it editable. The step-by-step walkthrough is
+:doc:`install_labpack`; :doc:`customize_labpack` maps what goes where inside it.
+
+Trials and series
 =================
 
+A **trial** is one stimulus presentation. A **series** is a run of them under one protocol, and is
+what the Record button produces: one series, numbered, with its parameters and outcome recorded
+alongside.
+
+You *run* a protocol; each recorded run is a series. A View run is a run with no series -- trials
+are presented, nothing is written, and no series number is used. That is the whole of the
+difference between the two words, and why ``run_parameters`` (``num_trials``, ``idle_color``) is
+not called ``series_parameters``: those settings govern a View run too, which never becomes a
+series.
+
+Two kinds of parameter go into a run, and which one a setting belongs to decides who reads it:
+
+**Run parameters** are read by stimpack itself and are fixed for the whole run -- ``num_trials``
+drives the loop, ``do_loco`` starts the tracker, ``randomize_order`` shapes the sequence.
+``num_trials`` and ``idle_color`` are required; the rest have defaults.
+
+**Protocol parameters** are the stimulus, and stimpack never reads one by name. It only sequences
+them and hands the protocol one value per trial. Give one a list of more than one value and it
+sweeps across trials -- ``angle: [0, 45, 90]`` presents three angles in turn -- which is the one
+place that rule applies. A run parameter given a list is just a list.
+
+So a new setting is a run parameter if stimpack has to understand it, and a protocol parameter if
+only your protocol does.
+
+Before 1.0 stimpack called these an *epoch* and an *epoch run*. Its NWB files never did -- NWB
+calls a presentation a trial -- so the same thing had two names depending on where you looked.
+Code written for the old names still works: ``get_epoch_parameters``, ``num_epochs`` and the rest
+are accepted, each warning once and naming its replacement. ``stimpack --check-labpack`` lists the
+ones a ``labpack`` still uses, and :doc:`labpack_configs` covers reading data files written either way.
 

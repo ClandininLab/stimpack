@@ -1,28 +1,94 @@
-import signal, sys, os
+"""
+The server side of an experiment: owns the hardware and routes requests to it.
+
+:class:`BaseServer` holds one module per capability -- ``visual`` (screens), ``locomotion`` (a
+tracker), ``voltage_out`` (a DAQ), ``audio`` (a sound card) -- and dispatches each incoming request
+by its ``target``. It usually runs on the rig machine while the client runs wherever the
+experimenter is sitting.
+
+The routing rule that most often catches people out: a request with no target goes to the
+server's own ``root`` registry, **not** to the modules. Use ``target('all')`` for "whichever
+module handles this". See :meth:`BaseServer.handle_request_list`.
+"""
+import json
+import signal, sys, os, warnings, traceback
+from time import time
 
 from stimpack.visual_stim.screen import Screen
 from stimpack.visual_stim.stim_server import VisualStimServer
 
-from stimpack.device.locomotion.loco_managers import LocoManager
-from stimpack.device.daq import DAQ
+from stimpack.locomotion import LocoManager
+from stimpack.daq import DAQ
+from stimpack.audio import AudioManager
 
 from stimpack.rpc.util import start_daemon_thread, find_free_port
-from stimpack.rpc.transceiver import MySocketServer
+from stimpack.rpc.transceiver import MySocketServer, reject_private_attribute
 
 from stimpack.experiment.util import config_tools
+from stimpack.experiment.deprecated_names import add_deprecated_aliases
 
 from stimpack.util import ROOT_DIR
 
+# Retired module target names -> the canonical name. 'daq' named the device category; 'voltage_out'
+# names the capability (optogenetics, odor, reward, shock, ... are all voltage out), which is how the
+# architecture is described. Requests using an old name are still routed, so existing labpack
+# protocols calling target('daq') keep working.
+MODULE_ALIASES = {'daq': 'voltage_out'}
+
+# Names BaseServer executes on its root node instead of forwarding to a module.
+#
+# Untargeted requests default to 'root', so this set is what separates a legitimate untargeted call
+# from one that lands nowhere -- which is how mis-migrated daq_* calls silently stopped firing. The
+# labpack checker uses it for exactly that. An e2e test asserts it matches a live server, so it
+# cannot drift from the registrations in __init__.
+ROOT_FUNCTION_NAMES = frozenset({
+    'print_on_server',
+    'set_subject_state',
+    'set_current_trial',
+    'load_server_side_state_dependent_control',
+    'unload_server_side_state_dependent_control',
+    'start_subject_state_history',
+    'send_subject_state_history',
+    # Deprecated wire names, registered so a pre-1.0 client still reaches the right method. Listed
+    # here because they are genuinely registered: leaving them out would have --check-labpack
+    # report a call that works as one that lands nowhere, which is worse than not mentioning it.
+    'set_current_epoch',
+})
+
+# Targets a request may name. Modules present depend on the rig (a rig with no voltage-out hardware
+# has no such module), so this is the set of *spellings* stimpack understands, not a claim about
+# what any given server has.
+KNOWN_TARGETS = frozenset(MODULE_ALIASES) | {'visual', 'locomotion', 'voltage_out', 'audio', 'all', 'root'}
+
+
 class BaseServer(MySocketServer):
-    def __init__(self, 
-                 host: str = '', 
-                 port: int|None = 60629, 
-                 visual_stim_kwargs: dict = {},
-                 loco_class: type|None = None, 
+    # Class-level defaults, so a bare server (tests build one with __new__, skipping __init__)
+    # treats a belt-log flush as the no-op it should be instead of tripping the __getattr__
+    # proxy's private-name guard. The lines default is an immutable tuple on purpose: __init__
+    # replaces it with a real list, and an instance that skipped __init__ cannot accidentally
+    # share a mutable buffer through the class.
+    _subject_state_history = None
+    _subject_state_log_dir = None
+    _subject_state_log_file = None
+    _subject_state_log_lines = ()
+
+    def __init__(self,
+                 host: str = '127.0.0.1',
+                 port: int|None = 60629,
+                 visual_stim_kwargs: dict|None = {},
+                 loco_class: type|None = None,
                  loco_kwargs: dict = {},
-                 daq_class: type|None = None,  
+                 daq_class: type|None = None,
                  daq_kwargs: dict = {},
+                 audio_class: type|None = None,
+                 audio_kwargs: dict = {},
                  start_loop: bool = False):
+        '''
+        host: interface to bind the (unauthenticated) RPC server to. Defaults to loopback
+              ('127.0.0.1') so the control channel is not exposed to the network. To accept
+              connections from other machines, pass host='0.0.0.0' explicitly and firewall the
+              port to the trusted rig network.
+        '''
 
         self.host = host
         if port is None:
@@ -36,11 +102,17 @@ class BaseServer(MySocketServer):
         self.modules = {}
         
         ### Visual stim manager ###
-        # Default aux screen
-        if 'screens' not in visual_stim_kwargs:
-            visual_stim_kwargs['screens'] = [Screen(x_display=None, display_index=0, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
-        
-        self.modules['visual'] = VisualStimServer(**visual_stim_kwargs) # auto_stop=False, other_stim_module_paths=[]
+        # visual_stim_kwargs=None means this rig has no displays at all, and gets no visual module
+        # -- the same way loco_class=None and daq_class=None work below. It is not the same as
+        # passing screens=[]: that would leave the module in place, so has_module('visual') would
+        # answer True and a protocol would send stimuli to a server with nowhere to draw them,
+        # which is the silent failure this reporting exists to prevent.
+        if visual_stim_kwargs is not None:
+            # Default aux screen
+            if 'screens' not in visual_stim_kwargs:
+                visual_stim_kwargs['screens'] = [Screen(x_display=None, display_index=0, fullscreen=False, vsync=True, square_size=(0.25, 0.25))]
+
+            self.modules['visual'] = VisualStimServer(**visual_stim_kwargs)  # auto_stop=False
         ### Visual stim manager ###
 
         ### Locomotion manager ###
@@ -49,18 +121,39 @@ class BaseServer(MySocketServer):
             self.modules['locomotion'] = loco_class(stim_server=self, start_at_init=False, **loco_kwargs)
         ### Locomotion manager ###
 
-        ### DAQ manager ###
+        ### Voltage out manager (a DAQ device: opto, odor, reward, trigger, ...) ###
         if daq_class is not None:
             assert issubclass(daq_class, DAQ)
-            self.modules['daq'] = daq_class(**daq_kwargs)
-        ### DAQ manager ###
+            self.modules['voltage_out'] = daq_class(**daq_kwargs)
+        ### Voltage out manager ###
+
+        ### Audio manager (a sound card) ###
+        # audio_class=None means this rig has no sound card, the same way daq_class=None does. Use
+        # NullAudioManager for a rig that has none but runs audio protocols anyway -- it renders and
+        # times everything and plays nothing, so the protocol behaves identically off the rig.
+        if audio_class is not None:
+            assert issubclass(audio_class, AudioManager)
+            self.modules['audio'] = audio_class(**audio_kwargs)
+        ### Audio manager ###
+
+        self._warned_module_aliases = set()   # so a retired target name warns once, not per call
+
+        # Let each module bubble its handler errors back to the client (surfaced in the GUI; aborts the run).
+        for module in self.modules.values():
+            module.error_reporter = self.report_to_client
 
         # Register functions to be executed on the server's root node, and not in modules.
+        # Keep this in step with ROOT_FUNCTION_NAMES above; an e2e test asserts they match.
         self.functions_on_root = {}
-        self.register_function_on_root(lambda x: print(x), "print_on_server")
+        self.register_function_on_root(self.print_on_server, "print_on_server")
         self.register_function_on_root(self.set_subject_state, "set_subject_state")
+        self.register_function_on_root(self.set_current_trial, "set_current_trial")
+        # Wire names, so a client from before 1.0 keeps working against this server.
+        self.register_function_on_root(self.set_current_trial, "set_current_epoch")
         self.register_function_on_root(self.load_server_side_state_dependent_control, "load_server_side_state_dependent_control")
         self.register_function_on_root(self.unload_server_side_state_dependent_control, "unload_server_side_state_dependent_control")
+        self.register_function_on_root(self.start_subject_state_history, "start_subject_state_history")
+        self.register_function_on_root(self.send_subject_state_history, "send_subject_state_history")
 
         def signal_handler(sig, frame):
             print('Closing server after Ctrl+C...')
@@ -70,6 +163,22 @@ class BaseServer(MySocketServer):
 
         # Custom state-dependent control function, initialized to None        
         self.loaded_custom_state_dependent_control = None
+
+        # Which trial the client is running, set by the client as each one starts. Used to stamp
+        # end_trial() so a request cannot arrive late and cut short the trial after the one it was
+        # meant for. None between trials, when there is nothing to end.
+        self.current_trial_index = None
+
+        # Subject-state history: the modality-neutral record of everything set_subject_state
+        # accumulated, collected between the client's start/send marks (run boundaries) and shipped
+        # back once at run end -- once rather than per trial, so nothing is serialized into the
+        # inter-trial gap. None means not collecting. The belt log's file is opened lazily, on the
+        # first flush that has lines: a run whose protocols never touch subject state leaves no
+        # empty directory behind.
+        self._subject_state_history = None
+        self._subject_state_log_dir = None
+        self._subject_state_log_file = None
+        self._subject_state_log_lines = []
 
         # set the subject position parameters
         self.subject_state = {}
@@ -84,7 +193,8 @@ class BaseServer(MySocketServer):
         that is not a standard attribute of the server will be forwarded as an
         RPC request to the 'root' target.
         '''
-        # print(f"Server does not have attribute {name}; call must be for either module or an attribute or method of BaseServer.")            
+        # print(f"Server does not have attribute {name}; call must be for either module or an attribute or method of BaseServer.")
+        reject_private_attribute(name)
         def f(*args, **kwargs):
             request = {'target': 'root',
                         'name': name, 
@@ -110,24 +220,139 @@ class BaseServer(MySocketServer):
         for request in root_request_list:
             # get function call parameters
             if request['name'] not in self.functions_on_root:
-                print(f"Warning: function '{request['name']}' not registered on root node.")
+                if request.get('_untargeted'):
+                    # An untargeted call landed here by default, not by choice, and found nothing.
+                    # That is the classic silent failure of this RPC style, and how mis-migrated
+                    # daq_* calls stopped firing: an error, because the call was meant for
+                    # something and reached nothing.
+                    msg = (f"no such function '{request['name']}' on the server root node. "
+                           f"Untargeted calls go to root -- if you meant a module, use "
+                           f"target('all') or target('<module>').")
+                    level = 'error'
+                else:
+                    # The caller explicitly said target('root'), so they knew where they were
+                    # aiming; this rig simply has not registered that function. Labs register
+                    # rig-specific functions on root (a projector's LED current, a shutter), and a
+                    # protocol written for one rig should degrade on another rather than refuse to
+                    # run -- the same reasoning as a request for a module this server lacks, which
+                    # is likewise a warning.
+                    msg = (f"no function '{request['name']}' is registered on this server's root "
+                           f"node (registered: {sorted(self.functions_on_root)}); "
+                           f"request was dropped")
+                    level = 'warning'
+                warnings.warn(msg)
+                self.report_to_client(level, msg)
                 continue
             function = self.functions_on_root[request['name']]
             args = request.get('args', [])
             kwargs = request.get('kwargs', {})
 
-            # call function
+            # call function, isolating handler errors so one bad root request cannot kill the server loop
             # print(f"Server root node executing: {str(request)}")
-            function(*args, **kwargs)
+            try:
+                function(*args, **kwargs)
+            except Exception as e:
+                warnings.warn(f"Error handling root request '{request['name']}':\n{traceback.format_exc()}")
+                self.report_to_client('error', f"error handling '{request['name']}': {type(e).__name__}: {e}")
+
+    def on_connection_open(self):
+        '''
+        Tell the freshly-connected client which modules this server has, so protocols can adapt to
+        the rig instead of assuming its hardware (see BaseProtocol.has_module). Generic on purpose:
+        it reports whatever modules exist, rather than any particular capability flag.
+        '''
+        # Also advertise the callable names, so a protocol can ask whether this rig has a
+        # lab-registered function rather than calling it and reading the warning afterwards.
+        # Only targets that can enumerate themselves are listed: the visual module forwards to
+        # screen subprocesses, so a list built here would be wrong, and being absent means
+        # "unknown", which has_server_function answers True to.
+        functions = {'root': sorted(self.functions_on_root)}
+        for module_name, module in self.modules.items():
+            # Asked of the CLASS, not the instance. A module may be a transceiver, whose
+            # __getattr__ turns any missing attribute into an RPC stub -- so
+            # getattr(module, 'get_callable_names', None) never returns None, and calling the stub
+            # sends the question down the wire to a screen that has never heard of it.
+            if getattr(type(module), 'get_callable_names', None) is None:
+                continue
+            try:
+                names = module.get_callable_names()
+            except Exception:
+                continue      # a module that cannot say is simply not listed
+            if names is None:
+                # The BaseManager form of declining: inheritance makes absence impossible, so a
+                # module that forwards its requests elsewhere returns None to mean "unknown".
+                continue
+            functions[module_name] = sorted(names)
+
+        self.write_request_list([
+            {'name': 'report_server_modules', 'args': [sorted(self.modules)], 'kwargs': {}},
+            {'name': 'report_server_functions', 'args': [functions], 'kwargs': {}},
+        ])
+
+    def report_to_client(self, level, text):
+        '''
+        Push a message (e.g. an error) back to the connected client, which surfaces it in the GUI and,
+        for level='error', aborts the run. Best-effort: no-ops if no client is connected (outfile is None).
+        '''
+        self.write_request_list([{'name': 'report_server_message', 'args': [level, str(text)], 'kwargs': {}}])
 
     def handle_request_list(self, request_list):
+        '''
+        Route each request by its ``target``::
+
+            (absent) / 'root'   the server's own functions_on_root registry ONLY. An untargeted
+                                call does NOT reach the modules; if the name is not registered on
+                                root, nothing happens (and it is reported back to the client).
+            '<module name>'     that module only ('visual', 'locomotion', 'voltage_out').
+            'all'               broadcast to every module; each acts only on the names it
+                                defines, so target('all').start_stim() is handled by the screens
+                                and ignored by the others, which is expected.
+
+        Use ``target('all')`` when you mean "whichever module handles this" -- writing the call
+        untargeted instead sends it to root, where it will not be found.
+
+        Note that ``'all'`` covers the modules but NOT root, deliberately: root's
+        ``set_subject_state`` itself fans out via ``target('all')``, so including root would
+        recurse forever.
+        '''
         # pre-process the request list as necessary
         for request in request_list:
             if isinstance(request, dict) and ('name' in request):
                 if 'target' not in request:
                     request['target'] = 'root'
+                    # Remember that root was the default rather than the caller's choice: the two
+                    # cases mean opposite things when the name turns out not to be registered.
+                    request['_untargeted'] = True
                 if 'kwargs' not in request:
                     request['kwargs'] = {}
+
+                # Normalize retired target names (e.g. 'daq' -> 'voltage_out'), warning once each.
+                target = request['target']
+                if target in MODULE_ALIASES:
+                    request['target'] = MODULE_ALIASES[target]
+                    if target not in self._warned_module_aliases:
+                        self._warned_module_aliases.add(target)
+                        warnings.warn(f"target('{target}') is deprecated; use "
+                                      f"target('{MODULE_ALIASES[target]}').")
+
+        # A request addressed to a module this server doesn't have (e.g. an opto call on a rig with
+        # no daq_class, or a typo'd target) matches nothing in the loop below, and would otherwise be
+        # dropped without a trace.
+        #
+        # Reported as a WARNING, not an error: running one protocol across rigs with different
+        # hardware is legitimate and common, and the server cannot tell "this rig simply has no
+        # opto" from "opto was expected here". So make it visible without aborting the run, and let
+        # the protocol decide -- it knows whether opto was actually requested. Guard those calls with
+        # `if self.daq_available and <opto requested>:` (see config_tools.get_daq_available) and set
+        # `daq_available: False` for rigs without the hardware, and this warning won't fire at all.
+        known_targets = set(self.modules) | {'root', 'all'}
+        for request in request_list:
+            if isinstance(request, dict) and request.get('target') not in known_targets:
+                msg = (f"no '{request.get('target')}' module on this server "
+                       f"(configured: {sorted(self.modules)}); "
+                       f"request '{request.get('name')}' was dropped")
+                warnings.warn(msg)
+                self.report_to_client('warning', msg)
 
         # Pull out and process requests for root node of the stim server
         root_request_list = [request for request in request_list if request['target']=='root']
@@ -146,10 +371,79 @@ class BaseServer(MySocketServer):
         '''
         This function is called when the connection is closed / dropped.
         Overrides the function in MySocketServer.
-        It calls on_connection_close() for each module.
+        It calls on_connection_close() for each module that defines one -- the hook is optional,
+        and a module's only required method is handle_request_list.
         '''
-        [module.on_connection_close() for module in self.modules.values()]
+        for module in self.modules.values():
+            close_hook = getattr(module, 'on_connection_close', None)
+            if callable(close_hook):
+                close_hook()
+
+        # The client that asked for this history is gone; there is nobody to ship it to. The belt
+        # log on disk keeps whatever was collected up to the drop.
+        self._subject_state_history = None
+        self._close_subject_state_log()
         
+    @staticmethod
+    def print_on_server(text):
+        """
+        Console diagnostics from the client ('Trial completed.', 'Run ended.'), best-effort by
+        contract. These are fire-and-forget messages that can outlive the console they were aimed
+        at: a daemonized rig server may have lost its stdout (a dropped ssh session raises EBADF,
+        a closed file object ValueError), and under pytest a run's last prints race the capture
+        teardown that closes the test's stdout. Routing that through the root error isolation
+        would report an *error* to the client -- aborting a live run over a message nobody could
+        have read -- so a print that cannot land is dropped instead.
+        """
+        try:
+            print(text)
+        except (OSError, ValueError):
+            pass
+
+    def set_current_trial(self, trial_index):
+        """
+        Told by the client as each trial begins, and set to None when it ends.
+
+        Only used to stamp :meth:`end_trial` -- the server does not otherwise care which trial is
+        running -- and, since the client calls it at both edges of every trial, it is where the
+        subject-state belt log flushes: between trials, off the presentation's clock.
+        """
+        self.current_trial_index = trial_index
+        self._flush_subject_state_log()
+
+    def end_trial(self, reason=None):
+        """
+        Ask the client to end the trial in progress early, and go on to the next one.
+
+        For trials whose length is decided by what the subject does rather than by the clock: a
+        fixation held long enough, a virtual goal reached, a choice made. The condition has to be
+        evaluated here rather than on the client, because the client never sees subject state and
+        could not ask for it if it wanted to -- requests carry no reply.
+
+        Call it from a labpack's server-side closed-loop function, which runs on every tracker
+        update with the full subject state::
+
+            def server_side_state_dependent_control(server, subject_state, state_update):
+                if subject_state['x'] > 0.5:
+                    server.end_trial(reason='reached_goal')
+                return state_update
+
+        :param reason: recorded with the trial, so a trial that ended early can be told apart
+            from one that ran its full length. Worth setting: once duration depends on behavior,
+            the protocol's stim_time describes the intent rather than the trial.
+
+        Does nothing between trials -- there is nothing to end, and ending the next one because a
+        criterion was met just after the last is a bug that would be hard to see in the data.
+
+        This ends one trial. To stop the whole run, report an error instead
+        (:meth:`report_to_client`), which aborts it and records why.
+        """
+        if self.current_trial_index is None:
+            return
+        self.write_request_list([{'name': 'stop_trial',
+                                  'args': [], 'kwargs': {'trial_index': self.current_trial_index,
+                                                         'reason': reason}}])
+
     ### Functions for setting subject state ###
     def set_subject_state(self, state_update:dict={'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll':0}) -> None:
         # Perform custom closed-loop control and get an updated state update
@@ -159,10 +453,76 @@ class BaseServer(MySocketServer):
         # Update the subject state
         for k,v in state_update.items():
             self.subject_state[k] = v
-        
+
+        # Record the accumulated state, not the sparse update: dense rows are what analysis wants,
+        # and which keys a given update carried is the tracker's own log's story. The belt line is
+        # only buffered here -- this method runs on the request loop at tracker rate, and a disk
+        # (worse, an NFS mount) can stall a write for longer than a tracker interval. Flushing
+        # happens at trial boundaries (set_current_trial), so a crash loses at most the trial in
+        # progress, which is the trial the crash already ruined.
+        if self._subject_state_history is not None:
+            now = time()
+            self._subject_state_history.append([now, dict(self.subject_state)])
+            if self._subject_state_log_dir is not None:
+                self._subject_state_log_lines.append(
+                    json.dumps({'ts': now, 'state': self.subject_state}) + '\n')
+
         # Forward state information to each module manager
         self.target('all').set_subject_state(state_update)
     
+    def start_subject_state_history(self, log_dir=None):
+        """
+        Begin collecting subject-state history. Called by the client as a run starts.
+
+        Each subsequent ``set_subject_state`` appends ``[timestamp, full accumulated state]`` --
+        every source funnels through that one method (trackers, KeyTrac, a protocol's own keys),
+        so this is the modality-neutral record the per-module logs are projections of.
+
+        :param log_dir: optional server-side directory for a ``subject_state.jsonl`` belt log,
+            buffered in memory and flushed at trial boundaries. It is what survives a client crash
+            mid-run (to within the trial in progress), and it lives on the server machine -- the
+            shipped history (see :meth:`send_subject_state_history`) is the copy that reaches the
+            data file. The file is created on the first flush that has something to say.
+        """
+        self._close_subject_state_log()
+        self._subject_state_history = []
+        self._subject_state_log_dir = log_dir
+
+    def send_subject_state_history(self):
+        """
+        Push the collected history to the client in one message, and stop collecting.
+
+        Called by the client at run END, not per trial, so serializing the history (a few MB for
+        a long closed-loop run) never delays the gap between trials. The client saves it into the
+        data file next to the series it belongs to.
+        """
+        history = self._subject_state_history if self._subject_state_history is not None else []
+        self.write_request_list([{'name': 'receive_subject_state_history',
+                                  'args': [history], 'kwargs': {}}])
+        self._subject_state_history = None
+        self._close_subject_state_log()
+
+    def _flush_subject_state_log(self):
+        """Write the buffered belt lines. Called between trials, where a slow disk delays nothing
+        that is being presented, and on close/send."""
+        if not self._subject_state_log_lines or self._subject_state_log_dir is None:
+            return
+        if self._subject_state_log_file is None:
+            os.makedirs(self._subject_state_log_dir, exist_ok=True)
+            self._subject_state_log_file = open(
+                os.path.join(self._subject_state_log_dir, 'subject_state.jsonl'), 'a')
+        self._subject_state_log_file.writelines(self._subject_state_log_lines)
+        self._subject_state_log_file.flush()
+        self._subject_state_log_lines = []
+
+    def _close_subject_state_log(self):
+        self._flush_subject_state_log()
+        if self._subject_state_log_file is not None:
+            self._subject_state_log_file.close()
+            self._subject_state_log_file = None
+        self._subject_state_log_dir = None
+        self._subject_state_log_lines = []
+
     def load_server_side_state_dependent_control(self, protocol_module_path, protocol_name):
         '''
         Load a custom state-dependent control function.
@@ -182,3 +542,10 @@ class BaseServer(MySocketServer):
         Unload custom state-dependent control function.
         '''
         self.loaded_custom_state_dependent_control = None
+
+# The pre-1.0 spelling. Labpack device code calls server.end_epoch(...) to end a trial on
+# behavior; see the behavior-ended trials guide.
+add_deprecated_aliases(
+    BaseServer,
+    methods=[('end_epoch', 'end_trial'), ('set_current_epoch', 'set_current_trial')],
+)

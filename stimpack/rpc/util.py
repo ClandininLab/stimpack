@@ -1,3 +1,4 @@
+"""Small helpers shared by the RPC layer: daemon threads, free ports, tuple-preserving JSON."""
 import sys, json
 
 from collections import defaultdict
@@ -5,9 +6,11 @@ from socket import socket
 from threading import Thread
 
 def start_daemon_thread(target):
+    '''Start target on a daemon thread and return it, so callers can join it on shutdown.'''
     t = Thread(target=target)
     t.daemon = True
     t.start()
+    return t
 
 def stream_is_binary(stream):
     return 'b' in stream.mode

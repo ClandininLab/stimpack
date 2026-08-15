@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""A minimal server that echoes what it is sent -- for testing the RPC link by hand."""
 
 import sys
 

@@ -1,0 +1,547 @@
+"""
+Unit tests for the NWB data backend (stimpack.experiment.data_nwb).
+
+Writes real .nwb files under tmp_path -- no rig, no GUI. Skipped entirely when pynwb is not
+installed. It is a hard dependency now, so this only skips on a partial install.
+"""
+import os
+import warnings
+
+import pytest
+
+pytest.importorskip("pynwb")
+
+from pynwb import NWBHDF5IO
+
+from stimpack.experiment.data import BaseData
+from stimpack.experiment.data_nwb import NWBData
+
+pytestmark = pytest.mark.unit
+
+
+CFG = {
+    'experimenter': 'TestPerson',
+    'lab': 'TestLab',
+    'institution': 'TestUniversity',
+    'current_rig_name': 'rig1',
+    'rig_config': {'rig1': {'screen_center': [0, 0], 'server_options': {'host': 'localhost'}}},
+}
+
+
+class _Protocol:
+    """Minimal stand-in with the attributes the data object reads."""
+    def __init__(self, stim_params=None):
+        self.run_parameters = {"num_trials": 2, "idle_color": 0.0}
+        self.protocol_parameters = {"angle": [0, 90]}
+        self.trial_stim_parameters = stim_params if stim_params is not None else {"name": "StimA"}
+        self.trial_protocol_parameters = {"pre_time": 1.0, "stim_time": 2.0, "tail_time": 1.0}
+        self.num_trials_completed = 0
+        self.save_stringified_params = False
+
+
+def _make_data(tmp_path, subject='s1'):
+    data = NWBData(cfg=CFG)
+    data.data_directory = str(tmp_path)
+    data.experiment_file_name = 'expt_2026-07-26'
+    data.initialize_experiment_file()
+    if subject is not None:
+        data.create_subject({'subject_id': subject, 'age': 5, 'notes': ''})
+    return data
+
+
+# --- conforms to the interface the GUI and client use -------------------------------------------
+
+def test_is_a_basedata():
+    """The GUI holds one data object and does not branch on its class, so the NWB backend has to
+    be substitutable for the HDF5 one."""
+    assert issubclass(NWBData, BaseData)
+
+    gui_and_client_interface = [
+        'initialize_experiment_file', 'load_experiment', 'prepare_series',
+        'experiment_file_exists', 'current_subject_exists',
+        'create_subject', 'update_subject', 'select_subject', 'get_existing_subject_data',
+        'create_series', 'end_series', 'create_trial', 'end_trial', 'create_note',
+        'get_existing_series', 'get_highest_series_count', 'get_series_count',
+        'update_series_count', 'advance_series_count', 'reload_series_count',
+        'get_server_subdir',
+    ]
+    missing = [name for name in gui_and_client_interface if not hasattr(NWBData, name)]
+    assert missing == []
+
+
+def test_declares_itself_as_directory_backed():
+    assert NWBData.output_is_directory is True
+    assert BaseData.output_is_directory is False
+
+    # Both are browsable: an .nwb file is HDF5 underneath, so the same tree reads it. What NWB
+    # declines is *editing* -- pynwb validates a schema a hand-edited attribute can break.
+    assert NWBData.supports_data_browser is True
+    assert BaseData.supports_data_browser is True
+    assert NWBData.browser_is_editable is False
+    assert BaseData.browser_is_editable is True
+
+
+def test_nwb_names_alias_the_generic_ones(tmp_path):
+    """Max's protocols and labpack code are written against the nwb_* spellings; those have to
+    keep working now that the generic names are canonical."""
+    data = NWBData(cfg=CFG)
+    data.nwb_directory = 'expt'
+    data.parent_directory = str(tmp_path)
+    data.current_subject_id = 's1'
+
+    assert data.experiment_file_name == 'expt'
+    assert data.data_directory == str(tmp_path)
+    assert data.current_subject == 's1'
+
+    # and the other direction
+    data.experiment_file_name = 'other'
+    assert data.nwb_directory == 'other'
+    assert data.nwb_directory_exists() == data.experiment_file_exists()
+
+
+# --- experiment lifecycle -----------------------------------------------------------------------
+
+def test_initialize_creates_the_directory(tmp_path):
+    data = _make_data(tmp_path, subject=None)
+    assert (tmp_path / 'expt_2026-07-26').is_dir()
+    assert data.experiment_file_exists()
+
+
+def test_experiment_file_exists_is_false_before_initialization(tmp_path):
+    data = NWBData(cfg=CFG)
+    data.data_directory = str(tmp_path)
+    assert data.experiment_file_exists() is False       # name still ''
+    data.experiment_file_name = 'not_created_yet'
+    assert data.experiment_file_exists() is False       # named, but no directory
+
+
+def test_load_experiment_splits_the_path(tmp_path):
+    """Regression: os.path.split(path)[:-1] made parent_directory a one-element TUPLE, so every
+    os.path call on it afterwards raised -- including the GUI's own isdir() check."""
+    _make_data(tmp_path)          # creates the experiment on disk; loaded below is what we test
+    loaded = NWBData(cfg=CFG)
+    loaded.load_experiment(str(tmp_path / 'expt_2026-07-26'))
+
+    assert loaded.data_directory == str(tmp_path)
+    assert isinstance(loaded.parent_directory, str)
+    assert os.path.isdir(loaded.parent_directory)
+    assert loaded.experiment_file_name == 'expt_2026-07-26'
+    assert loaded.experiment_file_exists()
+
+
+def test_load_experiment_keeps_dots_in_a_directory_name(tmp_path):
+    (tmp_path / '2026.07.26').mkdir()
+    data = NWBData(cfg=CFG)
+    data.load_experiment(str(tmp_path / '2026.07.26'))
+    assert data.experiment_file_name == '2026.07.26'    # not truncated to '2026.07'
+
+
+def test_hdf5_load_experiment_strips_the_extension(tmp_path):
+    data = BaseData(cfg={})
+    data.load_experiment(str(tmp_path / 'my_expt.hdf5'))
+    assert data.experiment_file_name == 'my_expt'
+    assert data.data_directory == str(tmp_path)
+
+
+# --- subjects -----------------------------------------------------------------------------------
+
+def test_select_subject_is_visible_to_everything_that_reads_it(tmp_path):
+    """Regression: select_subject wrote current_subject while the file path, the existence check
+    and get_server_subdir all read current_subject_id, so picking an existing subject from the
+    GUI dropdown changed nothing."""
+    data = _make_data(tmp_path, subject=None)
+    assert data.current_subject_exists() is False
+
+    data.select_subject('s2')
+    assert data.current_subject_exists() is True
+    assert data.current_subject_id == 's2'
+    assert 's2' in str(data.get_nwb_file_path())
+    assert data.get_server_subdir().endswith('s2')
+
+
+def test_update_subject_revises_metadata(tmp_path):
+    data = _make_data(tmp_path)
+    data.update_subject({'subject_id': 's1', 'age': 9, 'notes': 'revised'})
+    assert data.subject_metadata['age'] == 9
+
+    data.update_subject({'subject_id': 'someone_else', 'age': 1})
+    assert data.subject_metadata['age'] == 9        # unchanged: not the current subject
+
+
+def test_get_existing_subject_data_on_a_fresh_directory(tmp_path):
+    # Must not raise just because no series have been written yet.
+    assert _make_data(tmp_path, subject=None).get_existing_subject_data() == []
+
+
+def test_a_subject_exists_before_it_has_run_a_series(tmp_path):
+    """Subject metadata lives in the series files, so a subject that has not run one was reported
+    by nobody -- and every caller that asks whether this experiment has it, the GUI included, was
+    told no about a subject it had just created."""
+    data = _make_data(tmp_path)                      # creates s1, writes no series
+
+    assert [s['subject_id'] for s in data.get_existing_subject_data()] == ['s1']
+
+
+def test_a_subject_written_to_disk_wins_over_the_remembered_copy(tmp_path):
+    """The file is the record. What is remembered is only a stand-in until one exists."""
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    data.defined_subjects['s1']['age'] = 999         # as a stale in-memory copy would be
+
+    assert data.get_existing_subject_data()[0]['age'] == 5
+
+
+def test_get_existing_subject_data_round_trips(tmp_path):
+    data = _make_data(tmp_path)
+    data.prepare_series()
+
+    subjects = data.get_existing_subject_data()
+    assert [s['subject_id'] for s in subjects] == ['s1']
+    assert subjects[0]['notes'] == ''            # non-canonical fields survive via description
+
+
+# --- series -------------------------------------------------------------------------------------
+
+def test_prepare_series_writes_one_file_per_series(tmp_path):
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    data.advance_series_count()
+    data.prepare_series()
+
+    assert len(data.get_series_files()) == 2
+    assert sorted(data.get_existing_series()) == [1, 2]
+    assert data.get_highest_series_count() == 2
+
+
+@pytest.mark.parametrize('name', ['', 'named_but_never_created'])
+def test_series_queries_are_safe_before_initialization(tmp_path, name):
+    """The GUI queries these while the user is still filling in the experiment dialog, so they
+    have to answer for a directory that does not exist yet rather than raising FileNotFoundError."""
+    data = NWBData(cfg=CFG)
+    data.data_directory = str(tmp_path)
+    data.experiment_file_name = name
+    assert not data.nwb_directory_path.is_dir() or name == ''
+
+    assert data.get_series_files() == []
+    assert data.get_existing_series() == []
+    assert data.get_highest_series_count() == 0
+    assert data.get_existing_subject_data() == []
+    assert data.get_series_count() == 1
+
+
+def test_reload_series_count_from_disk(tmp_path):
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    data.advance_series_count()
+    data.prepare_series()
+
+    fresh = NWBData(cfg=CFG)
+    fresh.load_experiment(str(tmp_path / 'expt_2026-07-26'))
+    fresh.reload_series_count()
+    assert fresh.get_series_count() == 3
+
+
+def test_get_server_subdir_is_experiment_then_subject(tmp_path):
+    data = _make_data(tmp_path)
+    assert data.get_server_subdir() == 'expt_2026-07-26/s1'
+
+
+# --- run outcome --------------------------------------------------------------------------------
+
+def _epochs_table(data):
+    with NWBHDF5IO(data.get_nwb_file_path(), 'r') as io:
+        return io.read().epochs.to_dataframe()
+
+
+def test_end_series_records_status_and_reason(tmp_path):
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    proto = _Protocol()
+    data.create_series(proto)
+    data.end_series(proto, status='aborted', reason='server_connection_lost')
+
+    row = _epochs_table(data).iloc[0]
+    assert row['run_status'] == 'aborted'
+    assert row['run_status_reason'] == 'server_connection_lost'
+    assert row['stop_time'] >= row['start_time']
+
+
+def test_end_series_defaults_to_completed(tmp_path):
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    proto = _Protocol()
+    data.create_series(proto)
+    data.end_series(proto)
+
+    row = _epochs_table(data).iloc[0]
+    assert row['run_status'] == 'completed'
+    assert row['run_status_reason'] == ''
+
+
+def test_end_series_without_a_series_does_not_raise(tmp_path):
+    """The client calls this from a finally block, so it runs even when the run failed before
+    create_series stored anything. Popping epoch_start_time then raised KeyError from inside
+    the error handler, hiding whatever actually went wrong."""
+    data = _make_data(tmp_path, subject=None)      # no subject -> create_series bails out
+    proto = _Protocol()
+    data.create_series(proto)
+    with pytest.warns(UserWarning, match='No series to close out'):
+        data.end_series(proto, status='error', reason='boom')
+
+
+def test_end_series_without_a_series_file_does_not_raise(tmp_path):
+    """A run that failed before prepare_series has no file to append to."""
+    data = _make_data(tmp_path)
+    proto = _Protocol()
+    data.create_series(proto)                   # parameters exist...
+    assert not os.path.isfile(data.get_nwb_file_path())   # ...but the file does not
+    with pytest.warns(UserWarning, match='No NWB file at'):
+        data.end_series(proto, status='error', reason='boom')
+
+
+def test_a_full_series_round_trips(tmp_path):
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    proto = _Protocol()
+    data.create_series(proto)
+    for _ in range(2):
+        data.create_trial(proto)
+        data.end_trial(proto)
+        proto.num_trials_completed += 1
+    data.end_series(proto)
+
+    with NWBHDF5IO(data.get_nwb_file_path(), 'r') as io:
+        nwbfile = io.read()
+        assert len(nwbfile.trials) == 2
+        assert len(nwbfile.epochs) == 1
+        assert nwbfile.subject.subject_id == 's1'
+        assert nwbfile.lab == 'TestLab'
+        assert nwbfile.institution == 'TestUniversity'
+        trials = nwbfile.trials.to_dataframe()
+        assert trials['protocol'].iloc[0] == 'StimA'
+        assert trials['pre_time'].iloc[0] == 1.0
+
+
+def test_notes_go_to_a_csv_beside_the_series_files(tmp_path):
+    data = _make_data(tmp_path)
+    data.create_note('a note')
+    notes = tmp_path / 'expt_2026-07-26' / 'notes.csv'
+    assert notes.is_file()
+    assert 'a note' in notes.read_text()
+
+
+def test_create_trial_without_a_subject_does_not_collect_parameters(tmp_path):
+    """Warning and carrying on only defers the failure to end_trial, which then reports a missing
+    file instead of the missing subject that caused it."""
+    data = _make_data(tmp_path, subject=None)
+    with pytest.warns(UserWarning, match='define a subject first'):
+        data.create_trial(_Protocol())
+    assert data.trial_parameters == {}
+
+
+def test_end_trial_without_a_series_file_does_not_raise(tmp_path):
+    """Called once per epoch during a run; a run not saving metadata must not raise every epoch."""
+    data = _make_data(tmp_path)
+    data.create_trial(_Protocol())                        # parameters collected...
+    assert not os.path.isfile(data.get_nwb_file_path())   # ...but no file was ever written
+    with pytest.warns(UserWarning, match='No NWB file at'):
+        data.end_trial(_Protocol())
+
+
+def test_end_trial_with_nothing_collected_is_silent(tmp_path):
+    """Not merely non-raising: with no epoch collected there is nothing wrong, so it must not
+    complain about a missing file either. During a View run this is called every epoch."""
+    data = _make_data(tmp_path, subject=None)
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        data.end_trial(_Protocol())
+
+
+@pytest.mark.parametrize('cfg, why', [
+    ({'experimenter': 'x'}, 'no rig_config section at all'),
+    ({'experimenter': 'x', 'rig_config': None}, 'an empty rig_config section'),
+    ({'experimenter': 'x', 'rig_config': {'rig1': {}}, 'current_rig_name': 'other'},
+     'a current_rig_name matching no rig'),
+])
+def test_a_config_without_a_matching_rig_still_writes(tmp_path, cfg, why):
+    """A config that names no usable rig is still a config that can record.
+
+    This read the rig section unguarded, so it raised before creating anything -- AttributeError
+    on the missing section, TypeError iterating the None from an unmatched name. BaseData has
+    always tolerated the same configs, and the two backends are chosen by a config key, so one
+    refusing what the other accepts makes that key unsafe to change.
+    """
+    data = NWBData(cfg=dict(cfg))
+    data.data_directory = str(tmp_path)
+    data.experiment_file_name = 'expt'
+    data.initialize_experiment_file()
+
+    assert os.path.isdir(os.path.join(str(tmp_path), 'expt')), why
+    assert data.rig_config_parameters == {}
+
+
+def test_the_nwb_file_records_which_stimpack_wrote_it(tmp_path):
+    """source_script is the schema's own field for 'what software wrote this', so provenance goes
+    there rather than in an attribute of stimpack's invention. source_script_file_name is required
+    alongside it -- without it pynwb writes the file but warns, leaving it technically invalid."""
+    from stimpack.experiment.util import provenance
+
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    data.create_series(_Protocol())
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with NWBHDF5IO(data.get_nwb_file_path(), 'r') as io:
+            nwbfile = io.read()
+            assert nwbfile.source_script == provenance.provenance_summary(data.cfg)
+            assert nwbfile.source_script.startswith('stimpack ')
+            assert nwbfile.source_script_file_name == 'stimpack'
+    assert not [w for w in caught if 'MissingRequired' in type(w.message).__name__]
+
+
+# --- subjects that have not run a series yet ----------------------------------------------------
+
+def _reopen(tmp_path, name='expt_2026-07-26'):
+    """A second NWBData over the same directory, standing in for a restarted GUI."""
+    data = NWBData(cfg=CFG)
+    data.load_experiment(str(tmp_path / name))
+    return data
+
+
+def test_a_subject_survives_a_restart_before_it_has_run(tmp_path):
+    """Subject metadata lives inside each series file, so one that has not run a series is
+    recorded nowhere. Kept beside the .nwb files for the same reason notes.csv is."""
+    _make_data(tmp_path)                             # creates s1, writes no series
+    assert (tmp_path / 'expt_2026-07-26' / NWBData.SUBJECTS_FILE).is_file()
+
+    assert [s['subject_id'] for s in _reopen(tmp_path).get_existing_subject_data()] == ['s1']
+
+
+def test_a_revision_survives_too(tmp_path):
+    data = _make_data(tmp_path)
+    data.update_subject({'subject_id': 's1', 'age': 9, 'notes': 'revised'})
+
+    reopened = _reopen(tmp_path).get_existing_subject_data()[0]
+    assert reopened['age'] == 9 and reopened['notes'] == 'revised'
+
+
+def test_the_sidecar_is_not_mistaken_for_a_series(tmp_path):
+    """get_series_files filters on the .nwb suffix, and the series count comes from it."""
+    data = _make_data(tmp_path)
+
+    assert data.get_series_files() == []
+    assert data.get_existing_series() == []
+
+
+def test_another_experiment_does_not_inherit_them(tmp_path):
+    """They belong to the experiment they were created in."""
+    _make_data(tmp_path)
+
+    other = NWBData(cfg=CFG)
+    other.data_directory = str(tmp_path)
+    other.experiment_file_name = 'other'
+    other.initialize_experiment_file()
+
+    assert other.get_existing_subject_data() == []
+
+
+@pytest.mark.parametrize('contents', ['{not json', '["not", "a", "mapping"]'])
+def test_an_unreadable_sidecar_warns_rather_than_stopping_the_experiment(tmp_path, contents):
+    """The series files are the record either way, so a convenience file must not be able to stop
+    an experiment opening."""
+    _make_data(tmp_path)
+    (tmp_path / 'expt_2026-07-26' / NWBData.SUBJECTS_FILE).write_text(contents)
+
+    with pytest.warns(UserWarning, match=NWBData.SUBJECTS_FILE):
+        data = _reopen(tmp_path)
+
+    assert data.get_existing_subject_data() == []
+
+
+def test_a_sidecar_that_cannot_be_written_warns_rather_than_raising(tmp_path, monkeypatch):
+    """Creating a subject entry happens mid-session, often with the subject already mounted."""
+    data = _make_data(tmp_path, subject=None)
+
+    def refuse(*args, **kwargs):
+        raise OSError('read-only file system')
+    monkeypatch.setattr('builtins.open', refuse)
+
+    with pytest.warns(UserWarning, match='will not survive a restart'):
+        data.create_subject({'subject_id': 's9', 'age': 1, 'notes': ''})
+
+    assert data.current_subject == 's9', 'the subject is still usable this session'
+
+
+def test_an_experiment_written_before_the_sidecar_existed_still_opens(tmp_path):
+    """A missing file is the normal state for those, not an error."""
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    (tmp_path / 'expt_2026-07-26' / NWBData.SUBJECTS_FILE).unlink()
+
+    assert [s['subject_id'] for s in _reopen(tmp_path).get_existing_subject_data()] == ['s1']
+
+
+# --- subject-state history -----------------------------------------------------------------------
+
+def test_subject_state_history_lands_as_behavior_series(tmp_path):
+    """The geometric axes go where the NWB ecosystem looks for them (Position, CompassDirection),
+    lab keys become plain TimeSeries, and timestamps shift onto the file's own basis -- seconds
+    from session_start_time, the same clock the trials table speaks."""
+    import numpy as np
+
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    data.create_series(_Protocol())
+
+    with NWBHDF5IO(str(data.get_nwb_file_path()), 'r') as io:
+        t0 = io.read().session_start_time.timestamp()
+
+    data.save_subject_state_history([
+        [t0 + 1.0, {'x': 0.0, 'y': 0.0, 'z': 0.0, 'theta': 0.0}],
+        [t0 + 1.1, {'x': 0.5, 'y': 0.2, 'z': 0.0, 'theta': 90.0, 'chase_armed': 1}],
+    ])
+
+    with NWBHDF5IO(str(data.get_nwb_file_path()), 'r') as io:
+        nwbfile = io.read()
+        behavior = nwbfile.processing['behavior']
+
+        position = behavior['Position']['subject_position']
+        assert np.allclose(position.timestamps[()], [1.0, 1.1])
+        assert np.allclose(position.data[()], [[0.0, 0.0, 0.0], [0.5, 0.2, 0.0]])
+
+        heading = behavior['CompassDirection']['subject_heading']
+        assert np.allclose(heading.data[()], [0.0, 90.0])
+
+        lab_key = behavior['subject_state_chase_armed']
+        assert np.isnan(lab_key.data[0]) and lab_key.data[1] == 1.0
+
+
+def test_selecting_a_subject_after_a_restart_restores_its_metadata(tmp_path):
+    """The GUI-restart flow that failed in the field: subjects survive a restart through the
+    sidecar, but select_subject (inherited) only remembered the id -- so the first Record after
+    reopening an experiment built an NWBFile with identifier=None and refused."""
+    _make_data(tmp_path)                              # creates subject s1, session one
+
+    reopened = NWBData(cfg=CFG)                       # session two: fresh object, same experiment
+    reopened.load_experiment(str(tmp_path / 'expt_2026-07-26'))
+    reopened.select_subject('s1')
+    reopened.prepare_series()                         # the call that raised
+
+    path = reopened.get_nwb_file_path()
+    assert path.is_file()
+    with NWBHDF5IO(str(path), 'r') as io:
+        nwbfile = io.read()
+        assert nwbfile.identifier == 's1'
+        assert nwbfile.subject.subject_id == 's1'
+
+
+def test_notes_sidecar_is_browsable_once_a_note_exists(tmp_path):
+    """create_note writes to notes.csv because there is no shared file to write into; the browser
+    must list it or notes can be taken but never read back in the GUI."""
+    data = _make_data(tmp_path)
+    assert 'notes' not in dict(data.browsable_files())
+
+    data.create_note('lights dimmed')
+    files = dict(data.browsable_files())
+    assert 'notes' in files and files['notes'].endswith('notes.csv')

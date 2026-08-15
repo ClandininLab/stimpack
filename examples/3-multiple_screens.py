@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import numpy as np
 from stimpack.visual_stim.stim_server import launch_stim_server
 from stimpack.visual_stim.screen import Screen, SubScreen
 
@@ -48,24 +47,18 @@ def main():
     manager.set_idle_background(0.5)
     
     r=0
-    # Present 5 epochs of the stimulus
+    # Present 100 short trials, stepping the spot around the screen
     for i in range(100):
         # Load a stimulus
         manager.load_stim(name='MovingSpot', theta = r) 
         r += 5
 
-        # Pre time: wait for 0.5 second
-        # sleep(0.1)
-
         # Start the stimulus
         manager.start_stim()
 
 
-        # Stim time: client waits for 4 seconds while server shows the stimulus
+        # Stim time: client waits 0.1 seconds while the server shows the stimulus
         sleep(0.1)
-
-        # Tail time: wait for 0.5 second at the end of the stimulus
-        # sleep(0.1)
 
         # Stop the stimulus
         manager.stop_stim(print_profile=True)

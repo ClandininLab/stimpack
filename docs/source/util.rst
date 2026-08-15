@@ -1,7 +1,7 @@
 util module
 ===========
 
-.. automodule:: util
+.. automodule:: stimpack.util
    :members:
    :undoc-members:
    :show-inheritance:

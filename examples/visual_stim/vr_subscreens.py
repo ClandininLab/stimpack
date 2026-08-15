@@ -2,7 +2,6 @@
 from stimpack.visual_stim.stim_server import launch_stim_server
 from stimpack.visual_stim.screen import Screen, SubScreen
 import numpy as np
-from stimpack.visual_stim.draw import draw_screens
 import stimpack.rpc.multicall
 
 from time import sleep
@@ -84,19 +83,12 @@ def main():
         xx = tt * velocity_x
         yy = tt * velocity_y
 
-        # dtheta = 0.0*np.random.normal(size=len(tt))
-        dtheta = tt * 0.0
-        theta = np.cumsum(dtheta)
-
         subject_x_trajectory = {'name': 'TVPairs',
                             'tv_pairs': list(zip(tt, xx)),
                             'kind': 'linear'}
         subject_y_trajectory = {'name': 'TVPairs',
                             'tv_pairs': list(zip(tt, yy)),
                             'kind': 'linear'}
-        subject_theta_trajectory = {'name': 'TVPairs',
-                                'tv_pairs': list(zip(tt, theta)),
-                                'kind': 'linear'}
         multicall_load.set_subject_trajectory(subject_x_trajectory, subject_y_trajectory, 0)
 
         multicall_load() # load stims

@@ -1,0 +1,42 @@
+# Packaging metadata lives in setup.py; this file holds tool configuration.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["tests"]   # so tests can `from fakes import FakeManager, FakeClient`
+addopts = "-ra"
+# Dump every thread's stack when one test runs long, instead of leaving a stuck test silent. A Qt
+# dialog static (QFileDialog.getExistingDirectory, QInputDialog.getText) that a test forgot to
+# patch never returns under QT_QPA_PLATFORM=offscreen -- the platform has an event loop, so exec()
+# waits for input that cannot arrive -- and produces no output at all while it waits. Nothing here
+# takes near two minutes; the slowest tier's own gates (e2e's live-server boot) are 60s and 30s.
+faulthandler_timeout = 120
+# Warnings from stimpack's own modules fail the suite. Every deliberate warning -- the isolation
+# paths, the deprecation aliases, stimulus shadowing -- is asserted with pytest.warns where it is
+# provoked, so one reaching pytest unasserted is a regression, not noise: exactly how a missing
+# client callback sat visible-but-buried in a 300-line warnings summary for a day. Scoped to
+# stimpack's modules on purpose; erroring on third-party deprecation churn (numpy, pynwb) would
+# fail the suite on every dependency bump instead.
+filterwarnings = [
+    "error::UserWarning:stimpack",
+    "error::DeprecationWarning:stimpack",
+]
+markers = [
+    "unit: fast test with no hardware, GL context, or GUI",
+    "gl: requires an OpenGL context (run headless under xvfb / a standalone moderngl context)",
+    "integration: drives real stimpack objects (client/protocol/data) over a fake RPC link; no hardware",
+    "gui: drives the PyQt6 GUI headlessly (QT_QPA_PLATFORM=offscreen)",
+    "e2e: end-to-end against a LIVE server with real screen subprocesses (needs headless GL)",
+    "hardware: requires physical rig hardware (DAQ, projector, tracker) — not run in CI",
+]
+
+[tool.ruff]
+target-version = "py310"
+# Sphinx conf.py is an exec'd config with framework idioms (path hacks, theme imports) that trip linters.
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+# Conservative, high-signal ruleset to start: pyflakes (undefined names, unused imports/vars,
+# redefinitions, bad f-strings) + syntax errors. Style rules (E/W) can be added once the codebase
+# is cleaned up to them.
+select = ["F", "E9"]

@@ -1,11 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+The client side of an experiment: runs the protocol and writes the data file.
 
-import os, sys
+:class:`BaseClient` owns the run loop. For each trial it asks the protocol what to present, sends
+the stimulus to the server, waits out the trial, and records what happened. It also decides how a
+run ends -- completed, stopped by the user, aborted on a dropped link or a server-reported error,
+or failed with an exception -- and stores that outcome alongside the data.
+
+Calls to the server are one-way, so the client cannot tell from a send whether anything happened.
+It detects trouble two ways: the server pushes messages back over the same socket
+(``report_server_message``), and a broken connection is noticed directly.
+"""
+
+import os
+import subprocess
+import time
 from time import sleep
 import posixpath
 import warnings
-from typing import Any, Optional
+import traceback
+from typing import Optional
 
 from PyQt6.QtWidgets import QApplication
 
@@ -17,9 +32,18 @@ from stimpack.experiment.server import BaseServer
 from stimpack.experiment.protocol import BaseProtocol
 from stimpack.experiment.data import BaseData
 from stimpack.experiment.util import config_tools
-from stimpack.device import daq
-from stimpack.device.locomotion.loco_managers.keytrac_managers import KeytracClosedLoopManager
-from stimpack.util import ROOT_DIR
+from stimpack import daq
+from stimpack.audio import PyAudioManager
+from stimpack.audio import util as audio_util
+from stimpack.locomotion.keytrac import KeytracClosedLoopManager
+from stimpack.experiment.deprecated_names import add_deprecated_aliases, _warn_once
+
+# How often the run loop looks up while paused. Nothing is being presented or recorded in that
+# state and it is waiting on somebody to press Resume, so this only has to beat human reaction
+# time; it is not trial timing (see protocol.SLEEP_POLL_INTERVAL for that, which is 5x tighter
+# because it gates stimulus durations).
+PAUSE_POLL_INTERVAL = 0.01
+
 
 class BaseClient():
     def __init__(self, cfg:dict):
@@ -30,9 +54,30 @@ class BaseClient():
             Configuration dictionary.
         """
         self.stop:bool = False
+        # The protocol currently running, so stop_run can cut its trial short rather than let the
+        # run finish the one in progress. None between runs.
+        self.protocol_object = None
+        # Which trial is running, and why the last one ended early (None if it ran its full
+        # length). Both are per-trial, reset as each begins.
+        self.current_trial_index = None
+        self.trial_end_reason = None
+        # Pause has two states, and they are not the same thing. `pause` is what the user asked
+        # for, set the instant the button is pressed; `paused_since` is when the run loop actually
+        # went idle, which cannot happen until the trial in progress finishes. Between the two the
+        # run is still stimulating and recording, so a GUI that reports "Paused" straight away is
+        # lying about what the rig is doing. See pause_state.
         self.pause:bool = False
+        self.paused_since:Optional[float] = None    # monotonic clock, or None if not idle
+        self.paused_duration:float = 0.0            # seconds idled so far this run, closed pauses only
         self.cfg:dict = cfg
-        
+
+        # Messages pushed back from the server (drained in the run loop via manager.process_queue()).
+        self.server_messages:list = []
+        self.server_error:Optional[str] = None      # set when the server reports an error; aborts the run
+        self.on_server_message = None               # optional callback(level, text), e.g. a GUI status hook
+        self.on_data_error = None                   # optional callback(text) for a failed data write
+        self._message_counts:dict = {}              # (level, text) -> times seen; used to deduplicate
+
         # # # Load server options from config file and selections # # #
         self.server_options = config_tools.get_server_options(self.cfg)
         self.trigger_device = config_tools.load_trigger_device(self.cfg)
@@ -54,7 +99,7 @@ class BaseClient():
                     server_path = os.path.join(config_tools.get_labpack_directory(), server_path)
                 if os.path.exists(server_path):
                     # start the server in a separate process
-                    self.manager, self.local_server_process = launch_server(server_path, host='127.0.0.1', port=port, return_process_handle=True)
+                    self.manager, self.local_server_process = launch_server(server_path, host='127.0.0.1', port=port)
                     local_server_initialized = True
                 else:
                     warnings.warn(f"Server path {server_path} does not exist. Using default local server.")
@@ -73,29 +118,77 @@ class BaseClient():
                 loco_kwargs = {
                     'host':          '127.0.0.1',
                     'port':           33335,
-                    'python_bin':    sys.executable,
-                    'kt_py_fn':      os.path.join(ROOT_DIR, "device/locomotion/keytrac/keytrac.py"),
                     'relative_control': 'True',
-                }
+                }   # python_bin and kt_py_fn: the manager's defaults are this interpreter and the shipped app
 
-                server = BaseServer(host='127.0.0.1',
-                                    port=None, 
-                                    visual_stim_kwargs=visual_stim_kwargs, 
-                                    loco_class=loco_class, 
-                                    loco_kwargs=loco_kwargs, 
+                # Audio, but only if this machine can actually play: PyAudio installed, PortAudio
+                # able to start, and an output device present. The rate probe answers all three at
+                # once, and returns the device's own rate so nothing gets resampled.
+                #
+                # Absent rather than a silent stand-in when it cannot: NullAudioManager would let an
+                # audio protocol run to completion with nothing coming out, whereas no module at all
+                # makes every load a reported warning. Installing the audio extra is the opt-in.
+                device_rate, device_channels, no_audio_reason = audio_util.probe_default_output()
+                audio_class = PyAudioManager if device_rate is not None else None
+                # Channels come from the probe too (capped at stereo): without this the manager
+                # defaulted to mono on every auto-built server, and stereo panning could never
+                # engage -- heard in the field as ChaseTheTower's hum refusing to move between
+                # headphone ears.
+                audio_kwargs = ({'sample_rate': device_rate, 'channels': device_channels}
+                                if device_rate is not None else {})
+                if audio_class is None:
+                    # Say WHY, here, once: the alternative is a "no audio module on this rig"
+                    # warning at stimulus-load time, minutes later, pointing at the rig instead
+                    # of at the actual cause.
+                    print(f'Audio output: none ({no_audio_reason})')
+
+                # Keep a handle on the server: it lives in THIS process, so nothing else will ever
+                # shut it down. Without this it was a local variable, and closing the GUI left its
+                # screen subprocesses -- and KeyTrac, which is spawned detached (start_new_session)
+                # and so survives even our process group -- running.
+                self.local_server = BaseServer(host='127.0.0.1',
+                                    port=None,
+                                    visual_stim_kwargs=visual_stim_kwargs,
+                                    loco_class=loco_class,
+                                    loco_kwargs=loco_kwargs,
+                                    audio_class=audio_class,
+                                    audio_kwargs=audio_kwargs,
                                     start_loop=True)
-                self.manager = MySocketClient(host=server.host, port=server.port)
+                self.manager = MySocketClient(host=self.local_server.host, port=self.local_server.port)
 
         # if the trigger device is on the server, set the manager for the trigger device
         if isinstance(self.trigger_device, daq.DAQonServer):
             self.trigger_device.set_manager(self.manager)
 
+        self._register_server_callbacks()
+
+        # The server advertises its modules as soon as it accepts the connection, but that message
+        # only takes effect once we drain the queue. Wait briefly for it here so protocols can rely
+        # on has_module() everywhere -- including precompute, which runs before the run loop starts
+        # draining. Normally this returns on the first pass; the cap only matters against a server
+        # that never advertises (an older stimpack), where available_modules stays None and
+        # has_module() answers True, i.e. exactly the previous behavior.
+        deadline = time.time() + 1.0
+        while self.manager.available_modules is None and time.time() < deadline:
+            self.manager.process_queue()
+            sleep(0.01)
+
         self.manager.target('visual').corner_square_toggle_stop()
         self.manager.target('visual').corner_square_off()
         self.manager.target('visual').set_idle_background(0)
 
+        self._import_user_stim_modules()
+
+    def _import_user_stim_modules(self):
+        """Ship the labpack's stimulus definitions to the server's modules.
+
+        Runs once per connection, after the server has advertised its modules. Custom visual
+        stimuli go to every screen; custom sounds go to the audio module. Sounds are skipped --
+        not warned about -- when this rig advertises no audio module: one labpack config serves
+        audio and silent rigs alike, so declaring sounds is not a promise this rig can play them.
+        A protocol that actually plays a sound on a silent rig still gets the load-time warning.
+        """
         # # # Import user-defined stimpack.visual_stim stimuli modules on server screens # # #
-        visual_stim_modules_exist = config_tools.user_module_paths_exist(self.cfg, 'visual_stim')
         if config_tools.user_module_specified(self.cfg, 'visual_stim'):
             visual_stim_modules_exist = config_tools.user_module_paths_exist(self.cfg, 'visual_stim')
             visual_stim_modules_paths = config_tools.get_module_paths(self.cfg, 'visual_stim')
@@ -105,17 +198,200 @@ class BaseClient():
                 else:
                     self.manager.target('visual').import_stim_module(path)
 
+        # # # Import user-defined sound modules on the server's audio module # # #
+        if config_tools.user_module_specified(self.cfg, 'audio_stim'):
+            # None means an older server that never advertises; attempt, matching has_module().
+            advertised = self.manager.available_modules
+            if advertised is None or 'audio' in advertised:
+                audio_stim_modules_exist = config_tools.user_module_paths_exist(self.cfg, 'audio_stim')
+                audio_stim_modules_paths = config_tools.get_module_paths(self.cfg, 'audio_stim')
+                for exists, path in zip(audio_stim_modules_exist, audio_stim_modules_paths):
+                    if not exists:
+                        warnings.warn(f"Audio stim module {path} does not exist.")
+                    else:
+                        self.manager.target('audio').import_sound_module(path)
+
+    def stop_trial(self, trial_index=None, reason=None, epoch_index=None):
+        """
+        End the current trial's remaining wait, without stopping the run.
+
+        The protocol's pre / stimulus / tail intervals are interruptible sleeps (see
+        BaseProtocol.sleep); this is what interrupts them. Called locally by stop_run, and
+        remotely by the server for a trial whose length depends on the subject's behavior
+        (BaseServer.end_trial).
+
+        :param epoch_index: the pre-1.0 name for trial_index. This is a wire signature -- a
+            server from before 1.0 stamps its request with epoch_index -- so it is accepted here
+            rather than only as a method alias.
+        :param trial_index: the trial this was meant for. A request is ignored if that trial has
+            already ended -- without this, one sent as an trial was finishing would arrive during
+            the next and cut it short, which is close to invisible in the data. None (the local
+            Stop button) always applies to whatever is running now.
+        :param reason: why it ended early, recorded with the trial.
+        """
+        # getattr: report_server_message reaches here, and a client may be constructed without
+        # going through __init__.
+        protocol_object = getattr(self, 'protocol_object', None)
+        if protocol_object is None:
+            return
+
+        if epoch_index is not None and trial_index is None:
+            _warn_once('epoch_index', 'trial_index', 'Argument')
+            trial_index = epoch_index
+
+        if trial_index is not None and trial_index != getattr(self, 'current_trial_index', None):
+            return          # meant for an trial that has already ended
+
+        self.trial_end_reason = reason
+        protocol_object.stop_trial()
+
     def stop_run(self):
         self.stop = True
+        # Cut the trial in progress short as well. Without this, Stop is not acted on until the
+        # trial ends -- so stopping a run with long trials meant watching the current one finish,
+        # which is no use when the reason for stopping is what is on the screen.
+        self.stop_trial()
         QApplication.processEvents()
 
     def pause_run(self):
+        """Ask the run to pause. Takes effect when the trial in progress ends, not immediately."""
         self.pause = True
         QApplication.processEvents()
 
     def resume_run(self):
         self.pause = False
         QApplication.processEvents()
+
+    @property
+    def pause_state(self):
+        """'running' | 'pending' | 'paused' -- what to tell the user right now.
+
+        'pending' is the interval between pressing Pause and the run loop reaching the end of the
+        trial it was in. Stimuli are still being presented and recorded during it.
+        """
+        if not self.pause:
+            return 'running'
+        return 'paused' if self.paused_since is not None else 'pending'
+
+    @property
+    def paused_seconds(self):
+        """Seconds this run has spent idle, including a pause still in progress.
+
+        Excluded from elapsed time in the GUI: est_run_time is a sum of stimulus durations, so a
+        wall-clock elapsed figure stops being comparable to it the moment anyone pauses.
+        """
+        total = self.paused_duration
+        if self.paused_since is not None:
+            total += time.monotonic() - self.paused_since
+        return total
+
+    def _close_out_pause(self):
+        """Fold a pause in progress into the total. Idempotent."""
+        if self.paused_since is not None:
+            self.paused_duration += time.monotonic() - self.paused_since
+            self.paused_since = None
+
+    @property
+    def available_modules(self):
+        """Modules the server advertised ('visual', 'locomotion', 'voltage_out', ...), or None if it
+        never told us (an older server). See BaseProtocol.has_module."""
+        return self.manager.available_modules
+
+    def _register_server_callbacks(self):
+        """Register everything the server may call back on self.manager.
+
+        One method rather than inline in __init__, because a harness that builds a client around
+        its own manager (the e2e fixtures do, bypassing the config-driven __init__) must register
+        the same set -- and a hand-mirrored copy silently drifts: the subject-state receiver was
+        missed exactly that way, costing each e2e run a warning and the collect timeout.
+        """
+        # Let the server push warnings/errors back to us; delivered when we drain the queue (run loop).
+        self.manager.register_function(self.report_server_message, name='report_server_message')
+        # Lets the server end a trial early -- see BaseServer.end_trial. Registered here rather
+        # than on BaseServer's side of the link because the server can only ask; the client is
+        # what actually runs the trial.
+        self.manager.register_function(self.stop_trial, name='stop_trial')
+        # Under its old name too: these are wire names, so a server from before 1.0 -- or a
+        # labpack device calling manager.stop_epoch(...) -- still reaches the right method.
+        self.manager.register_function(self.stop_trial, name='stop_epoch')
+        # The run's subject-state history arrives as one message when we ask for it at run end;
+        # see collect_subject_state_history.
+        self._subject_state_history = None
+        self.manager.register_function(self.receive_subject_state_history,
+                                       name='receive_subject_state_history')
+
+    def receive_subject_state_history(self, history):
+        """The server's answer to send_subject_state_history; collect_subject_state_history waits
+        on this landing."""
+        self._subject_state_history = history
+
+    def _server_collects_subject_state(self):
+        """Whether this server advertised the subject-state history functions.
+
+        Stricter than has_module's none-means-yes rule, and for a costed reason: a fire-and-forget
+        call to an older server is free, but *waiting for its answer* burns the full timeout at
+        the end of every run. So the round trip is engaged only when the advertisement positively
+        names it, and a server that advertises nothing is treated as unable rather than unknown.
+        """
+        advertised = getattr(self.manager, 'available_server_functions', None)
+        # Positively-shaped or nothing: a test double or older manager may carry anything under
+        # this name, and only a real advertisement dict is a promise the answer will come.
+        if not isinstance(advertised, dict):
+            return False
+        return 'send_subject_state_history' in advertised.get('root', set())
+
+    def collect_subject_state_history(self, data, timeout=5.0):
+        """
+        Ask the server for the run's subject-state history, wait for it, save it.
+
+        One request at run END rather than per trial, so serializing the history never delays the
+        inter-trial gap. The answer comes back over the same channel as server reports, so we
+        drain the queue until it lands or the timeout passes. Skipped entirely against a server
+        that never advertised the capability -- see _server_collects_subject_state.
+        """
+        if not self._server_collects_subject_state():
+            return
+        self._subject_state_history = None
+        self.manager.target('root').send_subject_state_history()
+        deadline = time.time() + timeout
+        while self._subject_state_history is None and time.time() < deadline:
+            self.manager.process_queue()
+            sleep(0.01)
+
+        if self._subject_state_history is None:
+            print('Subject-state history did not arrive from the server (older server, or timeout); '
+                  'not saved with the series.')
+            return
+        if self._subject_state_history:
+            data.save_subject_state_history(self._subject_state_history)
+
+    def report_server_message(self, level, text):
+        """Handle a message pushed back from the server (run via manager.process_queue()).
+
+        level: 'info' | 'warning' | 'error'. An 'error' marks the current run to be aborted.
+
+        Repeats are counted but surfaced only once per run: a per-trial condition would otherwise
+        emit the same line hundreds of times, burying anything that matters (and growing
+        server_messages without bound).
+        """
+        if level == 'error':
+            self.server_error = text        # always, even on a repeat: this aborts the run
+            # End the trial's wait too: the run loop checks server_error between trials, so
+            # without this an error reported mid-trial is not acted on until that trial finishes.
+            self.stop_trial()
+
+        key = (level, text)
+        self._message_counts[key] = self._message_counts.get(key, 0) + 1
+        if self._message_counts[key] > 1:
+            return                          # already surfaced this exact message during this run
+
+        self.server_messages.append((level, text))
+        print(f"[server:{level}] {text}")
+        if self.on_server_message is not None:
+            try:
+                self.on_server_message(level, text)
+            except Exception:
+                warnings.warn(f"on_server_message callback failed:\n{traceback.format_exc()}")
 
     def start_run(self, protocol_object:BaseProtocol, data:BaseData, save_metadata_flag:bool=True):
         """
@@ -125,24 +401,60 @@ class BaseClient():
         """
         self.stop = False
         self.pause = False
+        self.paused_since = None
+        self.paused_duration = 0.0      # pause totals are per run, like the message dedupe below
+        self.server_error = None
+        self._message_counts = {}       # dedupe is per run, so a recurring issue is reported again
+        self.protocol_object = protocol_object
         protocol_object.save_metadata_flag = save_metadata_flag
 
-        # Check run parameters, compute persistent parameters, and precompute epoch parameters
-        # Do not recompute epoch parameters if they have been computed already
+        # Check run parameters, compute persistent parameters, and precompute trial parameters
+        # Do not recompute trial parameters if they have been computed already
         protocol_object.prepare_run(manager=self.manager, recompute_epoch_parameters=False)
 
         # Set background to idle_color
         self.manager.target('visual').set_idle_background(get_rgba(protocol_object.run_parameters.get('idle_color', 0)))
 
         if save_metadata_flag:
-            data.create_epoch_run(protocol_object)
+            data.create_series(protocol_object)
         else:
             print('Warning - you are not saving your metadata!')
+
+        # Have the server collect subject state for this run: the modality-neutral record every
+        # source funnels into, shipped back once at run end (see the teardown below) and saved
+        # with the series. The optional server-side jsonl is the belt that survives a crash.
+        if save_metadata_flag and self._server_collects_subject_state():
+            server_state_dir = None
+            server_data_directory = self.server_options.get('data_directory', None)
+            if server_data_directory is not None:
+                server_state_dir = posixpath.join(server_data_directory, data.get_server_subdir(),
+                                                  str(data.series_count), 'subject_state')
+            self.manager.target('root').start_subject_state_history(log_dir=server_state_dir)
+
+        # Per-screen render-time position logging is opt-in (protocol_object.save_screen_pos_history):
+        # a verification record -- the exact state each screen rendered from, at frame times --
+        # whose analysis-ready counterpart is the subject-state history above. The screens write on
+        # the server machine, so they need the server-side directory.
+        if save_metadata_flag and getattr(protocol_object, 'save_screen_pos_history', False):
+            server_data_directory = self.server_options.get('data_directory', None)
+            if server_data_directory is not None:
+                server_pos_history_dir = posixpath.join(server_data_directory, data.get_server_subdir(),
+                                                        str(data.series_count), 'visual_stim_pos')
+                self.manager.target('all').set_save_pos_history_dir(server_pos_history_dir)
+            else:
+                print("Warning: save_screen_pos_history is set, but the config gives the server no "
+                      "data_directory, so the screens have nowhere to write.")
 
         # Set up locomotion data saving on the server and start locomotion device / software
         if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
             self.start_loco(data, save_metadata_flag=save_metadata_flag)
-            
+
+        # Open the sound card, if this server has one. Asked of the server rather than the config:
+        # has_module answers from what the server advertised on connect, so a rig gets audio started
+        # exactly when it has audio, with no run parameter for a protocol author to forget.
+        if protocol_object.has_module('audio'):
+            self.start_audio(data, save_metadata_flag=save_metadata_flag)
+
         # Trigger acquisition of scope and cameras by send triggering TTL through the DAQ device (if device is set)
         if protocol_object.trigger_on_epoch_run is True:
             if self.trigger_device is not None:
@@ -153,45 +465,158 @@ class BaseClient():
         if protocol_object.loco_available and protocol_object.run_parameters['do_loco'] and 'loco_pos_closed_loop' in protocol_object.protocol_parameters:
             self.start_loco_loop()
 
-        # # # Epoch run loop # # #
-        self.manager.print_on_server("Starting run.")
-        protocol_object.on_run_start(self.manager)
-        while protocol_object.num_epochs_completed < protocol_object.run_parameters['num_epochs']:
-            QApplication.processEvents()
-            if self.stop is True:
-                self.stop = False
-                protocol_object.on_run_finish(self.manager)
-                break # break out of epoch run loop
+        # # # Series loop # # #
+        # run_status is recorded on the series group at the end (data.end_series). The try/finally
+        # guarantees a clean teardown + a recorded outcome even if the run aborts or raises.
+        run_status, run_status_reason = 'completed', None
+        try:
+            # Drain before on_run_start, not after. prepare_run has already run, so anything it
+            # provoked -- a missing root function, a bad stimulus -- is sitting in the queue
+            # already. on_run_start actuates hardware (shutters, opto steps, triggers), and a run
+            # that is going to abort must not get that far. The loop below re-checks and stops it.
+            self.manager.process_queue()
+            if self.server_error is None:
+                self.manager.print_on_server("Starting run.")
+                protocol_object.on_run_start(self.manager)
+            while protocol_object.num_trials_completed < protocol_object.run_parameters['num_trials']:
+                QApplication.processEvents()
 
-            if self.pause is True:
-                pass # do nothing until resumed or stopped
-            else: # start epoch and advance counter
-                self.start_epoch(protocol_object, data, save_metadata_flag=save_metadata_flag)
+                # Drain anything the server pushed back (e.g. an error) and act on it.
+                self.manager.process_queue()
+                if self.server_error is not None:
+                    run_status, run_status_reason = 'error', self.server_error
+                    warnings.warn(f"Aborting run: server reported an error: {self.server_error}")
+                    break
 
-        protocol_object.on_run_finish(self.manager)
+                # Detect a dead server link — otherwise every send is a silent no-op and the run
+                # would march to completion against a server that is not displaying/recording anything.
+                if getattr(self.manager, 'connection_broken', False):
+                    run_status, run_status_reason = 'aborted', 'server_connection_lost'
+                    warnings.warn("Aborting run: connection to the stimulus server appears broken.")
+                    break
 
-        # Set frame tracker to dark
-        self.manager.target('visual').corner_square_toggle_stop()
-        self.manager.target('visual').corner_square_off()
+                if self.stop is True:
+                    self.stop = False
+                    run_status = 'stopped'
+                    break
 
-        # Stop locomotion device / software
-        if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
-            self.stop_loco()
+                if self.pause is True:
+                    if self.paused_since is None:
+                        # The pause takes effect here, at an trial boundary -- not when the button
+                        # was pressed. Record when, so paused_seconds can be excluded from elapsed
+                        # time and reported in the data file.
+                        self.paused_since = time.monotonic()
+                        self.manager.print_on_server('Paused.')
+                    # Wait, rather than spin. This branch used to be a bare `pass`, so a paused run
+                    # busy-looped at ~2.2 million iterations a second and held a core at 100% for
+                    # as long as the pause lasted -- next to the timing-sensitive screen subprocess,
+                    # and for exactly the minutes somebody has stepped away from the rig. A pause
+                    # waits on a human, so polling at 100 Hz is imperceptibly responsive.
+                    sleep(PAUSE_POLL_INTERVAL)
+                else: # start trial and advance counter
+                    if self.paused_since is not None:
+                        self._close_out_pause()
+                        self.manager.print_on_server('Resumed.')
+                    self.start_trial(protocol_object, data, save_metadata_flag=save_metadata_flag)
+        except Exception as e:
+            run_status, run_status_reason = 'error', f'{type(e).__name__}: {e}'
+            warnings.warn(f"Run aborted by exception:\n{traceback.format_exc()}")
+        finally:
+            # A run can end while paused -- Stop is checked before the pause branch -- and the
+            # elapsed-time display keeps reading paused_seconds after the loop exits.
+            self._close_out_pause()
 
-        self.manager.print_on_server('Run ended.')
+            protocol_object.on_run_finish(self.manager)
 
-    def start_epoch(self, protocol_object:BaseProtocol, data:BaseData, save_metadata_flag:bool=True):
-        #  get stimulus parameters for this epoch
-        if protocol_object.use_precomputed_epoch_parameters:
-            protocol_object.load_precomputed_epoch_parameters()
+            broken = getattr(self.manager, 'connection_broken', False)
+            if not broken:
+                # Set frame tracker to dark
+                self.manager.target('visual').corner_square_toggle_stop()
+                self.manager.target('visual').corner_square_off()
+
+            # Stop locomotion device / software
+            if protocol_object.loco_available and protocol_object.run_parameters['do_loco']:
+                self.stop_loco()
+
+            # Release the sound card, so it is not held open between runs. In the finally block
+            # with the rest of the teardown: a run that aborts must not leave the device claimed.
+            if protocol_object.has_module('audio'):
+                self.stop_audio()
+
+            # Collect the run's subject-state history from the server and save it with the
+            # series. Before end_series, so the file's completion marker also covers this write;
+            # skipped on a broken link, where asking would hang out the timeout for nothing.
+            if save_metadata_flag and not broken:
+                try:
+                    self.collect_subject_state_history(data)
+                except Exception:
+                    print(f'Saving subject-state history failed:\n{traceback.format_exc()}')
+
+            # Note how often each deduplicated server message actually occurred.
+            for (level, text), count in self._message_counts.items():
+                if count > 1:
+                    print(f"[server:{level}] (occurred {count}x this run) {text}")
+
+            # Record the outcome of this run in the data file.
+            #
+            # Isolated because this is a finally block: an exception raised here replaces whatever
+            # actually went wrong with a failure from the cleanup, and -- since start_run is called
+            # on a QThread, where an exception out of run() aborts the process -- takes the GUI
+            # down with it. That is exactly what happened when a bad trial write left an NWB file
+            # that end_series could not then read: the real error was reported, and then the
+            # application core-dumped while trying to record that it had failed.
+            if save_metadata_flag:
+                try:
+                    data.end_series(protocol_object, status=run_status, reason=run_status_reason,
+                                       paused_seconds=self.paused_seconds)
+                except Exception:
+                    # Loudly. Whatever stopped the outcome being written stopped it part-way, so
+                    # the file is not what it should be -- and for NWB it may not open at all.
+                    # A warning alone leaves that to be discovered at analysis time; the run has
+                    # already ended, so nothing else is going to raise about it.
+                    message = (f"The run ended '{run_status}', but recording that in the "
+                               f"{type(data).__name__} file failed. The file for this series may "
+                               f"be incomplete, and may not open.\n\n{traceback.format_exc()}")
+                    warnings.warn(message)
+                    self.report_data_error(message)
+
+            if not broken:
+                self.manager.print_on_server('Run ended.')
+
+            self.protocol_object = None
+
+    def report_data_error(self, text):
+        """Surface a failure to write the data file to whoever is driving, not just to the log.
+
+        Separate from report_server_message on purpose: this did not come from the server, and
+        reporting it as a server error sends somebody to look at the rig for a problem that is in
+        the file. Best-effort, and never raises -- it is called from a finally block.
+        """
+        if self.on_data_error is None:
+            return
+        try:
+            self.on_data_error(text)
+        except Exception:
+            warnings.warn(f"on_data_error callback failed:\n{traceback.format_exc()}")
+
+    def start_trial(self, protocol_object:BaseProtocol, data:BaseData, save_metadata_flag:bool=True):
+        #  get stimulus parameters for this trial
+        if protocol_object.use_precomputed_trial_parameters:
+            protocol_object.load_precomputed_trial_parameters()
         else:
-            protocol_object.get_epoch_parameters()
+            protocol_object.get_trial_parameters()
         
-        # Check that all required epoch protocol parameters are set
-        protocol_object.check_required_epoch_protocol_parameters()
+        # Check that all required trial protocol parameters are set
+        protocol_object.check_required_trial_protocol_parameters()
+
+        # Tell the server which trial this is, so it can stamp an end_trial request and we can
+        # tell a late one from a current one.
+        self.current_trial_index = protocol_object.num_trials_completed
+        self.trial_end_reason = None
+        self.manager.set_current_trial(self.current_trial_index)
 
         if save_metadata_flag:
-            data.create_epoch(protocol_object)
+            data.create_trial(protocol_object)
 
         # Send triggering TTL through the DAQ device (if device is set)
         if protocol_object.trigger_on_epoch is True:
@@ -199,17 +624,21 @@ class BaseClient():
                 print("Triggering acquisition devices.")
                 self.trigger_device.send_trigger()
 
-        self.manager.print_on_server(f'Epoch {protocol_object.num_epochs_completed}')
+        self.manager.print_on_server(f'Trial {protocol_object.num_trials_completed}')
 
         # Use the protocol object to send the stimulus to stimpack.visual_stim
         protocol_object.load_stimuli(self.manager)
 
         protocol_object.start_stimuli(self.manager)
 
-        self.manager.print_on_server('Epoch completed.')
+        self.manager.print_on_server('Trial completed.')
+
+        # Nothing is running now, so a late end_trial has nothing to cut short.
+        self.current_trial_index = None
+        self.manager.set_current_trial(None)
 
         if save_metadata_flag:
-            data.end_epoch(protocol_object)
+            data.end_trial(protocol_object, reason=self.trial_end_reason)
         
         protocol_object.advance_epoch_counter()
 
@@ -221,12 +650,8 @@ class BaseClient():
         if save_metadata_flag:
             server_data_directory: Optional[str] = self.server_options.get('data_directory', None)
             if server_data_directory is not None:
-                # set server-side directory in which to save animal positions from each screen.
-                server_series_dir = posixpath.join(server_data_directory, data.experiment_file_name, str(data.series_count))
-                server_pos_history_dir = posixpath.join(server_series_dir, 'visual_stim_pos')
-                self.manager.target('all').set_save_pos_history_dir(server_pos_history_dir)
-
                 # set server-side directory in which to save locomotion data
+                server_series_dir = posixpath.join(server_data_directory, data.get_server_subdir(), str(data.series_count))
                 server_loco_dir = posixpath.join(server_series_dir, 'loco')
                 self.manager.target('locomotion').set_save_directory(server_loco_dir)
             else:
@@ -244,9 +669,59 @@ class BaseClient():
     def stop_loco(self):
         self.manager.target('locomotion').close()
         self.manager.target('locomotion').set_save_directory(None)
+
+    def start_audio(self, data:BaseData, save_metadata_flag:bool=True):
+        '''
+        Open the sound card for this run, and tell it where to log.
+
+        Not gated on the protocol having sounds, unlike locomotion's do_loco: opening an output
+        stream is silent and cheap, and keeping it open for the whole run is what keeps the output
+        latency stable from trial to trial. A protocol with no audio simply never loads one.
+        '''
+        if save_metadata_flag:
+            server_data_directory: Optional[str] = self.server_options.get('data_directory', None)
+            if server_data_directory is not None:
+                server_series_dir = posixpath.join(server_data_directory, data.get_server_subdir(), str(data.series_count))
+                self.manager.target('audio').set_save_directory(posixpath.join(server_series_dir, 'audio'))
+            else:
+                print("Warning: Audio timing log won't be saved without server's data_directory specified in config file.")
+        self.manager.target('audio').start()
+
+    def stop_audio(self):
+        self.manager.target('audio').close()
+        self.manager.target('audio').set_save_directory(None)
     
     def close(self):
+        '''
+        Shut down whatever server this client started. Called from the GUI's closeEvent.
+
+        Both local-server paths spawn OS subprocesses of their own (one per screen, plus KeyTrac),
+        and those do not reliably die with us: KeyTrac is started with start_new_session=True, so it
+        is detached from our process group. Closing here is what actually reaps them.
+        '''
         # We had started a local server in a separate process; terminate it.
         if 'local_server_process' in self.__dict__:
-            print("Closing local server.")
+            print("Closing local server process.")
             self.local_server_process.terminate()
+            try:
+                self.local_server_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                warnings.warn("Local server process did not exit; killing it.")
+                self.local_server_process.kill()
+
+        # We had started a local server in THIS process; close it so its modules shut down their own
+        # subprocesses. Best-effort: a failure here must not stop the GUI from closing.
+        if 'local_server' in self.__dict__:
+            print("Closing local server.")
+            try:
+                self.local_server.close()
+            except Exception as e:
+                warnings.warn(f"Error closing local server: {type(e).__name__}: {e}")
+
+
+add_deprecated_aliases(
+    BaseClient,
+    methods=[('start_epoch', 'start_trial'), ('stop_epoch', 'stop_trial')],
+    attributes=[('current_epoch_index', 'current_trial_index'),
+                ('epoch_end_reason', 'trial_end_reason')],
+)
