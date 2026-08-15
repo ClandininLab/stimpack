@@ -13,7 +13,7 @@ setup(
     # (the current release) and before 1.0.0, so an install from dev is never mistaken for either.
     # dev carries breaking changes already named as 1.0.0 in user-facing errors -- see the
     # other_stim_module_paths TypeError in visual_stim/stim_server.py.
-    version='1.0.0.dev0',
+    version='1.0.0',
     description='A modular framework for precise multisensory stimulus generation in systems neuroscience.',
     long_description=long_description,
     long_description_content_type='text/markdown',
