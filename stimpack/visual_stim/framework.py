@@ -1166,6 +1166,12 @@ def get_perspective(subject_pos, pa, pb, pc, horizontal_flip):
     phi = pitch around x
     roll = roll around y
 
+    Applied in that order about WORLD-FIXED axes (rotz, then rotx, then roty): phi pitches about
+    the world's x axis, not the subject's own left-right axis after yawing, so it reads as
+    "tilt up/down" only at theta == 0 -- at other headings a nonzero phi looks like a mix of
+    pitch and roll. This is the on-rig convention (set when rigs kept phi = 0) and changing it
+    would reinterpret every recorded phi, so it is documented rather than fixed.
+
     """
     theta, phi, roll = subject_pos['theta'], subject_pos['phi'], subject_pos.get('roll', 0)
     return perspective.rotz(radians(theta)).rotx(radians(phi)).roty(radians(roll)).matrix

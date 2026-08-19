@@ -62,7 +62,7 @@ def _resolve_stim_class(name):
 
 
 def render_frames(stim_specs, screen=None, timepoints=(0.0,), subject_trajectory=None,
-                  size=(512, 512), background=(0.0, 0.0, 0.0, 1.0), ctx=None):
+                  size=(512, 512), background=(0.0, 0.0, 0.0, 1.0), ctx=None, backend=None):
     """
     Render stimulus descriptors at the given timepoints. Returns ``(N, H, W, 3)`` uint8.
 
@@ -73,14 +73,21 @@ def render_frames(stim_specs, screen=None, timepoints=(0.0,), subject_trajectory
     :param screen: a :class:`~stimpack.visual_stim.screen.Screen`; the default is a single flat
         square screen. Subscreen geometry is honored; a CurvedScreen raises (see module docstring).
     :param timepoints: seconds; each becomes one frame, in order.
-    :param subject_trajectory: optional dict with any of ``'x'``, ``'y'`` (meters), ``'theta'``
-        (degrees) mapping to trajectory dicts (e.g. ``{'name': 'TVPairs', ...}``). Drives the
-        subject position per frame -- the point-of-view mechanism. Position replayed from a
-        recorded trial's log belongs here.
+    :param subject_trajectory: optional dict with any of ``'x'``, ``'y'``, ``'z'`` (meters) and
+        ``'theta'``, ``'phi'``, ``'roll'`` (degrees) mapping to trajectory dicts (e.g.
+        ``{'name': 'TVPairs', ...}``) -- the same six keys the live path's subject state carries.
+        Drives the subject position per frame: the point-of-view mechanism. Position replayed
+        from a recorded trial's log belongs here. (Note ``phi`` pitches about the world's x axis,
+        not the yawed subject's own -- see ``get_perspective``.)
     :param size: (width, height) pixels of the output frames.
     :param background: RGBA clear color, the role ``idle_color`` plays on a rig.
     :param ctx: an existing standalone moderngl context to render in (a test's, say). Default:
         create one and release it afterwards.
+    :param backend: passed to ``moderngl.create_standalone_context`` when it creates the context.
+        On a machine with two GPUs the default backend may pick the integrated one (measured:
+        default -> Intel iGPU, ``backend='egl'`` -> the NVIDIA card, on one dual-GPU Linux box);
+        which device renders affects speed always and pixels sometimes, so for reproducible work
+        pin it -- or build your own context and pass ``ctx=``.
     """
     # Imported here, not at module top: framework pulls in the Qt widget machinery, and this
     # module must import (and its callers' --help must print) on a machine with no GL at all.
@@ -99,7 +106,8 @@ def render_frames(stim_specs, screen=None, timepoints=(0.0,), subject_trajectory
 
     own_ctx = ctx is None
     if own_ctx:
-        ctx = moderngl.create_standalone_context(require=330)
+        kwargs = {'backend': backend} if backend is not None else {}
+        ctx = moderngl.create_standalone_context(require=330, **kwargs)
 
     width, height = int(size[0]), int(size[1])
     color_rb = ctx.renderbuffer((width, height))
@@ -135,8 +143,12 @@ def render_frames(stim_specs, screen=None, timepoints=(0.0,), subject_trajectory
 
         trajectories = {}
         if subject_trajectory is not None:
-            trajectories = {key: make_as_trajectory(subject_trajectory[key])
-                            for key in ('x', 'y', 'theta') if key in subject_trajectory}
+            unknown = set(subject_trajectory) - set(DEFAULT_SUBJECT_POSITION)
+            if unknown:
+                raise ValueError(f'unknown subject_trajectory keys {sorted(unknown)}; '
+                                 f'valid: {sorted(DEFAULT_SUBJECT_POSITION)}')
+            trajectories = {key: make_as_trajectory(value)
+                            for key, value in subject_trajectory.items()}
 
         viewports = [sub.get_viewport(width, height) for sub in screen.subscreens]
         frames = np.empty((len(timepoints), height, width, 3), dtype=np.uint8)
@@ -172,7 +184,7 @@ def render_frames(stim_specs, screen=None, timepoints=(0.0,), subject_trajectory
 
 def render_stim(stim_specs, screen=None, duration=None, fps=30.0, timepoints=None,
                 subject_trajectory=None, size=(512, 512), background=(0.0, 0.0, 0.0, 1.0),
-                out=None):
+                out=None, backend=None):
     """
     Render a stimulus to frames, PNGs or an .mp4 -- :func:`render_frames` plus output handling.
 
@@ -191,7 +203,7 @@ def render_stim(stim_specs, screen=None, duration=None, fps=30.0, timepoints=Non
 
     frames = render_frames(stim_specs, screen=screen, timepoints=timepoints,
                            subject_trajectory=subject_trajectory, size=size,
-                           background=background)
+                           background=background, backend=backend)
     if out is None:
         return frames
 

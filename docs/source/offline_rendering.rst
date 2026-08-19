@@ -30,9 +30,15 @@ stimuli use::
     turn = {'theta': {'name': 'TVPairs', 'tv_pairs': [(0, 0), (2, 90)], 'kind': 'linear'}}
     render_stim(patch, duration=2.0, fps=60, subject_trajectory=turn, out='pov.mp4')
 
-Because the data file records every trial's descriptors and (for closed-loop runs) the position
-history each screen rendered from, any recorded trial can be re-rendered this way after the
-fact: the trial from the animal's point of view, regenerated rather than captured.
+All six subject-state keys are accepted -- ``x``, ``y``, ``z``, ``theta``, ``phi``, ``roll`` --
+so attitude-tracked replays work too, not just planar ones. Because the data file records every
+trial's descriptors and (for closed-loop runs) the position history each screen rendered from,
+any recorded trial can be re-rendered this way after the fact: the trial from the animal's point
+of view, regenerated rather than captured.
+
+On a machine with two GPUs, the default standalone context may land on the integrated one;
+pass ``backend='egl'`` (or your own ``ctx=``) to choose. Which device renders affects speed
+always and pixels sometimes, so reproducible work should pin it.
 
 What it renders, and what it does not
 =====================================

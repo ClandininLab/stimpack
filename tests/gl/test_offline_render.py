@@ -101,3 +101,27 @@ def test_save_rendered_movie_handles_both_frame_shapes(tmp_path):
     color = SimpleNamespace(stim_frames=[np.zeros((8, 8, 3), dtype=np.uint8)] * 3)
     StimDisplay.save_rendered_movie(color, str(tmp_path / 'color.npy'), downsample_xy=2)
     assert np.load(tmp_path / 'color.npy').shape == (4, 4, 3, 3)
+
+
+def test_a_spec_with_a_trajectory_renders_twice(headless_gl):
+    """Specs are the caller's: rendering must not consume them. make_as popped 'name' from the
+    nested trajectory dict, so re-rendering the same saved trial -- a golden and then a movie,
+    two resolutions, anything twice -- raised KeyError on round two."""
+    spec = {**PATCH, 'theta': dict(SWEEP)}
+    once = render_frames(spec, timepoints=[0.5], size=(32, 32), ctx=headless_gl)
+    again = render_frames(spec, timepoints=[0.5], size=(32, 32), ctx=headless_gl)
+    assert np.array_equal(once, again)
+
+
+def test_all_six_subject_keys_drive_the_view(headless_gl):
+    """The live path's subject state carries x/y/z/theta/phi/roll; the offline path must accept
+    the same six, or attitude-tracked replays (head pitch, tethered flight) need workarounds."""
+    drop = {'name': 'TVPairs', 'tv_pairs': [(0.0, 0.0), (1.0, -0.5)], 'kind': 'linear'}
+    base = render_frames(PATCH, timepoints=[0.9], size=(64, 64), ctx=headless_gl)
+    dropped = render_frames(PATCH, timepoints=[0.9], size=(64, 64), ctx=headless_gl,
+                            subject_trajectory={'z': drop})
+    assert not np.array_equal(base, dropped)
+
+    with pytest.raises(ValueError, match='unknown subject_trajectory'):
+        render_frames(PATCH, timepoints=[0.0], size=(32, 32), ctx=headless_gl,
+                      subject_trajectory={'pitch': drop})   # the live path calls it phi
