@@ -113,7 +113,7 @@ class Screen:
                  square_size=None, square_loc=None, square_on_color=None, square_off_color=None, name=None, horizontal_flip=False, 
                  pa=(-0.15, 0.30, -0.15), pb=(+0.15, 0.30, -0.15), pc=(-0.15, 0.30, +0.15), use_egl=None,
                  subframes=1, subframe_channel_order=(0, 1, 2), refresh_rate=None, msaa_samples=0,
-                 split_blended_pass=True):
+                 split_blended_pass=True, rotation_frame='world'):
         """
         :param subscreens: list of SubScreen objects (see above), if none are provided, one full-viewport subscreen will be produced using inputs pa, pb, pc
         :param x_display: $DISPLAY environment variable relevant if using Xorg as display server. If None, the default display is used.
@@ -226,6 +226,19 @@ class Screen:
         self.square_off_color = square_off_color
         self.msaa_samples = int(msaa_samples)
         self.split_blended_pass = bool(split_blended_pass)
+
+        # How (theta, phi, roll) compose into a view rotation -- see framework.get_perspective:
+        #   'world'   (default): each angle rotates about a FIXED world axis, in order z, x, y.
+        #             The historical convention; every recorded trial to date was rendered under
+        #             it, so replays must be able to select it -- hence it stays the default.
+        #   'subject': intrinsic yaw -> pitch -> roll about the subject's own carried-along axes,
+        #             so phi is always "tilt up/down" whatever the heading. What anyone driving
+        #             two angles at once (attitude replay, head pitch) almost certainly means.
+        # The two are identical whenever at most one angle is nonzero, which is every planar
+        # experiment -- so for existing rigs this choice changes nothing.
+        assert rotation_frame in ('world', 'subject'), \
+            f"rotation_frame must be 'world' or 'subject', got {rotation_frame!r}"
+        self.rotation_frame = rotation_frame
         self.name = name
         self.horizontal_flip = horizontal_flip
         self.pa = pa
@@ -323,7 +336,7 @@ class Screen:
         vars = ['x_display', 'display_index', 'fullscreen', 'vsync', 'square_size', 'square_loc', 
                 'square_on_color', 'square_off_color', 'name', 'horizontal_flip', 'pa', 'pb', 'pc', 'use_egl',
                 'subframes', 'subframe_channel_order', 'refresh_rate', 'msaa_samples',
-                'split_blended_pass']
+                'split_blended_pass', 'rotation_frame']
         data = {var: getattr(self, var) for var in vars}
 
         # special handling for tri_list since it could contain numpy values

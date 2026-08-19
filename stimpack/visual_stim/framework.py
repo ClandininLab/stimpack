@@ -493,7 +493,8 @@ class StimDisplay(QOpenGLWidget):
         from stimpack.visual_stim.cubemap import face_matrices
 
         renderer = self.cube_renderer
-        matrices = face_matrices(self.subject_position, orientation=renderer.orientation)
+        matrices = face_matrices(self.subject_position, orientation=renderer.orientation,
+                                 rotation_frame=self.screen.rotation_frame)
         face_viewport = [(0, 0, renderer.resolution, renderer.resolution)]
 
         # Grab the display framebuffer now, before the face loop rebinds anything. It cannot be
@@ -761,7 +762,7 @@ class StimDisplay(QOpenGLWidget):
                 self.paint_through_cube_map(self.get_stim_time(t), display_width, display_height)
             else:
                 # For each subscreen associated with this screen: get the perspective matrix
-                perspectives = [get_perspective(self.subject_position, x.pa, x.pb, x.pc, self.screen.horizontal_flip) for x in self.screen.subscreens]
+                perspectives = [get_perspective(self.subject_position, x.pa, x.pb, x.pc, self.screen.horizontal_flip, rotation_frame=self.screen.rotation_frame) for x in self.screen.subscreens]
 
                 if self.stim_started:
                     self.draw_stimuli(self.get_stim_time(t), self.subscreen_viewports, perspectives)
@@ -925,7 +926,7 @@ class StimDisplay(QOpenGLWidget):
         self.subject_theta_trajectory = None
         
         self.set_subject_state({'x': 0, 'y': 0, 'z': 0, 'theta': 0, 'phi': 0, 'roll': 0})
-        self.perspective = get_perspective(self.subject_position, self.screen.subscreens[0].pa, self.screen.subscreens[0].pb, self.screen.subscreens[0].pc, self.screen.horizontal_flip)
+        self.perspective = get_perspective(self.subject_position, self.screen.subscreens[0].pa, self.screen.subscreens[0].pb, self.screen.subscreens[0].pc, self.screen.horizontal_flip, rotation_frame=self.screen.rotation_frame)
 
     def update_stim(self, t, **kwargs):
         for stim in self.stim_list:
@@ -1141,7 +1142,7 @@ class StimDisplay(QOpenGLWidget):
         # and whatever it covered -- including a built-in of the same name -- comes back.
         self._rebuild_stim_registry()
         
-def get_perspective(subject_pos, pa, pb, pc, horizontal_flip):
+def get_perspective(subject_pos, pa, pb, pc, horizontal_flip, rotation_frame='world'):
     """
     :param subject_pos: {'x', 'y', 'z', 'theta', 'phi', 'roll'}
         - x, y, z = position of subject, meters
@@ -1166,14 +1167,27 @@ def get_perspective(subject_pos, pa, pb, pc, horizontal_flip):
     phi = pitch around x
     roll = roll around y
 
-    Applied in that order about WORLD-FIXED axes (rotz, then rotx, then roty): phi pitches about
-    the world's x axis, not the subject's own left-right axis after yawing, so it reads as
-    "tilt up/down" only at theta == 0 -- at other headings a nonzero phi looks like a mix of
-    pitch and roll. This is the on-rig convention (set when rigs kept phi = 0) and changing it
-    would reinterpret every recorded phi, so it is documented rather than fixed.
+    rotation_frame picks how the three compose:
+
+    'world' (default): each rotation is about the FIXED world axis, applied in order z, x, y.
+        So phi pitches about the world's x axis, not the subject's own left-right axis after
+        yawing -- it reads as "tilt up/down" only at theta == 0, and at other headings a nonzero
+        phi looks like a mix of pitch and roll. The historical convention: every recorded trial
+        to date was rendered under it, so it stays the default and replays stay honest.
+
+    'subject': intrinsic yaw -> pitch -> roll about the subject's own carried-along axes: phi is
+        always the subject's pitch, roll always about their line of sight. Because GenPerspective
+        applies rotations as SEQUENTIAL world-axis point rotations, the intrinsic composition is
+        the same three calls in reverse order -- sequential world rotations y, x, z compose to
+        Rz@Rx@Ry, which is exactly intrinsic z, x-prime, y-double-prime.
+
+    The two frames agree whenever at most one angle is nonzero -- all planar experiments -- and
+    both hit the same gimbal degeneracy at phi = +/-90, where theta and roll share an axis.
 
     """
     theta, phi, roll = subject_pos['theta'], subject_pos['phi'], subject_pos.get('roll', 0)
+    if rotation_frame == 'subject':
+        return perspective.roty(radians(roll)).rotx(radians(phi)).rotz(radians(theta)).matrix
     return perspective.rotz(radians(theta)).rotx(radians(phi)).roty(radians(roll)).matrix
 
 

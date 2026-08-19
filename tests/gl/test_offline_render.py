@@ -125,3 +125,33 @@ def test_all_six_subject_keys_drive_the_view(headless_gl):
     with pytest.raises(ValueError, match='unknown subject_trajectory'):
         render_frames(PATCH, timepoints=[0.0], size=(32, 32), ctx=headless_gl,
                       subject_trajectory={'pitch': drop})   # the live path calls it phi
+
+
+def test_rotation_frame_reaches_the_offline_render(headless_gl):
+    """End-to-end wiring: a Screen(rotation_frame='subject') renders combined attitude
+    differently from the default, and planar attitude identically (the compatibility half)."""
+    from stimpack.visual_stim.screen import Screen
+
+    hold = lambda v: {'name': 'TVPairs', 'tv_pairs': [(0.0, v), (1.0, v)], 'kind': 'linear'}  # noqa: E731
+    world = Screen(fullscreen=False, vsync=False, square_size=(0, 0))
+    subject = Screen(fullscreen=False, vsync=False, square_size=(0, 0), rotation_frame='subject')
+
+    # The patch sits at azimuth 90, where the yawed subject is looking -- a patch left at 0
+    # would be behind them in BOTH frames, and two all-black images are trivially equal.
+    facing = {**PATCH, 'theta': 90.0}
+
+    combined = {'theta': hold(90.0), 'phi': hold(10.0)}
+    a = render_frames(facing, screen=world, timepoints=[0.5], size=(64, 64), ctx=headless_gl,
+                      subject_trajectory=combined)
+    b = render_frames(facing, screen=subject, timepoints=[0.5], size=(64, 64), ctx=headless_gl,
+                      subject_trajectory=combined)
+    assert a.any() and b.any()               # both actually see the patch
+    assert not np.array_equal(a, b)          # and see it differently
+
+    planar = {'theta': hold(90.0)}
+    a = render_frames(facing, screen=world, timepoints=[0.5], size=(64, 64), ctx=headless_gl,
+                      subject_trajectory=planar)
+    b = render_frames(facing, screen=subject, timepoints=[0.5], size=(64, 64), ctx=headless_gl,
+                      subject_trajectory=planar)
+    assert a.any()
+    assert np.array_equal(a, b)

@@ -164,7 +164,8 @@ def render_frames(stim_specs, screen=None, timepoints=(0.0,), subject_trajectory
             shim.subject_position = position
 
             perspectives = [get_perspective(position, sub.pa, sub.pb, sub.pc,
-                                            screen.horizontal_flip)
+                                            screen.horizontal_flip,
+                                            rotation_frame=screen.rotation_frame)
                             for sub in screen.subscreens]
             StimDisplay.draw_stimuli(shim, t, viewports, perspectives, framebuffer=fbo)
 

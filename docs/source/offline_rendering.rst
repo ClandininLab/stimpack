@@ -30,7 +30,11 @@ stimuli use::
     turn = {'theta': {'name': 'TVPairs', 'tv_pairs': [(0, 0), (2, 90)], 'kind': 'linear'}}
     render_stim(patch, duration=2.0, fps=60, subject_trajectory=turn, out='pov.mp4')
 
-All six subject-state keys are accepted -- ``x``, ``y``, ``z``, ``theta``, ``phi``, ``roll`` --
+For attitude work, note ``Screen(rotation_frame='subject')`` selects intrinsic
+yaw -> pitch -> roll (``phi`` is always the subject's own pitch, whatever the heading); the
+default ``'world'`` keeps the historical fixed-axis composition every recorded trial used, and
+the two agree exactly whenever at most one angle is nonzero. All six subject-state keys are
+accepted -- ``x``, ``y``, ``z``, ``theta``, ``phi``, ``roll`` --
 so attitude-tracked replays work too, not just planar ones. Because the data file records every
 trial's descriptors and (for closed-loop runs) the position history each screen rendered from,
 any recorded trial can be re-rendered this way after the fact: the trial from the animal's point

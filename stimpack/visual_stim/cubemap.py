@@ -256,7 +256,8 @@ def _skew_matrix(v):
     return np.array([[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]], [-v[1], v[0], 0.0]])
 
 
-def face_view_projections(subject_position=None, near=DEFAULT_NEAR, far=1000.0, orientation=None):
+def face_view_projections(subject_position=None, near=DEFAULT_NEAR, far=1000.0, orientation=None,
+                          rotation_frame='world'):
     """The six view-projection matrices that fill a cube map, as arrays, in GL face order.
 
     :param subject_position: the same dict the planar path uses -- {'x','y','z','theta','phi','roll'}
@@ -264,10 +265,11 @@ def face_view_projections(subject_position=None, near=DEFAULT_NEAR, far=1000.0, 
         axes, so cube-space stays aligned with the rig and the screen mesh's directions (which are
         fixed rig geometry) can sample it directly.
 
-        The rotation order matches get_perspective exactly: yaw about z, then pitch about x, then
-        roll about y. Anything else here would leave the curved path disagreeing with the planar one
-        the moment a subject turned, which is the kind of difference nobody notices until closed
-        loop behaves oddly.
+        The composition matches get_perspective exactly, INCLUDING its rotation_frame parameter
+        ('world': fixed axes in order z, x, y; 'subject': intrinsic yaw -> pitch -> roll, which is
+        the same rotations applied in reverse order). Anything else here would leave the curved
+        path disagreeing with the planar one the moment a subject turned, which is the kind of
+        difference nobody notices until closed loop behaves oddly.
     """
     from stimpack.visual_stim.util import rotx, roty, rotz
 
@@ -280,8 +282,12 @@ def face_view_projections(subject_position=None, near=DEFAULT_NEAR, far=1000.0, 
         phi = np.radians(subject_position.get('phi', 0.0))
         roll = np.radians(subject_position.get('roll', 0.0))
 
-        def rotate(v):                                            # noqa: F811
-            return roty(rotx(rotz(np.asarray(v, dtype=float), theta), phi), roll)
+        if rotation_frame == 'subject':
+            def rotate(v):                                        # noqa: F811
+                return rotz(rotx(roty(np.asarray(v, dtype=float), roll), phi), theta)
+        else:
+            def rotate(v):                                        # noqa: F811
+                return roty(rotx(rotz(np.asarray(v, dtype=float), theta), phi), roll)
 
     # A cube turned to suit the screen: `orientation` takes rig directions to cube directions, so a
     # face whose axis is `a` in cube space looks along `orientation.T @ a` in the rig. Applied
@@ -337,14 +343,16 @@ def faces_for_mesh(mesh):
     return faces_for_directions(mesh.directions, getattr(mesh, 'triangles', None))
 
 
-def face_matrices(subject_position=None, near=DEFAULT_NEAR, far=1000.0, orientation=None):
+def face_matrices(subject_position=None, near=DEFAULT_NEAR, far=1000.0, orientation=None,
+                  rotation_frame='world'):
     """The same six matrices as bytes, laid out exactly as get_perspective returns them.
 
     Column-major float32, so a stimulus's `paint_at` can take these in place of the planar
     perspectives with no change to any stimulus.
     """
     return [m.astype('f4').tobytes(order='F')
-            for m in face_view_projections(subject_position, near, far, orientation)]
+            for m in face_view_projections(subject_position, near, far, orientation,
+                                           rotation_frame=rotation_frame)]
 
 
 def drain_gl_errors(GL):
