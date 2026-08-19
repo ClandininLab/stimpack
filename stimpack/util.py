@@ -33,9 +33,14 @@ def make_as(parameter, parent_class: type):
             if p.name != 'self' and p.kind == p.POSITIONAL_OR_KEYWORD and p.default is p.empty:
                 assert p.name in parameter, f'Required subclass parameter {p.name} not specified.'
         
-        # remove name parameter
+        # Copy before removing 'name': this dict is the CALLER's. Over the socket that never
+        # mattered -- the server hydrates a freshly deserialized dict every load -- but
+        # in-process (offline rendering, tests, any reuse of a saved spec) popping here made a
+        # trajectory dict single-use, and the second use failed with a KeyError pointing at the
+        # missing 'name' rather than at the call that removed it.
+        parameter = dict(parameter)
         parameter.pop('name')
-        
+
         return chosen_subclass(**parameter)
     
     else: # not specified as a dict, just return the original param

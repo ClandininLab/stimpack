@@ -33,3 +33,16 @@ def test_qimage2ndarray_does_not_alias_the_qimage():
     img.fill(qRgba(1, 2, 3, 255))
     arr = qimage2ndarray(img)
     assert arr.flags["OWNDATA"] or arr.base is None
+
+
+def test_make_as_does_not_consume_the_callers_dict():
+    """make_as popped 'name' from the dict it was handed, so a spec holding a trajectory was
+    single-use: the second render of the same saved trial raised KeyError 'name', pointing at
+    the missing key rather than at the first call that removed it. Reported from POV-replay
+    work, where re-rendering one trial twice (a still and a movie) is the normal workflow."""
+    from stimpack.visual_stim.trajectory import make_as_trajectory
+
+    spec = {'name': 'TVPairs', 'tv_pairs': [(0, 0.0), (1, 1.0)], 'kind': 'linear'}
+    make_as_trajectory(spec)
+    assert spec['name'] == 'TVPairs'     # the caller's dict is intact
+    make_as_trajectory(spec)             # and the actual repro: the second use works
