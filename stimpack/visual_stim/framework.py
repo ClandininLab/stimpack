@@ -637,10 +637,17 @@ class StimDisplay(QOpenGLWidget):
                 self.pos_history.append([self.subject_position['x'], self.subject_position['y'], self.subject_position['z'], self.subject_position['theta'], self.subject_position['phi']])
 
             if self.append_stim_frames:
-                # NOTE: with subframes > 1 this captures the packed frame, in which each channel is
-                # a different moment -- not one image. Taking the blue channel gives whichever
-                # subframe landed there, which is a third of the frames at a third of the rate.
-                self.stim_frames.append(util.qimage2ndarray(self.grabFramebuffer())[:, :, 2])
+                frame = util.qimage2ndarray(self.grabFramebuffer())
+                if self.screen.subframes > 1:
+                    # The packed frame's channels are three different moments, not one image.
+                    # Taking the blue channel gives whichever subframe landed there -- a third of
+                    # the frames at a third of the rate, but each a real single-moment image.
+                    self.stim_frames.append(frame[:, :, 2])
+                else:
+                    # Full color. This captured only the blue channel for years -- a monochrome-
+                    # projector assumption inherited from flystim -- so every saved movie of a
+                    # color stimulus was silently grayscale.
+                    self.stim_frames.append(frame[:, :, :3])
                 self.current_time_index += 1
 
     def multisample_framebuffer(self, width, height):
@@ -947,14 +954,17 @@ class StimDisplay(QOpenGLWidget):
         
     def save_rendered_movie(self, file_path, downsample_xy=4):
         """
-        Save rendered stim frames from stim_frames as 3D np array
+        Save rendered stim frames from stim_frames as an np array: (H', W', N) for
+        single-channel frames (subframes > 1), (H', W', 3, N) for full-color ones.
         Must be used with append_stim_frames in start_stim
 
         :param file_path: full file path of saved array
         """
-        stack = np.stack(self.stim_frames, axis=2)  # stack once (was built twice)
+        stack = np.stack(self.stim_frames, axis=-1)  # frames along the last axis, whatever their shape
         pre_size = stack.shape
-        mov = downscale_local_mean(stack, factors=(downsample_xy, downsample_xy, 1)).astype('uint8')
+        # Downsample space only: color channels and time keep their size.
+        factors = (downsample_xy, downsample_xy) + (1,) * (stack.ndim - 2)
+        mov = downscale_local_mean(stack, factors=factors).astype('uint8')
         np.save(file_path, mov)
         print('Downsampled from {} to {} and saved to {}'.format(pre_size, mov.shape, file_path), flush=True)
 

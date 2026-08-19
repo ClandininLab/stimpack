@@ -60,6 +60,7 @@ without a ``target`` will not reach the screens.
     locomotion
     voltage_out
     audio
+    offline_rendering
     writing_a_module
     presets_and_ensembles
     run_outcomes
