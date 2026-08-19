@@ -44,7 +44,10 @@ golden-image tests use, so it works on a machine with no display at all. Deliber
   render on the rig: ``start_stim(t=0, pre_render=True, pre_render_timepoints=...,
   append_stim_frames=True)`` steps the real renderer through explicit timepoints instead of the
   wall clock, and ``save_rendered_movie(path)`` writes the frames -- full fidelity, subframes
-  and all, but it needs the rig's window.
+  and all. That path needs a windowing system, but not a physical display:
+  ``xvfb-run -a python your_script.py`` renders it fully invisibly on any Linux machine
+  (measured). What does not work is Qt's ``offscreen`` platform plugin, which refuses to render
+  QOpenGLWidget at all -- the reason this module drives GL directly.
 - **No photodiode square**: it marks trial timing for acquisition hardware, and a movie has none.
 - **One image per timepoint**, whatever the screen's ``subframes`` says -- movies want images,
   not DLP channel packing.
