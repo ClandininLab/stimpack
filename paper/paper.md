@@ -92,25 +92,25 @@ The existing packages that are most similar to `stimpack` can be extended to **d
 
 # Software design
 
-## One module per capability
-
-In `stimpack`, an experiment runs as a **client**, which executes the protocol and writes metadata to the data file, and a **server**, which controls hardware devices, including display screens, as a set of modules (\autoref{fig:architecture}). This modular design choice allows a shared protocol library to run on rigs whose hardware may differ. Four modules, defined by the capability rather than a particular device, are included in `stimpack` and described below.
-
 ![
 **stimpack's architecture.** A protocol names the module for each call. Inputs update a subject state that outputs follow, such that the closed loop does not pass through the client.
 \label{fig:architecture}](figures/architecture.pdf){ width=100% }
 
-The `visual` module controls visual stimulus rendering and display. Stimulus shapes can be painted with monochrome or RGB textures for stimuli like gratings, spatiotemporal white noise, or movie frames. The `visual` module supports perspective-corrected rendering to any number of flat or curved screens. The `visual` module supports most computer display devices. Temporal multiplexing packs up to three stimulus timepoints into the color channels of each output frame, so a 120 Hz video signal can drive a 360 Hz monochrome display, approaching the temporal regime of specialized LED hardware [@reiser2008]. During stimulus presentation, a small square in the corner of the display inverts on every rendered frame to enable accurate synchronization with other recorded data and to enable detection of dropped frames (\autoref{fig:pipeline}d). 
+## One module per capability
+
+In `stimpack`, an experiment runs as a **client**, which executes the protocol and writes metadata to the data file, and a **server**, which controls hardware devices, including display screens, as a set of modules (\autoref{fig:architecture}). This modular design choice allows a shared protocol library to run on rigs whose hardware may differ. Four modules, defined by the capability rather than a particular device, are included in `stimpack` and described below.
+
+The `visual` module controls visual stimulus rendering and display. Stimulus shapes can be painted with monochrome or RGB textures for stimuli like gratings, spatiotemporal white noise, or movie frames. The `visual` module supports most display devices and perspective-corrected rendering to any number of flat or curved screens. Temporal multiplexing packs up to three stimulus timepoints into the color channels of each output frame, so a 120 Hz video signal can drive a 360 Hz monochrome display, approaching the temporal regime of specialized LED hardware [@reiser2008]. During stimulus presentation, a small square in the corner of the display inverts on every rendered frame to enable accurate synchronization with other recorded data and to enable detection of dropped frames (\autoref{fig:pipeline}d). 
 
 ![
 **One stimulus specification, three display geometries, one visual experience.**
 (a) Three rigs, to scale: one monitor; two monitors meeting ahead of the subject; a hemispherical screen lit by a projector. Red: the photodiode at each display's synchronization square.
-(b) The frames `stimpack` sends to the displays for one specified scene -- a 10° checkerboard left of azimuth zero, and a 360° photograph right of it: `stimpack` warps the images according to the specification of each display.
-(c) The subject's visual field. Grey marks directions with no display surface; faint outlines trace the coverages of the other two rigs for comparison across rows.
+(b) The frames `stimpack` sends to the displays for one specified scene -- a 10° checkerboard to the left and a 360° photograph to the right: `stimpack` warps the images according to the specification of each display.
+(c) The subject's visual field. Grey marks directions with no display surface. Faint outlines trace the coverages of the other two rigs for comparison across rows.
 (d) Frame delivery at the photodiode: nominal inversions every 8.3 ms (120 Hz), and two dropped frames, one held bright and one held dark.
 \label{fig:pipeline}](figures/pipeline.pdf){ width=100% }
 
-The `audio` module plays sound stimuli through a sound card. The ‘locomotion’ module handles locomotion-related behavior data for closed-loop feedback. Lab-defined protocol code supplies a control function, which the server calls on every tracker update with the full subject state (position, orientation, and any laboratory-defined fields measured through `labpack`-defined trackers). The ‘voltage_out’ module can send voltage waveforms to control devices (e.g. optogenetics, odor delivery, reward). 
+The `audio` module plays sound stimuli through a sound card. The `locomotion` module handles locomotion-related behavior data for closed-loop feedback based on a lab-defined control function. The `voltage_out` module can send voltage waveforms to control devices (e.g. optogenetics, odor delivery, or reward). 
 
 ## Protocols, data, and the interface
 
@@ -122,8 +122,7 @@ A protocol is a Python class in the `labpack` that declares the parameters of a 
 
 # Research impact statement
 
-`stimpack` consolidates four earlier Clandinin lab packages: `flystim` (perspective-corrected rendering), `flyrpc` (client--server messaging), `visprotocol` (protocols, metadata, GUI), and `multistim` (auditory stimulation). None has been described in an archival publication, and every author of those packages is an author here. The subscreen geometry is based on that of `flystim`. The curved-screen path was checked against `flymax`, an earlier MATLAB-based hemisphere-projector display in the lab, and its measured photometry. Predecessor versions underlie published work on fly visual processing and behavior [@turner2022; @mano2023; @currier2025], the most recent of which names `flystim`, `visprotocol`, and `stimpack` itself. In addition, `stimpack` has been used to reconstruct spatiotemporal receptive fields in mouse retina and visual cortex [@au2026; @weddington2026], including the example in \autoref{fig:v1_sta_rf}.
-The consolidation brought the modular architecture described above, improvements throughout each module, and three specific shifts. First, the viewer became a **subject with state**, which can be sent to every module, so one protocol can be used for a fly on a ball or a mouse on a treadmill. Second, **closed-loop control moved into the render loop**. Third, **laboratory-specific code left the core package**. Whereas `visprotocol` included lab-specific protocols and hardware drivers in its core, `stimpack` contains a generic core, and lab-specific code is housed in a `labpack`. `stimpack` is in use in ongoing *Drosophila* experiments in the Clandinin (Stanford), Turner (Albany), and Murthy (Princeton) laboratories, and in mouse work in the Baccus and Mitra laboratories (Stanford).
+`stimpack` consolidates four earlier Clandinin lab packages: `flystim` (perspective-corrected rendering), `flyrpc` (client--server messaging), `visprotocol` (protocols, metadata, GUI), and `multistim` (auditory stimulation). None has been described in an archival publication, and every author of those packages is an author here. The subscreen geometry is based on that of `flystim`. The curved-screen path was checked against `flymax`, an earlier MATLAB-based hemisphere-projector display in the lab, and its measured photometry. Predecessor versions underlie published work on fly visual processing and behavior [@turner2022; @mano2023; @currier2025], the most recent of which names `flystim`, `visprotocol`, and `stimpack` itself. In addition, `stimpack` has been used to reconstruct spatiotemporal receptive fields in mouse retina and visual cortex [@au2026; @weddington2026], including the example in \autoref{fig:v1_sta_rf}. `stimpack` is in use in ongoing *Drosophila* experiments in the Clandinin (Stanford), Turner (Albany), and Murthy (Princeton) laboratories, and in mouse work in the Baccus and Mitra laboratories (Stanford).
 
 ![
 **Spatiotemporal receptive field (STRF) of a mouse primary visual cortex neuron.** The STRF of a cortical neuron recorded with a Neuropixels array was mapped with a white noise stimulus generated and rendered on two flat screens (similar to \autoref{fig:pipeline}, second row) with `stimpack`. The white noise stimulus had a 13° spatial correlation and a 33-ms temporal correlation. The eye was tracked to reconstruct the retinal image at a spatial scale of < 1°  [@au2026]. 
