@@ -123,6 +123,10 @@ A protocol is a Python class in the `labpack` that declares the parameters of a 
 **From protocol code to a running experiment.** Left: the `AudiovisualPairing` protocol, abridged, and the module calls that `stimpack` makes from its descriptors on each trial. Right: the GUI's Main tab mid-run, its parameter fields built from the class's own declarations. The list-valued `freq` (solid red box) sweeps across trials in randomized order.
 \label{fig:gui}](figures/gui_code.pdf){ width=100% }
 
+## Extensibility
+
+`stimpack` is extensible at every layer. Stimulus classes load from the user-specific `labpack` at runtime and are addressed exactly as built-ins; data backends, trackers, and DAQ drivers are likewise `labpack` code. A new capability (e.g. a novel sensor or effector) is a subclass of the same module base class the built-ins inherit.
+
 # Research impact statement
 
 `stimpack` consolidates four earlier Clandinin lab packages: `flystim` (perspective-corrected rendering), `flyrpc` (client--server messaging), `visprotocol` (protocols, metadata, GUI), and `multistim` (auditory stimulation). None has been described in an archival publication, and every author of those packages is an author here. The subscreen geometry is based on that of `flystim`. The curved-screen path was checked against `flymax`, an earlier MATLAB-based hemisphere-projector display in the lab, and its measured photometry. Predecessor versions underlie published work on fly visual processing and behavior [@turner2022; @mano2023; @currier2025], the most recent of which names `flystim`, `visprotocol`, and `stimpack` itself. In addition, `stimpack` has been used to reconstruct spatiotemporal receptive fields in mouse retina and visual cortex [@au2026; @weddington2026], including the example in \autoref{fig:v1_sta_rf}. `stimpack` is in use in ongoing *Drosophila* experiments in the Clandinin (Stanford), Turner (Albany), and Murthy (Princeton) laboratories, and in mouse work in the Baccus and Mitra laboratories (Stanford).
