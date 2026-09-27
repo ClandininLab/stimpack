@@ -1,0 +1,43 @@
+# Build the JOSS paper PDF with the same toolchain JOSS itself uses (openjournals/inara, via the
+# official draft action), on every push or PR that touches the paper, and on demand.
+#
+# The PDF is uploaded as a workflow artifact ("paper") -- open the run in the Actions tab to
+# download it. Nothing is committed back: paper/paper.pdf in the repo is still refreshed by hand
+# when it matters, and this job's real job is to fail loudly the moment paper.md, paper.bib or a
+# figure stops building, instead of that surfacing at submission.
+#
+# Locally the same build is:
+#   podman run --rm -v "$PWD/paper:/data:Z" openjournals/inara -o pdf paper.md
+# (rootless podman: no -u flag -- container root is the host user -- and :Z under SELinux).
+name: paper-pdf
+
+on:
+  push:
+    branches: [main, dev]
+    paths: ['paper/**', '.github/workflows/paper-pdf.yml']
+  pull_request:
+    paths: ['paper/**', '.github/workflows/paper-pdf.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15   # a normal build is a couple of minutes; the default is six hours
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build draft PDF
+        uses: openjournals/openjournals-draft-action@master
+        with:
+          journal: joss
+          paper-path: paper/paper.md
+
+      - name: Upload PDF
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper
+          path: paper/paper.pdf
+          if-no-files-found: error
