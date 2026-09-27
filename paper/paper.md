@@ -33,6 +33,9 @@ authors:
   - name: Jacob C. Simon
     orcid: 0000-0001-7683-9839
     affiliation: 1
+  - name: David Tadres
+    orcid: 0000-0002-7570-0162
+    affiliation: 1
   - name: David D. Au
     orcid: 0000-0002-0248-5385
     affiliation: 1
@@ -134,7 +137,7 @@ All primary architectural design decisions and implementations were made by auth
 
 # Acknowledgements
 
-We thank the Clandinin, Turner, Baccus, Mitra, and Murthy Labs for testing across rigs and preparations. This work was supported by Stanford Graduate Fellowships (MC, SGH), a DoD NDSEG Fellowship (MC), a Hertz Fellowship (SGH), and NIH grants R00-EY032549, R01-EY022638, R01-EY022933, R01-EY025087, R01-EY034566 and P30-EY026877. TRC is a Biohub, San Francisco, Investigator.
+We thank the Clandinin, Turner, Baccus, Mitra, and Murthy Labs for testing across rigs and preparations. This work was supported by Stanford Graduate Fellowships (MC, SGH), a DoD NDSEG Fellowship (MC), a Hertz Fellowship (SGH), a Swiss National Science Foundation Postdoc Mobility Fellowship (222161; DT), and NIH grants R00-EY032549, R01-EY022638, R01-EY022933, R01-EY025087, R01-EY034566 and P30-EY026877. TRC is a Biohub, San Francisco, Investigator.
 
 # References
 
