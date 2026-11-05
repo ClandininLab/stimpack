@@ -161,6 +161,9 @@ def test_the_file_records_which_layout_and_which_code_wrote_it(tmp_path):
         assert f.attrs['data_format'] == 'hdf5'
         for key, value in provenance.provenance_attributes(data.cfg).items():
             assert f.attrs[key] == value
+        # Which frame the first photodiode edge marks; absent in files from before the square
+        # inverted ahead of drawing, so analysis can tell the two conventions apart.
+        assert f.attrs['corner_square_marks_first_frame']
 
 
 def test_the_legacy_layout_is_identified_by_the_absence_of_data_format(tmp_path):
