@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.1
+
+### The first photodiode edge now marks the first stimulus frame
+
+The corner square used to draw each frame and invert afterwards. Between trials it sits black, so
+the first stimulus frame was drawn black too, and the first photodiode edge came one frame late:
+8.3 ms at 120 Hz, for every protocol. The square now inverts before drawing, so the first edge is
+stimulus frame 0.
+
+**If your analysis takes onsets from the first edge, the timing convention changes with this
+release.** Any fixed one-frame correction should apply only to files written before it. Files from
+this release on carry `corner_square_marks_first_frame`: a root attribute in HDF5 and legacy HDF5,
+and a column of the `epochs` table in NWB. Files without it have their first edge on the second
+frame.
+
+### `corner_square_on` and `corner_square_off` stop the toggling
+
+They now do what their docstrings have always said. Stimpack's own trial sequence is unaffected.
+
 ## 0.2.0
 
 The first release since 0.1.0 (November 2023). Roughly two and a half years of work on `main`,
