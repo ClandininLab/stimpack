@@ -278,6 +278,18 @@ def test_end_series_defaults_to_completed(tmp_path):
     assert row['run_status_reason'] == ''
 
 
+def test_the_series_records_which_frame_the_first_edge_marks(tmp_path):
+    """A file without this marker is documented as having its first edge on the second frame, so
+    an NWB file written after the corner-square fix has to carry it too."""
+    data = _make_data(tmp_path)
+    data.prepare_series()
+    proto = _Protocol()
+    data.create_series(proto)
+    data.end_series(proto)
+
+    assert _epochs_table(data).iloc[0]['corner_square_marks_first_frame']
+
+
 def test_end_series_without_a_series_does_not_raise(tmp_path):
     """The client calls this from a finally block, so it runs even when the run failed before
     create_series stored anything. Popping epoch_start_time then raised KeyError from inside

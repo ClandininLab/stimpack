@@ -109,8 +109,9 @@ signal: it inverts on every rendered frame -- under :doc:`subframe multiplexing 
 every subframe -- so a photodiode over it produces a square wave at half the frame rate, and a
 dropped frame appears as one level held for two frame intervals. The inversion happens before
 each frame is drawn, so the first stimulus frame already differs from the idle level and the first
-edge marks stimulus time zero (files record ``corner_square_marks_first_frame``; older files,
-without it, have their first edge on the second frame). Digitized by the acquisition
+edge marks stimulus time zero (files record ``corner_square_marks_first_frame``, as a root
+attribute in HDF5 and as a column of the ``epochs`` table in NWB; older files, without it, have
+their first edge on the second frame). Digitized by the acquisition
 system on the same clock as the neural recording, frame delivery is measured *after* the whole
 graphics stack, so stimulus onsets and dropped frames are recoverable from the acquisition data
 alone. Panel (d) of the pipeline figure above shows exactly this: nominal inversions at the
