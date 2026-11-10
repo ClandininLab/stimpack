@@ -389,7 +389,14 @@ class NWBData(BaseData):
                 
             for key in protocol_object.protocol_parameters:  # add user-entered protocol params
                 self.series_record[key] = hdf5ify_parameter(protocol_object.protocol_parameters[key])
-                
+
+            # Which frame the first photodiode edge marks; the HDF5 backends keep this as a root
+            # attribute (see BaseData.initialize_experiment_file). A column of the epochs table
+            # here, with the rest of what this backend records per series. Absence has to keep
+            # meaning "written when the first edge was the second frame". Set after the parameters
+            # so none can overwrite it.
+            self.series_record['corner_square_marks_first_frame'] = True
+
             # Add the series start time
             self.series_record['series_start_time'] = datetime.now(self.timezone).timestamp()
             

@@ -137,6 +137,11 @@ class BaseData():
             # what an experiment did.
             for key, value in provenance.provenance_attributes(self.cfg).items():
                 experiment_file.attrs[key] = value
+            # Which frame the first photodiode edge marks. The corner square now inverts before each
+            # toggled frame is drawn, so the first stimulus frame is the first edge. Files without
+            # this attribute were written when the square inverted *after* drawing: their first edge
+            # is the second frame, and onsets taken from it are one refresh late.
+            experiment_file.attrs['corner_square_marks_first_frame'] = True
             if self.DECLARES_DATA_FORMAT:
                 experiment_file.attrs['data_format'] = self.DATA_FORMAT
             rig_config = (self.cfg.get('rig_config') or {}).get(self.cfg.get('current_rig_name')) or {}

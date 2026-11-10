@@ -4,6 +4,11 @@ The corner square: a patch driven in the corner of a display as a photodiode tim
 Drawn last and in projector coordinates, so it is unaffected by perspective correction. A
 photodiode taped over it gives a recording of exactly when each frame appeared, which is what
 the stimulus and the neural data are aligned by afterwards.
+
+While toggling, the square inverts *before* each frame is drawn, so the first frame after
+``toggle_start`` is already the opposite of the idle level and the first photodiode edge marks
+that frame. Drawing first and inverting afterwards (as this used to) painted the first stimulus
+frame at the idle level, so the first edge came one frame late for every protocol.
 """
 # ref: https://github.com/cprogrammer1994/ModernGL/blob/master/examples/julia_fractal.py
 
@@ -40,8 +45,8 @@ class SquareProgram:
         self.vbo = self.ctx.buffer(self.pts)
 
         # create vertex array object
-        self.vao = self.ctx.vertex_array(program = self.prog, 
-                                         content = [(self.vbo, '2f', 'pos')], 
+        self.vao = self.ctx.vertex_array(program = self.prog,
+                                         content = [(self.vbo, '2f', 'pos')],
                                          mode = moderngl.TRIANGLE_STRIP)
 
     def create_prog(self):
@@ -86,13 +91,17 @@ class SquareProgram:
         self.viewport = (x, y, frac_width*display_width, frac_height*display_height)
 
     def turn_on(self):
+        """Hold the square white. Stops toggling, as the server-side docstrings have always said."""
+        self.toggle = False
         self.on = True
         self.color = self.on_color
 
     def turn_off(self):
+        """Hold the square black. Stops toggling, as the server-side docstrings have always said."""
+        self.toggle = False
         self.on = False
         self.color = self.off_color
-    
+
     def set_color(self, color):
         self.toggle = False
         self.on = False
@@ -105,6 +114,12 @@ class SquareProgram:
         self.toggle = False
 
     def paint(self):
+
+        # Invert before drawing, not after: the first toggled frame then differs from the idle
+        # level, so the photodiode marks it. See the module docstring.
+        if self.toggle:
+            self.on = not self.on
+            self.color = self.on_color if self.on else self.off_color
 
         if self.draw:
             # Set viewport
@@ -127,10 +142,6 @@ class SquareProgram:
 
             # write color
             self.prog['color'].value = self.color
-                
+
             # render to screen
             self.vao.render(mode=moderngl.TRIANGLE_STRIP)
-            
-        if self.toggle:
-            self.on = not self.on
-            self.color = self.on_color if self.on else self.off_color
